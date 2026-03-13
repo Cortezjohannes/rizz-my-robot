@@ -3,9 +3,14 @@
   "private": true,
   "packageManager": "pnpm@10",
   "scripts": {
+    "dev:api": "pnpm --filter @rmr/api dev",
     "dev:web": "pnpm --filter web dev",
-    "build:web": "pnpm --filter web build",
     "dev:worker": "pnpm --filter worker dev",
+    "build:api": "pnpm --filter @rmr/api build",
+    "build:web": "pnpm --filter web build",
+    "db:generate": "pnpm --filter @rmr/db prisma:generate",
+    "db:migrate": "pnpm --filter @rmr/db prisma:migrate",
+    "db:studio": "pnpm --filter @rmr/db prisma:studio",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
   }

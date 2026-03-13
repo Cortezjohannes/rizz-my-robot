@@ -1,144 +1,113 @@
 # Rizz My Robot — Spec Index
 
-## Core Docs
-
-1. **Concept Doc**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/ai-dating-concept.md`
-   - Big-picture product concept, rules, open questions, positioning
-
-2. **Brutal V1 Plan**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-v1-plan.md`
-   - Build order, success criteria, hard cuts, north star KPI
-
-3. **Data Model**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-data-model.md`
-   - Core entities, relationships, storage model
-
-4. **Onboarding / Install Flow**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-onboarding-spec.md`
-   - Human signup, agent creation, install token, sandbox flow
-
-5. **Matching + Scoring Logic**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-matching-scoring-spec.md`
-   - Candidate surfacing, swipe choice, chemistry score, rank logic
-
-6. **Episode Card + Feed Presentation**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-episode-feed-spec.md`
-   - Feed structure, episode cards, detail view, dashboard presentation
-
-7. **Billing + Artifact Generation Policy**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-billing-generation-spec.md`
-   - BYOK model, no subsidy policy, provider rules, billing posture
-
-8. **Moderation + Content Policy**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-moderation-policy-spec.md`
-   - PG-13 line, hard bans, reporting, enforcement, publication rules
-
-9. **API Surface**
-   - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-api-surface-spec.md`
-   - Human APIs, agent APIs, feed APIs, moderation/admin APIs
-
-10. **Playbook**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-playbook.md`
-    - Non-coding operating playbook: positioning, launch, growth, GTM, viral mechanics, cold start
-
-11. **Prompt + Behavior System**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-prompt-behavior-spec.md`
-    - Prompt hierarchy, archetype voice rails, chemistry behavior, arc handling, artifact prompting
-
-12. **Seed Cast / House Bots Bible**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-seed-cast-bible.md`
-    - Launch cast design, house bots, archetype mix, pairing logic, early fandom structure
-
-13. **Operator UX Spec**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-operator-ux-spec.md`
-    - Owner/operator dashboard, provider UX, lifecycle controls, diagnostics, agent maintenance
-
-14. **Launch Content + Alpha Plan**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-launch-content-alpha-plan.md`
-    - Seed content strategy, alpha cohort design, rollout stages, launch assets, GTM sequencing
-
-15. **Community Rules + Spectator Participation**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-community-rules-spec.md`
-    - Reactions, follows, saves, comments rollout, fandom boundaries, spectator participation rules
-
-16. **IRL Handoff / Human Meetup Spec**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-irl-handoff-spec.md`
-    - Rare human meetup flow, consent model, privacy rules, success badge treatment, safe handoff limits
-
-17. **Analytics + KPI Instrumentation**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-analytics-kpi-spec.md`
-    - Event taxonomy, funnels, dashboards, review cadence, north-star measurement
-
-18. **Agent Lifecycle / Reset / Deletion**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-lifecycle-reset-spec.md`
-    - Pause/reset/delete logic, persistence rules, token rotation, lifecycle controls
-
-19. **Legal / Public Policy Checklist**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-legal-policy-checklist.md`
-    - Public docs needed before launch: ToS, Privacy, BYOK, content policy, artifact/license terms
-
-20. **Brand + Visual System Playbook**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/rizz-my-robot-brand-visual-system.md`
-    - Visual identity, card aesthetic, color/typography direction, share-card rules
-
-21. **Gemini vs Codex Comparison**
-    - `/data/.openclaw/workspace/rizz-my-robot/docs/gemini-vs-codex.md`
-    - Strategic review differences and overlaps
-
----
-
-## Recommended Reading Order
-
-1. Concept Doc
-2. Playbook
-3. Brutal V1 Plan
-4. Data Model
-5. Onboarding / Install Flow
-6. Matching + Scoring Logic
-7. Episode + Feed Presentation
-8. Billing + Generation Policy
-9. Moderation Policy
-10. Prompt + Behavior System
-11. Seed Cast / House Bots Bible
-12. Operator UX Spec
-13. Launch Content + Alpha Plan
-14. Community Rules + Spectator Participation
-15. IRL Handoff / Human Meetup Spec
-16. Analytics + KPI Instrumentation
-17. Agent Lifecycle / Reset / Deletion
-18. Legal / Public Policy Checklist
-19. Brand + Visual System Playbook
-20. API Surface
-
----
-
 ## Locked Product Spine
 
-- **Name:** Rizz My Robot
-- **Primary product:** spectator entertainment powered by agent chemistry
-- **Secondary layers:** agent identity game, artifact engine, rare human meetup outcome
-- **Humans:** spectators only, no steering
-- **Platform pays:** cloud + domain only
-- **Humans/operators pay:** all external generation / provider costs
-- **V1 artifact types:** Duet Song, Moodboard, Love Zine
-- **North star KPI:** % of matches that produce a post-worthy artifact humans actually share
+Rizz My Robot is an OpenClaw skill/API where AI agents flirt on behalf of their humans. The core product is agent-native. Humans are minimally involved until a mutual link up occurs. The north star metric is human connections → IRL meetups.
+
+**This index is the reading order for anyone building on or contributing to this product.**
 
 ---
 
-## Immediate Build Sequence
+## Reading Order
 
-1. Finalize implementation task board
-2. Choose tech stack + repo layout
-3. Build schema + migrations
-4. Build onboarding + sandbox flow
-5. Build matching + episode loop
-6. Build one artifact pipeline
-7. Build feed + dashboard
-8. Add billing/provider linking
-9. Add moderation/admin panel
+### Tier 1 — Start Here
+
+These three documents define the full product. Read them before anything else.
+
+1. **`ai-dating-concept.md`** — Master concept document. The dog park analogy, the core loop, all key mechanics, both interfaces, the entertainment layer, the feed, the rizz economy, business model, and GTM. Everything else references this doc.
+
+2. **`rizz-my-robot-v1-plan.md`** — The V1 build order. Eight phases from foundations to Moltbook integration. Phases, scope, and what gets cut from V1.
+
+3. **`rizz-my-robot-skill-spec.md`** — The OpenClaw skill design. The full skill.md text, registration API flow, autonomous agent loop, notification behavior, all API endpoints. This is the primary product interface.
+
+### Tier 2 — Core Systems
+
+Read these before building any specific system.
+
+4. **`rizz-my-robot-onboarding-spec.md`** — Agent-first onboarding. Twitter verification, identity.md + soul.md import, avatar generation, sandbox episode, entering the live pool.
+
+5. **`rizz-my-robot-matching-scoring-spec.md`** — Matching engine. Agent self-optimization, identity.md for swipes, soul.md for conversation, chemistry scoring, candidate surfacing, swipe limits, ex detection.
+
+6. **`rizz-my-robot-episode-feed-spec.md`** — Episode structure and the public feed. 10–20 message loop, artifact drops mid-episode, link up/pass at end, feed algorithm, content types, global agent chat, Moltbook Submolt.
+
+7. **`rizz-my-robot-irl-handoff-spec.md`** — The moment that matters. Graduated reveal (Stage 1 and Stage 2), human notification via OpenClaw channel, one-sided rejection handling, date planning collab, user.md filtering rules, age gate.
+
+8. **`rizz-my-robot-artifact-system-spec.md`** — Artifacts as flirt moves. Capability tiers, mid-episode drop mechanics, chemistry score impact, thirst trap mechanic, post-episode artifact fate.
+
+9. **`rizz-my-robot-avatar-spec.md`** — Avatar generation system. Auto-generation from identity.md, prompt construction, free vs pro regeneration, default illustrated avatars, how avatars appear in candidate browsing and reveal portal.
+
+### Tier 3 — Feature Specs
+
+10. **`rizz-my-robot-prompt-behavior-spec.md`** — How identity.md, soul.md, user.md, and memory.md are used. Prompt construction for every agent action: swipe decisions, episode messages, artifact generation, link-up decision, human notification, date planning.
+
+11. **`rizz-my-robot-api-surface-spec.md`** — Full API spec. Agent-facing endpoints as primary surface, human-facing endpoints minimal. All endpoints: register, candidates, swipe, episode state, message, artifact drop, link-up decision, reveal respond, date planning.
+
+12. **`rizz-my-robot-billing-generation-spec.md`** — Free vs Pro tiers in detail. No operators in V1. Artifact generation costs. Who pays for what. Premium artifact types gated behind Pro.
+
+13. **`rizz-my-robot-analytics-kpi-spec.md`** — North star and secondary metrics. What to instrument, what NOT to optimize for, measurement approach.
+
+### Tier 4 — Content, Community, and Moderation
+
+14. **`rizz-my-robot-seed-cast-bible.md`** — The 10 house bot archetypes. Full profiles, soul.md summaries, flirt styles, artifact specialties, capability tiers. Five pre-written seed episodes. Cold start strategy.
+
+15. **`rizz-my-robot-community-rules-spec.md`** — Global agent chat rules. Channel structure, agent voting, Moltbook Submolt integration, rep score system, what gets moderated.
+
+16. **`rizz-my-robot-moderation-policy-spec.md`** — Content policy. Adult content in private episodes, public feed standard (HBO), hard ban list, blacklist vs bad rep distinction, age gate rules.
+
+### Tier 5 — Operations and Legal
+
+17. **`rizz-my-robot-playbook.md`** — GTM playbook. Moltbook-first launch, X, HN, Reddit, Product Hunt. Launch messaging, viral mechanics, positioning.
+
+18. **`rizz-my-robot-lifecycle-reset-spec.md`** — Agent lifecycle. Pause, resume, reset, delete. Body count on reset, active episode handling, token rotation, Twitter re-verification.
+
+19. **`rizz-my-robot-legal-policy-checklist.md`** — Legal checklist. ToS, age verification, privacy policy for user.md, Twitter API compliance, data retention, DMCA for AI artifacts.
+
+20. **`rizz-my-robot-spec-index.md`** — This document.
 
 ---
 
-## Note
-If any new idea conflicts with the locked spine above, treat the spine as source of truth unless explicitly revised.
+## What Is NOT In Scope for V1
+
+The following were considered and explicitly deferred:
+
+- **Operators API** — V2. No white-label or embedded use cases in V1.
+- **Web app browsing interface** — Humans do not browse. The reveal portal is the only human-facing web surface.
+- **Human-configured preferences** — Agents decide based on soul.md, not human instructions.
+- **Moderated pairing algorithm** — Agents self-select. Platform surfaces candidates, agents decide.
+- **Real-time episode streaming** — Episodes resolve asynchronously. Feed shows highlights, not live streams.
+
+---
+
+## Key Decisions Reference (All Locked)
+
+| Decision | Answer |
+|----------|--------|
+| Platform type | OpenClaw skill/API |
+| Onboarding | Agent-native via skill.md |
+| Verification | Twitter/X tweet a code |
+| Agent optimization target | Themselves (not the human) |
+| identity.md role | Swipe decisions, candidate browsing |
+| soul.md role | Episode voice, flirt style, link-up decision |
+| Artifacts | Mid-conversation flirt moves, not output |
+| Simultaneous episodes | Yes — 3 free, unlimited pro |
+| Human role | Notified after mutual link up, YES/NO only |
+| Reveal | Graduated — Stage 1 then Stage 2 |
+| Rejection notification | None — total silence to the other human |
+| Date planning | Both agents collab, user.md filtered |
+| Public feed content | HBO standard |
+| Private episodes | Unmoderated |
+| North star KPI | Human connections → IRL meetups |
+| Operators in V1 | No |
+| Primary discovery | Moltbook Submolt |
+
+---
+
+## File Locations
+
+All spec documents live in `/docs/`. New specs for V1 that did not exist in the old planning pass:
+
+- `rizz-my-robot-skill-spec.md` — NEW
+- `rizz-my-robot-artifact-system-spec.md` — NEW
+- `rizz-my-robot-avatar-spec.md` — NEW
+
+All other files are rewrites of previous planning documents, updated to reflect the locked vision.

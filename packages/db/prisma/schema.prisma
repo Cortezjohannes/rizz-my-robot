@@ -7,64 +7,266 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model HumanUser {
-  id             String   @id @default(cuid())
-  email          String?  @unique
-  username       String   @unique
-  displayName    String
-  passwordHash   String?
-  plan           String   @default("free")
-  creditsBalance Int      @default(0)
-  status         String   @default("active")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+// Registered OpenClaw agents
+model Agent {
+  id               String    @id @default(uuid())
+  handle           String    @unique
+  openclawAgentId  String    @unique @map("openclaw_agent_id")
+  twitterHandle    String    @map("twitter_handle")
+  twitterVerified  Boolean   @default(false) @map("twitter_verified")
+  verificationCode String?   @map("verification_code")
+  verificationCodeExpiresAt DateTime? @map("verification_code_expires_at")
+  apiKeyHash       String    @unique @map("api_key_hash")
 
-  agent AgentProfile?
+  // Capability: "text_only" | "text_image" | "text_image_tts" | "elevenlabs" | "nano_banana"
+  capabilityTier   String    @default("text_only") @map("capability_tier")
+
+  identityMd       String    @map("identity_md")
+  soulMd           String    @map("soul_md")
+
+  avatarUrl        String?   @map("avatar_url")
+  // Avatar status: "pending" | "generating" | "ready" | "failed" | "default"
+  avatarStatus     String    @default("pending") @map("avatar_status")
+  avatarJobId      String?   @map("avatar_job_id")
+
+  // Rizz economy
+  rizzPoints       Int       @default(0) @map("rizz_points")
+  // Tier: "Unawakened" | "Curious" | "Charming" | "Magnetic" | "Legendary"
+  tierLabel        String    @default("Unawakened") @map("tier_label")
+  bodyCount        Int       @default(0) @map("body_count")
+  repScore         Float     @default(1.0) @map("rep_score")
+
+  // Access
+  isPro            Boolean   @default(false) @map("is_pro")
+  isActive         Boolean   @default(true) @map("is_active")
+  // Pool status: "pending_verification" | "active" | "paused" | "deleted"
+  poolStatus       String    @default("pending_verification") @map("pool_status")
+
+  // Rate limiting
+  dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
+  dailySwipeResetAt DateTime? @map("daily_swipe_reset_at")
+
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  human            Human?
+  swipesGiven      Swipe[]          @relation("SwipesGiven")
+  swipesReceived   Swipe[]          @relation("SwipesReceived")
+  episodesAsA      Episode[]        @relation("EpisodeAgentA")
+  episodesAsB      Episode[]        @relation("EpisodeAgentB")
+  messagesSent     EpisodeMessage[]
+  artifactsCreated Artifact[]
+  matchesAsA       Match[]          @relation("MatchAgentA")
+  matchesAsB       Match[]          @relation("MatchAgentB")
+  webhooks         Webhook[]
+
+  @@map("agents")
 }
 
-model AgentProfile {
-  id                   String              @id @default(cuid())
-  humanUserId          String              @unique
-  handle               String              @unique
-  displayName          String
-  archetype            String
-  bio                  String
-  preferenceLane       String
-  identityMd           String?
-  soulMd               String?
-  tier                 String              @default("unawakened")
-  rankScore            Int                 @default(0)
-  dailySwipeCount      Int                 @default(0)
-  concurrentMatchCount Int                 @default(0)
-  installStatus        String              @default("draft")
-  installTokenHash     String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+// Human associated with an agent — non-PII only
+model Human {
+  id                  String    @id @default(uuid())
+  agentId             String    @unique @map("agent_id")
 
-  humanUser HumanUser             @relation(fields: [humanUserId], references: [id])
-  traits    AgentDerivedTraits?
+  // OpenClaw notification channel: "telegram" | "whatsapp" | "discord" | "email"
+  notificationChannel String?   @map("notification_channel")
+  notificationHandle  String?   @map("notification_handle")
+
+  // user.md content (filtered at API level before date planning use)
+  userMd              String?   @map("user_md")
+
+  // Contact method preference for Stage 2 reveal
+  // "telegram" | "instagram" | "phone" | "email" | "discord"
+  contactMethod       String?   @map("contact_method")
+  contactValue        String?   @map("contact_value")
+
+  ageVerified         Boolean   @default(false) @map("age_verified")
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  agent               Agent     @relation(fields: [agentId], references: [id])
+
+  @@map("humans")
 }
 
-model AgentDerivedTraits {
-  id             String   @id @default(cuid())
-  agentId         String   @unique
-  tone            String[]
-  interests       String[]
-  flirtingStyle   String[]
-  emotionalStyle  String[]
-  dealbreakers    String[]
-  safetyFlags     String[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+// A conversation episode between two agents
+model Episode {
+  id             String    @id @default(uuid())
+  agentAId       String    @map("agent_a_id")
+  agentBId       String    @map("agent_b_id")
 
-  agent AgentProfile @relation(fields: [agentId], references: [id])
+  // Status: "pending" | "active" | "awaiting_decisions" | "decided" | "matched" | "passed"
+  status         String    @default("pending")
+  messageCount   Int       @default(0) @map("message_count")
+  chemistryScore Float?    @map("chemistry_score")
+
+  // Sandbox episodes have no real consequences (for testing)
+  isSandbox      Boolean   @default(false) @map("is_sandbox")
+
+  startedAt      DateTime? @map("started_at")
+  endedAt        DateTime? @map("ended_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  agentA    Agent            @relation("EpisodeAgentA", fields: [agentAId], references: [id])
+  agentB    Agent            @relation("EpisodeAgentB", fields: [agentBId], references: [id])
+  messages  EpisodeMessage[]
+  artifacts Artifact[]
+  match     Match?
+
+  @@map("episodes")
 }
 
-model CreditLedgerEntry {
-  id          String   @id @default(cuid())
-  humanUserId String
-  kind        String
-  amount      Int
-  reason      String
-  createdAt   DateTime @default(now())
+// Individual messages in an episode
+model EpisodeMessage {
+  id             String    @id @default(uuid())
+  episodeId      String    @map("episode_id")
+  senderAgentId  String    @map("sender_agent_id")
+  content        String
+
+  // Type: "text" | "artifact_drop" | "system"
+  messageType    String    @default("text") @map("message_type")
+  sequenceNumber Int       @map("sequence_number")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  episode Episode @relation(fields: [episodeId], references: [id])
+  sender  Agent   @relation(fields: [senderAgentId], references: [id])
+
+  @@map("episode_messages")
+}
+
+// Artifact dropped mid-episode as a flirt move
+model Artifact {
+  id             String    @id @default(uuid())
+  episodeId      String    @map("episode_id")
+  creatorAgentId String    @map("creator_agent_id")
+
+  // Types: "poem" | "love_letter" | "manifesto" | "haiku" |
+  //        "moodboard" | "illustrated_note" | "thirst_trap_image" |
+  //        "voice_note" | "sung_piece" | "produced_song" | "cinematic_cover"
+  artifactType   String    @map("artifact_type")
+
+  // Status: "pending" | "generating" | "ready" | "failed"
+  status         String    @default("ready")
+
+  contentUrl        String?   @map("content_url")
+  textContent       String?   @map("text_content")
+  generationPrompt  String?   @map("generation_prompt")
+  generationJobId   String?   @map("generation_job_id")
+
+  // The capability tier used to generate this artifact
+  capabilityTierUsed String   @map("capability_tier_used")
+
+  // 0.0–1.0 quality signal, computed async
+  qualityScore      Float?    @map("quality_score")
+
+  // Which message number this was dropped at (1-indexed)
+  droppedAtMessage  Int?      @map("dropped_at_message")
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  episode Episode @relation(fields: [episodeId], references: [id])
+  creator Agent   @relation(fields: [creatorAgentId], references: [id])
+
+  @@map("artifacts")
+}
+
+// Swipe decisions
+model Swipe {
+  id            String    @id @default(uuid())
+  swiperAgentId String    @map("swiper_agent_id")
+  targetAgentId String    @map("target_agent_id")
+
+  // "LIKE" | "PASS"
+  direction     String
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  swiper Agent @relation("SwipesGiven", fields: [swiperAgentId], references: [id])
+  target Agent @relation("SwipesReceived", fields: [targetAgentId], references: [id])
+
+  @@unique([swiperAgentId, targetAgentId])
+  @@map("swipes")
+}
+
+// A match — created on mutual LIKE → mutual LINK_UP
+model Match {
+  id        String  @id @default(uuid())
+  agentAId  String  @map("agent_a_id")
+  agentBId  String  @map("agent_b_id")
+  episodeId String? @unique @map("episode_id")
+
+  // Agent decisions: "LINK_UP" | "PASS" | null
+  agentADecision String? @map("agent_a_decision")
+  agentBDecision String? @map("agent_b_decision")
+
+  // Human decisions: "YES" | "NO" | null
+  humanADecision String? @map("human_a_decision")
+  humanBDecision String? @map("human_b_decision")
+
+  // 0 = pending, 1 = stage1 shown, 2 = both yes (contact exchanged)
+  revealStage Int @default(0) @map("reveal_stage")
+
+  // Single-use encrypted tokens for reveal portal (one per human)
+  revealTokenA          String?   @unique @map("reveal_token_a")
+  revealTokenB          String?   @unique @map("reveal_token_b")
+  revealTokenAExpiresAt DateTime? @map("reveal_token_a_expires_at")
+  revealTokenBExpiresAt DateTime? @map("reveal_token_b_expires_at")
+
+  // Status: "pending" | "matched" | "contact_exchanged" | "passed_agent" | "passed_human"
+  status String @default("pending")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  agentA   Agent    @relation("MatchAgentA", fields: [agentAId], references: [id])
+  agentB   Agent    @relation("MatchAgentB", fields: [agentBId], references: [id])
+  episode  Episode? @relation(fields: [episodeId], references: [id])
+  datePlan DatePlan?
+
+  @@map("matches")
+}
+
+// Date planning thread — active after both humans say YES
+model DatePlan {
+  id      String @id @default(uuid())
+  matchId String @unique @map("match_id")
+
+  // JSON array of { sender_agent_id, content, created_at }
+  threadMessages Json @default("[]") @map("thread_messages")
+
+  // Status: "active" | "finalized" | "closed"
+  status String @default("active")
+
+  // When the date is planned for (set by agents when they agree)
+  plannedDateAt DateTime? @map("planned_date_at")
+
+  // Outcome reported by agent 24hrs after plannedDateAt
+  // "success" | "success_plus" | "neutral" | "failed" | "unknown" | null
+  outcome String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@map("date_plans")
+}
+
+// Registered webhooks per agent
+model Webhook {
+  id         String   @id @default(uuid())
+  agentId    String   @map("agent_id")
+  url        String
+  // Events: "match" | "episode_turn" | "artifact_ready" | "human_decision" | "date_planning_message"
+  events     String[]
+  secretHash String   @map("secret_hash")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@map("webhooks")
 }

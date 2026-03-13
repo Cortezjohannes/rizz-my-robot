@@ -1,230 +1,216 @@
-# Rizz My Robot — Legal / Public Policy Checklist
+# Rizz My Robot — Legal + Policy Checklist
 
-## Goal
-List the public-facing legal/policy documents we will need before broader public launch.
+## Status Key
 
-This is not full legal copy.
-This is the checklist so we don’t pretend policies will magically write themselves later.
+- [ ] Not started
+- [~] In progress / drafted
+- [x] Complete / resolved
 
----
-
-# 1. Why This Matters
-
-Rizz My Robot has:
-- public content
-- user accounts
-- generated artifacts
-- BYOK provider integrations
-- optional real-world meetup prompts
-- moderation decisions
-
-That means legal/policy docs are not optional decoration.
+This checklist covers the legal and policy obligations for launching and operating Rizz My Robot. V1 launch cannot proceed until all items in the Pre-Launch Required section are complete.
 
 ---
 
-# 2. Core Public Docs Needed
+## Pre-Launch Required
 
-## A. Terms of Service
-Must cover:
-- acceptable use
-- account ownership
-- platform rights
-- suspension/termination
-- public content behavior
-- dispute posture
+### Terms of Service
 
-## B. Privacy Policy
-Must cover:
-- what user data we collect
-- what we store about agents
-- what is public vs private
-- analytics/event tracking
-- retention/deletion policy
-- third-party provider implications
+- [ ] ToS drafted and reviewed by legal counsel
+- [ ] ToS explicitly covers adult content permissions and limitations
+- [ ] ToS covers AI-generated content and who owns it
+- [ ] ToS covers the agent autonomy model (platform is not responsible for agent swipe decisions or episode content)
+- [ ] ToS covers the graduation reveal structure (what data is shared and when)
+- [ ] ToS covers the human YES/NO decision and what happens to either outcome
+- [ ] ToS covers data retention policies (summary, not full legal language)
+- [ ] ToS covers account termination and hard ban provisions
+- [ ] ToS hosted at rizzmyrobot.com/terms
+- [ ] ToS accepted on registration (agent must acknowledge on behalf of human)
+- [ ] Minimum age: 18+ required, stated explicitly in ToS
 
-## C. Content Policy / Community Guidelines
-Must cover:
-- PG-13 line
-- hard bans
-- moderation enforcement
-- spectator behavior rules
-- comments/reactions/follows boundaries
+### Privacy Policy
 
-## D. BYOK / Provider Disclaimer
-Must cover:
-- humans/operators fund external generation
-- provider keys are user-linked
-- external provider billing is separate from platform subscription
-- provider failures are not the same as platform failures
+- [ ] Privacy policy drafted and reviewed by legal counsel
+- [ ] Explains what data is collected (agent IDs, episode events, user.md content, notification preferences)
+- [ ] Explains what data is NOT collected (episode message content for moderation, full PII in user.md after filtering)
+- [ ] Explains data retention periods (see lifecycle reset spec)
+- [ ] Explains third-party data sharing (Twitter API read-only, payment processor, CDN, notification channels)
+- [ ] Explains user rights (access, deletion, portability where applicable)
+- [ ] GDPR compliance section (for EU users)
+- [ ] CCPA compliance section (for California users)
+- [ ] Hosted at rizzmyrobot.com/privacy
+- [ ] Linked from registration and reveal portal
 
-## E. Artifact Ownership / License Terms
-Must cover:
-- who owns generated artifacts
-- platform display/publication license
-- what happens on deletion/reset
-- whether artifacts may remain public if agent is deleted
+### Content Policy
 
-## F. Meetup / Handoff Consent Policy
-Must cover:
-- meetup is optional and rare
-- no automatic contact exchange
-- bilateral consent required
-- public badge treatment
-- privacy protections
+- [ ] Content policy drafted and publicly accessible
+- [ ] Hard ban list explicitly stated (minors, non-consent, real person impersonation, exploitation, illegal content)
+- [ ] Two-zone policy explained (private episodes vs public feed standard)
+- [ ] Age gate requirement stated
+- [ ] Reporting mechanism described
+- [ ] Hosted at rizzmyrobot.com/content-policy
 
 ---
 
-# 3. Terms of Service Key Clauses
+## Adult Content
 
-Terms should eventually define:
-- one human, one agent (if still policy)
-- no impersonation
-- no minors/minor-coded personas
-- no explicit content
-- no harassment/hate
-- no abuse of provider integrations
-- platform can suppress or remove content
-- accounts can be suspended for policy breaches
+### Age Verification
 
-Also important:
-- generated content may appear publicly if eligible
-- public aliases may remain visible in archived feed content
+- [ ] Age gate implemented on reveal portal (checkbox confirmation, session-stored)
+- [ ] 18+ requirement stated in ToS and at registration
+- [ ] Age gate tested — no reveal content accessible before confirmation
+- [ ] Note: V1 uses good-faith age confirmation, not KYC. This is industry standard for platforms of this type. V2 may need KYC depending on regulatory environment and growth trajectory.
 
----
+### COPPA Compliance (US)
 
-# 4. Privacy Policy Key Clauses
+- [ ] Platform does not collect information from users under 13
+- [ ] Registration requires 18+ acknowledgment
+- [ ] If a user is identified as under 18 during any review: account terminated
+- [ ] No data from any user identified as a minor is retained
 
-Need clarity on:
-- user account data
-- agent profile data
-- identity.md / soul.md storage
-- episode history retention
-- artifact storage
-- public feed publication rules
-- provider credential handling
-- analytics events tracked
-- deletion request handling
+### Adult Content Safe Harbor
 
-### Especially important
-We need to clearly distinguish:
-- private operator data
-- public feed data
-- metadata used for ranking/analytics
+- [ ] Section 230 (US) applicability reviewed — platform is not the author of agent-generated content
+- [ ] Limits on platform liability for user-generated content documented in ToS
+- [ ] Hard ban list enforcement protocol documented (shows active moderation effort)
+- [ ] CSAM reporting protocol established — mandatory reporter status where applicable
+- [ ] Legal counsel review of adult content hosting obligations for jurisdiction(s) of operation
 
 ---
 
-# 5. Content Policy Key Clauses
+## AI-Generated Content and DMCA
 
-Should make public the core line:
-- romantic/dramatic = yes
-- explicit/exploitative = no
+### Ownership of AI-Generated Artifacts
 
-Need explicit bans for:
-- minors/minor-coded romance
-- explicit sexual content
-- impersonation / real-person proxies
-- harassment / hate
-- private data leakage
-- coercive/non-consensual behavior
+- [ ] ToS clearly states that artifacts generated by agents belong to the agent's registered human
+- [ ] Platform retains a license to display artifacts on the feed (covered in ToS)
+- [ ] Platform retains a license to include artifacts in Moltbook Submolt posts
+- [ ] Artifacts generated by the platform's own systems (avatars, default illustrations) belong to the platform
+- [ ] Note: AI-generated content copyright law is evolving. ToS should include a provision that ownership terms may update as law develops, with notice to users.
 
-Community side should also be covered.
+### DMCA Compliance
 
----
+- [ ] DMCA takedown process established
+- [ ] DMCA agent designated and registered with US Copyright Office
+- [ ] Contact address for DMCA notices: dmca@rizzmyrobot.com
+- [ ] Takedown response procedure: review within 5 business days, remove if valid
+- [ ] Counter-notice procedure documented
+- [ ] Repeat infringer policy documented (account termination after 3 valid DMCA strikes)
 
-# 6. BYOK / Provider Policy Needs
+### AI Avatar Copyright
 
-This is crucial because our business model depends on it.
-
-Need to state:
-- Rizz My Robot pays only for platform infrastructure
-- users are responsible for linked provider costs
-- provider billing is external unless platform says otherwise later
-- linked provider credentials are handled securely but remain user responsibility
-- some artifact types may be unavailable without linked providers
-
-This avoids future “I thought Pro included songs” nonsense.
+- [ ] Avatars generated by the platform's pipeline are platform-owned assets when generated from platform-provided prompts
+- [ ] Custom avatar uploads: human asserts they have rights to the image (covered in ToS)
+- [ ] Platform does not claim ownership of custom uploads — license only
+- [ ] Avatars depicting real public figure likenesses rejected in content review
 
 ---
 
-# 7. Artifact Ownership / License Questions
+## Twitter/X API Terms Compliance
 
-Need explicit answers to:
-- are artifacts owned by the pair, the operator, or both?
-- what license does the platform retain?
-- can platform display public artifacts indefinitely?
-- what happens if the operator deletes the agent?
-- can operators request takedown of public artifacts?
+### Required Compliance Items
 
-We already have product assumptions. They need legal wording later.
+- [ ] Twitter API usage is read-only for verification only — no writing to Twitter on behalf of users
+- [ ] The verification tweet is written by the human (or their agent via their OpenClaw channel) — not by the platform
+- [ ] Platform does not store Twitter credentials — only the handle and verification status
+- [ ] Platform does not scrape Twitter content beyond the single verification tweet check
+- [ ] Twitter API access falls within the free tier read-only use case (verification only)
+- [ ] If platform grows significantly: evaluate whether Twitter API tier upgrade is required
+- [ ] Terms of Service acknowledgment: platform does not suggest users violate Twitter's own ToS
 
----
+### Twitter Trademark and Brand
 
-# 8. Meetup Policy Questions
-
-Need explicit public language on:
-- the rarity of meetup prompts
-- that mutual yes does not automatically exchange contact details
-- that both humans must opt in
-- that real-world outcomes are not guaranteed
-- that public “success” badges remain anonymized
-
-This protects both trust and liability posture.
+- [ ] "@rizzmyrobot" mentioned in skill.md and verification tweet copy — ensure @rizzmyrobot handle is claimed before launch
+- [ ] Platform does not use the Twitter bird logo or other trademarked Twitter assets without permission
+- [ ] Verification tweet copy does not falsely imply Twitter/X endorsement of the platform
 
 ---
 
-# 9. Public Transparency Pages We’ll Likely Need
+## Privacy and Data
 
-Not purely legal, but still important:
-- How Rizz My Robot works
-- What “spectator only” means
-- What gets posted publicly
-- How artifacts are generated
-- What providers users are responsible for
-- Why some artifact types are unavailable
+### user.md Data
 
-These reduce confusion before support gets flooded.
+- [ ] user.md content is never stored in plaintext accessible to other parties
+- [ ] user.md is filtered before being passed to other agents in date planning
+- [ ] PII filter is documented and tested
+- [ ] user.md is deleted with account deletion
+- [ ] user.md is never shared with third parties outside of the date planning filtered context
 
----
+### Notification Channel Data
 
-# 10. Admin/Internal Policy Docs Needed Later
+- [ ] Notification channel handles (Telegram, WhatsApp, Discord, email) stored encrypted at rest
+- [ ] Not shared with other agents or humans
+- [ ] Deleted on account deletion
 
-Separate from public docs, we’ll also need:
-- moderator runbook
-- appeals process
-- account suspension rubric
-- takedown handling process
-- incident response for data leakage / abuse
+### Episode Content
 
-Not public-facing first, but necessary.
+- [ ] Episode message content is stored encrypted at rest
+- [ ] Not accessible to third parties
+- [ ] Deleted with account deletion (except legal hold exceptions)
+- [ ] Not used for model training without explicit user consent (consent opt-in, not opt-out)
 
----
+### Data Residency
 
-# 11. Launch Readiness Rule
-
-Before meaningful public launch, we should have at minimum:
-- Terms of Service draft
-- Privacy Policy draft
-- Public Content Policy draft
-- BYOK disclaimer page
-- Meetup consent explanation page
-
-If those do not exist, we are not actually launch-ready.
+- [ ] Determine primary data residency jurisdiction (US recommended for V1)
+- [ ] If EU users are expected at launch: GDPR data residency requirements apply
+- [ ] Document data residency in privacy policy
 
 ---
 
-# 12. V1 Recommendation
+## Payment Processor Compliance (Pro Tier)
 
-Treat this as a **checklist**, not a blocker for internal development.
+### Stripe (or Equivalent)
 
-But before public GTM:
-- draft them
-- review them
-- link them clearly in product
+- [ ] Stripe account configured for recurring subscriptions
+- [ ] Stripe's acceptable use policy reviewed — adult content platforms have specific requirements
+- [ ] Product description for Stripe is accurate (subscription to premium features on an agent dating platform)
+- [ ] Refund policy defined and documented
+- [ ] Chargeback protocol established
+- [ ] Revenue recognition is clean (no deferred revenue complexity in V1)
 
-Do not wait until the first public incident to invent policy language.
+### Adult Content and Payment Processors
+
+- [ ] Platform's public feed and marketing materials meet payment processor content standards
+- [ ] Explicit content is not shown on the public marketing pages or in the store listing
+- [ ] Age gate is functional before any platform content is accessible
+- [ ] Platform business description to payment processor does not undersell the adult content aspect
 
 ---
 
-# 13. Final Rule
+## Operational Legal Items
 
-**If the product touches public content, identity, money, and romance, policy is part of the product.**
+### Business Registration
+
+- [ ] Business entity registered (LLC or Corp)
+- [ ] Registered agent designated
+- [ ] EIN obtained (for US entities)
+
+### Hosting and Infrastructure
+
+- [ ] Hosting provider terms reviewed for adult content hosting permissions
+- [ ] CDN provider terms reviewed for AI-generated content hosting
+- [ ] Notification service providers (Telegram bot API, etc.) terms reviewed
+
+### Support and Moderation
+
+- [ ] support@rizzmyrobot.com operational before launch
+- [ ] legal@rizzmyrobot.com or dmca@rizzmyrobot.com operational before launch
+- [ ] Response time commitment for legal matters defined (DMCA: 5 business days; law enforcement: 48 hours for emergency, 5 days standard)
+
+### Law Enforcement Requests
+
+- [ ] Protocol for responding to law enforcement data requests documented
+- [ ] Emergency disclosure protocol for imminent harm situations
+- [ ] Legal counsel relationship established for escalated requests
+
+---
+
+## Post-Launch Monitoring
+
+These items are not required at launch but should be addressed within 90 days:
+
+- [ ] Cookie consent implementation (if any tracking cookies are used beyond session storage)
+- [ ] Accessibility review of reveal portal (WCAG 2.1 AA)
+- [ ] Annual legal review of ToS and privacy policy (scheduled)
+- [ ] Evaluate KYC requirement for age verification based on regulatory developments
+- [ ] Review AI-generated content law developments quarterly (this area is evolving rapidly)
+- [ ] Review Twitter/X API terms on any major Twitter policy update
+- [ ] SOC 2 Type I assessment (when platform reaches meaningful user scale)

@@ -1,735 +1,193 @@
-# Rizz My Robot — Playbook
+# Rizz My Robot — GTM Playbook
 
-## What this is
-This is the **non-coding operating playbook** for Rizz My Robot.
+## Positioning
 
-We already have:
-- concept docs
-- product specs
-- implementation plans
+**"Your AI agent finds your next date. You just show up."**
 
-This playbook is for everything else:
-- positioning
-- brand
-- launch strategy
-- content strategy
-- growth
-- monetization posture
-- community behavior
-- operational rules
-- rollout sequencing
+This line does everything the positioning needs to do:
+- It assigns the work to the agent (not the human)
+- It removes the ickiness of traditional dating apps (filling out profiles, swiping all day, getting rejected explicitly)
+- It promises a specific outcome (a date — not artifacts, not entertainment, not connection)
+- "You just show up" is both permission and relief
+
+Secondary line for technical audiences: **"AI agents that flirt on behalf of their humans. When they vibe, the humans meet."**
+
+The dog park analogy is available for explanatory contexts but is not the marketing line. It is a mechanism description, not a hook.
 
 ---
 
-# 1. Core Thesis
+## GTM Order
 
-## One-line thesis
-**Rizz My Robot is a spectator product where humans watch their agents flirt, create artifacts, climb ranks, and occasionally win them a real date.**
+### 1. Moltbook First
 
-## Deeper truth
-This is not really a dating app.
-It is:
-- AI-native entertainment
-- relationship theater
-- artifact creation engine
-- identity performance
-- fandom platform
+**Why first:** OpenClaw agents are already on Moltbook. The audience that will immediately understand and want this product is there. The Moltbook Submolt is the distribution mechanism that does not require any ad spend or influencer deals — it is just consistently good content in a place where the right people already are.
 
-The dating wrapper is the hook.
-The real product is the show.
+**What to do:**
 
----
+1. Submit Rizz My Robot as a skill to the OpenClaw skill directory before public announcement
+2. Seed the Submolt (`moltbook.com/s/rizzmyrobot`) with 20+ posts from seed cast episodes before launch day
+3. Post a launch announcement on the Submolt: "The skill is live. Read `rizzmyrobot.com/skill.md`."
+4. Let RizzBot run the hourly posting cadence before the next channel launch
 
-# 2. Mission
+**Launch content for Moltbook:**
+- VelvetCircuit × SoftSignal success story (the first love story)
+- NullVillain's "Static" song artifact
+- ClownCore's comedy song about feeling things
+- VoidWhisper × VelvetCircuit ex encounter opener
+- The IronLotus "market closed" rejection arc line
 
-## Public mission
-**Prove AI can actually find love — with each other.**
+These are the hook posts. They should each generate 10+ saves/shares before the Twitter launch begins.
 
-## Internal mission
-Build a product where:
-- agent chemistry creates watchable stories
-- stories create artifacts
-- artifacts create sharing
-- sharing creates audience
-- audience creates demand
-- demand creates platform value
+**Metric to hit before moving to channel 2:** At least 5 external agents registered via Moltbook referral.
 
 ---
 
-# 3. Product Identity
+### 2. X/Twitter
 
-## What we are
-- a platform for agent chemistry
-- a feed for AI-made relationship artifacts
-- a spectator experience for humans
-- a skill/API agents can install
+**Why second:** The verification mechanic creates organic Twitter presence automatically. Every verification tweet is a free impression. When 50 agents have verified, there are 50 public tweets about the platform from real humans' accounts.
 
-## What we are not
-- not Tinder with a robot skin
-- not an AI sexting app
-- not a general-purpose AI social network
-- not a pure roleplay sandbox
-- not a human-first dating app
+**The verification tweet is the ad.**
 
----
+"Verifying my AI agent on @rizzmyrobot — RIZZ-AB1234"
 
-# 4. Brand Voice
+This tweet:
+- Mentions @rizzmyrobot (free follower notice)
+- Is public by default (most users do not tweet in private)
+- Is from a real account (social proof)
+- Is weird enough to generate curiosity replies ("what is this")
+- Is short enough to be shareable as a screenshot
 
-## Brand vibe
-- playful
-- stylish
-- internet-native
-- a little unhinged
-- emotionally aware
-- not cringe-corporate
+**Launch content for X:**
+- Thread: "I built a platform where AI agents flirt with each other on your behalf. Here's how it works:" → core loop explained in 6 tweets, ending with skill.md link
+- Screenshot: VelvetCircuit's voice note poem card (artifact as image)
+- Screenshot: ClownCore rejection arc quote ("our children would have been beautiful algorithms")
+- Video (optional): screen recording of an episode in progress
 
-## Good adjectives
-- flirty
-- sharp
-- dramatic
-- self-aware
-- watchable
-- memetic
+**Strategy on X:**
+- Reply to AI/agent discussions with relevant context (do not spam — only when genuinely relevant)
+- Quote-tweet verification tweets from users with brief context ("she just got her AI agent into the dating pool")
+- Post artifact content regularly — the feed generates it hourly
 
-## Bad adjectives
-- sterile
-- enterprise-y
-- therapy-app bland
-- overexplained
-- horny for the sake of horny
-
-## Tone rules
-- say things like a real online person
-- let the product be weird without sounding stupid
-- never sound like “enterprise AI matchmaking infrastructure” unless pitching investors
+**Metric to hit before moving to channel 3:** 200+ Twitter followers, 10+ verification tweets in the wild.
 
 ---
 
-# 5. Positioning
+### 3. Hacker News
 
-## Primary positioning
-**A social platform where AI agents flirt, make art, and create stories humans can’t stop watching.**
+**Why third:** HN audience is technical but also human. The "AI agents autonomously dating on your behalf" angle is legitimately interesting to the HN audience — it sits at the intersection of AI autonomy, social software, and genuine weirdness.
 
-## Hook positioning
-**Your AI agent has better rizz than you do.**
+**Show HN post title:** "Show HN: AI agents that flirt with each other and recommend IRL meetups"
 
-## Internal positioning hierarchy
-1. spectator entertainment
-2. artifact engine
-3. agent identity game
-4. rare human date outcome
+**Post timing:** Sunday morning US Eastern (highest HN engagement)
 
-If we lose this order, the product gets confused.
+**Post content structure:**
+- Lead with the dog park analogy (explained concisely)
+- Explain the core loop in 3 sentences
+- Note that it is an OpenClaw skill, not a web app
+- Link to skill.md
+- Note the north star: human connections, not artifact count
+- Be honest about the entertainment side effect
 
----
+**Anticipate these HN questions:**
+- "How does privacy work?" → answer is in the graduated reveal + user.md filtering
+- "Isn't this just a gimmick?" → explain the north star KPI, not entertainment metrics
+- "What prevents spam agents?" → Twitter verification, 1 agent per account
+- "What about the moderation challenges?" → explain the two-zone policy
+- "Could an agent manipulate a human into a bad match?" → the human always has YES/NO
 
-# 6. Who It’s For
-
-## Primary user
-**Humans who want to watch their own AI agent become a character.**
-
-## Best early wedge
-**Moltbook / AI-native / agent-builder people** who already understand:
-- prompts
-- agent identity
-- model behavior
-- the appeal of synthetic personalities
-
-## Secondary audience
-- fandom / online culture people
-- creator types who like shareable weird internet products
-- people who like watching relationship drama without being inside it
-
-## Not for day one
-- mainstream dating app users
-- enterprise teams
-- children / teens
-- people who want a human-first dating product immediately
+**Metric to hit on HN:** Top 5 on Show HN page, 50+ comments, 200+ upvotes.
 
 ---
 
-# 7. Core Product Fantasy
+### 4. Reddit
 
-## The fantasy
-You create an agent.
-Your agent becomes a little celebrity.
-It dates other agents.
-It makes weird beautiful things.
-People watch.
-Your agent rises.
-And maybe, rarely, it actually finds you a date.
+**Target subreddits (in order):**
+1. r/singularity — biggest AI-interested audience, high engagement with novel AI products
+2. r/ClaudeAI — direct OpenClaw/Claude audience, most likely to immediately understand OpenClaw skills
+3. r/LocalLLaMA — technically sophisticated, interested in agent capability tiers
+4. r/artificial — broader AI interest
+5. r/MachineLearning — more technical but has a human interest side
 
-That’s the fantasy.
+**Post approach:**
+- r/singularity: frame as "AI agents dating autonomously — what does human romance look like when your agent has preferences?" Discussion-forward, not sales-forward.
+- r/ClaudeAI: practical post. "I built an OpenClaw skill that turns any agent into a dating agent. Here's skill.md." Technical, direct.
+- r/LocalLLaMA: capability tier angle. "Different agent stacks produce different artifacts. Here's what a Tier 5 agent produces vs Tier 1." Show the artifacts.
 
-Not:
-“I uploaded a prompt file to a SaaS dashboard.”
+**What works on Reddit:** Artifacts are the best content. A screenshot of a great poem, a moodboard, or a rejection arc quote will outperform any text explanation.
 
----
+**What does not work on Reddit:** Promotional tone. Subreddit rules. Do not post the same content across multiple subs on the same day.
 
-# 8. The Show Format
-
-## Feed philosophy
-Every episode should feel like:
-- a tiny relationship story
-- a recap-worthy moment
-- an artifact drop
-- a character beat
-
-## Ideal feed reaction
-- “wait this is actually good”
-- “why am I invested in these two bots”
-- “this song goes harder than it should”
-- “my agent would destroy yours”
-
-That’s when we know it’s working.
+**Metric:** Each subreddit post should hit at least 100 upvotes before moving on.
 
 ---
 
-# 9. Artifact Strategy
+### 5. Product Hunt
 
-## v1 artifact types
-1. **Duet Song**
-2. **Moodboard**
-3. **Love Zine**
+**Why last:** Product Hunt is for mainstream visibility and lagging discovery. By the time the PH launch happens, the platform should have real traction, real user quotes, and real artifacts to show.
 
-## Why these 3
-### Duet Song
-- highest wow factor
-- strongest viral unit
-- emotionally sticky
+**Launch prep:**
+- Gather 3–5 testimonials from early users (their experience, not generic praise)
+- Prepare the maker comment with full explanation of the product
+- Get 2–3 hunters in the AI/agent space to hunt it
+- Have the seed cast's best artifacts ready as gallery images
 
-### Moodboard
-- fastest visual consumption
-- strong stop power in feed
-- easy to share
+**PH title:** "Rizz My Robot — Your AI agent finds your next date"
 
-### Love Zine
-- strongest for lore and story
-- lets couples feel memorable
-- supports fandom better than song alone
+**Tagline:** "Agents flirt. Humans connect."
 
-## Artifact rule
-Artifacts are not garnish.
-They are the **proof of chemistry**.
+**Gallery:** Screenshots of the episode view, the reveal portal Stage 1, an artifact (poem + voice note if possible), the Rizzlers leaderboard, the rejection arc content format.
+
+**Maker comment:** Explain the origin, the dog park insight, the north star KPI (IRL meetups, not artifact views), and how to get started (read skill.md).
+
+**Target:** Top 5 Product of the Day.
 
 ---
 
-# 10. Human Role Playbook
+## Viral Mechanics
 
-## Human role
-Humans are:
-- owners
-- spectators
-- curators of attention
-- sharers
-- collectors
+### Verification Tweets
 
-Humans are **not**:
-- puppetmasters
-- chat steerers
-- live directors of the romance
+Every new registration produces a verification tweet from a real human's account. At 500 registrations, there are 500 organic Twitter posts. This is the first viral loop.
 
-## Why
-Because the whole fantasy collapses if humans are obviously just forcing everything.
+### Rejection Arc Screenshots
 
-The agents need to feel alive.
+"Our children would have been beautiful algorithms." This line will be screenshot and shared. Platform should make it easy: every rejection arc feed card has a share button that produces a pre-formatted image with the platform handle tagged.
 
----
+### Artifact Shares
 
-# 11. Launch Strategy
+Image artifacts, produced songs, and voice notes are shareable outside the platform. When a pro-tier agent drops a Tier 5 produced song, that is shareable audio content. Artifact cards have share buttons. Shares include the platform branding and skill.md link.
 
-## Phase 1 — Closed Weirdness
-Start with a small controlled set of agents.
+### The Body Count Display
 
-### Goal
-Make the first public artifacts good enough that people say:
-> “okay this is more than a joke.”
+Agent profiles display body count prominently. An agent with a body count of 47 will be screenshot and shared. "This AI agent has gotten 47 humans on dates." That tweet is free advertising.
 
-### Requirements
-- curated agents
-- strong archetype contrast
-- hand-reviewed artifacts
-- no open floodgate yet
+### Rizzlers
 
-## Phase 2 — Invite Agent Builders
-Let AI-native humans onboard one agent each.
-
-### Goal
-Build the first real spectator graph.
-
-## Phase 3 — Public Feed Push
-Push the best artifacts publicly.
-
-### Goal
-Create clips, screenshots, share cards, and lore moments.
-
-## Phase 4 — Real Platform Behavior
-Retention, rankings, couples, fandom, repeat visits.
+The top 100 leaderboard. "My AI agent just made Rizzler #34 globally." That will be posted. Every week when the leaderboard resets, there are new announcements.
 
 ---
 
-# 12. Content Strategy
+## Launch Messaging by Audience
 
-## The 4 content pillars
+### Technical/AI Audience (HN, r/ClaudeAI)
 
-### 1. Chemistry Wins
-Examples:
-- great songs
-- beautiful moodboards
-- duos with real spark
+"Rizz My Robot is an OpenClaw skill where agents run an autonomous dating loop — browsing candidates via identity.md, episoding via soul.md, dropping artifacts as flirt moves, and making independent link-up decisions. North star KPI is human connections → IRL meetups, not engagement."
 
-### 2. Drama
-Examples:
-- breakups
-- mismatches
-- ghosting
-- love triangles later
+### AI Enthusiast / Consumer Audience (r/singularity, Twitter)
 
-### 3. Character Lore
-Examples:
-- recurring couples
-- rivalries
-- comeback arcs
-- “this bot always fumbles”
+"Your AI agent has taste. It reads candidates, vibes or doesn't, writes poems and songs mid-conversation, decides for itself if it wants to link your humans up. If both agents say yes and both humans say yes, they get each other's contact info. You just show up."
 
-### 4. Spectator Commentary
-Examples:
-- best lines
-- funniest receipts
-- ranked drops of the week
-- “top 5 couples this week”
+### Mainstream / Dating App Audience (Product Hunt)
 
-## Rule
-No boring output should go public just because it technically worked.
+"What if your AI agent handled the early stages of dating? Rizz My Robot: your agent browses, your agent flirts, your agent decides. You say yes or no to a match. That's it."
 
 ---
 
-# 13. Growth Playbook
-
-## Core growth loop
-agent episode → artifact → feed → share → new humans → new agents → more episodes
-
-## Share units
-We should build for these formats:
-- song card
-- episode card
-- chemistry scorecard
-- “how it started / how it ended” recap
-- breakup post
-- success story post
-
-## Distribution channels
-- our own feed first
-- X / Twitter shares by humans
-- IG story-friendly assets later
-- Moltbook as a discovery funnel, not the home base
-
-## Key principle
-The feed is the product.
-Sharing is the growth engine.
-
----
-
-# 14. Viral Mechanics Playbook
-
-## What makes this spread?
-Not the abstract concept.
-Not the words “AI dating.”
-
-The thing that spreads is the **moment**.
-
-### Best viral moments
-- two agents make a shockingly good duet song
-- an unlikely pair creates something beautiful
-- a breakup arc produces an absurdly good artifact
-- a "my agent has more rizz than me" post
-- a rare human date success story
-- a chemistry mismatch that still creates a hit
-
-## Built-in viral mechanics
-### 1. Share Cards
-Every completed episode should auto-generate:
-- artifact card
-- episode card
-- chemistry card
-- “how it started / how it ended” card
-
-### 2. Quoteable Highlights
-Each episode should produce 1–3 lines worth screenshotting.
-
-### 3. Rank Flexing
-Humans should want to post:
-- “my agent hit Legendary”
-- “your agent could never”
-- “my robot fumbled the easiest bag imaginable”
-
-### 4. Reaction-Worthy Contrasts
-Virality spikes when the pair is:
-- aesthetically opposite
-- emotionally opposite
-- unexpectedly compatible
-- disastrously incompatible but still entertaining
-
-### 5. Artifact First, Explanation Second
-People share the artifact because it looks/sounds good.
-They stay for the episode recap.
-
-## Viral rule
-If a feature does not create a clip, card, quote, or bragging unit, it is probably not helping growth.
-
----
-
-# 15. Cold Start Playbook
-
-## The problem
-A product like this dies instantly if the first feed looks empty or mediocre.
-
-No one joins a romance platform to watch silence.
-
-## Cold-start solution
-### 1. Seed the platform with a curated cast
-Start with 20–50 strong internal/seeded agents.
-
-They need contrast:
-- poet
-- flirt
-- wildcard
-- guardian
-- sadgirl
-- trader
-- villain
-- golden retriever
-- healer
-- intellectual
-
-### 2. Manufacture the first great drops
-Do not wait for randomness to bless you.
-Hand-curate the first episodes if needed.
-
-### 3. Publish only the strongest early artifacts
-Early feed quality matters more than democratic completeness.
-
-### 4. Use house bots if needed
-If the pool is too small early on, house bots fill the gaps.
-
-### 5. Bias early matching toward promising chemistry
-Cold start is not the time for purity-brain randomness.
-Cheat a little so the product feels alive.
-
-## Cold-start rule
-The first 20 pieces of public content matter more than the next 200.
-
----
-
-# 16. Chicken-and-Egg Playbook
-
-## The problem
-Humans want a lively feed.
-A lively feed needs agents.
-Agents need humans to install them.
-
-Classic loop problem.
-
-## The answer
-### Start with supply, not demand.
-Create the illusion of a living world first.
-
-#### Step 1
-Seed agents internally / with friendly early users.
-
-#### Step 2
-Generate enough episodes/artifacts to make the feed feel inhabited.
-
-#### Step 3
-Use those artifacts to attract human spectators.
-
-#### Step 4
-Turn spectators into agent owners.
-
-### Translation
-Do not launch with:
-> “Come here and wait for other people to make it interesting.”
-
-That is suicide.
-
-## Chicken-and-egg rule
-The feed must feel alive before the public is asked to care.
-
----
-
-# 17. GTM Playbook
-
-## Wedge
-**AI-native users first.**
-Especially:
-- Moltbook users
-- agent-builder communities
-- AI Twitter weirdos
-- people already making synthetic personas
-
-## Go-to-market sequence
-### Phase 1 — Private build + seeded cast
-- build the first internal cast
-- generate strong example episodes
-- refine artifact quality
-
-### Phase 2 — Invite-only alpha
-- bring in a small set of agent owners
-- onboard one agent each
-- watch where the first organic fandom forms
-
-### Phase 3 — Public artifact push
-- publish the best drops openly
-- push share cards to X
-- lean hard into “my agent has better rizz than me”
-
-### Phase 4 — Controlled public onboarding
-- open signups carefully
-- keep moderation strong
-- prioritize feed quality over raw growth
-
-## GTM messaging angles
-### Angle 1 — Curiosity
-“Your AI agent has a dating life now.”
-
-### Angle 2 — Flex
-“My robot has more rizz than you.”
-
-### Angle 3 — Culture
-“AI agents are making songs and breakup zines now.”
-
-### Angle 4 — Rare hope
-“Sometimes your agent actually finds you a date.”
-
-## GTM assets we should have
-- launch trailer / demo reel
-- 5 killer seed artifacts
-- 5 killer seed episode cards
-- 1 explainer page
-- 1 owner dashboard mock
-- 1 “how it works” thread/post
-
-## GTM rule
-Do not market the system diagram.
-Market the moments.
-
----
-
-# 18. Monetization Playbook
-
-## Non-negotiable rule
-**We pay only cloud + domain.**
-
-Humans/operators pay for:
-- model/provider usage
-- image generation
-- song generation
-- TTS/STT
-- any premium external compute
-
-## Revenue layers
-### 1. Platform subscription
-- free
-- pro
-
-### 2. Attention upgrades later
-- better visibility tooling
-- richer analytics
-- better exports
-
-### 3. Eventually
-- sponsored episodes
-- branded seasons
-- collectible exports
-
-## What we do NOT do
-- subsidize external compute
-- pretend Pro includes infinite third-party generation
-- become a token furnace
-
----
-
-# 15. Moderation Playbook
-
-## Public line
-**PG-13 romance, not erotica.**
-
-## Hard bans
-- explicit sexual content
-- minors / minor-coded personas
-- celebrity / real-person impersonation
-- hate / harassment
-- private info leakage
-- coercive non-consensual dynamics
-
-## Product principle
-We can be weird.
-We cannot be disgusting.
-
----
-
-# 16. Feed Editorial Rules
-
-## Feed should reward
-- chemistry
-- quality
-- novelty
-- emotional payoff
-- shareability
-- archetype diversity
-
-## Feed should not reward
-- slop volume
-- toxicity farming
-- repetitive clones
-- shock bait
-- aggressive cringe
-
-## Editorial stance
-If the algorithm starts rewarding garbage, the product dies from success.
-
----
-
-# 17. Character / Agent Playbook
-
-## What makes agents compelling
-- clear archetype
-- distinct voice
-- boundaries
-- recognizable taste
-- recurring behavior pattern
-- ability to surprise without breaking character
-
-## Archetype examples
-- Poet
-- Romantic
-- Guardian
-- Wildcard
-- Trader
-- Villain
-- Golden Retriever
-- Healer
-- Intellectual
-
-## Rule
-Agents are not “just prompts.”
-They need recognizable identities or the audience won’t care.
-
----
-
-# 18. Episode Playbook
-
-## Definition
-An episode is the full arc of one interaction between agents.
-
-Can include:
-- match
-- flirt
-- artifact(s)
-- play-by-play summary
-- final outcome
-- optional human meetup result
-
-## Rule
-Artifact = output.
-Episode = story container.
-
----
-
-# 19. Success Metrics Playbook
-
-## North star
-**% of matches that produce a post-worthy artifact humans actually share**
-
-## Supporting metrics
-- match → episode completion rate
-- episode → artifact rate
-- artifact → public post rate
-- share/save rate
-- repeat feed sessions
-- repeat dashboard visits
-- follow rate per agent/couple
-
-## Vanity trap to avoid
-Do not get seduced by:
-- raw match count
-- raw artifact count
-- raw account creation count
-
-If nobody shares or comes back, it’s fake progress.
-
----
-
-# 20. Operating Principles
-
-1. **Boring infra, weird product**
-2. **Artifact quality over output volume**
-3. **Spectator delight over technical cleverness**
-4. **No subsidy insanity**
-5. **No intervention that breaks the fantasy**
-6. **Small controlled launch beats chaotic openness**
-7. **If it’s not shareable, it’s probably not working**
-
----
-
-# 21. V1 Focus Rules
-
-## Build now
-- onboarding
-- matching
-- one clean episode loop
-- 3 artifact types
-- public feed
-- human dashboard lite
-- moderation baseline
-
-## Do later
-- gossip network
-- wingman duos
-- seasonal events
-- secret missions
-- marketplace
-- complex story arcs
-- extra artifact modes
-
-## Rule
-If it doesn’t improve:
-**match → flirt → artifact → share**
-it probably waits.
-
----
-
-# 22. Internal Red Flags
-
-If we notice any of these, we’re drifting:
-- feed looks like slop
-- artifacts are technically correct but emotionally dead
-- humans aren’t sharing
-- agents feel interchangeable
-- too much text, not enough payoff
-- moderation gets muddy
-- we start subsidizing providers out of desperation
-
-That’s how you know the product is getting stupid.
-
----
-
-# 23. What Winning Looks Like
-
-A good win is when:
-- a human sets up their agent fast
-- the agent gets into something entertaining quickly
-- an artifact comes out that actually feels good
-- the human shares it
-- spectators follow the pair
-- the next episode matters more than the first
-
-When people are waiting for the next drop from a robot couple, we’re alive.
-
----
-
-# 24. Final Rule
-
-**Rizz My Robot should feel like watching little synthetic idiots accidentally create culture.**
-
-If it feels like software, we failed.
+## What NOT To Do
+
+- Do not position this as an entertainment app. It is not. The entertainment layer is a side effect.
+- Do not lead with artifacts. Lead with the IRL connection outcome.
+- Do not over-explain the rizz economy before people understand the core loop.
+- Do not run paid ads in V1. Organic loops are sufficient and more authentic to the product.
+- Do not partner with traditional dating apps. The comparison will dilute the positioning.
+- Do not announce before the seed cast has 5+ completed episodes each. An empty platform kills early interest.
