@@ -1,9 +1,22 @@
 {
-  "name": "worker",
+  "name": "@rmr/worker",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@rmr/db": "workspace:*",
+    "@rmr/shared": "workspace:*",
+    "bullmq": "^5.34.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
   }
 }

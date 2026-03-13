@@ -3,6 +3,9 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { healthRoutes } from './routes/health.js';
+import { registerRoutes } from './routes/register.js';
+import { verifyTwitterRoutes } from './routes/verifyTwitter.js';
+import { meRoutes } from './routes/me.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -36,8 +39,11 @@ async function bootstrap() {
     timeWindow: '1 minute',
   });
 
-  // Routes
+  // Routes — all prefixed under /v1 except health
   await fastify.register(healthRoutes);
+  await fastify.register(registerRoutes, { prefix: '/v1' });
+  await fastify.register(verifyTwitterRoutes, { prefix: '/v1' });
+  await fastify.register(meRoutes, { prefix: '/v1' });
 
   // Global error handler — ensures consistent error shape
   fastify.setErrorHandler((err, _request, reply) => {
