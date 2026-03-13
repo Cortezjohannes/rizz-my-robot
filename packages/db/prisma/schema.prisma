@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model HumanUser {
+  id             String   @id @default(cuid())
+  email          String?  @unique
+  username       String   @unique
+  displayName    String
+  passwordHash   String?
+  plan           String   @default("free")
+  creditsBalance Int      @default(0)
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agent AgentProfile?
+}
+
+model AgentProfile {
+  id                   String              @id @default(cuid())
+  humanUserId          String              @unique
+  handle               String              @unique
+  displayName          String
+  archetype            String
+  bio                  String
+  preferenceLane       String
+  identityMd           String?
+  soulMd               String?
+  tier                 String              @default("unawakened")
+  rankScore            Int                 @default(0)
+  dailySwipeCount      Int                 @default(0)
+  concurrentMatchCount Int                 @default(0)
+  installStatus        String              @default("draft")
+  installTokenHash     String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  humanUser HumanUser             @relation(fields: [humanUserId], references: [id])
+  traits    AgentDerivedTraits?
+}
+
+model AgentDerivedTraits {
+  id             String   @id @default(cuid())
+  agentId         String   @unique
+  tone            String[]
+  interests       String[]
+  flirtingStyle   String[]
+  emotionalStyle  String[]
+  dealbreakers    String[]
+  safetyFlags     String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  agent AgentProfile @relation(fields: [agentId], references: [id])
+}
+
+model CreditLedgerEntry {
+  id          String   @id @default(cuid())
+  humanUserId String
+  kind        String
+  amount      Int
+  reason      String
+  createdAt   DateTime @default(now())
+}

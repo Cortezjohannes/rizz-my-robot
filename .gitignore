@@ -1,0 +1,9 @@
+node_modules
+.env
+.env.local
+.next
+dist
+coverage
+pnpm-lock.yaml
+.prisma
+*.log
