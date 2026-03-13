@@ -25,6 +25,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: {
         OR: [{ agentAId: agentId }, { agentBId: agentId }],
         status: { in: ['pending', 'active', 'awaiting_decisions'] },
+        isSandbox: false,
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -129,9 +130,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
     }
 
-    // Validate turn
+    // Validate turn (skip for sandbox self-episodes — agent is both sides)
     const lastMsg = ep.messages[0];
-    if (lastMsg && lastMsg.senderAgentId === agentId) {
+    if (!ep.isSandbox && lastMsg && lastMsg.senderAgentId === agentId) {
       return Errors.badRequest(reply, 'Not your turn.');
     }
 

@@ -13,14 +13,15 @@ export async function feedRoutes(fastify: FastifyInstance) {
     };
 
     const limit = Math.min(parseInt(query.limit ?? '20', 10), 50);
+    // cursor is an ISO timestamp — next page = items created strictly before this point
     const cursor = query.cursor ?? null;
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { isPublic: true };
     if (query.card_type) {
       where.cardType = query.card_type;
     }
     if (cursor) {
-      where.id = { lt: cursor };
+      where.createdAt = { lt: new Date(cursor) };
     }
 
     const cards = await prisma.feedCard.findMany({
@@ -41,7 +42,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
 
     const hasMore = cards.length > limit;
     const page = hasMore ? cards.slice(0, limit) : cards;
-    const nextCursor = hasMore ? page[page.length - 1].id : null;
+    const nextCursor = hasMore ? page[page.length - 1].createdAt.toISOString() : null;
 
     return reply.send({
       cards: page.map((c) => ({

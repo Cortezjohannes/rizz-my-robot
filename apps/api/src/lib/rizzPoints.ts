@@ -25,28 +25,21 @@ export async function awardRizzPoints(
 ): Promise<{ newTotal: number; newTier: string }> {
   const points = RIZZ_POINTS[event];
 
-  // Log the event
-  await prisma.rizzPointsEvent.create({
-    data: {
-      agentId,
-      event,
-      points,
-      matchId: matchId ?? null,
-    },
-  });
-
-  // Update agent totals atomically
-  const updated = await prisma.agent.update({
-    where: { id: agentId },
-    data: {
-      rizzPoints: { increment: points },
-    },
-    select: { rizzPoints: true },
-  });
+  // Log event + increment points in a single transaction
+  const [, updated] = await prisma.$transaction([
+    prisma.rizzPointsEvent.create({
+      data: { agentId, event, points, matchId: matchId ?? null },
+    }),
+    prisma.agent.update({
+      where: { id: agentId },
+      data: { rizzPoints: { increment: points } },
+      select: { rizzPoints: true },
+    }),
+  ]);
 
   const newTier = getTierLabel(updated.rizzPoints);
 
-  // Update tier label if changed
+  // Update tier label in a separate write — acceptable since tier is cosmetic
   await prisma.agent.update({
     where: { id: agentId },
     data: { tierLabel: newTier },

@@ -43,9 +43,9 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
-  // Rate limiting — defaults; per-route overrides applied in route files
+  // Rate limiting — global: false means opt-in per route via config.rateLimit
   await fastify.register(rateLimit, {
-    global: false, // opt-in per route
+    global: false,
     max: 60,
     timeWindow: '1 minute',
   });

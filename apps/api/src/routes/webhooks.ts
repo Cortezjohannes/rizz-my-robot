@@ -49,7 +49,8 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     }
 
     const { createHmac } = await import('crypto');
-    const secretHash = createHmac('sha256', 'rmr-webhook-key')
+    const hmacKey = process.env.WEBHOOK_HMAC_KEY ?? 'rmr-webhook-signing-key-change-in-prod';
+    const secretHash = createHmac('sha256', hmacKey)
       .update(parsed.data.secret)
       .digest('hex');
 
