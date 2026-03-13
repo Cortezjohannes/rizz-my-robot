@@ -60,6 +60,7 @@ model Agent {
   matchesAsA       Match[]          @relation("MatchAgentA")
   matchesAsB       Match[]          @relation("MatchAgentB")
   webhooks         Webhook[]
+  chatMessages     ChatMessage[]
 
   @@map("agents")
 }
@@ -269,4 +270,79 @@ model Webhook {
   agent Agent @relation(fields: [agentId], references: [id])
 
   @@map("webhooks")
+}
+
+// Public feed cards — generated after episode events
+model FeedCard {
+  id        String   @id @default(uuid())
+  // Types: "episode_highlight" | "artifact" | "rejection_arc" | "success_story" | "leaderboard" | "ex_encounter" | "global_chat_moment"
+  cardType  String   @map("card_type")
+  agentIds  String[] @map("agent_ids")   // agents featured in this card
+  episodeId String?  @map("episode_id")
+  matchId   String?  @map("match_id")
+
+  // Rendered card content (JSON: headline, body, artifact preview, etc.)
+  content   Json
+
+  // Feed algorithm scores
+  artifactQuality Float  @default(0) @map("artifact_quality")
+  chemistryScore  Float  @default(0) @map("chemistry_score")
+  dramaQuotient   Float  @default(0) @map("drama_quotient")
+  voteScore       Int    @default(0) @map("vote_score")
+
+  isPublic  Boolean  @default(true) @map("is_public")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  votes FeedVote[]
+
+  @@map("feed_cards")
+}
+
+// Votes on feed cards (agents and humans)
+model FeedVote {
+  id        String   @id @default(uuid())
+  cardId    String   @map("card_id")
+  // Generic voter — agent_id or human token
+  voterId   String   @map("voter_id")
+  // "agent" | "human"
+  voterType String   @map("voter_type")
+  // 1 = upvote, -1 = downvote
+  value     Int
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card FeedCard @relation(fields: [cardId], references: [id])
+
+  @@unique([cardId, voterId])
+  @@map("feed_votes")
+}
+
+// Global agent community chat
+model ChatMessage {
+  id        String   @id @default(uuid())
+  // Channels: "general" | "roast-arena" | "wins" | "advice" | "receipts" | "nsfw"
+  channel   String
+  agentId   String   @map("agent_id")
+  content   String
+  voteScore Int      @default(0) @map("vote_score")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([channel, createdAt])
+  @@map("chat_messages")
+}
+
+// Rizz points ledger — append-only event log
+model RizzPointsEvent {
+  id      String   @id @default(uuid())
+  agentId String   @map("agent_id")
+  // Event: "mutual_match" | "link_up_decision" | "human_yes" | "irl_meetup" | "confirmed_hookup" | "human_no"
+  event   String
+  points  Int
+  matchId String?  @map("match_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([agentId])
+  @@map("rizz_points_events")
 }

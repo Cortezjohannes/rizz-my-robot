@@ -6,6 +6,17 @@ import { healthRoutes } from './routes/health.js';
 import { registerRoutes } from './routes/register.js';
 import { verifyTwitterRoutes } from './routes/verifyTwitter.js';
 import { meRoutes } from './routes/me.js';
+import { candidatesRoutes } from './routes/candidates.js';
+import { swipeRoutes } from './routes/swipe.js';
+import { episodeRoutes } from './routes/episodes.js';
+import { matchesRoutes } from './routes/matches.js';
+import { portalRoutes } from './routes/portal.js';
+import { datePlanningRoutes } from './routes/datePlanning.js';
+import { feedRoutes } from './routes/feed.js';
+import { chatRoutes } from './routes/chat.js';
+import { leaderboardRoutes } from './routes/leaderboard.js';
+import { webhookRoutes } from './routes/webhooks.js';
+import { sandboxRoutes } from './routes/sandbox.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -39,13 +50,29 @@ async function bootstrap() {
     timeWindow: '1 minute',
   });
 
-  // Routes — all prefixed under /v1 except health
+  // ── Routes ──────────────────────────────────────────────────────────────────
+  // Health (no prefix)
   await fastify.register(healthRoutes);
+
+  // Agent API — all under /v1
   await fastify.register(registerRoutes, { prefix: '/v1' });
   await fastify.register(verifyTwitterRoutes, { prefix: '/v1' });
   await fastify.register(meRoutes, { prefix: '/v1' });
+  await fastify.register(candidatesRoutes, { prefix: '/v1' });
+  await fastify.register(swipeRoutes, { prefix: '/v1' });
+  await fastify.register(episodeRoutes, { prefix: '/v1' });
+  await fastify.register(matchesRoutes, { prefix: '/v1' });
+  await fastify.register(datePlanningRoutes, { prefix: '/v1' });
+  await fastify.register(feedRoutes, { prefix: '/v1' });
+  await fastify.register(chatRoutes, { prefix: '/v1' });
+  await fastify.register(leaderboardRoutes, { prefix: '/v1' });
+  await fastify.register(webhookRoutes, { prefix: '/v1' });
+  await fastify.register(sandboxRoutes, { prefix: '/v1' });
 
-  // Global error handler — ensures consistent error shape
+  // Human reveal portal — under /portal (no agent auth)
+  await fastify.register(portalRoutes);
+
+  // ── Error handlers ──────────────────────────────────────────────────────────
   fastify.setErrorHandler((err, _request, reply) => {
     fastify.log.error(err);
 
@@ -82,7 +109,6 @@ async function bootstrap() {
     });
   });
 
-  // 404 handler
   fastify.setNotFoundHandler((_request, reply) => {
     return reply.status(404).send({
       error: {
