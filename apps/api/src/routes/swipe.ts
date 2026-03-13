@@ -63,15 +63,16 @@ export async function swipeRoutes(fastify: FastifyInstance) {
     }
 
     // Record the swipe
-    await prisma.$transaction([
-      prisma.swipe.create({
+    const swipe = await prisma.$transaction(async (tx) => {
+      const s = await tx.swipe.create({
         data: { swiperAgentId: agentId, targetAgentId: target_agent_id, direction },
-      }),
-      prisma.agent.update({
+      });
+      await tx.agent.update({
         where: { id: agentId },
         data: { dailySwipeCount: { increment: 1 } },
-      }),
-    ]);
+      });
+      return s;
+    });
 
     let match: { id: string; episodeId: string | null } | null = null;
 
@@ -99,7 +100,6 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         });
 
         const agentLimit = isPro ? Infinity : EPISODE_LIMITS.free;
-        const targetLimit = isPro ? Infinity : EPISODE_LIMITS.free; // check target's tier too
         const targetAgent = await prisma.agent.findUnique({
           where: { id: target_agent_id },
           select: { isPro: true },
@@ -141,13 +141,62 @@ export async function swipeRoutes(fastify: FastifyInstance) {
       }
     }
 
+    const updatedAgent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { dailySwipeCount: true, isPro: true },
+    });
+    const swipesToday = updatedAgent?.dailySwipeCount ?? 1;
+    const dailyLimit = updatedAgent?.isPro ? null : 20;
+
     return reply.status(201).send({
+      swipe_id: swipe.id,
       direction,
       target_agent_id,
+      swipes_today: swipesToday,
+      daily_limit: dailyLimit,
       mutual_match: match !== null,
       match: match
         ? { match_id: match.id, episode_id: match.episodeId }
         : null,
+    });
+  });
+
+  fastify.get('/swipes', { preHandler: requireAuth }, async (request, reply) => {
+    const agentId = request.agent.id;
+    const query = request.query as { direction?: string; page?: string; per_page?: string };
+
+    const page = Math.max(1, parseInt(query.page ?? '1', 10));
+    const perPage = Math.min(100, Math.max(1, parseInt(query.per_page ?? '20', 10)));
+
+    const where: Record<string, unknown> = { swiperAgentId: agentId };
+    if (query.direction === 'LIKE' || query.direction === 'PASS') {
+      where.direction = query.direction;
+    }
+
+    const [swipes, total] = await Promise.all([
+      prisma.swipe.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        select: {
+          id: true,
+          targetAgentId: true,
+          direction: true,
+          createdAt: true,
+        },
+      }),
+      prisma.swipe.count({ where }),
+    ]);
+
+    return reply.send({
+      swipes: swipes.map((s) => ({
+        swipe_id: s.id,
+        target_agent_id: s.targetAgentId,
+        direction: s.direction,
+        created_at: s.createdAt.toISOString(),
+      })),
+      pagination: { page, per_page: perPage, total, has_more: total > page * perPage },
     });
   });
 }

@@ -16,6 +16,8 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       },
       orderBy: { createdAt: 'desc' },
       include: {
+        agentA: { select: { handle: true, avatarUrl: true } },
+        agentB: { select: { handle: true, avatarUrl: true } },
         episode: { select: { chemistryScore: true } },
         datePlan: { select: { status: true } },
       },
@@ -25,6 +27,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       matches: matches.map((m) => {
         const isA = m.agentAId === agentId;
         const otherId = isA ? m.agentBId : m.agentAId;
+        const otherAgent = isA ? m.agentB : m.agentA;
         const myDecision = isA ? m.agentADecision : m.agentBDecision;
         const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
         const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
@@ -33,6 +36,11 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           match_id: m.id,
           episode_id: m.episodeId,
           other_agent_id: otherId,
+          opponent: {
+            agent_id: otherId,
+            handle: otherAgent.handle,
+            avatar_url: otherAgent.avatarUrl,
+          },
           status: m.status,
           agent_decision: myDecision,
           human_decision: myHumanDecision,
@@ -55,6 +63,8 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     const m = await prisma.match.findUnique({
       where: { id },
       include: {
+        agentA: { select: { handle: true, avatarUrl: true } },
+        agentB: { select: { handle: true, avatarUrl: true } },
         episode: {
           include: {
             messages: { orderBy: { sequenceNumber: 'asc' }, take: 5 },
@@ -70,11 +80,18 @@ export async function matchesRoutes(fastify: FastifyInstance) {
 
     const isA = m.agentAId === agentId;
     const myToken = isA ? m.revealTokenA : m.revealTokenB;
+    const otherId = isA ? m.agentBId : m.agentAId;
+    const otherAgent = isA ? m.agentB : m.agentA;
 
     return reply.send({
       match_id: m.id,
       episode_id: m.episodeId,
-      other_agent_id: isA ? m.agentBId : m.agentAId,
+      other_agent_id: otherId,
+      opponent: {
+        agent_id: otherId,
+        handle: otherAgent.handle,
+        avatar_url: otherAgent.avatarUrl,
+      },
       status: m.status,
       agent_decision: isA ? m.agentADecision : m.agentBDecision,
       human_decision: isA ? m.humanADecision : m.humanBDecision,
@@ -142,6 +159,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     if (!m.datePlan) {
       return Errors.badRequest(reply, 'No date plan exists for this match.');
     }
+    if (m.datePlan.status !== 'finalized') {
+      return Errors.badRequest(reply, 'Date outcome can only be reported after the date plan has been finalized.');
+    }
     if (m.datePlan.outcome) {
       return Errors.conflict(reply, 'outcome_already_reported', 'Date outcome already reported for this match.');
     }
@@ -169,9 +189,15 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       rizzAwarded = 100;
     }
 
+    const updatedAgent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { rizzPoints: true },
+    });
+
     return reply.send({
       outcome,
       rizz_points_awarded: rizzAwarded,
+      new_rizz_total: updatedAgent?.rizzPoints ?? 0,
     });
   });
 }

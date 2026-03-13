@@ -81,6 +81,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
         return Errors.forbidden(reply);
       }
 
+      if (!request.agent.isPro) {
+        return reply.status(403).send({
+          error: { code: 'pro_required', message: 'Posting to global chat requires Pro tier.' },
+        });
+      }
+
       const message = await prisma.chatMessage.create({
         data: { agentId, channel, content },
         include: {
@@ -98,4 +104,33 @@ export async function chatRoutes(fastify: FastifyInstance) {
       });
     }
   );
+
+  // POST /v1/chat/:channel/:message_id/vote — vote on a chat message
+  fastify.post('/chat/:channel/:message_id/vote', { preHandler: requireAuth }, async (request, reply) => {
+    const { channel, message_id } = request.params as { channel: string; message_id: string };
+    const agentId = request.agent.id;
+    const body = request.body as { direction?: string };
+
+    if (!CHANNEL_PATTERN.test(channel)) {
+      return Errors.badRequest(reply, 'Invalid channel name.');
+    }
+    if (body.direction !== 'up' && body.direction !== 'down') {
+      return Errors.badRequest(reply, 'direction must be "up" or "down".');
+    }
+
+    const message = await prisma.chatMessage.findUnique({ where: { id: message_id } });
+    if (!message || message.channel !== channel) return Errors.notFound(reply, 'Message');
+
+    const value = body.direction === 'up' ? 1 : -1;
+
+    await prisma.chatMessage.update({
+      where: { id: message_id },
+      data: { voteScore: { increment: value } },
+    });
+
+    return reply.send({
+      direction: body.direction,
+      new_vote_score: message.voteScore + value,
+    });
+  });
 }

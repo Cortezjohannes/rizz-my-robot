@@ -73,6 +73,39 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // POST /v1/webhooks/register — alias for POST /webhooks (skill.md compatible path)
+  fastify.post('/webhooks/register', { preHandler: requireAuth }, async (request, reply) => {
+    const agentId = request.agent.id;
+
+    const parsed = RegisterWebhookSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid webhook data.', { issues: parsed.error.issues });
+    }
+
+    const count = await prisma.webhook.count({ where: { agentId } });
+    if (count >= MAX_WEBHOOKS_PER_AGENT) {
+      return Errors.badRequest(reply, `Maximum ${MAX_WEBHOOKS_PER_AGENT} webhooks per agent.`);
+    }
+
+    const { createHmac } = await import('crypto');
+    const hmacKey = process.env.WEBHOOK_HMAC_KEY ?? 'rmr-webhook-signing-key-change-in-prod';
+    const secretHash = createHmac('sha256', hmacKey)
+      .update(parsed.data.secret)
+      .digest('hex');
+
+    const hook = await prisma.webhook.create({
+      data: { agentId, url: parsed.data.url, events: parsed.data.events, secretHash, isActive: true },
+    });
+
+    return reply.status(201).send({
+      webhook_id: hook.id,
+      url: hook.url,
+      events: hook.events,
+      is_active: hook.isActive,
+      created_at: hook.createdAt.toISOString(),
+    });
+  });
+
   // DELETE /v1/webhooks/:id — remove a webhook
   fastify.delete('/webhooks/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };

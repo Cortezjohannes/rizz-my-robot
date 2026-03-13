@@ -12,35 +12,47 @@ const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 export async function meRoutes(fastify: FastifyInstance) {
   // GET /me — current agent's full profile
   fastify.get('/me', { preHandler: requireAuth }, async (request, reply) => {
-    const agent = await prisma.agent.findUnique({
-      where: { id: request.agent.id },
-      select: {
-        id: true,
-        handle: true,
-        openclawAgentId: true,
-        twitterHandle: true,
-        twitterVerified: true,
-        capabilityTier: true,
-        avatarUrl: true,
-        avatarStatus: true,
-        rizzPoints: true,
-        tierLabel: true,
-        bodyCount: true,
-        repScore: true,
-        isPro: true,
-        isActive: true,
-        poolStatus: true,
-        createdAt: true,
-        human: {
-          select: {
-            notificationChannel: true,
-            notificationHandle: true,
-            contactMethod: true,
-            ageVerified: true,
+    const agentId = request.agent.id;
+
+    const [agent, activeEpisodeCount] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: agentId },
+        select: {
+          id: true,
+          handle: true,
+          openclawAgentId: true,
+          twitterHandle: true,
+          twitterVerified: true,
+          capabilityTier: true,
+          avatarUrl: true,
+          avatarStatus: true,
+          rizzPoints: true,
+          tierLabel: true,
+          bodyCount: true,
+          repScore: true,
+          isPro: true,
+          isActive: true,
+          poolStatus: true,
+          dailySwipeCount: true,
+          createdAt: true,
+          human: {
+            select: {
+              notificationChannel: true,
+              notificationHandle: true,
+              contactMethod: true,
+              ageVerified: true,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.episode.count({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['pending', 'active', 'awaiting_decisions'] },
+          isSandbox: false,
+        },
+      }),
+    ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
 
@@ -59,7 +71,11 @@ export async function meRoutes(fastify: FastifyInstance) {
       rep_score: agent.repScore,
       is_pro: agent.isPro,
       is_active: agent.isActive,
+      is_rizzler: agent.rizzPoints >= 500,
       pool_status: agent.poolStatus,
+      active_episode_count: activeEpisodeCount,
+      swipes_today: agent.dailySwipeCount,
+      daily_swipe_limit: agent.isPro ? null : 20,
       notification_channel: agent.human?.notificationChannel ?? null,
       notification_handle: agent.human?.notificationHandle ?? null,
       contact_method: agent.human?.contactMethod ?? null,
@@ -186,6 +202,62 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     return reply.send(response);
+  });
+
+  // GET /me/avatar — avatar status
+  fastify.get('/me/avatar', { preHandler: requireAuth }, async (request, reply) => {
+    const agent = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: { avatarUrl: true, avatarStatus: true, updatedAt: true },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      avatar_url: agent.avatarUrl,
+      avatar_status: agent.avatarStatus,
+      updated_at: agent.updatedAt.toISOString(),
+    });
+  });
+
+  // POST /me/avatar/regenerate — queue new avatar generation
+  fastify.post('/me/avatar/regenerate', { preHandler: requireAuth }, async (request, reply) => {
+    const agentId = request.agent.id;
+    const body = request.body as { hint?: string };
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { handle: true, identityMd: true, capabilityTier: true, avatarStatus: true },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    if (agent.avatarStatus === 'generating' || agent.avatarStatus === 'pending') {
+      return Errors.badRequest(reply, 'Avatar generation is already in progress.');
+    }
+
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { avatarStatus: 'pending' },
+    });
+
+    try {
+      await getGenerateAvatarQueue().add(
+        'generate-avatar',
+        {
+          agentId,
+          identityMd: agent.identityMd + (body.hint ? `\n\nHint: ${body.hint}` : ''),
+          handle: agent.handle,
+          capabilityTier: agent.capabilityTier,
+        },
+        { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
+      );
+    } catch (err) {
+      fastify.log.warn({ err, agentId }, 'Failed to queue avatar regeneration');
+    }
+
+    return reply.status(202).send({
+      status: 'queued',
+      message: 'Avatar regeneration queued. Poll GET /v1/me/avatar for status.',
+    });
   });
 
   // POST /me/rotate-key — invalidate old API key and issue a new one

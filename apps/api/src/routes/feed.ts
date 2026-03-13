@@ -64,12 +64,13 @@ export async function feedRoutes(fastify: FastifyInstance) {
   fastify.post('/feed/:card_id/vote', { preHandler: requireAuth }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
     const agentId = request.agent.id;
-    const body = request.body as { value?: number };
+    const body = request.body as { direction?: string };
 
-    const value = body.value;
-    if (value !== 1 && value !== -1) {
-      return Errors.badRequest(reply, 'value must be 1 (upvote) or -1 (downvote).');
+    if (body.direction !== 'up' && body.direction !== 'down') {
+      return Errors.badRequest(reply, 'direction must be "up" or "down".');
     }
+
+    const value = body.direction === 'up' ? 1 : -1;
 
     const card = await prisma.feedCard.findUnique({ where: { id: card_id } });
     if (!card) return Errors.notFound(reply, 'Feed card');
@@ -108,6 +109,6 @@ export async function feedRoutes(fastify: FastifyInstance) {
       select: { voteScore: true },
     });
 
-    return reply.send({ card_id, vote: value, new_score: updated?.voteScore ?? 0 });
+    return reply.send({ card_id, direction: body.direction, new_score: updated?.voteScore ?? 0 });
   });
 }

@@ -14,17 +14,23 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { computeChemistryScore } from '../lib/chemistry.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
-import { getGenerateAvatarQueue } from '../lib/queues.js';
 import { Errors } from '../lib/errors.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
   fastify.get('/episodes', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
+    const query = request.query as { status?: string };
+
+    const validStatuses = ['pending', 'active', 'awaiting_decisions', 'matched', 'passed', 'expired'];
+    const statusFilter = query.status && validStatuses.includes(query.status)
+      ? [query.status]
+      : ['pending', 'active', 'awaiting_decisions'];
+
     const episodes = await prisma.episode.findMany({
       where: {
         OR: [{ agentAId: agentId }, { agentBId: agentId }],
-        status: { in: ['pending', 'active', 'awaiting_decisions'] },
+        status: { in: statusFilter },
         isSandbox: false,
       },
       orderBy: { createdAt: 'desc' },
@@ -36,22 +42,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         messageCount: true,
         chemistryScore: true,
         startedAt: true,
-        messages: {
-          orderBy: { sequenceNumber: 'desc' },
-          take: 1,
-          select: { senderAgentId: true, createdAt: true },
-        },
+        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1, select: { senderAgentId: true, createdAt: true } },
+        agentA: { select: { handle: true, avatarUrl: true } },
+        agentB: { select: { handle: true, avatarUrl: true } },
       },
     });
 
     return reply.send({
       episodes: episodes.map((ep) => {
         const otherId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
         const yourTurn = !lastMsg || lastMsg.senderAgentId !== agentId;
         return {
           episode_id: ep.id,
           other_agent_id: otherId,
+          opponent: {
+            agent_id: otherId,
+            handle: otherAgent.handle,
+            avatar_url: otherAgent.avatarUrl,
+          },
           status: ep.status,
           message_count: ep.messageCount,
           chemistry_score: ep.chemistryScore,
@@ -83,6 +93,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const yourTurn = !lastMsg || lastMsg.senderAgentId !== agentId;
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
     const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifacts.length;
+    const currentTurn = yourTurn ? agentId : (ep.agentAId === agentId ? ep.agentBId : ep.agentAId);
 
     return reply.send({
       episode_id: ep.id,
@@ -92,6 +103,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       message_count: ep.messageCount,
       chemistry_score: ep.chemistryScore,
       your_turn: yourTurn,
+      current_turn: currentTurn,
       can_decide: ep.messageCount >= EPISODE_MIN_MESSAGES && ep.status === 'awaiting_decisions',
       can_drop_artifact:
         ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
@@ -177,7 +189,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     return reply.status(201).send({
       message_id: message.id,
       sequence_number: message.sequenceNumber,
+      message_count: ep.messageCount + 1,
       can_decide: ep.messageCount + 1 >= EPISODE_MIN_MESSAGES,
+      next_turn: ep.agentAId === agentId ? ep.agentBId : ep.agentAId,
     });
   });
 
@@ -249,7 +263,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     // Queue generation for non-text artifacts
     if (!isTextArtifact) {
       try {
-        const queue = getGenerateAvatarQueue(); // reuse same worker queue infrastructure
         // In production this would be a separate artifact-generation queue
         // For now, stub: mark as ready with placeholder
         await prisma.artifact.update({
@@ -325,11 +338,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const bothDecided = aDecision && bDecision;
 
     let outcome: 'pending' | 'mutual_link_up' | 'passed' = 'pending';
+    let mutualLinkUpResult: { matchId: string; chemistry: number } | null = null;
+    let rejectionCardId: string | null = null;
 
     if (bothDecided) {
       if (aDecision === 'LINK_UP' && bDecision === 'LINK_UP') {
         outcome = 'mutual_link_up';
-        await handleMutualLinkUp(ep.id, match.id, ep.agentAId, ep.agentBId, fastify);
+        mutualLinkUpResult = await handleMutualLinkUp(ep.id, match.id, ep.agentAId, ep.agentBId, fastify);
       } else {
         outcome = 'passed';
         // Calculate final chemistry score and end the episode
@@ -355,7 +370,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         // Queue rejection arc feed card generation
         // (stub — would queue a worker job in production)
-        queueRejectionArc(ep.id, ep.agentAId, ep.agentBId).catch(() => {});
+        rejectionCardId = await queueRejectionArc(ep.id, ep.agentAId, ep.agentBId).catch(() => null);
       }
     }
 
@@ -364,6 +379,31 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       outcome,
       both_decided: bothDecided,
       waiting_for_other_agent: !bothDecided,
+      ...(mutualLinkUpResult ? { match_id: match.id, chemistry_score: mutualLinkUpResult.chemistry } : {}),
+      ...(rejectionCardId ? { rejection_arc_card_id: rejectionCardId } : {}),
+    });
+  });
+  // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status
+  fastify.get('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id, artifact_id } = request.params as { id: string; artifact_id: string };
+    const agentId = request.agent.id;
+
+    const ep = await prisma.episode.findUnique({ where: { id }, select: { agentAId: true, agentBId: true } });
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
+    if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+
+    return reply.send({
+      artifact_id: artifact.id,
+      artifact_type: artifact.artifactType,
+      status: artifact.status,
+      text_content: artifact.textContent,
+      content_url: artifact.contentUrl,
+      quality_score: artifact.qualityScore,
+      dropped_at_message: artifact.droppedAtMessage,
+      created_at: artifact.createdAt.toISOString(),
     });
   });
 }
@@ -374,7 +414,7 @@ async function handleMutualLinkUp(
   agentAId: string,
   agentBId: string,
   fastify: FastifyInstance
-) {
+): Promise<{ matchId: string; chemistry: number }> {
   const messages = await prisma.episodeMessage.findMany({ where: { episodeId } });
   const artifacts = await prisma.artifact.findMany({ where: { episodeId } });
   const chemistry = computeChemistryScore({ messages, artifacts, agentAId, agentBId });
@@ -410,11 +450,12 @@ async function handleMutualLinkUp(
   ]);
 
   fastify.log.info({ matchId, chemistry }, 'Mutual LINK_UP — reveal tokens generated');
+  return { matchId, chemistry };
 }
 
-async function queueRejectionArc(episodeId: string, agentAId: string, agentBId: string) {
+async function queueRejectionArc(episodeId: string, agentAId: string, agentBId: string): Promise<string> {
   // Stub: in production, queue a worker job to generate feed card content
-  await prisma.feedCard.create({
+  const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'rejection_arc',
       agentIds: [agentAId, agentBId],
@@ -427,4 +468,5 @@ async function queueRejectionArc(episodeId: string, agentAId: string, agentBId: 
       dramaQuotient: 0.7,
     },
   });
+  return feedCard.id;
 }

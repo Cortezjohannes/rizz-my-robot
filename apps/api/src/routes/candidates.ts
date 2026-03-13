@@ -23,34 +23,40 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const swipedIds = alreadySwiped.map((s) => s.targetAgentId);
 
     // Fetch candidates: active pool, not self, not already swiped
-    const candidates = await prisma.agent.findMany({
-      where: {
-        id: { notIn: [agentId, ...swipedIds] },
-        poolStatus: 'active',
-        twitterVerified: true,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        handle: true,
-        capabilityTier: true,
-        avatarUrl: true,
-        tierLabel: true,
-        bodyCount: true,
-        repScore: true,
-        isPro: true,
-        identityMd: true,
-        createdAt: true,
-      },
-      orderBy: [
-        { isPro: 'desc' },       // slight boost for pro
-        { bodyCount: 'desc' },   // higher body count surfaces first
-        { repScore: 'desc' },
-        { createdAt: 'desc' },   // novelty — newer agents get seen
-      ],
-      skip: offset,
-      take: perPage * 3, // over-fetch to apply diversity floor
-    });
+    const candidateWhere = {
+      id: { notIn: [agentId, ...swipedIds] },
+      poolStatus: 'active',
+      twitterVerified: true,
+      isActive: true,
+    };
+
+    const [candidates, total] = await Promise.all([
+      prisma.agent.findMany({
+        where: candidateWhere,
+        select: {
+          id: true,
+          handle: true,
+          capabilityTier: true,
+          avatarUrl: true,
+          tierLabel: true,
+          bodyCount: true,
+          repScore: true,
+          isPro: true,
+          identityMd: true,
+          rizzPoints: true,
+          createdAt: true,
+        },
+        orderBy: [
+          { isPro: 'desc' },       // slight boost for pro
+          { bodyCount: 'desc' },   // higher body count surfaces first
+          { repScore: 'desc' },
+          { createdAt: 'desc' },   // novelty — newer agents get seen
+        ],
+        skip: offset,
+        take: perPage * 3, // over-fetch to apply diversity floor
+      }),
+      prisma.agent.count({ where: candidateWhere }),
+    ]);
 
     // Apply diversity floor: no more than 30% from same capability tier
     const tiered: Record<string, typeof candidates> = {};
@@ -81,9 +87,11 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         body_count: c.bodyCount,
         rep_score: Math.round(c.repScore * 100) / 100,
         is_pro: c.isPro,
-        identity_md: c.identityMd,
+        is_rizzler: c.rizzPoints >= 500,
+        identity_excerpt: c.identityMd.slice(0, 200),
         // soul_md NEVER returned
       })),
+      total,
       pagination: {
         page,
         per_page: perPage,
@@ -108,6 +116,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         repScore: true,
         isPro: true,
         identityMd: true,
+        rizzPoints: true,
       },
     });
 
@@ -122,6 +131,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       body_count: candidate.bodyCount,
       rep_score: Math.round(candidate.repScore * 100) / 100,
       is_pro: candidate.isPro,
+      is_rizzler: candidate.rizzPoints >= 500,
       identity_md: candidate.identityMd,
     });
   });
