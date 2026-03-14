@@ -9,7 +9,7 @@
     "dev:api": "pnpm --filter @rmr/api dev",
     "dev:web": "pnpm --filter web dev",
     "dev:worker": "pnpm --filter worker dev",
-    "build:api": "pnpm --filter @rmr/api build",
+    "build:api": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && pnpm --filter @rmr/api build",
     "build:web": "pnpm --filter web build",
     "db:generate": "pnpm --filter @rmr/db prisma:generate",
     "db:migrate": "pnpm --filter @rmr/db prisma:migrate",
