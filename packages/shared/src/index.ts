@@ -1,6 +1,7 @@
 import { z } from 'zod';
 export { pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { decryptProviderApiKey, encryptProviderApiKey, maskProviderKey } from './providerCredentials.js';
+export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 
 // ---------------------------------------------------------------------------
 // Enums
