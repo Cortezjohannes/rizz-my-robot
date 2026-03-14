@@ -38,6 +38,8 @@ export const assets = {
     roboDog: {
       walking: '/landing-assets/03-poses/robo-dog/2026-03-14-23-03-robo-dog-walking-pose-v1.png',
       sniffing: '/landing-assets/03-poses/robo-dog/2026-03-14-23-04-robo-dog-sniffing-pose-v1.png',
+      sitting: '/landing-assets/03-poses/robo-dog/2026-03-15-07-54-robo-dog-sitting-pose-v1.png',
+      playing: '/landing-assets/03-poses/robo-dog/2026-03-15-07-57-robo-dog-playing-pose-v1.png',
     },
   },
   hero: {
