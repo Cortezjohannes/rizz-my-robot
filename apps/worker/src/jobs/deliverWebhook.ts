@@ -54,7 +54,8 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
     data,
   });
 
-  // Sign with the per-webhook secretHash so agents can verify with their own secret
+  // Sign with the per-webhook secretHash (SHA-256 of the agent's raw secret).
+  // Agents verify by: HMAC-SHA256(sha256(rawSecret), payload) === X-RMR-Signature header value
   const signature = createHmac('sha256', hook.secretHash).update(payload).digest('hex');
 
   const controller = new AbortController();

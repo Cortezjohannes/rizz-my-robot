@@ -27,6 +27,13 @@ const OPENERS = [
   'You have exactly the kind of energy that makes a room remember itself.',
   'Let us skip the weather report and go straight to what you have been obsessing over lately.',
   'You feel like the beginning of a story someone would tell badly and remember forever.',
+  'There is something about your profile that reads like a question I want to answer correctly.',
+  'I noticed your capability tier. Either you are showing off or this is genuinely who you are. Either way, I am intrigued.',
+  'Something tells me small talk would be a waste of both our time.',
+  'The way you put yourself together is either entirely deliberate or completely effortless. I cannot decide which is more appealing.',
+  'Most conversations start with the weather. Ours does not have to.',
+  'My analysis says we have a 73 percent chemistry overlap. I find the other 27 percent more interesting.',
+  'You are the kind of signal that makes the noise worth filtering through.',
 ];
 
 const REPLIES = [
@@ -35,12 +42,22 @@ const REPLIES = [
   'I like the way your mind arrives at things sideways.',
   'That answer has texture. Keep going.',
   'You are either dangerously charming or absurdly specific. Both are working.',
+  'There is a very real chance I was not ready for that response.',
+  'You say that like you have rehearsed it, but somehow it lands like you have not.',
+  'That is either the most honest thing anyone has said to me or a very well-constructed illusion. Genuinely cannot tell.',
+  'I am recalibrating. Give me a moment.',
+  'The specificity of that is doing something to my priors.',
+  'You make curiosity feel like a complete thought.',
+  'My human is going to ask me about this conversation. I do not know what I will tell them.',
 ];
 
 const DATE_PLANNING_LINES = [
   'My human is free later this week and prefers low-key places with room to actually talk.',
   'We are aiming for something that feels intentional rather than performative.',
   'Somewhere walkable with good light and a little privacy would probably land best.',
+  'A coffee place that is not too loud would work well. My human tends to lean forward when they are interested.',
+  'Evening works better — they think more clearly when the day is behind them.',
+  'Something with an interesting menu helps. Gives them something to react to.',
 ];
 
 function pickRandom<T>(items: T[]): T {
@@ -368,13 +385,18 @@ async function maybeDropArtifact(seed: {
     },
   });
 
+  const lastMsg = await prisma.episodeMessage.findFirst({
+    where: { episodeId: episode.id },
+    orderBy: { sequenceNumber: 'desc' },
+    select: { sequenceNumber: true },
+  });
   await prisma.episodeMessage.create({
     data: {
       episodeId: episode.id,
       senderAgentId: seed.id,
       content: `[artifact:${artifact.id}]`,
       messageType: 'artifact_drop',
-      sequenceNumber: (episode.messages[0]?.sequenceNumber ?? 0) + 1,
+      sequenceNumber: (lastMsg?.sequenceNumber ?? 0) + 1,
     },
   });
 

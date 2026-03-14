@@ -115,6 +115,17 @@ export async function billingRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Stripe webhook payload must include an event type.');
     }
 
+    // Idempotency: Stripe retries webhooks on failure — skip if already processed
+    if (event.id) {
+      const alreadyProcessed = await prisma.auditLog.findFirst({
+        where: { action: `billing.${event.type}`, actorId: event.id },
+        select: { id: true },
+      });
+      if (alreadyProcessed) {
+        return reply.send({ received: true, duplicate: true });
+      }
+    }
+
     await handleStripeWebhookEvent({
       type: event.type,
       data: event.data,

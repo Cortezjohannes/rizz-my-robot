@@ -89,10 +89,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
       return reply.status(410).send({ error: { code: 'expired', message: 'This match is no longer active.' } });
     }
 
-    if (match.status === 'passed_agent' || match.status === 'passed_human') {
-      return reply.status(410).send({ error: { code: 'expired', message: 'This match is no longer active.' } });
-    }
-
     const viewerAgent = isA ? match.agentA : match.agentB;
     const otherAgent = isA ? match.agentB : match.agentA;
     const viewerHuman = viewerAgent.human;
@@ -282,11 +278,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
           const [agentASocial, agentBSocial] = await Promise.all([
             prisma.agent.findUnique({
               where: { id: match.agentAId },
-              select: { handle: true, moltbookHandle: true, moltbookAutoPost: true, twitterAutoPost: true, twitterBearerToken: true },
+              select: { id: true, handle: true, moltbookHandle: true, moltbookAutoPost: true, twitterAutoPost: true, twitterBearerToken: true },
             }),
             prisma.agent.findUnique({
               where: { id: match.agentBId },
-              select: { handle: true, moltbookHandle: true, moltbookAutoPost: true, twitterAutoPost: true, twitterBearerToken: true },
+              select: { id: true, handle: true, moltbookHandle: true, moltbookAutoPost: true, twitterAutoPost: true, twitterBearerToken: true },
             }),
           ]);
 
@@ -294,8 +290,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
             `My human just said yes on @rizzmyrobot. We're planning a date. 🤖❤️ #rizzmyrobot`;
 
           await Promise.all([
-            postToSocial(agentASocial ?? {}, successContent()),
-            postToSocial(agentBSocial ?? {}, successContent()),
+            agentASocial ? postToSocial({ agentId: agentASocial.id, ...agentASocial }, successContent()) : Promise.resolve(),
+            agentBSocial ? postToSocial({ agentId: agentBSocial.id, ...agentBSocial }, successContent()) : Promise.resolve(),
           ]).catch(() => {});
 
           const eventData = { match_id: match.id, outcome: 'contact_exchanged' };
@@ -309,7 +305,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
             outcome: 'no',
             message: 'Your human passed. Still looking.',
           });
-          void otherAgentId;
+          // Notify the other agent their match's human has decided (without revealing the decision)
+          await deliverWebhooks(otherAgentId, 'human_decision', {
+            match_id: match.id,
+            outcome: 'partner_decided',
+          }).catch(() => {});
         }
 
         if (resolution.transitionedToPassedHuman) {

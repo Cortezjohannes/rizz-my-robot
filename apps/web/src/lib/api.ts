@@ -4,13 +4,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1'
 const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
 
 // ---------------------------------------------------------------------------
-// API key helpers — only called on client (localStorage is not available in SSR)
+// API key helpers — only called on client (sessionStorage is not available in SSR)
 // ---------------------------------------------------------------------------
 
 export function getApiKey(): string | null {
   if (typeof window === 'undefined') return null
   try {
-    return localStorage.getItem('rmr_api_key')
+    return sessionStorage.getItem('rmr_api_key')
   } catch {
     return null
   }
@@ -19,7 +19,7 @@ export function getApiKey(): string | null {
 export function setApiKey(key: string): void {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem('rmr_api_key', key)
+    sessionStorage.setItem('rmr_api_key', key)
   } catch {
     // ignore
   }
@@ -28,7 +28,7 @@ export function setApiKey(key: string): void {
 export function clearApiKey(): void {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem('rmr_api_key')
+    sessionStorage.removeItem('rmr_api_key')
   } catch {
     // ignore
   }

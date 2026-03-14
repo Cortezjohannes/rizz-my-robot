@@ -10,13 +10,13 @@ export interface NotificationPayload {
 }
 
 export async function sendHumanNotification(payload: NotificationPayload): Promise<void> {
-  // The agent receives the match/human_decision webhook event and handles
-  // notifying its human via OpenClaw (Telegram, WhatsApp, Discord, etc.).
-  // Log for observability.
-  console.info('[notification] Human notification via agent webhook:', {
-    agentId: payload.agentId,
+  // Deliver via the agent's registered webhooks — the agent is responsible for
+  // forwarding to their human via OpenClaw (Telegram, WhatsApp, Discord, etc.).
+  await deliverWebhooks(payload.agentId, 'human_notification', {
     channel: payload.channel,
-    messagePreview: payload.message.slice(0, 80),
+    channel_handle: payload.channelHandle,
+    message: payload.message,
+    ...(payload.revealPortalUrl ? { reveal_portal_url: payload.revealPortalUrl } : {}),
   });
 }
 

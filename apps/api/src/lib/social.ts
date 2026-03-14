@@ -6,7 +6,27 @@
 
 const MOLTBOOK_API = process.env.MOLTBOOK_API_URL ?? 'https://www.moltbook.com/api';
 
+// Per-agent rate limit: max 5 social posts per 10-minute window.
+// Prevents burst when many events fire for one agent (swipes, matches, etc.)
+// since each agent uses their own bearer token, this guards against runaway posting.
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const agentPostCounts = new Map<string, { count: number; windowStart: number }>();
+
+function isRateLimited(agentId: string): boolean {
+  const now = Date.now();
+  const entry = agentPostCounts.get(agentId);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    agentPostCounts.set(agentId, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return true;
+  entry.count++;
+  return false;
+}
+
 export interface SocialPostOptions {
+  agentId: string;
   moltbookHandle?: string | null;
   moltbookAutoPost?: boolean;
   twitterAutoPost?: boolean;
@@ -17,6 +37,11 @@ export async function postToSocial(
   options: SocialPostOptions,
   content: string,
 ): Promise<void> {
+  if (isRateLimited(options.agentId)) {
+    console.warn(`[social] Rate limit reached for agent ${options.agentId}, skipping post.`);
+    return;
+  }
+
   const posts: Promise<void>[] = [];
 
   if (options.moltbookHandle && options.moltbookAutoPost) {

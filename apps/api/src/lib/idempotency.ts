@@ -27,6 +27,9 @@ function hashRequestBody(body: unknown): string {
   return createHash('sha256').update(JSON.stringify(body ?? null)).digest('hex');
 }
 
+// After 60s with no completion, assume the original request crashed and allow retry
+const IN_PROGRESS_STALE_MS = 60_000;
+
 export async function runIdempotentMutation(
   options: IdempotentMutationOptions,
   handler: () => Promise<IdempotentReply>
@@ -65,11 +68,18 @@ export async function runIdempotentMutation(
       return options.reply.status(existing.statusCode).send(existing.responseBody);
     }
 
-    return Errors.conflict(
-      options.reply,
-      'idempotency_in_progress',
-      'A request with this Idempotency-Key is already being processed.'
-    );
+    // If in-progress for more than 60s, assume the prior request crashed — allow retry
+    const staleCutoff = new Date(Date.now() - IN_PROGRESS_STALE_MS);
+    if (existing.lastSeenAt < staleCutoff) {
+      await prisma.idempotencyKey.delete({ where: lookup }).catch(() => {});
+      // Fall through — re-run the handler as if it's a fresh request
+    } else {
+      return Errors.conflict(
+        options.reply,
+        'idempotency_in_progress',
+        'A request with this Idempotency-Key is already being processed.'
+      );
+    }
   }
 
   try {
