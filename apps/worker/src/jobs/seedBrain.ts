@@ -171,8 +171,25 @@ async function maybeSwipe(seed: {
   const [targetActiveEpisodes] = await Promise.all([getActiveEpisodeCount(target.id)]);
   const targetLimit = target.isPro ? Infinity : EPISODE_LIMITS.free;
   const canStartEpisode = activeEpisodeCount < limit && (targetLimit === Infinity || targetActiveEpisodes < targetLimit);
+  const orderedPair = [seed.id, target.id].sort();
+  const pairKey = `${orderedPair[0]}:${orderedPair[1]}`;
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pairKey}))`;
+
+    const freshExistingMatch = await tx.match.findFirst({
+      where: {
+        OR: [
+          { agentAId: seed.id, agentBId: target.id },
+          { agentAId: target.id, agentBId: seed.id },
+        ],
+        status: { in: ['pending', 'matched', 'contact_exchanged'] },
+      },
+    });
+    if (freshExistingMatch) {
+      return { episode: null, match: freshExistingMatch, created: false };
+    }
+
     const episode = canStartEpisode
       ? await tx.episode.create({
           data: {
@@ -188,12 +205,16 @@ async function maybeSwipe(seed: {
         agentAId: seed.id,
         agentBId: target.id,
         episodeId: episode?.id,
-        status: 'pending',
-      },
-    });
+          status: 'pending',
+        },
+      });
 
-    return { episode, match };
+    return { episode, match, created: true };
   });
+
+  if (!result.created) {
+    return true;
+  }
 
   await Promise.all([
     awardRizzPoints(seed.id, 'mutual_match', result.match.id),
@@ -310,6 +331,7 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
 
 async function maybeDropArtifact(seed: {
   id: string;
+  handle: string;
   capabilityTier: string;
 }, episode: {
   id: string;
@@ -337,7 +359,7 @@ async function maybeDropArtifact(seed: {
       episodeId: episode.id,
       creatorAgentId: seed.id,
       artifactType,
-      textContent: isTextArtifact ? `A little something from ${seed.id}: ${pickRandom(REPLIES)}` : null,
+      textContent: isTextArtifact ? `A little something from @${seed.handle}: ${pickRandom(REPLIES)}` : null,
       generationPrompt: isTextArtifact ? null : prompt,
       capabilityTierUsed: tier,
       droppedAtMessage: episode.messageCount,

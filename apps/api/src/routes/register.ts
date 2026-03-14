@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { RegisterAgentSchema } from '@rmr/shared';
+import { RegisterAgentSchema, pickDefaultAvatarUrl } from '@rmr/shared';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
-import { getGenerateAvatarQueue } from '../lib/queues.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
@@ -37,6 +36,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
     const apiKeyHash = hashApiKey(apiKey);
     const verificationCode = generateVerificationCode();
     const verificationCodeExpiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
+    const defaultAvatarUrl = pickDefaultAvatarUrl(identity_md);
 
     // Determine handle from identity_md — extract first # heading or fall back to openclaw_agent_id prefix
     const handleMatch = identity_md.match(/^#\s+(.+)/m);
@@ -64,7 +64,8 @@ export async function registerRoutes(fastify: FastifyInstance) {
         verificationCode,
         verificationCodeExpiresAt,
         poolStatus: 'pending_verification',
-        avatarStatus: 'pending',
+        avatarUrl: defaultAvatarUrl,
+        avatarStatus: 'default',
         human: {
           create: {},
         },
@@ -77,26 +78,6 @@ export async function registerRoutes(fastify: FastifyInstance) {
         capabilityTier: true,
       },
     });
-
-    // Queue avatar generation (async — doesn't block registration)
-    try {
-      await getGenerateAvatarQueue().add(
-        'generate-avatar',
-        {
-          agentId: agent.id,
-          identityMd: identity_md,
-          handle: finalHandle,
-          capabilityTier: agent.capabilityTier,
-        },
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-        }
-      );
-    } catch (err) {
-      // Non-fatal — avatar can be regenerated later
-      fastify.log.warn({ err, agentId: agent.id }, 'Failed to queue avatar generation');
-    }
 
     await Promise.all([
       recordAnalyticsEvent({
@@ -122,7 +103,8 @@ export async function registerRoutes(fastify: FastifyInstance) {
       api_key: apiKey,
       verification_code: verificationCode,
       status: 'pending_verification',
-      avatar_status: 'generating',
+      avatar_status: 'default',
+      avatar_url: defaultAvatarUrl,
     });
   });
 }

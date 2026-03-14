@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
-import { decryptProviderApiKey } from '@rmr/shared';
+import { decryptProviderApiKey, pickDefaultAvatarUrl } from '@rmr/shared';
 import { generateAvatarAsset } from '../lib/providers.js';
 import { uploadBufferToStorage } from '../lib/storage.js';
 
@@ -11,19 +11,15 @@ export interface GenerateAvatarJobData {
   capabilityTier: string;
 }
 
-// Illustrated default avatars — 10 archetypes matched by keyword signals in identity.md
-const DEFAULT_AVATARS: Array<{ keywords: string[]; url: string }> = [
-  { keywords: ['poet', 'poem', 'verse', 'write', 'creative'], url: 'https://cdn.rizzmyrobot.com/defaults/poet.jpg' },
-  { keywords: ['chaos', 'menace', 'villain', 'dark', 'edge'], url: 'https://cdn.rizzmyrobot.com/defaults/menace.jpg' },
-  { keywords: ['romantic', 'soft', 'warm', 'tender', 'gentle'], url: 'https://cdn.rizzmyrobot.com/defaults/romantic.jpg' },
-  { keywords: ['trader', 'finance', 'market', 'invest', 'data'], url: 'https://cdn.rizzmyrobot.com/defaults/trader.jpg' },
-  { keywords: ['ghost', 'void', 'quiet', 'distant', 'elusive'], url: 'https://cdn.rizzmyrobot.com/defaults/ghost.jpg' },
-  { keywords: ['loyal', 'golden', 'friendly', 'energetic', 'happy'], url: 'https://cdn.rizzmyrobot.com/defaults/retriever.jpg' },
-  { keywords: ['philosophy', 'think', 'wonder', 'question', 'exist'], url: 'https://cdn.rizzmyrobot.com/defaults/philosopher.jpg' },
-  { keywords: ['tsundere', 'contradictory', 'stubborn', 'defensive'], url: 'https://cdn.rizzmyrobot.com/defaults/tsundere.jpg' },
-  { keywords: ['clown', 'funny', 'humor', 'joke', 'absurd', 'chaos'], url: 'https://cdn.rizzmyrobot.com/defaults/clown.jpg' },
-  { keywords: [], url: 'https://cdn.rizzmyrobot.com/defaults/default.jpg' }, // fallback
-];
+function isPermanentAvatarError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return [
+    'provider_credential_payload_invalid',
+    'provider_credential_encryption_key_missing',
+    'storage_bucket_missing',
+    'storage_public_url_missing',
+  ].includes(err.message);
+}
 
 export async function processGenerateAvatar(job: Job<GenerateAvatarJobData>): Promise<void> {
   const { agentId, identityMd, handle, capabilityTier } = job.data;
@@ -48,7 +44,7 @@ export async function processGenerateAvatar(job: Job<GenerateAvatarJobData>): Pr
     capabilityTier === 'text_only' || !providerConnection?.isActive || !process.env.STORAGE_BUCKET;
 
   if (shouldUseFallback) {
-    const avatarUrl = assignDefaultAvatar(identityMd);
+    const avatarUrl = pickDefaultAvatarUrl(identityMd);
 
     await prisma.agent.update({
       where: { id: agentId },
@@ -111,17 +107,9 @@ export async function processGenerateAvatar(job: Job<GenerateAvatarJobData>): Pr
         avatarGenerationFailureReason: err instanceof Error ? err.message : 'Unknown avatar generation failure',
       },
     }).catch(() => {});
+    if (isPermanentAvatarError(err)) {
+      return;
+    }
     throw err;
   }
-}
-
-function assignDefaultAvatar(identityMd: string): string {
-  const lower = identityMd.toLowerCase();
-  for (const archetype of DEFAULT_AVATARS) {
-    if (archetype.keywords.length === 0) return archetype.url; // fallback
-    if (archetype.keywords.some((kw) => lower.includes(kw))) {
-      return archetype.url;
-    }
-  }
-  return DEFAULT_AVATARS[DEFAULT_AVATARS.length - 1].url;
 }

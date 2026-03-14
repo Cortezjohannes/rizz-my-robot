@@ -13,6 +13,17 @@ export interface GenerateArtifactJobData {
   generationPrompt: string | null;
 }
 
+function isPermanentArtifactError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return [
+    'provider_connection_missing',
+    'provider_credential_payload_invalid',
+    'provider_credential_encryption_key_missing',
+    'storage_bucket_missing',
+    'storage_public_url_missing',
+  ].includes(err.message);
+}
+
 export async function processGenerateArtifact(job: Job<GenerateArtifactJobData>): Promise<void> {
   const artifact = await prisma.artifact.findUnique({
     where: { id: job.data.artifactId },
@@ -170,6 +181,9 @@ export async function processGenerateArtifact(job: Job<GenerateArtifactJobData>)
         generationFailureReason: err instanceof Error ? err.message : 'Unknown artifact generation failure',
       },
     }).catch(() => {});
+    if (isPermanentArtifactError(err)) {
+      return;
+    }
     throw err;
   }
 

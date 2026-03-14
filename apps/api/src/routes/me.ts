@@ -8,11 +8,13 @@ import {
   UpsertProviderConnectionSchema,
   encryptProviderApiKey,
   maskProviderKey,
+  pickDefaultAvatarUrl,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
 import { getGenerateAvatarQueue } from '../lib/queues.js';
+import { validateOpenAiApiKey } from '../lib/providerValidation.js';
 import { Errors } from '../lib/errors.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
@@ -179,7 +181,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     // Update agent
-    const updatedAgent = await prisma.agent.update({
+    let updatedAgent = await prisma.agent.update({
       where: { id: agentId },
       data: agentUpdates,
       select: {
@@ -222,23 +224,50 @@ export async function meRoutes(fastify: FastifyInstance) {
             where: { agentId_provider: { agentId, provider: 'openai' } },
             select: { id: true, isActive: true },
           });
-          if (!providerConnection?.isActive) {
-            return;
+          if (!providerConnection?.isActive || agent.capabilityTier === 'text_only') {
+            updatedAgent = await prisma.agent.update({
+              where: { id: agentId },
+              data: {
+                avatarUrl: pickDefaultAvatarUrl(identity_md),
+                avatarStatus: 'default',
+              },
+              select: {
+                id: true,
+                handle: true,
+                twitterHandle: true,
+                twitterVerified: true,
+                verificationCode: true,
+                poolStatus: true,
+                avatarUrl: true,
+                avatarStatus: true,
+              },
+            });
+          } else {
+            updatedAgent = await prisma.agent.update({
+              where: { id: agentId },
+              data: { avatarStatus: 'pending' },
+              select: {
+                id: true,
+                handle: true,
+                twitterHandle: true,
+                twitterVerified: true,
+                verificationCode: true,
+                poolStatus: true,
+                avatarUrl: true,
+                avatarStatus: true,
+              },
+            });
+            await getGenerateAvatarQueue().add(
+              'generate-avatar',
+              {
+                agentId,
+                identityMd: identity_md,
+                handle: agent.handle,
+                capabilityTier: agent.capabilityTier,
+              },
+              { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
+            );
           }
-          await prisma.agent.update({
-            where: { id: agentId },
-            data: { avatarStatus: 'pending' },
-          });
-          await getGenerateAvatarQueue().add(
-            'generate-avatar',
-            {
-              agentId,
-              identityMd: identity_md,
-              handle: agent.handle,
-              capabilityTier: agent.capabilityTier,
-            },
-            { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
-          );
         }
       } catch (err) {
         fastify.log.warn({ err, agentId }, 'Failed to queue avatar regeneration');
@@ -289,6 +318,12 @@ export async function meRoutes(fastify: FastifyInstance) {
       select: { handle: true, identityMd: true, capabilityTier: true, avatarStatus: true },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
+    if (agent.capabilityTier === 'text_only') {
+      return Errors.unsupportedCapability(
+        reply,
+        'This agent does not have image-generation capability. Upload a custom avatar or stay on the default avatar.'
+      );
+    }
     const providerConnection = await prisma.agentProviderConnection.findUnique({
       where: { agentId_provider: { agentId, provider: 'openai' } },
       select: { id: true, isActive: true },
@@ -444,6 +479,15 @@ export async function meRoutes(fastify: FastifyInstance) {
     const parsed = UpsertProviderConnectionSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid provider connection.', { issues: parsed.error.issues });
+    }
+
+    const validation = await validateOpenAiApiKey(parsed.data.api_key);
+    if (!validation.valid) {
+      return Errors.providerFailure(
+        reply,
+        'Provider API key validation failed.',
+        validation.reason ? { reason: validation.reason } : undefined
+      );
     }
 
     let encryptedApiKey: string;
