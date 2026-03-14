@@ -1,4 +1,4 @@
-# Rizz My Robot Landing Assets — Status (2026-03-15 05:20)
+# Rizz My Robot Landing Assets — Status (2026-03-15 05:59)
 
 ## Assets Generated ✅
 - All 41 PNG assets complete
@@ -8,16 +8,17 @@
 - Hero: uses v3 PNG background
 - HowItWorks: uses section PNGs as step visuals
 - Asset manifest + components ready
-- Public folder populated
 
 ## Git ✅
-- 6 commits this session
+- 7+ commits this session
 
 ## Blocked ⚠️
-- Image gen API unavailable (no valid key)
+- Image gen API unavailable (Gemini key masked, Anthropic credits empty)
+- Tried Pollinations.ai: API error
 
-## Dead Code
-- ParkScene.tsx: unused (was replaced by PNG hero)
+## Alternative Found
+- Pollinations.ai has free image generation API
+- Could work as alternative if issues resolved
 
 ## Canon refs locked
 - Girl canon: `01-characters/girl/2026-03-14-21-36-girl-master-v2.png`
