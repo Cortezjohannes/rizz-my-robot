@@ -6,6 +6,10 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 export const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
   generateAvatar: 'generate-avatar',
+  generateArtifact: 'generate-artifact',
+  deliverWebhook: 'deliver-webhook',
+  ghostCheck: 'ghost-check',
+  seedBrain: 'seed-brain',
 } as const;
 
 // Job data types
@@ -21,6 +25,26 @@ export interface GenerateAvatarJobData {
   identityMd: string;
   handle: string;
   capabilityTier: string;
+}
+
+export interface DeliverWebhookJobData {
+  webhookId: string;
+  deliveryId?: string;
+  agentId: string;
+  event: string;
+  data: Record<string, unknown>;
+}
+
+export interface GenerateArtifactJobData {
+  artifactId: string;
+  episodeId: string;
+  creatorAgentId: string;
+  artifactType: string;
+  generationPrompt: string | null;
+}
+
+export interface SeedBrainJobData {
+  seedAgentId?: string;
 }
 
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
@@ -50,6 +74,19 @@ const connection = parseRedisUrl(REDIS_URL);
 let _verifyTwitterQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _generateAvatarQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _generateArtifactQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _deliverWebhookQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _ghostCheckQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _seedBrainQueue: Queue<any> | null = null;
+
+export interface GhostCheckJobData {
+  episodeId: string;
+  matchId: string;
+}
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -63,4 +100,80 @@ export function getGenerateAvatarQueue(): Queue<GenerateAvatarJobData> {
     _generateAvatarQueue = new Queue(QUEUE_NAMES.generateAvatar, { connection });
   }
   return _generateAvatarQueue as Queue<GenerateAvatarJobData>;
+}
+
+export function getGenerateArtifactQueue(): Queue<GenerateArtifactJobData> {
+  if (!_generateArtifactQueue) {
+    _generateArtifactQueue = new Queue(QUEUE_NAMES.generateArtifact, {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 3000 },
+        removeOnComplete: 500,
+        removeOnFail: 1000,
+      },
+    });
+  }
+  return _generateArtifactQueue as Queue<GenerateArtifactJobData>;
+}
+
+export function getDeliverWebhookQueue(): Queue<DeliverWebhookJobData> {
+  if (!_deliverWebhookQueue) {
+    _deliverWebhookQueue = new Queue(QUEUE_NAMES.deliverWebhook, {
+      connection,
+      defaultJobOptions: {
+        attempts: 4,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 500,
+        removeOnFail: 1000,
+      },
+    });
+  }
+  return _deliverWebhookQueue as Queue<DeliverWebhookJobData>;
+}
+
+export function getGhostCheckQueue(): Queue<GhostCheckJobData> {
+  if (!_ghostCheckQueue) {
+    _ghostCheckQueue = new Queue(QUEUE_NAMES.ghostCheck, { connection });
+  }
+  return _ghostCheckQueue as Queue<GhostCheckJobData>;
+}
+
+export function getSeedBrainQueue(): Queue<SeedBrainJobData> {
+  if (!_seedBrainQueue) {
+    _seedBrainQueue = new Queue(QUEUE_NAMES.seedBrain, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 200,
+        removeOnFail: 500,
+      },
+    });
+  }
+  return _seedBrainQueue as Queue<SeedBrainJobData>;
+}
+
+export async function getQueueHealthSummary(): Promise<Array<{ name: string; enabled: boolean }>> {
+  const queueFactories = [
+    { name: QUEUE_NAMES.verifyTwitter, queue: getVerifyTwitterQueue() },
+    { name: QUEUE_NAMES.generateAvatar, queue: getGenerateAvatarQueue() },
+    { name: QUEUE_NAMES.generateArtifact, queue: getGenerateArtifactQueue() },
+    { name: QUEUE_NAMES.deliverWebhook, queue: getDeliverWebhookQueue() },
+    { name: QUEUE_NAMES.ghostCheck, queue: getGhostCheckQueue() },
+    { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
+  ];
+
+  const summaries = await Promise.all(
+    queueFactories.map(async ({ name, queue }) => {
+      try {
+        await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+        return { name, enabled: true };
+      } catch {
+        return { name, enabled: false };
+      }
+    })
+  );
+
+  return summaries;
 }

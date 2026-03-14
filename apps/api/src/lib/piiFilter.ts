@@ -92,8 +92,13 @@ export function scanAndRedact(text: string): PiiScanResult {
 /**
  * Strict mode: reject if PII detected (used for outgoing messages).
  * Returns null if clean, or the flagged pattern name if PII found.
+ * Pass skipPatterns to allow specific pattern types through (e.g. ['social_handle']
+ * in date planning context where contact has already been exchanged).
  */
-export function strictPiiCheck(text: string): string | null {
-  const { hasPii, flaggedPatterns } = scanAndRedact(text);
-  return hasPii ? flaggedPatterns[0] : null;
+export function strictPiiCheck(text: string, skipPatterns?: string[]): string | null {
+  const { flaggedPatterns } = scanAndRedact(text);
+  const relevant = skipPatterns
+    ? flaggedPatterns.filter((p) => !skipPatterns.includes(p))
+    : flaggedPatterns;
+  return relevant.length > 0 ? relevant[0] : null;
 }

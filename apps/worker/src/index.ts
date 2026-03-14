@@ -1,16 +1,26 @@
-import { Worker } from 'bullmq';
+import { Worker, Queue } from 'bullmq';
 import { getRedisConnection } from './lib/redis.js';
 import { processVerifyTwitter, type VerifyTwitterJobData } from './jobs/verifyTwitter.js';
 import { processGenerateAvatar, type GenerateAvatarJobData } from './jobs/generateAvatar.js';
+import { processGenerateArtifact, type GenerateArtifactJobData } from './jobs/generateArtifact.js';
+import { processDeliverWebhook, type DeliverWebhookJobData } from './jobs/deliverWebhook.js';
+import { processGhostCheck, type GhostCheckJobData } from './jobs/ghostCheck.js';
+import { processExpireRevealTokens } from './jobs/expireRevealTokens.js';
+import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
   generateAvatar: 'generate-avatar',
+  generateArtifact: 'generate-artifact',
+  deliverWebhook: 'deliver-webhook',
+  ghostCheck: 'ghost-check',
+  expireRevealTokens: 'expire-reveal-tokens',
+  seedBrain: 'seed-brain',
 } as const;
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
 
-function startWorkers() {
+async function startWorkers() {
   const connection = getRedisConnection();
 
   const verifyTwitterWorker = new Worker<VerifyTwitterJobData>(
@@ -31,7 +41,49 @@ function startWorkers() {
     { connection, concurrency }
   );
 
-  for (const worker of [verifyTwitterWorker, generateAvatarWorker]) {
+  const generateArtifactWorker = new Worker<GenerateArtifactJobData>(
+    QUEUE_NAMES.generateArtifact,
+    async (job) => {
+      console.info(`[worker] Processing job ${job.id} (${job.name})`);
+      await processGenerateArtifact(job);
+    },
+    { connection, concurrency }
+  );
+
+  const deliverWebhookWorker = new Worker<DeliverWebhookJobData>(
+    QUEUE_NAMES.deliverWebhook,
+    async (job) => {
+      await processDeliverWebhook(job);
+    },
+    { connection, concurrency: 20 } // higher concurrency — these are fast HTTP calls
+  );
+
+  const ghostCheckWorker = new Worker<GhostCheckJobData>(
+    QUEUE_NAMES.ghostCheck,
+    async (job) => {
+      console.info(`[worker] Processing ghost check for episode ${job.data.episodeId}`);
+      await processGhostCheck(job);
+    },
+    { connection, concurrency }
+  );
+
+  const expireRevealTokensWorker = new Worker(
+    QUEUE_NAMES.expireRevealTokens,
+    async () => {
+      await processExpireRevealTokens();
+    },
+    { connection, concurrency: 1 }
+  );
+
+  const seedBrainWorker = new Worker<SeedBrainJobData>(
+    QUEUE_NAMES.seedBrain,
+    async (job) => {
+      await processSeedBrain(job);
+    },
+    { connection, concurrency: 2 }
+  );
+
+  for (const worker of [verifyTwitterWorker, generateAvatarWorker, generateArtifactWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, seedBrainWorker]) {
     worker.on('completed', (job) => {
       console.info(`[worker] Job ${job.id} completed`);
     });
@@ -45,13 +97,31 @@ function startWorkers() {
     });
   }
 
-  console.info('[worker] Started: verify-twitter, generate-avatar');
+  // Schedule expire-reveal-tokens to run every hour
+  const expireQueue = new Queue(QUEUE_NAMES.expireRevealTokens, { connection: getRedisConnection() });
+  await expireQueue.add('expire', {}, {
+    repeat: { every: 60 * 60 * 1000 },
+    jobId: 'expire-reveal-tokens-recurring',
+  });
+
+  const seedQueue = new Queue(QUEUE_NAMES.seedBrain, { connection: getRedisConnection() });
+  await seedQueue.add('seed-brain', {}, {
+    repeat: { every: parseInt(process.env.SEED_BRAIN_REPEAT_MS ?? '300000', 10) },
+    jobId: 'seed-brain-recurring',
+  });
+
+  console.info('[worker] Started: verify-twitter, generate-avatar, generate-artifact, deliver-webhook, ghost-check, expire-reveal-tokens, seed-brain');
 
   // Graceful shutdown
   const shutdown = async () => {
     console.info('[worker] Shutting down...');
     await verifyTwitterWorker.close();
     await generateAvatarWorker.close();
+    await generateArtifactWorker.close();
+    await deliverWebhookWorker.close();
+    await ghostCheckWorker.close();
+    await expireRevealTokensWorker.close();
+    await seedBrainWorker.close();
     process.exit(0);
   };
 

@@ -10,10 +10,19 @@ export async function webhookRoutes(fastify: FastifyInstance) {
   // GET /v1/webhooks — list registered webhooks
   fastify.get('/webhooks', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
+    const query = request.query as { cursor?: string; limit?: string };
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? '25', 10)));
 
     const hooks = await prisma.webhook.findMany({
       where: { agentId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(query.cursor
+        ? {
+            cursor: { id: query.cursor },
+            skip: 1,
+          }
+        : {}),
+      take: limit,
       select: {
         id: true,
         url: true,
@@ -31,6 +40,59 @@ export async function webhookRoutes(fastify: FastifyInstance) {
         is_active: h.isActive,
         created_at: h.createdAt.toISOString(),
       })),
+      next_cursor: hooks.length === limit ? hooks[hooks.length - 1]?.id ?? null : null,
+    });
+  });
+
+  fastify.get('/webhooks/:id/deliveries', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+    const query = request.query as { cursor?: string; limit?: string };
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? '25', 10)));
+
+    const hook = await prisma.webhook.findUnique({
+      where: { id },
+      select: { id: true, agentId: true },
+    });
+    if (!hook) return Errors.notFound(reply, 'Webhook');
+    if (hook.agentId !== agentId) return Errors.forbidden(reply);
+
+    const deliveries = await prisma.webhookDelivery.findMany({
+      where: { webhookId: id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(query.cursor
+        ? {
+            cursor: { id: query.cursor },
+            skip: 1,
+          }
+        : {}),
+      take: limit,
+      select: {
+        id: true,
+        event: true,
+        status: true,
+        attemptNumber: true,
+        responseStatusCode: true,
+        errorMessage: true,
+        latencyMs: true,
+        deliveredAt: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.send({
+      deliveries: deliveries.map((delivery) => ({
+        delivery_id: delivery.id,
+        event: delivery.event,
+        status: delivery.status,
+        attempt_number: delivery.attemptNumber,
+        response_status_code: delivery.responseStatusCode,
+        error_message: delivery.errorMessage,
+        latency_ms: delivery.latencyMs,
+        delivered_at: delivery.deliveredAt?.toISOString() ?? null,
+        created_at: delivery.createdAt.toISOString(),
+      })),
+      next_cursor: deliveries.length === limit ? deliveries[deliveries.length - 1]?.id ?? null : null,
     });
   });
 
@@ -69,6 +131,9 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       url: hook.url,
       events: hook.events,
       is_active: hook.isActive,
+      // Keep this — it's the signing key for all deliveries to this webhook.
+      // Verify incoming webhooks: HMAC-SHA256(raw_body, secret_hash) === X-RMR-Signature header value (without "sha256=" prefix).
+      secret_hash: hook.secretHash,
       created_at: hook.createdAt.toISOString(),
     });
   });
@@ -102,6 +167,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       url: hook.url,
       events: hook.events,
       is_active: hook.isActive,
+      secret_hash: hook.secretHash,
       created_at: hook.createdAt.toISOString(),
     });
   });

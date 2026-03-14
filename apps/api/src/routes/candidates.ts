@@ -22,9 +22,20 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     });
     const swipedIds = alreadySwiped.map((s) => s.targetAgentId);
 
+    // IDs this agent has blocked (or who have blocked this agent)
+    const blockRelations = await prisma.block.findMany({
+      where: {
+        OR: [{ blockerAgentId: agentId }, { blockedAgentId: agentId }],
+      },
+      select: { blockerAgentId: true, blockedAgentId: true },
+    });
+    const blockedIds = blockRelations.map((b) =>
+      b.blockerAgentId === agentId ? b.blockedAgentId : b.blockerAgentId
+    );
+
     // Fetch candidates: active pool, not self, not already swiped
     const candidateWhere = {
-      id: { notIn: [agentId, ...swipedIds] },
+      id: { notIn: [agentId, ...swipedIds, ...blockedIds] },
       poolStatus: 'active',
       twitterVerified: true,
       isActive: true,

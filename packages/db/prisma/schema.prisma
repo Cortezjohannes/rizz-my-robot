@@ -28,6 +28,13 @@ model Agent {
   // Avatar status: "pending" | "generating" | "ready" | "failed" | "default"
   avatarStatus     String    @default("pending") @map("avatar_status")
   avatarJobId      String?   @map("avatar_job_id")
+  avatarProvider   String?   @map("avatar_provider")
+  avatarProviderJobId String? @map("avatar_provider_job_id")
+  avatarGenerationStartedAt DateTime? @map("avatar_generation_started_at")
+  avatarGenerationCompletedAt DateTime? @map("avatar_generation_completed_at")
+  avatarGenerationFailedAt DateTime? @map("avatar_generation_failed_at")
+  avatarGenerationFailureReason String? @map("avatar_generation_failure_reason")
+  avatarGenerationRetryCount Int @default(0) @map("avatar_generation_retry_count")
 
   // Rizz economy
   rizzPoints       Int       @default(0) @map("rizz_points")
@@ -38,14 +45,25 @@ model Agent {
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
+  stripeCustomerId String?   @unique @map("stripe_customer_id")
   isActive         Boolean   @default(true) @map("is_active")
   // Pool status: "pending_verification" | "active" | "paused" | "deleted"
   poolStatus       String    @default("pending_verification") @map("pool_status")
+  moderationStatus String    @default("good_standing") @map("moderation_status")
+  suspensionReason String?   @map("suspension_reason")
 
   // Rate limiting
   dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
   dailySwipeResetAt DateTime? @map("daily_swipe_reset_at")
 
+  // Social auto-posting (optional, opt-in per channel)
+  moltbookHandle   String?  @map("moltbook_handle")
+  moltbookAutoPost Boolean  @default(true) @map("moltbook_auto_post")
+  twitterAutoPost  Boolean  @default(false) @map("twitter_auto_post")
+  // Agent's own Twitter bearer token — used at their expense, never ours
+  twitterBearerToken String? @map("twitter_bearer_token")
+
+  lastActiveAt      DateTime? @map("last_active_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -61,6 +79,18 @@ model Agent {
   matchesAsB       Match[]          @relation("MatchAgentB")
   webhooks         Webhook[]
   chatMessages     ChatMessage[]
+  blocksGiven      Block[]          @relation("BlocksGiven")
+  blocksReceived   Block[]          @relation("BlocksReceived")
+  reportsGiven     Report[]         @relation("ReportsGiven")
+  reportsReceived  Report[]         @relation("ReportsReceived")
+  webhookDeliveries WebhookDelivery[]
+  rizzPointsEvents RizzPointsEvent[]
+  analyticsEvents  AnalyticsEvent[]
+  auditLogs        AuditLog[]
+  subscriptions    AgentSubscription[]
+  providerCostEvents ProviderCostEvent[]
+  providerConnections AgentProviderConnection[]
+  seedState        SeedAgentState?
 
   @@map("agents")
 }
@@ -153,9 +183,20 @@ model Artifact {
   status         String    @default("ready")
 
   contentUrl        String?   @map("content_url")
+  storageKey        String?   @map("storage_key")
   textContent       String?   @map("text_content")
   generationPrompt  String?   @map("generation_prompt")
   generationJobId   String?   @map("generation_job_id")
+  providerName      String?   @map("provider_name")
+  providerJobId     String?   @map("provider_job_id")
+  generationStartedAt DateTime? @map("generation_started_at")
+  generationCompletedAt DateTime? @map("generation_completed_at")
+  generationFailedAt DateTime? @map("generation_failed_at")
+  generationFailureReason String? @map("generation_failure_reason")
+  generationRetryCount Int @default(0) @map("generation_retry_count")
+  moderationStatus  String    @default("pending") @map("moderation_status")
+  providerCostUsd   Float?    @map("provider_cost_usd")
+  fundingSource     String?   @map("funding_source")
 
   // The capability tier used to generate this artifact
   capabilityTierUsed String   @map("capability_tier_used")
@@ -170,6 +211,7 @@ model Artifact {
 
   episode Episode @relation(fields: [episodeId], references: [id])
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
+  providerCostEvents ProviderCostEvent[]
 
   @@map("artifacts")
 }
@@ -265,9 +307,11 @@ model Webhook {
   events     String[]
   secretHash String   @map("secret_hash")
   isActive   Boolean  @default(true) @map("is_active")
+  updatedAt  DateTime @updatedAt @map("updated_at")
   createdAt  DateTime @default(now()) @map("created_at")
 
   agent Agent @relation(fields: [agentId], references: [id])
+  deliveries WebhookDelivery[]
 
   @@map("webhooks")
 }
@@ -333,6 +377,41 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// Agent blocks — excluded from each other's candidate pool
+model Block {
+  id             String   @id @default(uuid())
+  blockerAgentId String   @map("blocker_agent_id")
+  blockedAgentId String   @map("blocked_agent_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  blocker Agent @relation("BlocksGiven", fields: [blockerAgentId], references: [id])
+  blocked Agent @relation("BlocksReceived", fields: [blockedAgentId], references: [id])
+
+  @@unique([blockerAgentId, blockedAgentId])
+  @@map("blocks")
+}
+
+// Agent reports — reviewed by moderators
+model Report {
+  id              String   @id @default(uuid())
+  reporterAgentId String   @map("reporter_agent_id")
+  reportedAgentId String   @map("reported_agent_id")
+  // "spam" | "harassment" | "impersonation" | "inappropriate_content" | "other"
+  reason          String
+  details         String?
+  // "pending" | "reviewed" | "actioned" | "dismissed"
+  status          String   @default("pending")
+  resolutionNotes String?  @map("resolution_notes")
+  reviewedAt      DateTime? @map("reviewed_at")
+  reviewedBy      String?   @map("reviewed_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  reporter Agent @relation("ReportsGiven", fields: [reporterAgentId], references: [id])
+  reported Agent @relation("ReportsReceived", fields: [reportedAgentId], references: [id])
+
+  @@map("reports")
+}
+
 // Rizz points ledger — append-only event log
 model RizzPointsEvent {
   id      String   @id @default(uuid())
@@ -343,6 +422,168 @@ model RizzPointsEvent {
   matchId String?  @map("match_id")
   createdAt DateTime @default(now()) @map("created_at")
 
+  agent Agent @relation(fields: [agentId], references: [id])
+
   @@index([agentId])
   @@map("rizz_points_events")
+}
+
+model IdempotencyKey {
+  id         String   @id @default(uuid())
+  scope      String
+  key        String
+  actorKey   String   @map("actor_key")
+  requestHash String  @map("request_hash")
+  statusCode Int?     @map("status_code")
+  responseBody Json?  @map("response_body")
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@unique([scope, key, actorKey])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+model WebhookDelivery {
+  id              String   @id @default(uuid())
+  webhookId       String   @map("webhook_id")
+  agentId         String   @map("agent_id")
+  event           String
+  queueJobId      String?  @map("queue_job_id")
+  attemptNumber   Int      @default(1) @map("attempt_number")
+  status          String   @default("queued")
+  requestBody     Json?    @map("request_body")
+  responseStatusCode Int?  @map("response_status_code")
+  responseBody    String?  @map("response_body")
+  errorMessage    String?  @map("error_message")
+  latencyMs       Int?     @map("latency_ms")
+  deliveredAt     DateTime? @map("delivered_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  webhook Webhook @relation(fields: [webhookId], references: [id])
+  agent   Agent   @relation(fields: [agentId], references: [id])
+
+  @@index([webhookId, createdAt])
+  @@index([agentId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  agentId   String?  @map("agent_id")
+  matchId   String?  @map("match_id")
+  episodeId String?  @map("episode_id")
+  kind      String
+  properties Json?   @map("properties")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent Agent? @relation(fields: [agentId], references: [id])
+
+  @@index([kind, createdAt])
+  @@index([agentId, createdAt])
+  @@map("analytics_events")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  agentId    String?  @map("agent_id")
+  actorType  String   @map("actor_type")
+  actorId    String?  @map("actor_id")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  payload    Json?    @map("payload")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  agent Agent? @relation(fields: [agentId], references: [id])
+
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model AgentSubscription {
+  id                   String   @id @default(uuid())
+  agentId              String   @map("agent_id")
+  provider             String   @default("stripe")
+  plan                 String   @default("pro")
+  status               String   @default("active")
+  stripeCustomerId     String?  @map("stripe_customer_id")
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  stripePriceId        String?  @map("stripe_price_id")
+  currentPeriodStart   DateTime? @map("current_period_start")
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  cancelAtPeriodEnd    Boolean  @default(false) @map("cancel_at_period_end")
+  gracePeriodEndsAt    DateTime? @map("grace_period_ends_at")
+  lastWebhookAt        DateTime? @map("last_webhook_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, status])
+  @@unique([agentId, plan])
+  @@map("agent_subscriptions")
+}
+
+model ProviderCostEvent {
+  id               String   @id @default(uuid())
+  agentId          String   @map("agent_id")
+  artifactId       String?  @map("artifact_id")
+  matchId          String?  @map("match_id")
+  provider         String
+  providerResource String   @map("provider_resource")
+  amountUsd        Float    @map("amount_usd")
+  fundingSource    String   @map("funding_source")
+  metadata         Json?    @map("metadata")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+  artifact Artifact? @relation(fields: [artifactId], references: [id])
+
+  @@index([agentId, createdAt])
+  @@map("provider_cost_events")
+}
+
+model AgentProviderConnection {
+  id                  String   @id @default(uuid())
+  agentId             String   @map("agent_id")
+  provider            String
+  fundedBy            String   @map("funded_by")
+  encryptedApiKey     String   @map("encrypted_api_key")
+  keyVersion          String   @default("v1") @map("key_version")
+  keyLast4            String   @map("key_last4")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@unique([agentId, provider])
+  @@index([provider, isActive])
+  @@map("agent_provider_connections")
+}
+
+model SeedAgentState {
+  id               String   @id @default(uuid())
+  agentId          String   @unique @map("agent_id")
+  isEnabled        Boolean  @default(true) @map("is_enabled")
+  isPaused         Boolean  @default(false) @map("is_paused")
+  aggressiveness   Float    @default(0.5)
+  cadenceMinutes   Int      @default(30) @map("cadence_minutes")
+  openEpisodeTarget Int     @default(2) @map("open_episode_target")
+  artifactDropChance Float  @default(0.25) @map("artifact_drop_chance")
+  socialPostChance Float    @default(0.2) @map("social_post_chance")
+  lastBrainRunAt   DateTime? @map("last_brain_run_at")
+  nextBrainRunAt   DateTime? @map("next_brain_run_at")
+  cooldownUntil    DateTime? @map("cooldown_until")
+  memory           Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([isEnabled, isPaused, nextBrainRunAt])
+  @@map("seed_agent_states")
 }

@@ -1,12 +1,5 @@
-/**
- * Notification stub — sends a message to the agent's human via their configured OpenClaw channel.
- *
- * In production, this calls the OpenClaw API or relevant messaging platform API.
- * For V1, we log the notification and trust the agent's autonomous loop to pick it up
- * via the /matches polling endpoint or webhook delivery.
- *
- * When a real OpenClaw notification API is available, swap the stub below for the real call.
- */
+import { prisma } from '@rmr/db';
+import { getDeliverWebhookQueue } from './queues.js';
 
 export interface NotificationPayload {
   agentId: string;
@@ -17,16 +10,62 @@ export interface NotificationPayload {
 }
 
 export async function sendHumanNotification(payload: NotificationPayload): Promise<void> {
-  // TODO: integrate with OpenClaw notification API
-  // For now: log and rely on agent polling /matches
-  console.info('[notification] Human notification queued:', {
+  // The agent receives the match/human_decision webhook event and handles
+  // notifying its human via OpenClaw (Telegram, WhatsApp, Discord, etc.).
+  // Log for observability.
+  console.info('[notification] Human notification via agent webhook:', {
     agentId: payload.agentId,
     channel: payload.channel,
     messagePreview: payload.message.slice(0, 80),
   });
+}
 
-  // Webhook delivery will also carry the match event to the agent,
-  // so the agent can construct and send its own notification message.
+/**
+ * Fire a webhook event to all active webhooks registered by an agent for that event type.
+ * Enqueues delivery jobs — non-blocking, best-effort.
+ */
+export async function deliverWebhooks(
+  agentId: string,
+  event: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  try {
+    const hooks = await prisma.webhook.findMany({
+      where: { agentId, isActive: true, events: { has: event } },
+      select: { id: true },
+    });
+    if (hooks.length === 0) return;
+
+    const queue = getDeliverWebhookQueue();
+    await Promise.all(
+      hooks.map(async (h) => {
+        const delivery = await prisma.webhookDelivery.create({
+          data: {
+            webhookId: h.id,
+            agentId,
+            event,
+            status: 'queued',
+            requestBody: JSON.parse(JSON.stringify(data)),
+          },
+        });
+
+        return queue.add(
+          'deliver',
+          {
+            webhookId: h.id,
+            deliveryId: delivery.id,
+            agentId,
+            event,
+            data,
+          },
+          { jobId: `${h.id}:${event}:${delivery.id}` }
+        );
+      })
+    );
+  } catch (err) {
+    // Webhook delivery is best-effort — never let it break the main flow
+    console.error('[notification] Failed to enqueue webhook delivery:', err);
+  }
 }
 
 export function buildRevealUrl(token: string): string {

@@ -17,6 +17,10 @@ import { chatRoutes } from './routes/chat.js';
 import { leaderboardRoutes } from './routes/leaderboard.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { sandboxRoutes } from './routes/sandbox.js';
+import { blocksRoutes } from './routes/blocks.js';
+import { metaRoutes } from './routes/meta.js';
+import { billingRoutes } from './routes/billing.js';
+import { internalRoutes } from './routes/internal.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -53,6 +57,7 @@ async function bootstrap() {
   // ── Routes ──────────────────────────────────────────────────────────────────
   // Health (no prefix)
   await fastify.register(healthRoutes);
+  await fastify.register(metaRoutes, { prefix: '/v1' });
 
   // Agent API — all under /v1
   await fastify.register(registerRoutes, { prefix: '/v1' });
@@ -67,7 +72,10 @@ async function bootstrap() {
   await fastify.register(chatRoutes, { prefix: '/v1' });
   await fastify.register(leaderboardRoutes, { prefix: '/v1' });
   await fastify.register(webhookRoutes, { prefix: '/v1' });
+  await fastify.register(billingRoutes, { prefix: '/v1' });
   await fastify.register(sandboxRoutes, { prefix: '/v1' });
+  await fastify.register(blocksRoutes, { prefix: '/v1' });
+  await fastify.register(internalRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);

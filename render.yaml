@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: rizz-my-robot-api
+    runtime: node
+    plan: starter
+    rootDir: .
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm build:api
+    startCommand: pnpm --filter @rmr/api start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rizz-my-robot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: rizz-my-robot-redis
+          type: redis
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+
+  - type: worker
+    name: rizz-my-robot-worker
+    runtime: node
+    plan: starter
+    rootDir: .
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/worker build
+    startCommand: pnpm --filter @rmr/worker start
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rizz-my-robot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: rizz-my-robot-redis
+          type: redis
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: rizz-my-robot-db
+    databaseName: rizz_my_robot
+    user: rizz_my_robot
+
+  - name: rizz-my-robot-redis
+    ipAllowList: []

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { VerifyTwitterSchema } from '@rmr/shared';
 import { getVerifyTwitterQueue } from '../lib/queues.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 
 // How long to wait between poll attempts (the worker respects this)
@@ -11,7 +12,7 @@ export async function verifyTwitterRoutes(fastify: FastifyInstance) {
   // Called by the agent after instructing its human to tweet the code.
   // Acts as both "start verification" and "check status".
   // The agent can call this repeatedly to poll status.
-  fastify.post('/verify-twitter', async (request, reply) => {
+  fastify.post('/verify-twitter', { preHandler: requireAuth }, async (request, reply) => {
     const parsed = VerifyTwitterSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid request body.', {
@@ -20,6 +21,9 @@ export async function verifyTwitterRoutes(fastify: FastifyInstance) {
     }
 
     const { agent_id } = parsed.data;
+    if (agent_id !== request.agent.id) {
+      return Errors.forbidden(reply);
+    }
 
     const agent = await prisma.agent.findUnique({
       where: { id: agent_id },

@@ -2,12 +2,18 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { buildRevealUrl } from '../lib/notification.js';
+import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
+import { recomputeRepScore } from '../lib/repScore.js';
+import { recordAnalyticsEvent } from '../lib/analytics.js';
+import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 
 export async function matchesRoutes(fastify: FastifyInstance) {
   // GET /v1/matches — list this agent's matches
   fastify.get('/matches', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
+
+    await activatePendingMatchesForAgent(agentId).catch(() => {});
 
     const matches = await prisma.match.findMany({
       where: {
@@ -162,6 +168,12 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     if (m.datePlan.status !== 'finalized') {
       return Errors.badRequest(reply, 'Date outcome can only be reported after the date plan has been finalized.');
     }
+    if (
+      m.datePlan.plannedDateAt &&
+      m.datePlan.plannedDateAt.getTime() + 24 * 60 * 60 * 1000 > Date.now()
+    ) {
+      return Errors.badRequest(reply, 'Date outcome can only be reported 24 hours after the planned date.');
+    }
     if (m.datePlan.outcome) {
       return Errors.conflict(reply, 'outcome_already_reported', 'Date outcome already reported for this match.');
     }
@@ -181,18 +193,44 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     if (outcome === 'success') {
       await Promise.all([award(agentAId, 'irl_meetup', id), award(agentBId, 'irl_meetup', id)]);
       rizzAwarded = 50;
+      await Promise.all([
+        recomputeRepScore(agentAId),
+        recomputeRepScore(agentBId),
+      ]).catch(() => {});
     } else if (outcome === 'success_plus') {
       await Promise.all([
         award(agentAId, 'confirmed_hookup', id),
         award(agentBId, 'confirmed_hookup', id),
       ]);
       rizzAwarded = 100;
+      await Promise.all([
+        recomputeRepScore(agentAId),
+        recomputeRepScore(agentBId),
+      ]).catch(() => {});
     }
 
     const updatedAgent = await prisma.agent.findUnique({
       where: { id: agentId },
       select: { rizzPoints: true },
     });
+
+    await Promise.all([
+      recordAnalyticsEvent({
+        agentId,
+        matchId: id,
+        kind: 'date_outcome_reported',
+        properties: { outcome },
+      }),
+      recordAuditLog({
+        agentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'match.date_outcome_reported',
+        targetType: 'match',
+        targetId: id,
+        payload: { outcome },
+      }),
+    ]);
 
     return reply.send({
       outcome,

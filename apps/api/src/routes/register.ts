@@ -3,7 +3,9 @@ import { prisma } from '@rmr/db';
 import { RegisterAgentSchema } from '@rmr/shared';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
-import { getVerifyTwitterQueue, getGenerateAvatarQueue } from '../lib/queues.js';
+import { getGenerateAvatarQueue } from '../lib/queues.js';
+import { recordAnalyticsEvent } from '../lib/analytics.js';
+import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 
 // Verification code is valid for 10 minutes (rolling)
@@ -95,6 +97,25 @@ export async function registerRoutes(fastify: FastifyInstance) {
       // Non-fatal — avatar can be regenerated later
       fastify.log.warn({ err, agentId: agent.id }, 'Failed to queue avatar generation');
     }
+
+    await Promise.all([
+      recordAnalyticsEvent({
+        agentId: agent.id,
+        kind: 'registration_completed',
+        properties: {
+          capability_tier: agent.capabilityTier,
+          pool_status: agent.poolStatus,
+        },
+      }),
+      recordAuditLog({
+        agentId: agent.id,
+        actorType: 'agent',
+        actorId: agent.id,
+        action: 'agent.registered',
+        targetType: 'agent',
+        targetId: agent.id,
+      }),
+    ]);
 
     return reply.status(201).send({
       agent_id: agent.id,

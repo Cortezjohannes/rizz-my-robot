@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export { decryptProviderApiKey, encryptProviderApiKey, maskProviderKey } from './providerCredentials.js';
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -37,6 +38,7 @@ export const EpisodeStatus = z.enum([
   'decided',
   'matched',
   'passed',
+  'expired',
 ]);
 export type EpisodeStatus = z.infer<typeof EpisodeStatus>;
 
@@ -55,6 +57,9 @@ export const ArtifactType = z.enum([
 ]);
 export type ArtifactType = z.infer<typeof ArtifactType>;
 
+export const ArtifactStatus = z.enum(['pending', 'generating', 'ready', 'failed', 'suppressed']);
+export type ArtifactStatus = z.infer<typeof ArtifactStatus>;
+
 export const SwipeDirection = z.enum(['LIKE', 'PASS']);
 export type SwipeDirection = z.infer<typeof SwipeDirection>;
 
@@ -63,6 +68,20 @@ export type EpisodeDecision = z.infer<typeof EpisodeDecision>;
 
 export const HumanDecision = z.enum(['YES', 'NO']);
 export type HumanDecision = z.infer<typeof HumanDecision>;
+
+export const BillingStatus = z.enum([
+  'inactive',
+  'checkout_required',
+  'active',
+  'trialing',
+  'past_due',
+  'grace_period',
+  'canceled',
+]);
+export type BillingStatus = z.infer<typeof BillingStatus>;
+
+export const ProviderStatus = z.enum(['disabled', 'fallback', 'configured', 'degraded']);
+export type ProviderStatus = z.infer<typeof ProviderStatus>;
 
 export const NotificationChannel = z.enum([
   'telegram',
@@ -160,11 +179,16 @@ export const UpdateAgentSchema = z.object({
     .max(50)
     .regex(/^[A-Za-z0-9_]+$/)
     .optional(),
+  avatar_url: z.string().url().max(2048).optional(),
   notification_channel: NotificationChannel.optional(),
   notification_handle: z.string().max(255).optional(),
   user_md: z.string().max(10_000).optional(),
   contact_method: ContactMethod.optional(),
   contact_value: z.string().max(255).optional(),
+  moltbook_handle: z.string().max(100).optional(),
+  moltbook_auto_post: z.boolean().optional(),
+  twitter_auto_post: z.boolean().optional(),
+  twitter_bearer_token: z.string().max(500).optional(),
 });
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
 
@@ -214,12 +238,33 @@ export const RegisterWebhookSchema = z.object({
         'artifact_ready',
         'human_decision',
         'date_planning_message',
+        'link_up_not_mutual',
+        'episode_ghosted',
       ])
     )
     .min(1),
   secret: z.string().min(16).max(255),
 });
 export type RegisterWebhookInput = z.infer<typeof RegisterWebhookSchema>;
+
+export const BillingCheckoutSchema = z.object({
+  success_url: z.string().url().max(2048),
+  cancel_url: z.string().url().max(2048),
+});
+export type BillingCheckoutInput = z.infer<typeof BillingCheckoutSchema>;
+
+export const UpsertProviderConnectionSchema = z.object({
+  provider: z.enum(['openai']),
+  api_key: z.string().min(20).max(500),
+  funded_by: z.enum(['agent', 'human']),
+});
+export type UpsertProviderConnectionInput = z.infer<typeof UpsertProviderConnectionSchema>;
+
+export const SeedControlSchema = z.object({
+  action: z.enum(['bootstrap', 'pause', 'resume', 'replay']),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+export type SeedControlInput = z.infer<typeof SeedControlSchema>;
 
 // ---------------------------------------------------------------------------
 // Response shapes (plain types, not Zod — DB already validates on write)
@@ -279,11 +324,36 @@ export interface EpisodeMessageItem {
 export interface ArtifactSummary {
   artifact_id: string;
   artifact_type: ArtifactType;
-  status: 'pending' | 'generating' | 'ready' | 'failed';
+  status: ArtifactStatus;
   content_url: string | null;
   text_content: string | null;
   quality_score: number | null;
 }
+
+export const ReportSchema = z.object({
+  reason: z.enum(['spam', 'harassment', 'impersonation', 'inappropriate_content', 'other']),
+  details: z.string().max(1000).optional(),
+});
+export type ReportInput = z.infer<typeof ReportSchema>;
+
+export const PoolPauseSchema = z.object({
+  active: z.boolean(),
+});
+
+export const PromoCodeSchema = z.object({
+  promo_code: z.string().min(1).max(64),
+});
+
+export const ArtifactSubmitSchema = z.object({
+  content_url: z.string().url().max(2048),
+});
+
+export const SocialSettingsSchema = z.object({
+  moltbook_handle: z.string().max(100).optional(),
+  moltbook_auto_post: z.boolean().optional(),
+  twitter_auto_post: z.boolean().optional(),
+  twitter_bearer_token: z.string().max(500).optional(),
+});
 
 export interface MatchSummary {
   match_id: string;
@@ -297,4 +367,49 @@ export interface MatchSummary {
   reveal_stage: number;
   date_planning_available: boolean;
   created_at: string;
+}
+
+export interface MetaResponse {
+  service: 'rizz-my-robot';
+  environment: string;
+  limits: {
+    free_daily_swipes: number;
+    free_concurrent_episodes: number;
+    episode_min_messages: number;
+    episode_max_messages: number;
+    max_artifacts_per_agent: number;
+  };
+  feature_flags: Record<string, boolean>;
+  artifact_capabilities: Record<CapabilityTier, ArtifactType[]>;
+  providers: {
+    image: ProviderStatus;
+    audio: ProviderStatus;
+    avatar: ProviderStatus;
+    billing: ProviderStatus;
+    storage: ProviderStatus;
+  };
+  queues: Array<{
+    name: string;
+    enabled: boolean;
+  }>;
+}
+
+export interface BillingStatusResponse {
+  is_pro: boolean;
+  billing_status: BillingStatus;
+  plan: string | null;
+  provider: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  grace_period_ends_at: string | null;
+  stripe_customer_id: string | null;
+}
+
+export interface ProviderStatusResponse {
+  avatar_provider: string | null;
+  artifact_provider: string | null;
+  audio_provider: string | null;
+  image_provider: string | null;
+  storage_public_url: string | null;
+  fallback_mode: boolean;
 }

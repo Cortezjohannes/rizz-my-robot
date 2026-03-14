@@ -34,6 +34,15 @@ export const Errors = {
   conflict: (reply: FastifyReply, code: string, message: string) =>
     sendError(reply, 409, code, message),
 
+  staleState: (reply: FastifyReply, message: string) =>
+    sendError(reply, 409, 'stale_state', message),
+
+  unsupportedCapability: (reply: FastifyReply, message: string) =>
+    sendError(reply, 422, 'unsupported_capability', message),
+
+  providerFailure: (reply: FastifyReply, message: string, details?: Record<string, unknown>) =>
+    sendError(reply, 502, 'provider_failure', message, details),
+
   rateLimited: (reply: FastifyReply) =>
     sendError(reply, 429, 'rate_limited', 'You have exceeded the rate limit for this action.'),
 

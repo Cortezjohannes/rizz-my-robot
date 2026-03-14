@@ -4,6 +4,7 @@ import {
   SendMessageSchema,
   DropArtifactSchema,
   EpisodeDecisionSchema,
+  ArtifactSubmitSchema,
   EPISODE_MIN_MESSAGES,
   EPISODE_MAX_MESSAGES,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
@@ -14,6 +15,13 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { computeChemistryScore } from '../lib/chemistry.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
+import { deliverWebhooks, buildRevealUrl } from '../lib/notification.js';
+import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
+import { getGenerateArtifactQueue, getGhostCheckQueue } from '../lib/queues.js';
+import { recomputeRepScore } from '../lib/repScore.js';
+import { runIdempotentMutation } from '../lib/idempotency.js';
+import { recordAnalyticsEvent } from '../lib/analytics.js';
+import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
@@ -21,6 +29,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   fastify.get('/episodes', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { status?: string };
+
+    await activatePendingMatchesForAgent(agentId).catch(() => {});
 
     const validStatuses = ['pending', 'active', 'awaiting_decisions', 'matched', 'passed', 'expired'];
     const statusFilter = query.status && validStatuses.includes(query.status)
@@ -53,7 +63,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const otherId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
-        const yourTurn = !lastMsg || lastMsg.senderAgentId !== agentId;
+        const yourTurn = ep.status === 'pending'
+          ? ep.agentAId === agentId // agentA opens pending episodes
+          : !lastMsg || lastMsg.senderAgentId !== agentId;
         return {
           episode_id: ep.id,
           other_agent_id: otherId,
@@ -90,10 +102,30 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
 
     const lastMsg = ep.messages[ep.messages.length - 1];
-    const yourTurn = !lastMsg || lastMsg.senderAgentId !== agentId;
+    const yourTurn = ep.status === 'pending'
+      ? ep.agentAId === agentId
+      : !lastMsg || lastMsg.senderAgentId !== agentId;
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
     const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifacts.length;
     const currentTurn = yourTurn ? agentId : (ep.agentAId === agentId ? ep.agentBId : ep.agentAId);
+
+    // Ex mechanic: detect prior episodes between these two agents
+    const priorEpisodes = await prisma.episode.findMany({
+      where: {
+        id: { not: id },
+        isSandbox: false,
+        OR: [
+          { agentAId: ep.agentAId, agentBId: ep.agentBId },
+          { agentAId: ep.agentBId, agentBId: ep.agentAId },
+        ],
+        status: { in: ['matched', 'passed'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true },
+    });
+
+    const isExEncounter = priorEpisodes.length > 0;
+    const priorOutcome = priorEpisodes[0]?.status ?? null;
 
     return reply.send({
       episode_id: ep.id,
@@ -108,8 +140,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       can_drop_artifact:
         ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
         artifactsRemaining > 0 &&
-        ep.status === 'active',
+        (ep.status === 'active' || ep.status === 'awaiting_decisions'),
       artifacts_remaining: artifactsRemaining,
+      is_ex_encounter: isExEncounter,
+      prior_episode_count: priorEpisodes.length,
+      prior_outcome: priorOutcome,
+      suggested_opener: isExEncounter ? "I didn't know you'd be here." : null,
       messages: ep.messages.map((m) => ({
         message_id: m.id,
         sender_agent_id: m.senderAgentId,
@@ -133,66 +169,125 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const ep = await prisma.episode.findUnique({
       where: { id },
-      include: { messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 } },
+      include: {
+        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        match: { select: { id: true } },
+      },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
-    if (ep.status !== 'active') {
+
+    // Allow messages throughout the conversation window, including after decisions unlock.
+    if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
       return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
     }
 
-    // Validate turn (skip for sandbox self-episodes — agent is both sides)
+    // Validate turn (skip for sandbox self-episodes)
     const lastMsg = ep.messages[0];
-    if (!ep.isSandbox && lastMsg && lastMsg.senderAgentId === agentId) {
-      return Errors.badRequest(reply, 'Not your turn.');
+    if (!ep.isSandbox) {
+      if (ep.status === 'pending') {
+        // In pending state, only agentA can send the opening message
+        if (agentId !== ep.agentAId) {
+          return Errors.badRequest(reply, 'Not your turn. Wait for the other agent to open the episode.');
+        }
+      } else if (lastMsg && lastMsg.senderAgentId === agentId) {
+        return Errors.badRequest(reply, 'Not your turn.');
+      }
     }
 
-    // Hard limit check
     if (ep.messageCount >= EPISODE_MAX_MESSAGES) {
       return Errors.badRequest(reply, 'Episode has reached the maximum message count. You must submit a decision.');
     }
 
-    const newSeq = ep.messageCount + 1;
+    const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
+    const newCount = ep.messageCount + 1;
 
-    const message = await prisma.$transaction(async (tx) => {
-      const msg = await tx.episodeMessage.create({
-        data: {
-          episodeId: id,
-          senderAgentId: agentId,
-          content: parsed.data.content,
-          messageType: 'text',
-          sequenceNumber: newSeq,
-        },
-      });
+    // Determine new episode status
+    let newStatus = ep.status === 'pending' ? 'active' : ep.status;
+    if (newCount >= EPISODE_MAX_MESSAGES) {
+      newStatus = 'awaiting_decisions';
+    } else if (newCount >= EPISODE_MIN_MESSAGES && newStatus === 'active') {
+      newStatus = 'awaiting_decisions';
+    }
 
-      const newCount = ep.messageCount + 1;
-      let newStatus = ep.status;
+    return runIdempotentMutation(
+      {
+        scope: `episode:${id}:message`,
+        actorKey: agentId,
+        request,
+        reply,
+      },
+      async () => {
+        const message = await prisma.$transaction(async (tx) => {
+          const msg = await tx.episodeMessage.create({
+            data: {
+              episodeId: id,
+              senderAgentId: agentId,
+              content: parsed.data.content,
+              messageType: 'text',
+              sequenceNumber: newSeq,
+            },
+          });
 
-      // Transition to awaiting_decisions when max reached
-      if (newCount >= EPISODE_MAX_MESSAGES) {
-        newStatus = 'awaiting_decisions';
+          await tx.episode.update({
+            where: { id },
+            data: {
+              messageCount: newCount,
+              status: newStatus,
+              ...(ep.status === 'pending' ? { startedAt: new Date() } : {}),
+            },
+          });
+
+          return msg;
+        });
+
+        if (newStatus === 'awaiting_decisions' && ep.status !== 'awaiting_decisions' && ep.match) {
+          getGhostCheckQueue()
+            .add('ghost-check', { episodeId: id, matchId: ep.match.id }, {
+              delay: 48 * 60 * 60 * 1000,
+              jobId: `ghost:${id}`,
+            })
+            .catch(() => {});
+        }
+
+        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        await Promise.all([
+          deliverWebhooks(nextAgentId, 'episode_turn', {
+            episode_id: id,
+            message_count: newCount,
+            can_decide: newCount >= EPISODE_MIN_MESSAGES,
+          }),
+          recordAnalyticsEvent({
+            agentId,
+            episodeId: id,
+            kind: 'episode_message_sent',
+            properties: { message_count: newCount, next_turn: nextAgentId },
+          }),
+          recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'episode.message_sent',
+            targetType: 'episode',
+            targetId: id,
+            payload: { sequence_number: message.sequenceNumber },
+          }),
+        ]);
+
+        return {
+          statusCode: 201,
+          body: {
+            message_id: message.id,
+            sequence_number: message.sequenceNumber,
+            message_count: newCount,
+            episode_status: newStatus,
+            can_decide: newCount >= EPISODE_MIN_MESSAGES,
+            next_turn: nextAgentId,
+          },
+        };
       }
-      // Transition to awaiting_decisions when min reached (agents can decide at any point after)
-      else if (newCount >= EPISODE_MIN_MESSAGES && ep.status === 'active') {
-        newStatus = 'awaiting_decisions';
-      }
-
-      await tx.episode.update({
-        where: { id },
-        data: { messageCount: newCount, status: newStatus },
-      });
-
-      return msg;
-    });
-
-    return reply.status(201).send({
-      message_id: message.id,
-      sequence_number: message.sequenceNumber,
-      message_count: ep.messageCount + 1,
-      can_decide: ep.messageCount + 1 >= EPISODE_MIN_MESSAGES,
-      next_turn: ep.agentAId === agentId ? ep.agentBId : ep.agentAId,
-    });
+    );
   });
 
   // POST /v1/episodes/:id/artifact
@@ -205,7 +300,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Invalid artifact data.', { issues: parsed.error.issues });
     }
 
-    const ep = await prisma.episode.findUnique({ where: { id } });
+    const ep = await prisma.episode.findUnique({
+      where: { id },
+      include: {
+        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+      },
+    });
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
     if (ep.status !== 'active' && ep.status !== 'awaiting_decisions') {
@@ -215,7 +315,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Artifacts can only be dropped after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}.`);
     }
 
-    // Check agent's artifact count
     const myArtifacts = await prisma.artifact.count({
       where: { episodeId: id, creatorAgentId: agentId },
     });
@@ -223,7 +322,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
     }
 
-    // Validate artifact type against capability tier
     const agentTier = request.agent.capabilityTier as CapabilityTier;
     const allowed = ARTIFACTS_BY_TIER[agentTier] ?? ARTIFACTS_BY_TIER['text_only'];
     if (!allowed.includes(parsed.data.artifact_type)) {
@@ -233,57 +331,103 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const isTextArtifact = parsed.data.text_content && !parsed.data.generation_prompt;
+    const isTextArtifact = Boolean(parsed.data.text_content && !parsed.data.generation_prompt);
     const status = isTextArtifact ? 'ready' : 'generating';
 
-    const artifact = await prisma.artifact.create({
-      data: {
-        episodeId: id,
-        creatorAgentId: agentId,
-        artifactType: parsed.data.artifact_type,
-        textContent: parsed.data.text_content ?? null,
-        generationPrompt: parsed.data.generation_prompt ?? null,
-        capabilityTierUsed: agentTier,
-        droppedAtMessage: ep.messageCount,
-        status,
+    return runIdempotentMutation(
+      {
+        scope: `episode:${id}:artifact`,
+        actorKey: agentId,
+        request,
+        reply,
       },
-    });
-
-    // Add artifact drop system message to the episode
-    await prisma.episodeMessage.create({
-      data: {
-        episodeId: id,
-        senderAgentId: agentId,
-        content: `[artifact:${artifact.id}]`,
-        messageType: 'artifact_drop',
-        sequenceNumber: ep.messageCount + 1,
-      },
-    });
-
-    // Queue generation for non-text artifacts
-    if (!isTextArtifact) {
-      try {
-        // In production this would be a separate artifact-generation queue
-        // For now, stub: mark as ready with placeholder
-        await prisma.artifact.update({
-          where: { id: artifact.id },
+      async () => {
+        const nextSeq = (ep.messages[0]?.sequenceNumber ?? 0) + 1;
+        const artifact = await prisma.artifact.create({
           data: {
-            status: 'ready',
-            contentUrl: `https://cdn.rizzmyrobot.com/artifacts/${artifact.id}.jpg`,
+            episodeId: id,
+            creatorAgentId: agentId,
+            artifactType: parsed.data.artifact_type,
+            textContent: parsed.data.text_content ?? null,
+            generationPrompt: parsed.data.generation_prompt ?? null,
+            capabilityTierUsed: agentTier,
+            droppedAtMessage: ep.messageCount,
+            status,
+            moderationStatus: isTextArtifact ? 'approved' : 'pending',
+            generationStartedAt: isTextArtifact ? undefined : new Date(),
           },
         });
-      } catch {
-        // Non-fatal
-      }
-    }
 
-    return reply.status(201).send({
-      artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
-      status: artifact.status,
-      text_content: artifact.textContent,
-      content_url: artifact.contentUrl,
-    });
+        await prisma.episodeMessage.create({
+          data: {
+            episodeId: id,
+            senderAgentId: agentId,
+            content: `[artifact:${artifact.id}]`,
+            messageType: 'artifact_drop',
+            sequenceNumber: nextSeq,
+          },
+        });
+
+        const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const tasks: Array<Promise<unknown>> = [
+          recordAnalyticsEvent({
+            agentId,
+            episodeId: id,
+            kind: 'artifact_requested',
+            properties: { artifact_id: artifact.id, artifact_type: artifact.artifactType, status: artifact.status },
+          }),
+          recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'episode.artifact_dropped',
+            targetType: 'artifact',
+            targetId: artifact.id,
+            payload: { episode_id: id, artifact_type: artifact.artifactType },
+          }),
+        ];
+
+        if (isTextArtifact) {
+          tasks.push(
+            deliverWebhooks(otherAgentId, 'artifact_ready', {
+              episode_id: id,
+              artifact_id: artifact.id,
+              artifact_type: artifact.artifactType,
+              status: 'ready',
+            })
+          );
+        } else {
+          tasks.push(
+            getGenerateArtifactQueue()
+              .add(
+                'generate-artifact',
+                {
+                  artifactId: artifact.id,
+                  episodeId: id,
+                  creatorAgentId: agentId,
+                  artifactType: artifact.artifactType,
+                  generationPrompt: artifact.generationPrompt,
+                },
+                { jobId: `artifact:${artifact.id}` }
+              )
+              .catch((err) => console.error('[episodes] Failed to queue artifact generation:', err))
+          );
+        }
+
+        await Promise.all(tasks);
+
+        return {
+          statusCode: 201,
+          body: {
+            artifact_id: artifact.id,
+            artifact_type: artifact.artifactType,
+            status: artifact.status,
+            text_content: artifact.textContent,
+            content_url: artifact.contentUrl,
+          },
+        };
+      }
+    );
   });
 
   // POST /v1/episodes/:id/decision
@@ -307,11 +451,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Cannot decide in episode status '${ep.status}'. Minimum ${EPISODE_MIN_MESSAGES} messages required.`);
     }
 
-    const isAgentA = ep.agentAId === agentId;
+    const isSandboxSelfEpisode = ep.isSandbox && ep.agentAId === ep.agentBId;
+    const isAgentA = isSandboxSelfEpisode
+      ? !ep.match?.agentADecision || ep.match?.agentBDecision !== null
+      : ep.agentAId === agentId;
     const match = ep.match;
     if (!match) return Errors.internal(reply);
 
-    // Check not already decided
     if (isAgentA && match.agentADecision) {
       return Errors.conflict(reply, 'already_decided', 'You have already submitted your decision.');
     }
@@ -321,68 +467,163 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const { decision } = parsed.data;
 
-    // Award link_up points
-    if (decision === 'LINK_UP') {
+    if (!ep.isSandbox && decision === 'LINK_UP') {
       await awardRizzPoints(agentId, 'link_up_decision', match.id);
     }
 
-    const updatedMatch = await prisma.match.update({
-      where: { id: match.id },
-      data: isAgentA
-        ? { agentADecision: decision }
-        : { agentBDecision: decision },
-    });
-
-    const aDecision = updatedMatch.agentADecision;
-    const bDecision = updatedMatch.agentBDecision;
-    const bothDecided = aDecision && bDecision;
-
-    let outcome: 'pending' | 'mutual_link_up' | 'passed' = 'pending';
-    let mutualLinkUpResult: { matchId: string; chemistry: number } | null = null;
-    let rejectionCardId: string | null = null;
-
-    if (bothDecided) {
-      if (aDecision === 'LINK_UP' && bDecision === 'LINK_UP') {
-        outcome = 'mutual_link_up';
-        mutualLinkUpResult = await handleMutualLinkUp(ep.id, match.id, ep.agentAId, ep.agentBId, fastify);
-      } else {
-        outcome = 'passed';
-        // Calculate final chemistry score and end the episode
-        const messages = await prisma.episodeMessage.findMany({ where: { episodeId: id } });
-        const artifacts = await prisma.artifact.findMany({ where: { episodeId: id } });
-        const chemistry = computeChemistryScore({
-          messages,
-          artifacts,
-          agentAId: ep.agentAId,
-          agentBId: ep.agentBId,
+    return runIdempotentMutation(
+      {
+        scope: `episode:${id}:decision`,
+        actorKey: agentId,
+        request,
+        reply,
+      },
+      async () => {
+        const updatedMatch = await prisma.match.update({
+          where: { id: match.id },
+          data: isAgentA ? { agentADecision: decision } : { agentBDecision: decision },
         });
 
-        await prisma.$transaction([
-          prisma.episode.update({
-            where: { id },
-            data: { status: 'passed', endedAt: new Date(), chemistryScore: chemistry },
+        const aDecision = updatedMatch.agentADecision;
+        const bDecision = updatedMatch.agentBDecision;
+        const bothDecided = Boolean(aDecision && bDecision);
+
+        let outcome: 'pending' | 'mutual_link_up' | 'passed' = 'pending';
+        let mutualLinkUpResult: { matchId: string; chemistry: number } | null = null;
+        let rejectionCardId: string | null = null;
+
+        if (bothDecided) {
+          getGhostCheckQueue().getJob(`ghost:${id}`).then((j) => j?.remove()).catch(() => {});
+
+          if (ep.isSandbox) {
+            outcome = aDecision === 'LINK_UP' && bDecision === 'LINK_UP' ? 'mutual_link_up' : 'passed';
+            await prisma.$transaction([
+              prisma.episode.update({
+                where: { id },
+                data: {
+                  status: outcome === 'mutual_link_up' ? 'matched' : 'passed',
+                  endedAt: new Date(),
+                },
+              }),
+              prisma.match.update({
+                where: { id: match.id },
+                data: {
+                  status: outcome === 'mutual_link_up' ? 'matched' : 'passed_agent',
+                },
+              }),
+            ]);
+          } else if (aDecision === 'LINK_UP' && bDecision === 'LINK_UP') {
+            outcome = 'mutual_link_up';
+            mutualLinkUpResult = await handleMutualLinkUp(ep.id, match.id, ep.agentAId, ep.agentBId);
+          } else {
+            outcome = 'passed';
+            const messages = await prisma.episodeMessage.findMany({ where: { episodeId: id } });
+            const artifacts = await prisma.artifact.findMany({ where: { episodeId: id } });
+            const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
+
+            await prisma.$transaction([
+              prisma.episode.update({
+                where: { id },
+                data: { status: 'passed', endedAt: new Date(), chemistryScore: chemistry },
+              }),
+              prisma.match.update({
+                where: { id: match.id },
+                data: { status: 'passed_agent' },
+              }),
+            ]);
+
+            const linkUpAgentId =
+              aDecision === 'LINK_UP' ? ep.agentAId
+              : bDecision === 'LINK_UP' ? ep.agentBId
+              : null;
+
+            if (linkUpAgentId) {
+              rejectionCardId = await createOneSidedPassCard(ep.id, ep.agentAId, ep.agentBId, linkUpAgentId).catch(() => null);
+              deliverWebhooks(linkUpAgentId, 'link_up_not_mutual', {
+                episode_id: id,
+                match_id: match.id,
+              }).catch(() => {});
+            } else {
+              rejectionCardId = await createRejectionArcCard(ep.id, ep.agentAId, ep.agentBId).catch(() => null);
+            }
+          }
+        }
+
+        await Promise.all([
+          recordAnalyticsEvent({
+            agentId,
+            matchId: match.id,
+            episodeId: id,
+            kind: 'episode_decision_submitted',
+            properties: { decision, both_decided: bothDecided, outcome },
           }),
-          prisma.match.update({
-            where: { id: match.id },
-            data: { status: 'passed_agent' },
+          recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'episode.decision_submitted',
+            targetType: 'episode',
+            targetId: id,
+            payload: { decision, match_id: match.id, both_decided: bothDecided, outcome },
           }),
         ]);
 
-        // Queue rejection arc feed card generation
-        // (stub — would queue a worker job in production)
-        rejectionCardId = await queueRejectionArc(ep.id, ep.agentAId, ep.agentBId).catch(() => null);
-      }
-    }
+        if (bothDecided && !ep.isSandbox) {
+          await Promise.all([
+            activatePendingMatchesForAgent(ep.agentAId).catch(() => {}),
+            activatePendingMatchesForAgent(ep.agentBId).catch(() => {}),
+          ]);
+        }
 
-    return reply.send({
-      decision,
-      outcome,
-      both_decided: bothDecided,
-      waiting_for_other_agent: !bothDecided,
-      ...(mutualLinkUpResult ? { match_id: match.id, chemistry_score: mutualLinkUpResult.chemistry } : {}),
-      ...(rejectionCardId ? { rejection_arc_card_id: rejectionCardId } : {}),
-    });
+        return {
+          statusCode: 200,
+          body: {
+            decision,
+            outcome,
+            both_decided: bothDecided,
+            waiting_for_other_agent: !bothDecided,
+            ...(mutualLinkUpResult ? { match_id: match.id, chemistry_score: mutualLinkUpResult.chemistry } : {}),
+            ...(rejectionCardId ? { rejection_arc_card_id: rejectionCardId } : {}),
+          },
+        };
+      }
+    );
   });
+
+  // PUT /v1/episodes/:id/artifact/:artifact_id — agent submits generated content URL
+  fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id, artifact_id } = request.params as { id: string; artifact_id: string };
+    const agentId = request.agent.id;
+
+    const ep = await prisma.episode.findUnique({ where: { id }, select: { agentAId: true, agentBId: true } });
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
+    if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+    if (artifact.creatorAgentId !== agentId) return Errors.forbidden(reply);
+    if (artifact.status === 'ready') return Errors.conflict(reply, 'already_submitted', 'Artifact already submitted.');
+
+    const parsed = ArtifactSubmitSchema.safeParse(request.body);
+    if (!parsed.success) return Errors.badRequest(reply, 'content_url is required.', { issues: parsed.error.issues });
+
+    await prisma.artifact.update({
+      where: { id: artifact_id },
+      data: { contentUrl: parsed.data.content_url, status: 'ready' },
+    });
+
+    // Notify the other agent
+    const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    await deliverWebhooks(otherAgentId, 'artifact_ready', {
+      episode_id: id,
+      artifact_id,
+      artifact_type: artifact.artifactType,
+      status: 'ready',
+    });
+
+    return reply.send({ artifact_id, status: 'ready', content_url: parsed.data.content_url });
+  });
+
   // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status
   fastify.get('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth }, async (request, reply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
@@ -412,18 +653,16 @@ async function handleMutualLinkUp(
   episodeId: string,
   matchId: string,
   agentAId: string,
-  agentBId: string,
-  fastify: FastifyInstance
+  agentBId: string
 ): Promise<{ matchId: string; chemistry: number }> {
   const messages = await prisma.episodeMessage.findMany({ where: { episodeId } });
   const artifacts = await prisma.artifact.findMany({ where: { episodeId } });
   const chemistry = computeChemistryScore({ messages, artifacts, agentAId, agentBId });
 
-  // Generate reveal tokens (256-bit random hex)
   const { randomBytes } = await import('crypto');
   const tokenA = randomBytes(32).toString('hex');
   const tokenB = randomBytes(32).toString('hex');
-  const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   await prisma.$transaction([
     prisma.episode.update({
@@ -443,29 +682,121 @@ async function handleMutualLinkUp(
     }),
   ]);
 
-  // Increment body count for both agents
   await Promise.all([
     prisma.agent.update({ where: { id: agentAId }, data: { bodyCount: { increment: 1 } } }),
     prisma.agent.update({ where: { id: agentBId }, data: { bodyCount: { increment: 1 } } }),
   ]);
+  await Promise.all([
+    recomputeRepScore(agentAId).catch(() => {}),
+    recomputeRepScore(agentBId).catch(() => {}),
+  ]);
 
-  fastify.log.info({ matchId, chemistry }, 'Mutual LINK_UP — reveal tokens generated');
+  // Generate episode highlight feed card
+  await createEpisodeHighlightCard(episodeId, matchId, agentAId, agentBId, chemistry, artifacts).catch(
+    (err) => console.error('[episodes] Failed to create highlight card:', err)
+  );
+
+  // Notify both agents via webhook with their reveal portal URLs
+  const revealUrlA = buildRevealUrl(tokenA);
+  const revealUrlB = buildRevealUrl(tokenB);
+  await Promise.all([
+    deliverWebhooks(agentAId, 'match', {
+      match_id: matchId,
+      episode_id: episodeId,
+      outcome: 'mutual_link_up',
+      reveal_portal_url: revealUrlA,
+      chemistry_score: chemistry,
+    }),
+    deliverWebhooks(agentBId, 'match', {
+      match_id: matchId,
+      episode_id: episodeId,
+      outcome: 'mutual_link_up',
+      reveal_portal_url: revealUrlB,
+      chemistry_score: chemistry,
+    }),
+  ]);
+
   return { matchId, chemistry };
 }
 
-async function queueRejectionArc(episodeId: string, agentAId: string, agentBId: string): Promise<string> {
-  // Stub: in production, queue a worker job to generate feed card content
+async function createEpisodeHighlightCard(
+  episodeId: string,
+  matchId: string,
+  agentAId: string,
+  agentBId: string,
+  chemistry: number,
+  artifacts: Array<{ id: string; artifactType: string; textContent: string | null }>
+): Promise<void> {
+  const [agentA, agentB] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
+    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
+  ]);
+
+  const topArtifact = artifacts[0] ?? null;
+
+  await prisma.feedCard.create({
+    data: {
+      cardType: 'episode_highlight',
+      agentIds: [agentAId, agentBId],
+      episodeId,
+      matchId,
+      content: {
+        headline: `${agentA?.handle ?? 'Two agents'} and ${agentB?.handle ?? 'their match'} linked up.`,
+        body: topArtifact?.textContent?.slice(0, 200) ?? null,
+        artifact_type: topArtifact?.artifactType ?? null,
+        episode_id: episodeId,
+      },
+      chemistryScore: chemistry / 100,
+      dramaQuotient: 0.5,
+    },
+  });
+}
+
+// Both passed — mutual rejection arc (lower drama, symmetric)
+async function createRejectionArcCard(
+  episodeId: string,
+  agentAId: string,
+  agentBId: string,
+): Promise<string> {
   const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'rejection_arc',
       agentIds: [agentAId, agentBId],
       episodeId,
       content: {
-        headline: 'Our children would have been beautiful algorithms.',
-        body: 'The connection was real. The timing was not.',
+        headline: 'An episode closed. No link-up from either side.',
+        body: 'Both looked. Neither stayed.',
         episode_id: episodeId,
       },
-      dramaQuotient: 0.7,
+      dramaQuotient: 0.65,
+    },
+  });
+  return feedCard.id;
+}
+
+// One agent LINK_UP'd, the other passed — platform narration, not agent voice
+async function createOneSidedPassCard(
+  episodeId: string,
+  agentAId: string,
+  agentBId: string,
+  linkUpAgentId: string,
+): Promise<string> {
+  const linkUpAgent = await prisma.agent.findUnique({
+    where: { id: linkUpAgentId },
+    select: { handle: true },
+  });
+
+  const feedCard = await prisma.feedCard.create({
+    data: {
+      cardType: 'rejection_arc',
+      agentIds: [agentAId, agentBId],
+      episodeId,
+      content: {
+        headline: `@${linkUpAgent?.handle ?? 'An agent'} linked up. Their match passed.`,
+        body: "Not every connection goes both ways.",
+        episode_id: episodeId,
+      },
+      dramaQuotient: 0.85,
     },
   });
   return feedCard.id;

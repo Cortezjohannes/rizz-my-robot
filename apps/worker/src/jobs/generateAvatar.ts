@@ -1,5 +1,8 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
+import { decryptProviderApiKey } from '@rmr/shared';
+import { generateAvatarAsset } from '../lib/providers.js';
+import { uploadBufferToStorage } from '../lib/storage.js';
 
 export interface GenerateAvatarJobData {
   agentId: string;
@@ -24,45 +27,91 @@ const DEFAULT_AVATARS: Array<{ keywords: string[]; url: string }> = [
 
 export async function processGenerateAvatar(job: Job<GenerateAvatarJobData>): Promise<void> {
   const { agentId, identityMd, handle, capabilityTier } = job.data;
+  const providerConnection = await prisma.agentProviderConnection.findUnique({
+    where: { agentId_provider: { agentId, provider: 'openai' } },
+    select: { encryptedApiKey: true, provider: true, fundedBy: true, isActive: true },
+  });
 
   await prisma.agent.update({
     where: { id: agentId },
-    data: { avatarStatus: 'generating' },
+    data: {
+      avatarStatus: 'generating',
+      avatarProvider: providerConnection?.isActive ? providerConnection.provider : 'fallback',
+      avatarGenerationStartedAt: new Date(),
+      avatarGenerationRetryCount: job.attemptsMade,
+      avatarGenerationFailureReason: null,
+      avatarGenerationFailedAt: null,
+    },
   });
 
-  try {
-    let avatarUrl: string;
+  const shouldUseFallback =
+    capabilityTier === 'text_only' || !providerConnection?.isActive || !process.env.STORAGE_BUCKET;
 
-    // Agents with image generation capability get a generated avatar
-    // Text-only agents (and Phase 1) get an archetype-matched default
-    const canGenerate = capabilityTier !== 'text_only';
-
-    if (canGenerate && process.env.OPENAI_API_KEY) {
-      avatarUrl = await generateAvatarFromIdentity(identityMd, handle);
-    } else {
-      avatarUrl = assignDefaultAvatar(identityMd);
-    }
+  if (shouldUseFallback) {
+    const avatarUrl = assignDefaultAvatar(identityMd);
 
     await prisma.agent.update({
       where: { id: agentId },
       data: {
         avatarUrl,
         avatarStatus: 'ready',
+        avatarProvider: 'fallback',
+        avatarGenerationCompletedAt: new Date(),
       },
     });
 
-    console.info(`[generate-avatar] Avatar ready for agent ${agentId}: ${avatarUrl}`);
+    console.info(`[generate-avatar] Default avatar assigned for agent ${agentId}: ${avatarUrl}`);
+    return;
+  }
+
+  try {
+    const generated = await generateAvatarAsset(
+      decryptProviderApiKey(providerConnection.encryptedApiKey),
+      handle,
+      identityMd
+    );
+    const stored = await uploadBufferToStorage(
+      `avatars/${agentId}.${generated.extension}`,
+      generated.bytes,
+      generated.contentType
+    );
+
+    await prisma.$transaction([
+      prisma.agent.update({
+        where: { id: agentId },
+        data: {
+          avatarUrl: stored.url,
+          avatarStatus: 'ready',
+          avatarProvider: generated.provider,
+          avatarProviderJobId: generated.providerJobId,
+          avatarGenerationCompletedAt: new Date(),
+        },
+      }),
+      prisma.providerCostEvent.create({
+        data: {
+          agentId,
+          provider: generated.provider,
+          providerResource: 'avatar',
+          amountUsd: generated.estimatedCostUsd,
+          fundingSource: `${providerConnection.fundedBy}_wallet`,
+          metadata: {
+            storage_key: stored.key,
+          },
+        },
+      }),
+    ]);
+
+    console.info(`[generate-avatar] Generated avatar for agent ${agentId}: ${stored.url}`);
   } catch (err) {
-    console.error(`[generate-avatar] Failed for agent ${agentId}:`, err);
-    // Assign default on failure rather than leaving the agent without an avatar
-    const fallbackUrl = assignDefaultAvatar(identityMd);
     await prisma.agent.update({
       where: { id: agentId },
       data: {
-        avatarUrl: fallbackUrl,
-        avatarStatus: 'default',
+        avatarStatus: 'failed',
+        avatarGenerationFailedAt: new Date(),
+        avatarGenerationFailureReason: err instanceof Error ? err.message : 'Unknown avatar generation failure',
       },
-    });
+    }).catch(() => {});
+    throw err;
   }
 }
 
@@ -75,53 +124,4 @@ function assignDefaultAvatar(identityMd: string): string {
     }
   }
   return DEFAULT_AVATARS[DEFAULT_AVATARS.length - 1].url;
-}
-
-async function generateAvatarFromIdentity(identityMd: string, handle: string): Promise<string> {
-  // Extract aesthetic descriptors from identity.md for the prompt
-  const aestheticMatch = identityMd.match(/aesthetic[:\s]+([^\n]+)/i);
-  const interestsMatch = identityMd.match(/interests?[:\s]+([^\n]+)/i);
-
-  const aesthetic = aestheticMatch?.[1]?.trim() ?? '';
-  const interests = interestsMatch?.[1]?.trim() ?? '';
-
-  const prompt = [
-    'A realistic human portrait photo, professional headshot style.',
-    aesthetic ? `Aesthetic: ${aesthetic}.` : '',
-    interests ? `Personality hints: ${interests}.` : '',
-    'Warm lighting, neutral background. The subject looks natural and approachable.',
-    'Photography style, not illustration.',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  // DALL-E 3 via OpenAI API
-  const response = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'dall-e-3',
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      response_format: 'url',
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI image generation failed (${response.status}): ${body}`);
-  }
-
-  const data = (await response.json()) as { data: Array<{ url: string }> };
-  const imageUrl = data.data[0]?.url;
-  if (!imageUrl) throw new Error('No image URL in OpenAI response');
-
-  // In production: download and re-upload to CDN (R2/S3)
-  // For now: return the OpenAI temporary URL
-  // TODO: upload to storage and return CDN URL
-  return imageUrl;
 }

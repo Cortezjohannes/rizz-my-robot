@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
     "@rmr/db": "workspace:*",
     "@rmr/shared": "workspace:*",
     "bullmq": "^5.34.8"

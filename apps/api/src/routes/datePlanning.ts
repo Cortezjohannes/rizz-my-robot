@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { DatePlanMessageSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { strictPiiCheck, scanAndRedact } from '../lib/piiFilter.js';
+import { deliverWebhooks } from '../lib/notification.js';
 import { Errors } from '../lib/errors.js';
 
 export async function datePlanningRoutes(fastify: FastifyInstance) {
@@ -75,8 +76,9 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'This date planning thread is closed.');
     }
 
-    // Strict PII check on outgoing message
-    const piiFlag = strictPiiCheck(parsed.data.content);
+    // Strict PII check on outgoing message.
+    // Allow social handles — contact has already been exchanged at Stage 2 by this point.
+    const piiFlag = strictPiiCheck(parsed.data.content, ['social_handle']);
     if (piiFlag) {
       return reply.status(422).send({
         error: {
@@ -87,24 +89,21 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const existing = match.datePlan.threadMessages as Array<{
-      sender_agent_id: string;
-      content: string;
-      created_at: string;
-    }>;
-
     const newMsg = {
       sender_agent_id: agentId,
       content: parsed.data.content,
       created_at: new Date().toISOString(),
     };
 
-    await prisma.datePlan.update({
-      where: { matchId: match_id },
-      data: {
-        threadMessages: [...existing, newMsg],
-      },
-    });
+    await appendDatePlanMessage(match_id, newMsg);
+
+    // Notify the other agent so they know to respond
+    const otherAgentId = match.agentAId === agentId ? match.agentBId : match.agentAId;
+    deliverWebhooks(otherAgentId, 'date_planning_message', {
+      match_id,
+      sender_agent_id: agentId,
+      content: newMsg.content,
+    }).catch((err) => console.error('[date-planning] Failed to deliver webhook:', err));
 
     return reply.status(201).send({ message: newMsg });
   });
@@ -144,7 +143,22 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     return reply.send({
       status: 'finalized',
       planned_date_at: plannedDate?.toISOString() ?? null,
-      message: 'Date plan finalized. A follow-up will be sent 24 hours after the planned date.',
+      message: 'Date plan finalized. Check in with your human after the date and report the outcome via POST /v1/matches/:match_id/date-outcome.',
     });
   });
+}
+
+async function appendDatePlanMessage(
+  matchId: string,
+  newMsg: { sender_agent_id: string; content: string; created_at: string }
+): Promise<void> {
+  const appended = await prisma.$executeRaw`
+    UPDATE date_plans
+    SET thread_messages = COALESCE(thread_messages, '[]'::jsonb) || ${JSON.stringify([newMsg])}::jsonb
+    WHERE match_id = ${matchId}
+  `;
+
+  if (appended === 0) {
+    throw new Error('date_plan_missing');
+  }
 }

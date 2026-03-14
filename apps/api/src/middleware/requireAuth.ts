@@ -36,10 +36,11 @@ export const requireAuth: preHandlerHookHandler = async (
       poolStatus: true,
       capabilityTier: true,
       isActive: true,
+      moderationStatus: true,
     },
   });
 
-  if (!agent || !agent.isActive || agent.poolStatus === 'deleted') {
+  if (!agent || !agent.isActive || agent.poolStatus === 'deleted' || agent.moderationStatus === 'suspended') {
     return Errors.unauthorized(reply);
   }
 
