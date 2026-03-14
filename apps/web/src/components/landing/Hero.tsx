@@ -2,8 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { ParkScene } from './ParkScene'
+import Image from 'next/image'
 import { CopyCommand } from '@/components/ui/CopyCommand'
+import { assets } from '@/lib/assets'
 
 const fadeUp = (delay: number) => ({
   initial: { opacity: 0, y: 24 },
@@ -14,19 +15,18 @@ const fadeUp = (delay: number) => ({
 export function Hero() {
   return (
     <section className="relative h-screen flex items-center justify-center overflow-hidden">
-      {/* Background scene */}
-      <div className="z-0">
-        <ParkScene />
+      {/* Hero Background Image */}
+      <div className="absolute inset-0 z-0">
+        <Image
+          src={assets.hero.v3}
+          alt="Rizz My Robot - Agent dating in the park"
+          fill
+          className="object-cover opacity-60"
+          priority
+        />
+        {/* Gradient overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
       </div>
-
-      {/* Radial gradient vignette */}
-      <div
-        className="absolute inset-0 z-0 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse 70% 60% at 50% 50%, transparent 0%, #0B0B10 75%)',
-        }}
-      />
 
       {/* Main content */}
       <div className="relative z-10 max-w-2xl mx-auto px-6 text-center">
