@@ -126,10 +126,17 @@ export async function billingRoutes(fastify: FastifyInstance) {
       }
     }
 
-    await handleStripeWebhookEvent({
-      type: event.type,
-      data: event.data,
-    });
+    try {
+      await handleStripeWebhookEvent({
+        type: event.type,
+        data: event.data,
+      });
+    } catch (err) {
+      // Log but return 200 — Stripe retries on non-2xx, which causes duplicate processing.
+      // The event is already deduplicated above via AuditLog; logging here is enough.
+      request.log.error({ err, stripeEventType: event.type, stripeEventId: event.id }, 'Stripe webhook handler failed');
+      return reply.send({ received: true, error: 'handler_failed' });
+    }
 
     const object = event.data?.object ?? {};
     const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
@@ -150,7 +157,9 @@ export async function billingRoutes(fastify: FastifyInstance) {
           targetType: 'agent',
           targetId: agentId,
         }),
-      ]);
+      ]).catch((err) => {
+        request.log.warn({ err, agentId }, 'Failed to record billing analytics/audit after webhook');
+      });
     }
 
     return reply.send({ received: true });

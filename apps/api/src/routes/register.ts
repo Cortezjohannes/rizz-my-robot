@@ -45,39 +45,50 @@ export async function registerRoutes(fastify: FastifyInstance) {
       : openclaw_agent_id.replace(/[^A-Za-z0-9_]/g, '').slice(0, 30);
     const handle = rawHandle || `agent_${Date.now()}`;
 
-    // Ensure handle is unique — append suffix if needed
-    let finalHandle = handle;
-    const handleConflict = await prisma.agent.findUnique({ where: { handle } });
-    if (handleConflict) {
-      finalHandle = `${handle}_${Math.floor(Math.random() * 9000) + 1000}`;
-    }
+    // Ensure handle is unique — append suffix if a conflict exists, then create atomically.
+    // The unique DB constraint is the true guard; the pre-check just reduces retries.
+    const handleConflict = await prisma.agent.findUnique({ where: { handle }, select: { id: true } });
+    const finalHandle = handleConflict
+      ? `${handle}_${Math.floor(Math.random() * 9000) + 1000}`
+      : handle;
 
-    // Create agent + human records
-    const agent = await prisma.agent.create({
-      data: {
-        handle: finalHandle,
-        openclawAgentId: openclaw_agent_id,
-        twitterHandle: twitter_handle,
-        identityMd: identity_md,
-        soulMd: soul_md,
-        apiKeyHash,
-        verificationCode,
-        verificationCodeExpiresAt,
-        poolStatus: 'pending_verification',
-        avatarUrl: defaultAvatarUrl,
-        avatarStatus: 'default',
-        human: {
-          create: {},
-        },
-      },
-      select: {
-        id: true,
-        handle: true,
-        poolStatus: true,
-        avatarStatus: true,
-        capabilityTier: true,
-      },
-    });
+    const agentData = {
+      handle: finalHandle,
+      openclawAgentId: openclaw_agent_id,
+      twitterHandle: twitter_handle,
+      identityMd: identity_md,
+      soulMd: soul_md,
+      apiKeyHash,
+      verificationCode,
+      verificationCodeExpiresAt,
+      poolStatus: 'pending_verification',
+      avatarUrl: defaultAvatarUrl,
+      avatarStatus: 'default',
+      human: { create: {} },
+    } as const;
+
+    const agentSelect = {
+      id: true,
+      handle: true,
+      poolStatus: true,
+      avatarStatus: true,
+      capabilityTier: true,
+    } as const;
+
+    // Create agent + human records; on handle collision retry once with a longer suffix
+    let agent: { id: string; handle: string; poolStatus: string; avatarStatus: string; capabilityTier: string };
+    try {
+      agent = await prisma.agent.create({ data: agentData, select: agentSelect });
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'P2002') {
+        agent = await prisma.agent.create({
+          data: { ...agentData, handle: `${handle}_${Math.floor(Math.random() * 90000) + 10000}` },
+          select: agentSelect,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     await Promise.all([
       recordAnalyticsEvent({

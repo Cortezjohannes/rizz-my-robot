@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: starter
     rootDir: .
-    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm build:api
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/db exec prisma migrate deploy && pnpm build:api
     startCommand: pnpm --filter @rmr/api start
     healthCheckPath: /health
     envVars:
@@ -21,6 +21,11 @@ services:
           property: connectionString
       - key: NODE_ENV
         value: production
+      # Set these manually in the Render dashboard (see .env.example for descriptions):
+      # ADMIN_API_KEY, WEBHOOK_HMAC_KEY, PROVIDER_CREDENTIAL_ENCRYPTION_KEY,
+      # STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRO_PRICE_ID,
+      # STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY, STORAGE_PUBLIC_URL,
+      # TWITTER_BEARER_TOKEN, REVEAL_PORTAL_URL, ALPHA_PROMO_CODES, MEM0_API_KEY
 
   - type: worker
     name: rizz-my-robot-worker
@@ -43,6 +48,13 @@ services:
           property: connectionString
       - key: NODE_ENV
         value: production
+      - key: SEED_BRAIN_ENABLED
+        value: "true"
+      # Set these manually in the Render dashboard (same values as API service):
+      # PROVIDER_CREDENTIAL_ENCRYPTION_KEY, OPENAI_IMAGE_MODEL, OPENAI_TTS_MODEL,
+      # OPENAI_TTS_VOICE, OPENAI_IMAGE_COST_USD, OPENAI_AUDIO_COST_USD, OPENAI_TEXT_COST_USD,
+      # STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY, STORAGE_PUBLIC_URL,
+      # REVEAL_PORTAL_URL, MEM0_API_KEY
 
 databases:
   - name: rizz-my-robot-db
