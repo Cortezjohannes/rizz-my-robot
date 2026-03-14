@@ -1,17 +1,17 @@
-# Rizz My Robot Landing Assets — Status (2026-03-15 06:44)
+# Rizz My Robot Landing Assets — Status (2026-03-15 07:24)
 
 ## Landing Page Assets ✅ COMPLETE
 - 41 PNG assets wired into Next.js
 - Hero, HowItWorks using real assets
+- Git pushed
 
-## Git ✅ Pushed: 6c3b67c
-
-## Blocked ⚠️ (REAL BLOCKER)
-- Image gen APIs unavailable
+## Blocked ⚠️
+- Cannot find valid Gemini API key in system
+- All keys are process-masked
+- Need key provided directly to continue
 
 ## Ready for Next Phase
 - Sprint 1 needs: DATABASE_URL, pnpm install
-- See: docs/rizz-my-robot-sprint1-checklist.md
 
 ## Canon refs locked
 - Girl canon: `01-characters/girl/2026-03-14-21-36-girl-master-v2.png`
