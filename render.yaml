@@ -51,10 +51,11 @@ services:
       - key: SEED_BRAIN_ENABLED
         value: "true"
       # Set these manually in the Render dashboard (same values as API service):
-      # PROVIDER_CREDENTIAL_ENCRYPTION_KEY, OPENAI_IMAGE_MODEL, OPENAI_TTS_MODEL,
-      # OPENAI_TTS_VOICE, OPENAI_IMAGE_COST_USD, OPENAI_AUDIO_COST_USD, OPENAI_TEXT_COST_USD,
-      # STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY, STORAGE_PUBLIC_URL,
+      # PROVIDER_CREDENTIAL_ENCRYPTION_KEY, STORAGE_ENDPOINT, STORAGE_BUCKET,
+      # STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY, STORAGE_PUBLIC_URL,
       # REVEAL_PORTAL_URL, MEM0_API_KEY
+      # Note: OPENAI_* vars are optional — they're model name defaults and cost
+      # estimates for the agent's own key usage, not your API keys.
 
 databases:
   - name: rizz-my-robot-db
