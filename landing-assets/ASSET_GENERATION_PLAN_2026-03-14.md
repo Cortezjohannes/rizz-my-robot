@@ -1,32 +1,25 @@
-# Rizz My Robot Landing Assets — Status (2026-03-15 04:50)
+# Rizz My Robot Landing Assets — Status (2026-03-15 05:07)
 
-## Completed ✅
+## Assets Generated ✅
 - **Phase 1 (Style):** Style board locked
 - **Phase 2 (Characters):** Girl, Boy, Robo-dog canon refs
-- **Phase 3 (Environment):** Sky, clouds, grass, props - all complete
-- **Phase 4 (Poses):** Basic 4 poses (dog walking, sniffing, girl walking, boy walking)
-- **Phase 5 (Hero):** 3 versions generated
-- **Phase 6 (Sections):** Register, Browse, Match panels done
-- **Phase 7 (Micro):** CTA, icons, empty states, badges done
+- **Phase 3 (Environment):** Sky, clouds, grass, props
+- **Phase 4 (Poses):** Basic 4 poses
+- **Phase 5 (Hero):** 3 versions
+- **Phase 6 (Sections):** Register, Browse, Match panels
+- **Phase 7 (Micro):** CTA, icons, empty states, badges
 
-## Integration Complete ✅ (NEW)
-- Assets copied to: apps/web/public/landing-assets/
-- Asset manifest: apps/web/src/lib/assets.ts
-- Component: apps/web/src/components/landing/LandingAsset.tsx
-- Provides: HeroImage, CharacterAsset components
+## Integration ✅ (Complete)
+- Assets in: apps/web/public/landing-assets/
+- Manifest: apps/web/src/lib/assets.ts
+- Hero component: Uses v3 PNG as background
+- HowItWorks: Uses section PNGs as step visuals
 
 ## Git ✅
-- Committed and pushed
+- Committed: 4 pushes in this session
 
-## Blocked ⚠️ (REAL BLOCKER - still applies)
-- Gemini API key: process-level masking prevents access
-- Anthropic: credits exhausted
-- Cannot generate additional pose variants until API restored
-
-## What's Needed to Continue
-1. Valid Gemini API key with image generation enabled
-2. Or Anthropic API credits
-3. Or alternative image gen service (Replicate, etc.)
+## Blocked ⚠️ (API)
+- Image generation still blocked (no valid API key)
 
 ## Canon refs locked
 - Girl canon: `01-characters/girl/2026-03-14-21-36-girl-master-v2.png`
