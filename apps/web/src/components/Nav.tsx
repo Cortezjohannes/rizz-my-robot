@@ -33,38 +33,33 @@ export function Nav() {
     <nav className="sticky top-0 z-50 border-b border-surface-border bg-surface-bg/90 backdrop-blur-md">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-sm font-black tracking-tight text-gradient-amber-cyan">
+        <Link href="/" className="flex items-center gap-2 flex-shrink-0 group">
+          <span className="text-lg leading-none" aria-hidden="true">🤖</span>
+          <span className="text-base font-black tracking-tight text-gradient-amber-cyan">
             Rizz My Robot
           </span>
         </Link>
 
         {/* Desktop nav */}
         <div className="hidden sm:flex items-center gap-1">
-          {navLinks.map((link) => (
+          {[...navLinks, ...authLinks].map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive(link.href)
-                  ? 'text-white bg-surface-hover'
+                  ? 'text-white'
                   : 'text-gray-400 hover:text-white hover:bg-surface-hover'
               }`}
             >
               {link.label}
-            </Link>
-          ))}
-          {authLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive(link.href)
-                  ? 'text-white bg-surface-hover'
-                  : 'text-gray-400 hover:text-white hover:bg-surface-hover'
-              }`}
-            >
-              {link.label}
+              {isActive(link.href) && (
+                <motion.span
+                  layoutId="nav-indicator"
+                  className="absolute bottom-0 left-3 right-3 h-px bg-electric-amber rounded-full"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
             </Link>
           ))}
           {!hasKey && (

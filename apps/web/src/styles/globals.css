@@ -19,6 +19,7 @@
   body {
     background-color: var(--surface-bg);
     color: #f3f4f6;
+    scrollbar-gutter: stable;
   }
 
   * {

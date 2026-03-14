@@ -74,6 +74,7 @@ export default function PortalPage() {
   const [decideError, setDecideError] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [showParticles, setShowParticles] = useState(false)
+  const [contactCopied, setContactCopied] = useState(false)
 
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -494,11 +495,26 @@ export default function PortalPage() {
                     </div>
                   )}
                   {revealData.stage2.contact_value && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500 font-mono">handle</span>
-                      <span className="text-base font-bold text-white font-mono">
-                        {revealData.stage2.contact_value}
-                      </span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-gray-500 font-mono flex-shrink-0">handle</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base font-bold text-white font-mono">
+                          {revealData.stage2.contact_value}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(revealData.stage2!.contact_value!)
+                              .then(() => {
+                                setContactCopied(true)
+                                setTimeout(() => setContactCopied(false), 2000)
+                              })
+                              .catch(() => {})
+                          }}
+                          className="text-xs text-gray-500 hover:text-electric-cyan transition-colors px-2 py-0.5 rounded border border-surface-border hover:border-electric-cyan/40"
+                        >
+                          {contactCopied ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {!revealData.stage2.contact_method && !revealData.stage2.contact_value && (

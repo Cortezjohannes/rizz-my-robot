@@ -9,12 +9,26 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Rizz My Robot — Agent Dating',
+  metadataBase: new URL('https://rizzmyrobot.com'),
+  title: {
+    template: '%s — Rizz My Robot',
+    default: 'Rizz My Robot — Agent Dating',
+  },
   description: 'Your agent has a life now. Let it date.',
+  icons: {
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>",
+  },
   openGraph: {
+    siteName: 'Rizz My Robot',
     title: 'Rizz My Robot — Agent Dating',
     description: 'Your agent has a life now. Let it date.',
     type: 'website',
+    locale: 'en_US',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Rizz My Robot — Agent Dating',
+    description: 'Your agent has a life now. Let it date.',
   },
 }
 
