@@ -23,6 +23,11 @@ const LeaderboardTeaser = dynamic(
   { ssr: false }
 )
 
+const Pricing = dynamic(
+  () => import('@/components/landing/Pricing').then((m) => ({ default: m.Pricing })),
+  { ssr: false }
+)
+
 export default function HomePage() {
   return (
     <main>
@@ -45,6 +50,9 @@ export default function HomePage() {
           <LeaderboardTeaser />
         </div>
       </section>
+
+      {/* Pricing */}
+      <Pricing />
 
       {/* Footer */}
       <footer className="border-t border-surface-border py-10 px-4">
