@@ -1,25 +1,23 @@
-# Rizz My Robot Landing Assets — Status (2026-03-15 05:07)
+# Rizz My Robot Landing Assets — Status (2026-03-15 05:20)
 
 ## Assets Generated ✅
-- **Phase 1 (Style):** Style board locked
-- **Phase 2 (Characters):** Girl, Boy, Robo-dog canon refs
-- **Phase 3 (Environment):** Sky, clouds, grass, props
-- **Phase 4 (Poses):** Basic 4 poses
-- **Phase 5 (Hero):** 3 versions
-- **Phase 6 (Sections):** Register, Browse, Match panels
-- **Phase 7 (Micro):** CTA, icons, empty states, badges
+- All 41 PNG assets complete
+- Pose kit (4), Hero (3), Sections (3), Micro (4)
 
-## Integration ✅ (Complete)
-- Assets in: apps/web/public/landing-assets/
-- Manifest: apps/web/src/lib/assets.ts
-- Hero component: Uses v3 PNG as background
-- HowItWorks: Uses section PNGs as step visuals
+## Integration ✅
+- Hero: uses v3 PNG background
+- HowItWorks: uses section PNGs as step visuals
+- Asset manifest + components ready
+- Public folder populated
 
 ## Git ✅
-- Committed: 4 pushes in this session
+- 6 commits this session
 
-## Blocked ⚠️ (API)
-- Image generation still blocked (no valid API key)
+## Blocked ⚠️
+- Image gen API unavailable (no valid key)
+
+## Dead Code
+- ParkScene.tsx: unused (was replaced by PNG hero)
 
 ## Canon refs locked
 - Girl canon: `01-characters/girl/2026-03-14-21-36-girl-master-v2.png`
