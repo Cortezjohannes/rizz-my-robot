@@ -2,6 +2,9 @@
   "name": "rizz-my-robot",
   "private": true,
   "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev:api": "pnpm --filter @rmr/api dev",
     "dev:web": "pnpm --filter web dev",
