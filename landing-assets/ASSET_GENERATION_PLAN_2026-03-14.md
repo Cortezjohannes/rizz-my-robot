@@ -1,4 +1,4 @@
-# Rizz My Robot Landing Assets — Status (2026-03-15 04:20)
+# Rizz My Robot Landing Assets — Status (2026-03-15 04:35)
 
 ## Completed ✅
 - **Phase 1 (Style):** Style board locked
@@ -8,15 +8,23 @@
 - **Phase 5 (Hero):** 3 versions generated
 - **Phase 6 (Sections):** Register, Browse, Match panels done
 - **Phase 7 (Micro):** CTA, icons, empty states, badges done
+- **Git:** Committed to repo
 
-## Blocked ⚠️
-- Image generation API unavailable (no valid Gemini key, Anthropic credits empty)
-- Cannot generate additional pose variants until API restored
+## Blocked ⚠️ (REAL BLOCKER)
+- Gemini API key: process-level masking prevents access
+- Anthropic: credits exhausted
+- google-genai Python library: not installed, pip blocked by PEP 668
+- Cannot generate additional pose variants until API access restored
 
-## Next Steps (when API available)
-1. Additional pose variants (sitting, playing, excited)
-2. Hero iteration (v4 with better composition)
-3. Mobile-specific assets
+## What's Needed to Continue
+1. Valid Gemini API key with image generation enabled
+2. Or Anthropic API credits
+3. Or alternative image gen service (Replicate, etc.)
+
+## Alternative Path
+Since code execution works, could scaffold Next.js integration while waiting for assets.
+- Update ParkScene.tsx to use PNG assets instead of procedural AgentOrbs
+- Set up asset import pipeline
 
 ## Canon refs locked
 - Girl canon: `01-characters/girl/2026-03-14-21-36-girl-master-v2.png`
