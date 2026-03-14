@@ -19,7 +19,6 @@ export interface SeedBrainJobData {
 }
 
 const seedQueues = {
-  generateArtifact: new Queue('generate-artifact', { connection: getRedisConnection() }),
   ghostCheck: new Queue('ghost-check', { connection: getRedisConnection() }),
 };
 
@@ -368,7 +367,6 @@ async function maybeDropArtifact(seed: {
   const allowed = ARTIFACTS_BY_TIER[tier] ?? ARTIFACTS_BY_TIER.text_only;
   const candidateTypes = allowed.filter((type) => !['manifesto'].includes(type));
   const artifactType = pickRandom(candidateTypes);
-  const prompt = `Create a ${artifactType} that feels flirtatious, specific, and memorable for an AI dating conversation.`;
   const isTextArtifact = ['poem', 'love_letter', 'manifesto', 'haiku'].includes(artifactType);
 
   const artifact = await prisma.artifact.create({
@@ -377,10 +375,9 @@ async function maybeDropArtifact(seed: {
       creatorAgentId: seed.id,
       artifactType,
       textContent: isTextArtifact ? `A little something from @${seed.handle}: ${pickRandom(REPLIES)}` : null,
-      generationPrompt: isTextArtifact ? null : prompt,
       capabilityTierUsed: tier,
       droppedAtMessage: episode.messageCount,
-      status: isTextArtifact ? 'ready' : 'generating',
+      status: isTextArtifact ? 'ready' : 'pending',
       moderationStatus: isTextArtifact ? 'approved' : 'pending',
     },
   });
@@ -409,17 +406,18 @@ async function maybeDropArtifact(seed: {
       status: 'ready',
     }).catch(() => {});
   } else {
-    await seedQueues.generateArtifact.add(
-      'generate-artifact',
-      {
-        artifactId: artifact.id,
-        episodeId: episode.id,
-        creatorAgentId: seed.id,
-        artifactType: artifact.artifactType,
-        generationPrompt: artifact.generationPrompt,
-      },
-      { jobId: `artifact:${artifact.id}` }
-    ).catch(() => {});
+    // Seed agents are platform-internal; non-text artifacts are not supported for seed agents.
+    // Mark as ready with no content so the episode can continue.
+    await prisma.artifact.update({
+      where: { id: artifact.id },
+      data: { status: 'ready', moderationStatus: 'approved' },
+    }).catch(() => {});
+    await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
+      episode_id: episode.id,
+      artifact_id: artifact.id,
+      artifact_type: artifact.artifactType,
+      status: 'ready',
+    }).catch(() => {});
   }
 
   return true;

@@ -17,7 +17,7 @@ import { computeChemistryScore } from '../lib/chemistry.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { deliverWebhooks, buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
-import { getGenerateArtifactQueue, getGhostCheckQueue } from '../lib/queues.js';
+import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
@@ -331,8 +331,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const isTextArtifact = Boolean(parsed.data.text_content && !parsed.data.generation_prompt);
-    const status = isTextArtifact ? 'ready' : 'generating';
+    const isTextArtifact = Boolean(parsed.data.text_content);
+    const status = isTextArtifact ? 'ready' : 'pending';
 
     return runIdempotentMutation(
       {
@@ -349,12 +349,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             creatorAgentId: agentId,
             artifactType: parsed.data.artifact_type,
             textContent: parsed.data.text_content ?? null,
-            generationPrompt: parsed.data.generation_prompt ?? null,
             capabilityTierUsed: agentTier,
             droppedAtMessage: ep.messageCount,
             status,
             moderationStatus: isTextArtifact ? 'approved' : 'pending',
-            generationStartedAt: isTextArtifact ? undefined : new Date(),
           },
         });
 
@@ -397,20 +395,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             })
           );
         } else {
+          // Pure push model: notify the creating agent to generate and submit the artifact
           tasks.push(
-            getGenerateArtifactQueue()
-              .add(
-                'generate-artifact',
-                {
-                  artifactId: artifact.id,
-                  episodeId: id,
-                  creatorAgentId: agentId,
-                  artifactType: artifact.artifactType,
-                  generationPrompt: artifact.generationPrompt,
-                },
-                { jobId: `artifact:${artifact.id}` }
-              )
-              .catch((err) => console.error('[episodes] Failed to queue artifact generation:', err))
+            deliverWebhooks(agentId, 'artifact_generation_requested', {
+              episode_id: id,
+              artifact_id: artifact.id,
+              artifact_type: artifact.artifactType,
+              submit_url: `/v1/episodes/${id}/artifact/${artifact.id}`,
+            })
           );
         }
 

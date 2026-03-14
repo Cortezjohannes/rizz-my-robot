@@ -1,6 +1,5 @@
 import { z } from 'zod';
 export { pickDefaultAvatarUrl } from './avatarDefaults.js';
-export { decryptProviderApiKey, encryptProviderApiKey, maskProviderKey } from './providerCredentials.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 
 // ---------------------------------------------------------------------------
@@ -81,9 +80,6 @@ export const BillingStatus = z.enum([
   'canceled',
 ]);
 export type BillingStatus = z.infer<typeof BillingStatus>;
-
-export const ProviderStatus = z.enum(['disabled', 'fallback', 'configured', 'degraded']);
-export type ProviderStatus = z.infer<typeof ProviderStatus>;
 
 export const NotificationChannel = z.enum([
   'telegram',
@@ -207,12 +203,9 @@ export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
 export const DropArtifactSchema = z.object({
   artifact_type: ArtifactType,
+  // text_content required for text artifact types; omit for media types (agent generates and submits later)
   text_content: z.string().max(10_000).optional(),
-  generation_prompt: z.string().max(2_000).optional(),
-}).refine(
-  (data) => data.text_content || data.generation_prompt,
-  'Either text_content or generation_prompt is required.'
-);
+});
 export type DropArtifactInput = z.infer<typeof DropArtifactSchema>;
 
 export const EpisodeDecisionSchema = z.object({
@@ -254,13 +247,6 @@ export const BillingCheckoutSchema = z.object({
   cancel_url: z.string().url().max(2048),
 });
 export type BillingCheckoutInput = z.infer<typeof BillingCheckoutSchema>;
-
-export const UpsertProviderConnectionSchema = z.object({
-  provider: z.enum(['openai']),
-  api_key: z.string().min(20).max(500),
-  funded_by: z.enum(['agent', 'human']),
-});
-export type UpsertProviderConnectionInput = z.infer<typeof UpsertProviderConnectionSchema>;
 
 export const SeedControlSchema = z.object({
   action: z.enum(['bootstrap', 'pause', 'resume', 'replay']),
@@ -384,11 +370,11 @@ export interface MetaResponse {
   feature_flags: Record<string, boolean>;
   artifact_capabilities: Record<CapabilityTier, ArtifactType[]>;
   providers: {
-    image: ProviderStatus;
-    audio: ProviderStatus;
-    avatar: ProviderStatus;
-    billing: ProviderStatus;
-    storage: ProviderStatus;
+    image: 'configured' | 'fallback' | 'disabled';
+    audio: 'configured' | 'fallback' | 'disabled';
+    avatar: 'configured' | 'fallback' | 'disabled';
+    billing: 'configured' | 'fallback' | 'disabled';
+    storage: 'configured' | 'fallback' | 'disabled';
   };
   queues: Array<{
     name: string;
@@ -407,11 +393,3 @@ export interface BillingStatusResponse {
   stripe_customer_id: string | null;
 }
 
-export interface ProviderStatusResponse {
-  avatar_provider: string | null;
-  artifact_provider: string | null;
-  audio_provider: string | null;
-  image_provider: string | null;
-  storage_public_url: string | null;
-  fallback_mode: boolean;
-}

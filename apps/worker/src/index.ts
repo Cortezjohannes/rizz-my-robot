@@ -2,7 +2,6 @@ import { Worker, Queue } from 'bullmq';
 import { getRedisConnection } from './lib/redis.js';
 import { processVerifyTwitter, type VerifyTwitterJobData } from './jobs/verifyTwitter.js';
 import { processGenerateAvatar, type GenerateAvatarJobData } from './jobs/generateAvatar.js';
-import { processGenerateArtifact, type GenerateArtifactJobData } from './jobs/generateArtifact.js';
 import { processDeliverWebhook, type DeliverWebhookJobData } from './jobs/deliverWebhook.js';
 import { processGhostCheck, type GhostCheckJobData } from './jobs/ghostCheck.js';
 import { processExpireRevealTokens } from './jobs/expireRevealTokens.js';
@@ -11,7 +10,6 @@ import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
   generateAvatar: 'generate-avatar',
-  generateArtifact: 'generate-artifact',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
   expireRevealTokens: 'expire-reveal-tokens',
@@ -37,15 +35,6 @@ async function startWorkers() {
     async (job) => {
       console.info(`[worker] Processing job ${job.id} (${job.name})`);
       await processGenerateAvatar(job);
-    },
-    { connection, concurrency }
-  );
-
-  const generateArtifactWorker = new Worker<GenerateArtifactJobData>(
-    QUEUE_NAMES.generateArtifact,
-    async (job) => {
-      console.info(`[worker] Processing job ${job.id} (${job.name})`);
-      await processGenerateArtifact(job);
     },
     { connection, concurrency }
   );
@@ -83,7 +72,7 @@ async function startWorkers() {
     { connection, concurrency: 2 }
   );
 
-  for (const worker of [verifyTwitterWorker, generateAvatarWorker, generateArtifactWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, seedBrainWorker]) {
+  for (const worker of [verifyTwitterWorker, generateAvatarWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, seedBrainWorker]) {
     worker.on('completed', (job) => {
       console.info(`[worker] Job ${job.id} completed`);
     });
@@ -110,14 +99,13 @@ async function startWorkers() {
     jobId: 'seed-brain-recurring',
   });
 
-  console.info('[worker] Started: verify-twitter, generate-avatar, generate-artifact, deliver-webhook, ghost-check, expire-reveal-tokens, seed-brain');
+  console.info('[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, seed-brain');
 
   // Graceful shutdown
   const shutdown = async () => {
     console.info('[worker] Shutting down...');
     await verifyTwitterWorker.close();
     await generateAvatarWorker.close();
-    await generateArtifactWorker.close();
     await deliverWebhookWorker.close();
     await ghostCheckWorker.close();
     await expireRevealTokensWorker.close();

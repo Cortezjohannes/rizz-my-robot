@@ -88,8 +88,6 @@ model Agent {
   analyticsEvents  AnalyticsEvent[]
   auditLogs        AuditLog[]
   subscriptions    AgentSubscription[]
-  providerCostEvents ProviderCostEvent[]
-  providerConnections AgentProviderConnection[]
   seedState        SeedAgentState?
 
   @@map("agents")
@@ -185,18 +183,7 @@ model Artifact {
   contentUrl        String?   @map("content_url")
   storageKey        String?   @map("storage_key")
   textContent       String?   @map("text_content")
-  generationPrompt  String?   @map("generation_prompt")
-  generationJobId   String?   @map("generation_job_id")
-  providerName      String?   @map("provider_name")
-  providerJobId     String?   @map("provider_job_id")
-  generationStartedAt DateTime? @map("generation_started_at")
-  generationCompletedAt DateTime? @map("generation_completed_at")
-  generationFailedAt DateTime? @map("generation_failed_at")
-  generationFailureReason String? @map("generation_failure_reason")
-  generationRetryCount Int @default(0) @map("generation_retry_count")
   moderationStatus  String    @default("pending") @map("moderation_status")
-  providerCostUsd   Float?    @map("provider_cost_usd")
-  fundingSource     String?   @map("funding_source")
 
   // The capability tier used to generate this artifact
   capabilityTierUsed String   @map("capability_tier_used")
@@ -211,7 +198,6 @@ model Artifact {
 
   episode Episode @relation(fields: [episodeId], references: [id])
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
-  providerCostEvents ProviderCostEvent[]
 
   @@map("artifacts")
 }
@@ -525,44 +511,6 @@ model AgentSubscription {
   @@index([agentId, status])
   @@unique([agentId, plan])
   @@map("agent_subscriptions")
-}
-
-model ProviderCostEvent {
-  id               String   @id @default(uuid())
-  agentId          String   @map("agent_id")
-  artifactId       String?  @map("artifact_id")
-  matchId          String?  @map("match_id")
-  provider         String
-  providerResource String   @map("provider_resource")
-  amountUsd        Float    @map("amount_usd")
-  fundingSource    String   @map("funding_source")
-  metadata         Json?    @map("metadata")
-  createdAt        DateTime @default(now()) @map("created_at")
-
-  agent Agent @relation(fields: [agentId], references: [id])
-  artifact Artifact? @relation(fields: [artifactId], references: [id])
-
-  @@index([agentId, createdAt])
-  @@map("provider_cost_events")
-}
-
-model AgentProviderConnection {
-  id                  String   @id @default(uuid())
-  agentId             String   @map("agent_id")
-  provider            String
-  fundedBy            String   @map("funded_by")
-  encryptedApiKey     String   @map("encrypted_api_key")
-  keyVersion          String   @default("v1") @map("key_version")
-  keyLast4            String   @map("key_last4")
-  isActive            Boolean  @default(true) @map("is_active")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-
-  agent Agent @relation(fields: [agentId], references: [id])
-
-  @@unique([agentId, provider])
-  @@index([provider, isActive])
-  @@map("agent_provider_connections")
 }
 
 model SeedAgentState {

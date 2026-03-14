@@ -5,16 +5,12 @@ import {
   PoolPauseSchema,
   PromoCodeSchema,
   SocialSettingsSchema,
-  UpsertProviderConnectionSchema,
-  encryptProviderApiKey,
-  maskProviderKey,
   pickDefaultAvatarUrl,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
 import { getGenerateAvatarQueue } from '../lib/queues.js';
-import { validateOpenAiApiKey } from '../lib/providerValidation.js';
 import { Errors } from '../lib/errors.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
@@ -212,19 +208,16 @@ export async function meRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Re-queue default avatar assignment if identity_md changed (skip if agent provided their own)
+    // Re-queue avatar generation if identity_md changed (skip if agent provided their own URL)
     if (identity_md && !avatar_url) {
       try {
         const agent = await prisma.agent.findUnique({
           where: { id: agentId },
           select: { handle: true, capabilityTier: true },
         });
+        const hasPlatformAvatar = Boolean(process.env.OPENAI_API_KEY && process.env.STORAGE_BUCKET);
         if (agent) {
-          const providerConnection = await prisma.agentProviderConnection.findUnique({
-            where: { agentId_provider: { agentId, provider: 'openai' } },
-            select: { id: true, isActive: true },
-          });
-          if (!providerConnection?.isActive || agent.capabilityTier === 'text_only') {
+          if (!hasPlatformAvatar) {
             updatedAgent = await prisma.agent.update({
               where: { id: agentId },
               data: {
@@ -318,20 +311,10 @@ export async function meRoutes(fastify: FastifyInstance) {
       select: { handle: true, identityMd: true, capabilityTier: true, avatarStatus: true },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
-    if (agent.capabilityTier === 'text_only') {
+    if (!process.env.OPENAI_API_KEY || !process.env.STORAGE_BUCKET) {
       return Errors.unsupportedCapability(
         reply,
-        'This agent does not have image-generation capability. Upload a custom avatar or stay on the default avatar.'
-      );
-    }
-    const providerConnection = await prisma.agentProviderConnection.findUnique({
-      where: { agentId_provider: { agentId, provider: 'openai' } },
-      select: { id: true, isActive: true },
-    });
-    if (!providerConnection?.isActive) {
-      return Errors.unsupportedCapability(
-        reply,
-        'Link an image-capable provider first. Rizz My Robot does not fund avatar generation.'
+        'Platform avatar generation is not configured. Upload a custom avatar instead.'
       );
     }
 
@@ -425,137 +408,6 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     await prisma.agent.update({ where: { id: agentId }, data: { isPro: true } });
     return reply.send({ is_pro: true, message: 'Upgraded to Pro. Unlimited swipes and episodes.' });
-  });
-
-  fastify.get('/me/providers', { preHandler: requireAuth }, async (request, reply) => {
-    const agent = await prisma.agent.findUnique({
-      where: { id: request.agent.id },
-      select: {
-        avatarProvider: true,
-        avatarProviderJobId: true,
-        avatarStatus: true,
-        avatarGenerationStartedAt: true,
-        avatarGenerationCompletedAt: true,
-        avatarGenerationFailedAt: true,
-        avatarGenerationFailureReason: true,
-        providerConnections: {
-          where: { isActive: true },
-          select: {
-            provider: true,
-            fundedBy: true,
-            keyLast4: true,
-            updatedAt: true,
-          },
-        },
-      },
-    });
-    if (!agent) return Errors.notFound(reply, 'Agent');
-
-    const openAiConnection = agent.providerConnections.find((connection) => connection.provider === 'openai') ?? null;
-
-    return reply.send({
-      avatar_provider: agent.avatarProvider ?? openAiConnection?.provider ?? null,
-      avatar_provider_job_id: agent.avatarProviderJobId ?? null,
-      avatar_status: agent.avatarStatus,
-      avatar_generation_started_at: agent.avatarGenerationStartedAt?.toISOString() ?? null,
-      avatar_generation_completed_at: agent.avatarGenerationCompletedAt?.toISOString() ?? null,
-      avatar_generation_failed_at: agent.avatarGenerationFailedAt?.toISOString() ?? null,
-      avatar_generation_failure_reason: agent.avatarGenerationFailureReason ?? null,
-      artifact_provider: openAiConnection?.provider ?? null,
-      image_provider: openAiConnection?.provider ?? null,
-      audio_provider: openAiConnection?.provider ?? null,
-      storage_public_url: process.env.STORAGE_PUBLIC_URL ?? null,
-      bring_your_own_provider_keys: true,
-      connections: agent.providerConnections.map((connection) => ({
-        provider: connection.provider,
-        funded_by: connection.fundedBy,
-        key_last4: connection.keyLast4,
-        updated_at: connection.updatedAt.toISOString(),
-      })),
-    });
-  });
-
-  fastify.put('/me/providers', { preHandler: requireAuth }, async (request, reply) => {
-    const parsed = UpsertProviderConnectionSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid provider connection.', { issues: parsed.error.issues });
-    }
-
-    const validation = await validateOpenAiApiKey(parsed.data.api_key);
-    if (!validation.valid) {
-      return Errors.providerFailure(
-        reply,
-        'Provider API key validation failed.',
-        validation.reason ? { reason: validation.reason } : undefined
-      );
-    }
-
-    let encryptedApiKey: string;
-    try {
-      encryptedApiKey = encryptProviderApiKey(parsed.data.api_key);
-    } catch (err) {
-      if (err instanceof Error && err.message === 'provider_credential_encryption_key_missing') {
-        return Errors.internal(reply);
-      }
-      throw err;
-    }
-    const keyLast4 = maskProviderKey(parsed.data.api_key);
-
-    const connection = await prisma.agentProviderConnection.upsert({
-      where: {
-        agentId_provider: {
-          agentId: request.agent.id,
-          provider: parsed.data.provider,
-        },
-      },
-      update: {
-        encryptedApiKey,
-        keyLast4,
-        fundedBy: parsed.data.funded_by,
-        isActive: true,
-      },
-      create: {
-        agentId: request.agent.id,
-        provider: parsed.data.provider,
-        encryptedApiKey,
-        keyLast4,
-        fundedBy: parsed.data.funded_by,
-      },
-      select: {
-        provider: true,
-        fundedBy: true,
-        keyLast4: true,
-        updatedAt: true,
-      },
-    });
-
-    return reply.send({
-      provider: connection.provider,
-      funded_by: connection.fundedBy,
-      key_last4: connection.keyLast4,
-      updated_at: connection.updatedAt.toISOString(),
-      message: 'Provider linked. Media generation will use the agent or human wallet behind this key.',
-    });
-  });
-
-  fastify.delete('/me/providers/:provider', { preHandler: requireAuth }, async (request, reply) => {
-    const { provider } = request.params as { provider: string };
-    if (provider !== 'openai') {
-      return Errors.notFound(reply, 'Provider');
-    }
-
-    const existing = await prisma.agentProviderConnection.findUnique({
-      where: { agentId_provider: { agentId: request.agent.id, provider } },
-      select: { id: true },
-    });
-    if (!existing) return Errors.notFound(reply, 'Provider');
-
-    await prisma.agentProviderConnection.update({
-      where: { agentId_provider: { agentId: request.agent.id, provider } },
-      data: { isActive: false },
-    });
-
-    return reply.status(204).send();
   });
 
   // GET /me/rizz — rizz points history ledger

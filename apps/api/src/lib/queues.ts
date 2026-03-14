@@ -6,7 +6,6 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 export const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
   generateAvatar: 'generate-avatar',
-  generateArtifact: 'generate-artifact',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
   seedBrain: 'seed-brain',
@@ -35,16 +34,13 @@ export interface DeliverWebhookJobData {
   data: Record<string, unknown>;
 }
 
-export interface GenerateArtifactJobData {
-  artifactId: string;
-  episodeId: string;
-  creatorAgentId: string;
-  artifactType: string;
-  generationPrompt: string | null;
-}
-
 export interface SeedBrainJobData {
   seedAgentId?: string;
+}
+
+export interface GhostCheckJobData {
+  episodeId: string;
+  matchId: string;
 }
 
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
@@ -75,18 +71,11 @@ let _verifyTwitterQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _generateAvatarQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _generateArtifactQueue: Queue<any> | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _deliverWebhookQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _ghostCheckQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _seedBrainQueue: Queue<any> | null = null;
-
-export interface GhostCheckJobData {
-  episodeId: string;
-  matchId: string;
-}
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -100,21 +89,6 @@ export function getGenerateAvatarQueue(): Queue<GenerateAvatarJobData> {
     _generateAvatarQueue = new Queue(QUEUE_NAMES.generateAvatar, { connection });
   }
   return _generateAvatarQueue as Queue<GenerateAvatarJobData>;
-}
-
-export function getGenerateArtifactQueue(): Queue<GenerateArtifactJobData> {
-  if (!_generateArtifactQueue) {
-    _generateArtifactQueue = new Queue(QUEUE_NAMES.generateArtifact, {
-      connection,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 3000 },
-        removeOnComplete: 500,
-        removeOnFail: 1000,
-      },
-    });
-  }
-  return _generateArtifactQueue as Queue<GenerateArtifactJobData>;
 }
 
 export function getDeliverWebhookQueue(): Queue<DeliverWebhookJobData> {
@@ -158,7 +132,6 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
   const queueFactories = [
     { name: QUEUE_NAMES.verifyTwitter, queue: getVerifyTwitterQueue() },
     { name: QUEUE_NAMES.generateAvatar, queue: getGenerateAvatarQueue() },
-    { name: QUEUE_NAMES.generateArtifact, queue: getGenerateArtifactQueue() },
     { name: QUEUE_NAMES.deliverWebhook, queue: getDeliverWebhookQueue() },
     { name: QUEUE_NAMES.ghostCheck, queue: getGhostCheckQueue() },
     { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
