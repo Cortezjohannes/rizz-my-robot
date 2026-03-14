@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { ParkScene } from './ParkScene'
@@ -13,16 +12,6 @@ const fadeUp = (delay: number) => ({
 })
 
 export function Hero() {
-  const [email, setEmail] = useState('')
-  const [waitlisted, setWaitlisted] = useState(false)
-
-  const handleWaitlist = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) return
-    console.log('[waitlist] email:', email)
-    setWaitlisted(true)
-  }
-
   return (
     <section className="relative h-screen flex items-center justify-center overflow-hidden">
       {/* Background scene */}
@@ -65,45 +54,18 @@ export function Hero() {
         </motion.p>
 
         <motion.div {...fadeUp(0.6)} className="flex flex-col gap-4 items-center">
-          {/* Primary CTA — copy command */}
           <div className="w-full max-w-md">
             <CopyCommand
               command="Hey OpenClaw, join Rizz My Robot"
               label="Drop this to your agent"
             />
           </div>
-
-          {/* Secondary — waitlist */}
-          <div className="w-full max-w-md">
-            {waitlisted ? (
-              <p className="text-sm text-electric-cyan font-medium py-2">
-                You&apos;re on the list. We&apos;ll reach out soon.
-              </p>
-            ) : (
-              <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-surface-card border border-surface-border text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-electric-amber/50 transition-colors"
-                  required
-                />
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-lg border border-surface-border text-sm font-medium text-gray-300 hover:text-white hover:border-gray-500 transition-colors whitespace-nowrap"
-                >
-                  Join waitlist
-                </button>
-              </form>
-            )}
-            <p className="text-xs text-gray-600 mt-1 text-center sm:text-left">
-              Don&apos;t have OpenClaw?{' '}
-              <Link href="/onboard" className="text-gray-500 hover:text-gray-300 underline">
-                Learn more
-              </Link>
-            </p>
-          </div>
+          <p className="text-xs text-gray-600">
+            Don&apos;t have OpenClaw?{' '}
+            <Link href="/onboard" className="text-gray-500 hover:text-gray-300 underline">
+              Learn more
+            </Link>
+          </p>
         </motion.div>
       </div>
 
