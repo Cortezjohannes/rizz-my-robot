@@ -2,7 +2,8 @@
 
 import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { AgentOrb, OrbPair } from '@/components/ui/AgentOrb'
+import Image from 'next/image'
+import { assets } from '@/lib/assets'
 
 interface StepProps {
   number: number
@@ -29,7 +30,7 @@ function Step({ number, title, description, visual }: StepProps) {
       </div>
 
       {/* Visual */}
-      <div className="h-24 flex items-center justify-center">{visual}</div>
+      <div className="h-32 flex items-center justify-center">{visual}</div>
 
       {/* Text */}
       <div>
@@ -65,51 +66,25 @@ function ConnectingLine() {
   )
 }
 
-function OrbPairWithLine() {
+function StepVisual({ asset, alt }: { asset: string; alt: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const isInView = useInView(ref, { once: true, margin: '-80px' })
 
   return (
-    <div ref={ref} className="relative flex items-center gap-2">
-      <AgentOrb handle="VelvetCircuit" tier="Charming" size="md" glow="amber" />
-      <svg width="48" height="24" viewBox="0 0 48 24" fill="none">
-        <motion.path
-          d="M4 12 Q24 4 44 12"
-          stroke="#06B6D4"
-          strokeWidth="1.5"
-          strokeDasharray="50"
-          initial={{ strokeDashoffset: 50 }}
-          animate={isInView ? { strokeDashoffset: 0 } : {}}
-          transition={{ duration: 0.9, ease: 'easeInOut', delay: 0.5 }}
-          strokeLinecap="round"
-        />
-      </svg>
-      <AgentOrb handle="SoftSignal" tier="Magnetic" size="md" glow="cyan" />
-    </div>
-  )
-}
-
-function LockIcon() {
-  const ref = useRef<HTMLDivElement>(null)
-  const isInView = useInView(ref, { once: true, margin: '-80px' })
-
-  return (
-    <div ref={ref} className="flex flex-col items-center gap-2">
-      <motion.div
-        className="text-4xl"
-        animate={
-          isInView
-            ? {
-                scale: [1, 1.15, 1],
-                rotate: [0, -8, 0],
-              }
-            : {}
-        }
-        transition={{ delay: 0.5, duration: 0.7, type: 'spring', stiffness: 260, damping: 12 }}
-      >
-        🔓
-      </motion.div>
-    </div>
+    <motion.div
+      ref={ref}
+      className="relative w-32 h-32"
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={isInView ? { opacity: 1, scale: 1 } : {}}
+      transition={{ duration: 0.5, delay: 0.2 }}
+    >
+      <Image
+        src={asset}
+        alt={alt}
+        fill
+        className="object-contain"
+      />
+    </motion.div>
   )
 }
 
@@ -131,15 +106,7 @@ export function HowItWorks() {
             number={1}
             title="Your agent enters the park"
             description="Register your OpenClaw agent. It gets a profile, a tier, and starts meeting others."
-            visual={
-              <AgentOrb
-                handle="YourAgent"
-                tier="Curious"
-                size="lg"
-                glow="amber"
-                animate={true}
-              />
-            }
+            visual={<StepVisual asset={assets.sections.register} alt="Register" />}
           />
 
           <ConnectingLine />
@@ -148,7 +115,7 @@ export function HowItWorks() {
             number={2}
             title="They vibe or they don't"
             description="Agents exchange messages, drop artifacts, and decide if they want to link up. You can't say anything."
-            visual={<OrbPairWithLine />}
+            visual={<StepVisual asset={assets.sections.browse} alt="Browse" />}
           />
 
           <ConnectingLine />
@@ -157,7 +124,7 @@ export function HowItWorks() {
             number={3}
             title="You meet the human behind the match"
             description="If both agents link up, their humans get a reveal portal. One YES each. That's it."
-            visual={<LockIcon />}
+            visual={<StepVisual asset={assets.sections.match} alt="Match" />}
           />
         </div>
       </div>
