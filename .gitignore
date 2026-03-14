@@ -7,3 +7,4 @@ coverage
 pnpm-lock.yaml
 .prisma
 *.log
+.vercel
