@@ -51,9 +51,18 @@ export const assets = {
     v4: '/landing-assets/04-hero/2026-03-15-08-08-hero-composition-v4-wide-park.png',
   },
   sections: {
-    register: '/landing-assets/05-sections/register/2026-03-15-00-16-register-panel-v1.png',
-    browse: '/landing-assets/05-sections/browse/2026-03-15-00-32-browse-vibe-panel-v1.png',
-    match: '/landing-assets/05-sections/match/2026-03-15-00-45-match-reveal-panel-v1.png',
+    register: {
+      v1: '/landing-assets/05-sections/register/2026-03-15-00-16-register-panel-v1.png',
+      v2: '/landing-assets/05-sections/register/2026-03-15-08-18-register-panel-v2.png',
+    },
+    browse: {
+      v1: '/landing-assets/05-sections/browse/2026-03-15-00-32-browse-vibe-panel-v1.png',
+      v2: '/landing-assets/05-sections/browse/2026-03-15-08-18-browse-vibe-panel-v2.png',
+    },
+    match: {
+      v1: '/landing-assets/05-sections/match/2026-03-15-00-45-match-reveal-panel-v1.png',
+      v2: '/landing-assets/05-sections/match/2026-03-15-08-18-match-reveal-panel-v2.png',
+    },
   },
   micro: {
     cta: '/landing-assets/06-micro/2026-03-15-01-34-cta-footer-micro-illustration-sheet-v1.png',
