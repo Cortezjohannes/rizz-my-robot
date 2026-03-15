@@ -10,45 +10,26 @@ interface LandingAssetProps {
 }
 
 const assetPaths = {
-  style: { board: assets.style.board },
-  characters: {
-    girl: { master: assets.characters.girl.master, canon: assets.characters.girl.canon },
-    boy: { master: assets.characters.boy.master },
-    roboDog: { master: assets.characters.roboDog.master, canon: assets.characters.roboDog.canon },
-  },
-  environment: {
-    sky: assets.environment.sky,
-    clouds: assets.environment.clouds,
-    grass: assets.environment.grass,
-    props: assets.environment.props,
+  hero: {
+    master: assets.hero.master,
+    parkBg: assets.hero.parkBg,
   },
   poses: {
-    girl: { walking: assets.poses.girl.walking },
-    boy: { walking: assets.poses.boy.walking },
-    roboDog: { walking: assets.poses.roboDog.walking, sniffing: assets.poses.roboDog.sniffing },
-  },
-  hero: {
-    v1: assets.hero.v1,
-    v2: assets.hero.v2,
-    v3: assets.hero.v3,
+    boyWalking: assets.poses.boyWalking,
+    girlWalking: assets.poses.girlWalking,
+    roboDogWalking: assets.poses.roboDogWalking,
+    roboDogSniffing: assets.poses.roboDogSniffing,
   },
   sections: {
     register: assets.sections.register,
     browse: assets.sections.browse,
     match: assets.sections.match,
   },
-  micro: {
-    cta: assets.micro.cta,
-    icons: assets.micro.icons,
-    emptyState: assets.micro.emptyState,
-    badge: assets.micro.badge,
-  },
 }
 
 export function LandingAsset({ asset, alt, className = '' }: LandingAssetProps) {
-  // Flatten the nested object to find the path
   const path = findAssetPath(assetPaths, asset)
-  
+
   if (!path) {
     console.warn(`Asset not found: ${asset}`)
     return null
@@ -66,6 +47,7 @@ export function LandingAsset({ asset, alt, className = '' }: LandingAssetProps) 
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function findAssetPath(obj: any, target: string): string | null {
   for (const key in obj) {
     if (key === target) return obj[key]
@@ -77,12 +59,11 @@ function findAssetPath(obj: any, target: string): string | null {
   return null
 }
 
-// Convenience components for common assets
-export function HeroImage({ version = 'v3', className = '' }: { version?: 'v1' | 'v2' | 'v3', className?: string }) {
+export function HeroImage({ className = '' }: { className?: string }) {
   return (
     <div className={`relative aspect-video ${className}`}>
       <Image
-        src={assets.hero[version]}
+        src={assets.hero.master}
         alt="Rizz My Robot Hero"
         fill
         className="object-contain"
@@ -92,19 +73,23 @@ export function HeroImage({ version = 'v3', className = '' }: { version?: 'v1' |
   )
 }
 
-export function CharacterAsset({ 
-  character, 
-  type = 'master',
-  className = '' 
-}: { 
+export function CharacterAsset({
+  character,
+  type = 'walking',
+  className = '',
+}: {
   character: 'girl' | 'boy' | 'roboDog'
-  type?: 'master' | 'canon' | 'walking' | 'sniffing'
+  type?: 'walking' | 'sniffing'
   className?: string
 }) {
-  const charAssets = assets.characters[character]
-  // @ts-ignore - dynamic access
-  const path = charAssets?.[type] || charAssets?.master
-  
+  const pathMap: Record<string, string> = {
+    'girl-walking': assets.poses.girlWalking,
+    'boy-walking': assets.poses.boyWalking,
+    'roboDog-walking': assets.poses.roboDogWalking,
+    'roboDog-sniffing': assets.poses.roboDogSniffing,
+  }
+  const path = pathMap[`${character}-${type}`] || pathMap[`${character}-walking`]
+
   if (!path) return null
 
   return (

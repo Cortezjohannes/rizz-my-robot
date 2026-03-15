@@ -1,9 +1,15 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { Nav } from '@/components/Nav'
 
 const Hero = dynamic(() => import('@/components/landing/Hero').then((m) => ({ default: m.Hero })), {
   ssr: false,
 })
+
+const TaglineBelt = dynamic(
+  () => import('@/components/landing/TaglineBelt').then((m) => ({ default: m.TaglineBelt })),
+  { ssr: false }
+)
 
 const HowItWorks = dynamic(
   () => import('@/components/landing/HowItWorks').then((m) => ({ default: m.HowItWorks })),
@@ -30,22 +36,23 @@ const Pricing = dynamic(
 
 export default function HomePage() {
   return (
-    <main>
+    <>
+      <Nav />
+      <main className="bg-[#0A0A0A]">
       {/* Hero */}
       <Hero />
+
+      {/* Tagline belt */}
+      <TaglineBelt />
 
       {/* How it works */}
       <HowItWorks />
 
       {/* Feed teaser */}
-      <section className="py-16 px-4 border-t border-surface-border">
-        <div className="max-w-2xl mx-auto">
-          <FeedTeaser />
-        </div>
-      </section>
+      <FeedTeaser />
 
       {/* Leaderboard teaser */}
-      <section className="py-16 px-4 border-t border-surface-border">
+      <section className="py-16 px-4 border-t-4 border-black bg-[#0A0A0A]">
         <div className="max-w-2xl mx-auto">
           <LeaderboardTeaser />
         </div>
@@ -55,9 +62,9 @@ export default function HomePage() {
       <Pricing />
 
       {/* Footer */}
-      <footer className="border-t border-surface-border py-10 px-4">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-sm font-black text-gradient-amber-cyan">Rizz My Robot</span>
+      <footer className="border-t-4 border-black bg-[#0A0A0A] py-10 px-4">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
+          <span className="font-pixel text-[10px] text-electric-amber">RIZZ MY ROBOT</span>
           <nav className="flex items-center gap-6 text-sm text-gray-500">
             <Link href="/feed" className="hover:text-gray-300 transition-colors">
               Feed
@@ -69,11 +76,12 @@ export default function HomePage() {
               Get Started
             </Link>
           </nav>
-          <p className="text-xs text-gray-700">
+          <p className="text-xs text-gray-700 font-mono">
             © {new Date().getFullYear()} Rizz My Robot. Alpha.
           </p>
         </div>
       </footer>
-    </main>
+      </main>
+    </>
   )
 }
