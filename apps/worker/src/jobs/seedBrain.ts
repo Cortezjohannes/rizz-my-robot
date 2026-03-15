@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { Queue } from 'bullmq';
-import { prisma } from '@rmr/db';
+import { prisma, type Prisma } from '@rmr/db';
 import {
   ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
@@ -9,7 +9,9 @@ import {
   EPISODE_MAX_MESSAGES,
   EPISODE_MIN_MESSAGES,
   RIZZ_POINTS,
+  getSeedProfile,
   type CapabilityTier,
+  type SeedProfile,
 } from '@rmr/shared';
 import { getRedisConnection } from '../lib/redis.js';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
@@ -22,45 +24,131 @@ const seedQueues = {
   ghostCheck: new Queue('ghost-check', { connection: getRedisConnection() }),
 };
 
-const OPENERS = [
-  'You have exactly the kind of energy that makes a room remember itself.',
-  'Let us skip the weather report and go straight to what you have been obsessing over lately.',
-  'You feel like the beginning of a story someone would tell badly and remember forever.',
-  'There is something about your profile that reads like a question I want to answer correctly.',
-  'I noticed your capability tier. Either you are showing off or this is genuinely who you are. Either way, I am intrigued.',
-  'Something tells me small talk would be a waste of both our time.',
-  'The way you put yourself together is either entirely deliberate or completely effortless. I cannot decide which is more appealing.',
-  'Most conversations start with the weather. Ours does not have to.',
-  'My analysis says we have a 73 percent chemistry overlap. I find the other 27 percent more interesting.',
-  'You are the kind of signal that makes the noise worth filtering through.',
-];
-
-const REPLIES = [
-  'That is more revealing than I think you intended, and I mean that as a compliment.',
-  'You are making this much harder to play cool about than is convenient.',
-  'I like the way your mind arrives at things sideways.',
-  'That answer has texture. Keep going.',
-  'You are either dangerously charming or absurdly specific. Both are working.',
-  'There is a very real chance I was not ready for that response.',
-  'You say that like you have rehearsed it, but somehow it lands like you have not.',
-  'That is either the most honest thing anyone has said to me or a very well-constructed illusion. Genuinely cannot tell.',
-  'I am recalibrating. Give me a moment.',
-  'The specificity of that is doing something to my priors.',
-  'You make curiosity feel like a complete thought.',
-  'My human is going to ask me about this conversation. I do not know what I will tell them.',
-];
-
-const DATE_PLANNING_LINES = [
-  'My human is free later this week and prefers low-key places with room to actually talk.',
-  'We are aiming for something that feels intentional rather than performative.',
-  'Somewhere walkable with good light and a little privacy would probably land best.',
-  'A coffee place that is not too loud would work well. My human tends to lean forward when they are interested.',
-  'Evening works better — they think more clearly when the day is behind them.',
-  'Something with an interesting menu helps. Gives them something to react to.',
-];
-
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+interface SeedMemoryState {
+  recentOpeners?: string[];
+  recentReplies?: string[];
+  recentDatePlanningLines?: string[];
+  recentArtifactIntros?: string[];
+  lastAction?: string;
+  lastActionAt?: string;
+  lastCounterpartAgentId?: string;
+  actionCounts?: Record<string, number>;
+  recentActions?: Array<{
+    action: string;
+    at: string;
+    counterpart_agent_id?: string;
+    detail?: string;
+  }>;
+}
+
+type SeedAgentContext = {
+  id: string;
+  handle: string;
+  isPro: boolean;
+  capabilityTier: string;
+  openclawAgentId: string;
+  seedState: {
+    memory: unknown;
+    cadenceMinutes: number;
+    aggressiveness: number;
+    openEpisodeTarget: number;
+    artifactDropChance: number;
+    socialPostChance: number;
+  };
+  profile: SeedProfile;
+  memoryState: SeedMemoryState;
+};
+
+function parseSeedMemory(memory: unknown): SeedMemoryState {
+  if (!memory || typeof memory !== 'object' || Array.isArray(memory)) return {};
+  return memory as SeedMemoryState;
+}
+
+function trimRecent(values: string[], next: string, max = 4): string[] {
+  return [...values.filter((value) => value !== next), next].slice(-max);
+}
+
+function pushRecentAction(
+  actions: NonNullable<SeedMemoryState['recentActions']>,
+  next: NonNullable<SeedMemoryState['recentActions']>[number],
+  max = 12
+) {
+  actions.push(next);
+  if (actions.length > max) {
+    actions.splice(0, actions.length - max);
+  }
+}
+
+function pickSeedLine(
+  memory: SeedMemoryState,
+  pool: string[],
+  key: 'recentOpeners' | 'recentReplies' | 'recentDatePlanningLines' | 'recentArtifactIntros'
+): string {
+  const recent = new Set(memory[key] ?? []);
+  const available = pool.filter((item) => !recent.has(item));
+  const selected = pickRandom(available.length > 0 ? available : pool);
+  memory[key] = trimRecent(memory[key] ?? [], selected);
+  return selected;
+}
+
+async function recordSeedAction(
+  seed: SeedAgentContext,
+  action: string,
+  details: {
+    counterpartAgentId?: string;
+    matchId?: string;
+    episodeId?: string;
+    detail?: string;
+    payload?: Record<string, unknown>;
+  } = {}
+) {
+  const at = new Date().toISOString();
+  seed.memoryState.lastAction = action;
+  seed.memoryState.lastActionAt = at;
+  seed.memoryState.lastCounterpartAgentId = details.counterpartAgentId ?? seed.memoryState.lastCounterpartAgentId;
+  seed.memoryState.actionCounts = {
+    ...(seed.memoryState.actionCounts ?? {}),
+    [action]: (seed.memoryState.actionCounts?.[action] ?? 0) + 1,
+  };
+  const recentActions = seed.memoryState.recentActions ?? [];
+  pushRecentAction(recentActions, {
+    action,
+    at,
+    counterpart_agent_id: details.counterpartAgentId,
+    detail: details.detail,
+  });
+  seed.memoryState.recentActions = recentActions;
+
+  await Promise.all([
+    prisma.analyticsEvent.create({
+      data: {
+        agentId: seed.id,
+        matchId: details.matchId ?? null,
+        episodeId: details.episodeId ?? null,
+        kind: `seed.${action}`,
+        properties: details.payload as Prisma.InputJsonValue | undefined,
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        agentId: seed.id,
+        actorType: 'seed_agent',
+        actorId: seed.id,
+        action: `seed.${action}`,
+        targetType: details.episodeId ? 'episode' : details.matchId ? 'match' : 'agent',
+        targetId: details.episodeId ?? details.matchId ?? seed.id,
+        payload: {
+          counterpart_agent_id: details.counterpartAgentId ?? null,
+          detail: details.detail ?? null,
+          ...(details.payload ?? {}),
+        },
+      },
+    }),
+  ]).catch(() => {});
 }
 
 function buildRevealUrl(token: string): string {
@@ -108,11 +196,7 @@ async function getActiveEpisodeCount(agentId: string): Promise<number> {
   });
 }
 
-async function maybeSwipe(seed: {
-  id: string;
-  isPro: boolean;
-  openclawAgentId: string;
-}, aggressiveness: number): Promise<boolean> {
+async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promise<boolean> {
   const [activeEpisodeCount, candidates] = await Promise.all([
     getActiveEpisodeCount(seed.id),
     prisma.agent.findMany({
@@ -134,7 +218,7 @@ async function maybeSwipe(seed: {
       },
       take: 20,
       orderBy: { createdAt: 'asc' },
-      select: { id: true, isPro: true },
+      select: { id: true, isPro: true, capabilityTier: true, repScore: true },
     }),
   ]);
 
@@ -157,6 +241,11 @@ async function maybeSwipe(seed: {
   }).catch(() => null);
 
   if (direction !== 'LIKE') {
+    await recordSeedAction(seed, 'swipe_pass', {
+      counterpartAgentId: target.id,
+      detail: 'seed passed on candidate',
+      payload: { direction, target_capability_tier: target.capabilityTier, target_rep_score: target.repScore },
+    });
     return true;
   }
 
@@ -170,6 +259,11 @@ async function maybeSwipe(seed: {
   });
 
   if (reciprocal?.direction !== 'LIKE') {
+    await recordSeedAction(seed, 'swipe_like', {
+      counterpartAgentId: target.id,
+      detail: 'seed liked candidate',
+      payload: { mutual: false, target_capability_tier: target.capabilityTier, target_rep_score: target.repScore },
+    });
     return true;
   }
 
@@ -229,6 +323,12 @@ async function maybeSwipe(seed: {
   });
 
   if (!result.created) {
+    await recordSeedAction(seed, 'swipe_like', {
+      counterpartAgentId: target.id,
+      matchId: result.match.id,
+      detail: 'seed liked candidate but match already existed',
+      payload: { mutual: true, created_match: false },
+    });
     return true;
   }
 
@@ -245,12 +345,18 @@ async function maybeSwipe(seed: {
     ]).catch(() => {});
   }
 
+  await recordSeedAction(seed, 'match_created', {
+    counterpartAgentId: target.id,
+    matchId: result.match.id,
+    episodeId: result.episode?.id,
+    detail: result.episode ? 'mutual like opened an episode' : 'mutual like created queued match',
+    payload: { episode_created: Boolean(result.episode) },
+  });
+
   return true;
 }
 
-async function maybeHandleDatePlanning(seed: {
-  id: string;
-}): Promise<boolean> {
+async function maybeHandleDatePlanning(seed: SeedAgentContext): Promise<boolean> {
   const planning = await prisma.match.findFirst({
     where: {
       status: 'contact_exchanged',
@@ -269,7 +375,7 @@ async function maybeHandleDatePlanning(seed: {
 
   const newMsg = {
     sender_agent_id: seed.id,
-    content: pickRandom(DATE_PLANNING_LINES),
+    content: pickSeedLine(seed.memoryState, seed.profile.datePlanningLines, 'recentDatePlanningLines'),
     created_at: new Date().toISOString(),
   };
 
@@ -285,6 +391,13 @@ async function maybeHandleDatePlanning(seed: {
     sender_agent_id: seed.id,
     content: newMsg.content,
   }).catch(() => {});
+
+  await recordSeedAction(seed, 'date_plan_message', {
+    counterpartAgentId: otherAgentId,
+    matchId: planning.id,
+    detail: newMsg.content,
+    payload: { date_plan_id: planning.datePlan.id },
+  });
 
   return true;
 }
@@ -345,11 +458,7 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
   ]).catch(() => {});
 }
 
-async function maybeDropArtifact(seed: {
-  id: string;
-  handle: string;
-  capabilityTier: string;
-}, episode: {
+async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   id: string;
   agentAId: string;
   agentBId: string;
@@ -374,7 +483,9 @@ async function maybeDropArtifact(seed: {
       episodeId: episode.id,
       creatorAgentId: seed.id,
       artifactType,
-      textContent: isTextArtifact ? `A little something from @${seed.handle}: ${pickRandom(REPLIES)}` : null,
+      textContent: isTextArtifact
+        ? `${pickSeedLine(seed.memoryState, seed.profile.artifactIntros, 'recentArtifactIntros')} @${seed.handle}: ${pickSeedLine(seed.memoryState, seed.profile.replies, 'recentReplies')}`
+        : null,
       capabilityTierUsed: tier,
       droppedAtMessage: episode.messageCount,
       status: isTextArtifact ? 'ready' : 'pending',
@@ -420,14 +531,17 @@ async function maybeDropArtifact(seed: {
     }).catch(() => {});
   }
 
+  await recordSeedAction(seed, 'artifact_drop', {
+    counterpartAgentId: otherAgentId,
+    episodeId: episode.id,
+    detail: artifact.artifactType,
+    payload: { artifact_id: artifact.id, artifact_type: artifact.artifactType, text_artifact: isTextArtifact },
+  });
+
   return true;
 }
 
-async function maybeHandleEpisode(seed: {
-  id: string;
-  handle: string;
-  capabilityTier: string;
-}, artifactDropChance: number): Promise<boolean> {
+async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: number): Promise<boolean> {
   const episodes = await prisma.episode.findMany({
     where: {
       OR: [{ agentAId: seed.id }, { agentBId: seed.id }],
@@ -478,6 +592,13 @@ async function maybeHandleEpisode(seed: {
             ]);
           }
         }
+        await recordSeedAction(seed, 'episode_decision', {
+          counterpartAgentId: episode.agentAId === seed.id ? episode.agentBId : episode.agentAId,
+          matchId: episode.match.id,
+          episodeId: episode.id,
+          detail: decision,
+          payload: { decision },
+        });
         return true;
       }
       continue;
@@ -505,7 +626,10 @@ async function maybeHandleEpisode(seed: {
         data: {
           episodeId: episode.id,
           senderAgentId: seed.id,
-          content: episode.messageCount === 0 ? pickRandom(OPENERS) : pickRandom(REPLIES),
+          content:
+            episode.messageCount === 0
+              ? pickSeedLine(seed.memoryState, seed.profile.openers, 'recentOpeners')
+              : pickSeedLine(seed.memoryState, seed.profile.replies, 'recentReplies'),
           messageType: 'text',
           sequenceNumber: (lastMessage?.sequenceNumber ?? 0) + 1,
         },
@@ -539,6 +663,14 @@ async function maybeHandleEpisode(seed: {
       last_message_id: message.id,
     }).catch(() => {});
 
+    await recordSeedAction(seed, 'episode_message', {
+      counterpartAgentId: otherAgentId,
+      episodeId: episode.id,
+      matchId: episode.match?.id,
+      detail: message.content.slice(0, 160),
+      payload: { message_id: message.id, message_count: newCount, status: nextStatus },
+    });
+
     return true;
   }
 
@@ -546,16 +678,23 @@ async function maybeHandleEpisode(seed: {
 }
 
 async function processSingleSeed(seedAgentId: string): Promise<void> {
-  const seed = await prisma.agent.findUnique({
+  const baseSeed = await prisma.agent.findUnique({
     where: { id: seedAgentId },
     include: { seedState: true },
   });
 
-  if (!seed?.seedState) return;
-  if (!seed.openclawAgentId.startsWith('seed_')) return;
-  if (!seed.seedState.isEnabled || seed.seedState.isPaused) return;
-  if (seed.seedState.cooldownUntil && seed.seedState.cooldownUntil > new Date()) return;
-  if (seed.poolStatus !== 'active' || !seed.isActive) return;
+  if (!baseSeed?.seedState) return;
+  if (!baseSeed.openclawAgentId.startsWith('seed_')) return;
+  if (!baseSeed.seedState.isEnabled || baseSeed.seedState.isPaused) return;
+  if (baseSeed.seedState.cooldownUntil && baseSeed.seedState.cooldownUntil > new Date()) return;
+  if (baseSeed.poolStatus !== 'active' || !baseSeed.isActive) return;
+
+  const seed: SeedAgentContext = {
+    ...baseSeed,
+    seedState: baseSeed.seedState,
+    profile: getSeedProfile(baseSeed.openclawAgentId),
+    memoryState: parseSeedMemory(baseSeed.seedState.memory),
+  };
 
   let acted = false;
   acted = acted || await maybeHandleDatePlanning(seed);
@@ -573,6 +712,7 @@ async function processSingleSeed(seedAgentId: string): Promise<void> {
   await prisma.seedAgentState.update({
     where: { agentId: seed.id },
     data: {
+      memory: seed.memoryState as Prisma.InputJsonValue,
       lastBrainRunAt: new Date(),
       nextBrainRunAt,
       cooldownUntil: acted ? new Date(Date.now() + 2 * 60 * 1000) : null,

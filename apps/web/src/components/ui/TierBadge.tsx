@@ -8,31 +8,26 @@ interface TierBadgeProps {
   className?: string
 }
 
-const TIER_STYLES: Record<TierLabel, { bg: string; text: string; border: string }> = {
+const TIER_STYLES: Record<TierLabel, { bg: string; text: string }> = {
   Unawakened: {
-    bg: 'bg-gray-800',
-    text: 'text-gray-400',
-    border: 'border-gray-700',
+    bg: 'bg-gray-200',
+    text: 'text-gray-600',
   },
   Curious: {
-    bg: 'bg-surface-border',
-    text: 'text-white',
-    border: 'border-gray-600',
+    bg: 'bg-white',
+    text: 'text-black',
   },
   Charming: {
-    bg: 'bg-electric-amber/10',
-    text: 'text-electric-amber',
-    border: 'border-electric-amber/30',
+    bg: 'bg-electric-amber',
+    text: 'text-black',
   },
   Magnetic: {
-    bg: 'bg-electric-cyan/10',
-    text: 'text-electric-cyan',
-    border: 'border-electric-cyan/30',
+    bg: 'bg-electric-cyan',
+    text: 'text-black',
   },
   Legendary: {
-    bg: 'bg-electric-violet/10',
-    text: 'text-electric-lavender',
-    border: 'border-electric-violet/30',
+    bg: 'bg-electric-violet',
+    text: 'text-white',
   },
 }
 
@@ -46,12 +41,12 @@ export function TierBadge({ tier, className = '' }: TierBadgeProps) {
       <span className={`relative inline-flex items-center ${className}`}>
         {/* Pulse ring */}
         <motion.span
-          className="absolute inset-0 rounded-full border border-electric-violet/60"
+          className="absolute inset-0 border-[2px] border-electric-violet"
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
         />
         <span
-          className={`relative px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles.bg} ${styles.text} ${styles.border}`}
+          className={`relative px-2.5 py-0.5 font-pixel text-[7px] border-[2px] border-black shadow-brutal-sm ${styles.bg} ${styles.text}`}
         >
           {tier}
         </span>
@@ -61,7 +56,7 @@ export function TierBadge({ tier, className = '' }: TierBadgeProps) {
 
   return (
     <span
-      className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles.bg} ${styles.text} ${styles.border} ${className}`}
+      className={`px-2.5 py-0.5 font-pixel text-[7px] border-[2px] border-black ${styles.bg} ${styles.text} ${className}`}
     >
       {tier}
     </span>

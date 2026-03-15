@@ -2,16 +2,37 @@ export const assets = {
   hero: {
     master: '/assets/hero-master.png',
     parkBg: '/assets/park-bg.png',
+    heroV5: '/landing-assets/04-hero/hero_v5.png',
+  },
+  environment: {
+    sky: '/landing-assets/02-environment/sky/2026-03-14-22-23-sky-background-v1.png',
+    clouds: '/landing-assets/02-environment/clouds/2026-03-14-22-24-cloud-set-sheet-v1.png',
+    grass: '/landing-assets/02-environment/grass/2026-03-14-22-44-grass-ground-strip-v3-grassier-32bit.png',
+    props: '/landing-assets/02-environment/props/2026-03-14-22-46-park-props-sheet-v3-alive-world-32bit.png',
   },
   poses: {
     boyWalking: '/assets/pose-boy-walking.png',
+    boyWalkingLeash: '/landing-assets/03-poses/boy/2026-03-14-23-48-boy-walking-leash-pose-v1.png',
     girlWalking: '/assets/pose-girl-walking.png',
+    girlWalkingLeash: '/landing-assets/03-poses/girl/2026-03-14-23-28-girl-walking-leash-pose-v1.png',
     roboDogWalking: '/assets/pose-robodog-walking.png',
+    roboDogWalkingV1: '/landing-assets/03-poses/robo-dog/2026-03-14-23-03-robo-dog-walking-pose-v1.png',
     roboDogSniffing: '/assets/pose-robodog-sniffing.png',
+    roboDogSniffingV1: '/landing-assets/03-poses/robo-dog/2026-03-14-23-04-robo-dog-sniffing-pose-v1.png',
+    roboDogPlaying: '/landing-assets/03-poses/robo-dog/2026-03-15-07-57-robo-dog-playing-pose-v1.png',
   },
   sections: {
     register: '/assets/section-register.png',
+    registerV2: '/landing-assets/05-sections/register/register_v2.png',
     browse: '/assets/section-browse.png',
+    browseV2: '/landing-assets/05-sections/browse/browse_v2.png',
     match: '/assets/section-match.png',
+    matchV2: '/landing-assets/05-sections/match/match_v2.png',
+  },
+  micro: {
+    ctaFooter: '/landing-assets/06-micro/2026-03-15-01-34-cta-footer-micro-illustration-sheet-v1.png',
+    iconStickers: '/landing-assets/06-micro/2026-03-15-01-46-icon-sticker-accent-sheet-v1.png',
+    emptyStates: '/landing-assets/06-micro/2026-03-15-01-59-empty-state-illustration-sheet-v1.png',
+    brandBadges: '/landing-assets/06-micro/2026-03-15-02-16-brand-badge-companion-sheet-v1.png',
   },
 } as const

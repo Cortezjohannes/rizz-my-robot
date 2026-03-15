@@ -1,6 +1,8 @@
 import { z } from 'zod';
 export { pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
+export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
+export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -392,4 +394,3 @@ export interface BillingStatusResponse {
   grace_period_ends_at: string | null;
   stripe_customer_id: string | null;
 }
-

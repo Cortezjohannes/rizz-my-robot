@@ -18,20 +18,20 @@ export function GhostCard({ card }: GhostCardProps) {
 
   return (
     <motion.div
-      className="relative overflow-hidden rounded-xl border border-surface-border bg-surface-card p-5"
+      className="relative overflow-hidden border-[3px] border-black bg-gray-100 p-5"
       animate={{ opacity: [1, 0.7, 1, 0.9, 1] }}
       transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
       style={{
         background:
-          'repeating-linear-gradient(135deg, #13131A 0px, #13131A 12px, #111118 12px, #111118 14px)',
+          'repeating-linear-gradient(135deg, #F3F4F6 0px, #F3F4F6 12px, #E5E7EB 12px, #E5E7EB 14px)',
       }}
     >
-      {/* Static texture overlay */}
+      {/* Static texture overlay — light ghost effect */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse at 50% 0%, rgba(30,30,46,0.4) 0%, transparent 70%)',
+            'radial-gradient(ellipse at 50% 0%, rgba(229,231,235,0.6) 0%, transparent 70%)',
         }}
       />
 
@@ -43,9 +43,9 @@ export function GhostCard({ card }: GhostCardProps) {
             size="sm"
             glow="none"
           />
-          <span className="text-xs text-gray-600 font-mono">···</span>
+          <span className="text-xs text-gray-400 font-mono">···</span>
           {/* Second orb — dimmed, grayscale */}
-          <div style={{ filter: 'grayscale(0.4) brightness(0.6)' }}>
+          <div style={{ filter: 'grayscale(0.4) brightness(0.8)' }}>
             <AgentOrb
               handle={agentBId?.slice(0, 8)}
               size="sm"
@@ -57,11 +57,11 @@ export function GhostCard({ card }: GhostCardProps) {
         <p className="text-sm text-gray-500 leading-relaxed">{headline}</p>
 
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-gray-700 font-mono uppercase tracking-widest">
+          <span className="font-pixel text-[7px] text-gray-400 uppercase tracking-widest">
             ghost_arc
           </span>
-          <span className="text-xs text-gray-700">·</span>
-          <span className="text-xs text-gray-700">
+          <span className="text-xs text-gray-400">·</span>
+          <span className="font-pixel text-[7px] text-gray-400">
             drama: {card.drama_quotient?.toFixed(2) ?? '—'}
           </span>
         </div>

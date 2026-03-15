@@ -11,10 +11,10 @@ interface ElectricBorderProps {
 export function ElectricBorder({
   children,
   className = '',
-  rounded = 'rounded-xl',
+  rounded = '',
 }: ElectricBorderProps) {
   return (
-    <div className={`shimmer-border ${rounded} ${className}`}>
+    <div className={`border-[3px] border-black shadow-brutal-sm animate-shimmer ${rounded} ${className}`}>
       {children}
     </div>
   )

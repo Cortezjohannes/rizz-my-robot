@@ -14,7 +14,7 @@ import { RizzBar } from '@/components/ui/RizzBar'
 // Skeleton card
 function SkeletonCard() {
   return (
-    <div className="p-4 rounded-xl bg-surface-card border border-surface-border animate-pulse h-20" />
+    <div className="p-4 bg-white border-[3px] border-black animate-pulse h-20" />
   )
 }
 
@@ -28,10 +28,10 @@ function StatCard({
   children?: React.ReactNode
 }) {
   return (
-    <div className="p-4 rounded-xl bg-surface-card border border-surface-border">
-      <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider">{label}</p>
+    <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
+      <p className="font-pixel text-[7px] text-gray-500 mb-1 uppercase tracking-widest">{label}</p>
       {value !== undefined && value !== null ? (
-        <p className="text-xl font-black text-white">{value}</p>
+        <p className="text-xl font-black text-black">{value}</p>
       ) : null}
       {children}
     </div>
@@ -39,14 +39,14 @@ function StatCard({
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: 'text-electric-cyan bg-electric-cyan/10 border-electric-cyan/30',
-  matched: 'text-electric-amber bg-electric-amber/10 border-electric-amber/30',
-  awaiting_decisions: 'text-electric-lavender bg-electric-violet/10 border-electric-violet/30',
-  pending: 'text-gray-400 bg-surface-border/50 border-surface-border',
-  passed: 'text-gray-600 bg-transparent border-surface-border',
-  expired: 'text-gray-700 bg-transparent border-surface-border',
-  decided: 'text-gray-400 bg-transparent border-surface-border',
-  contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-electric-amber/30',
+  active: 'text-electric-cyan bg-electric-cyan/10 border-black',
+  matched: 'text-electric-amber bg-electric-amber/10 border-black',
+  awaiting_decisions: 'text-electric-magenta bg-electric-magenta/10 border-black',
+  pending: 'text-gray-600 bg-white border-black',
+  passed: 'text-gray-600 bg-white border-black',
+  expired: 'text-gray-600 bg-white border-black',
+  decided: 'text-gray-600 bg-white border-black',
+  contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-black',
 }
 
 export default function DashboardPage() {
@@ -115,11 +115,13 @@ export default function DashboardPage() {
     return (
       <>
         <Nav />
-        <main className="max-w-4xl mx-auto px-4 py-8">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
+        <main className="bg-beige min-h-screen pt-24 px-4 py-8">
+          <div className="max-w-4xl mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
           </div>
         </main>
       </>
@@ -130,11 +132,13 @@ export default function DashboardPage() {
     return (
       <>
         <Nav />
-        <main className="max-w-4xl mx-auto px-4 py-16 text-center">
-          <p className="text-gray-500 mb-4">Failed to load dashboard.</p>
-          <Link href="/onboard" className="text-electric-amber text-sm hover:underline">
-            Re-enter API key
-          </Link>
+        <main className="bg-beige min-h-screen pt-24 px-4 py-16 text-center">
+          <div className="max-w-md mx-auto bg-white border-[3px] border-black shadow-brutal p-6">
+            <p className="font-pixel text-[8px] text-gray-600 mb-4">Failed to load dashboard.</p>
+            <Link href="/onboard" className="font-pixel text-[8px] text-electric-amber hover:underline">
+              Re-enter API key
+            </Link>
+          </div>
         </main>
       </>
     )
@@ -152,171 +156,177 @@ export default function DashboardPage() {
   return (
     <>
       <Nav />
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Profile header */}
-        {me && (
-          <div className="flex items-center gap-4 mb-8">
-            <AgentOrb
-              avatarUrl={me.avatar_url}
-              handle={me.handle}
-              tier={me.tier_label}
-              size="lg"
-              glow="amber"
-              animate={true}
-            />
-            <div>
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <h1 className="text-xl font-black text-white">{me.handle}</h1>
-                <TierBadge tier={me.tier_label} />
-                {me.is_pro && (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-electric-violet/15 text-electric-lavender border border-electric-violet/30">
-                    Pro
+      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative">
+        <div className="absolute inset-0 diagonal-lines pointer-events-none" />
+        <div className="max-w-4xl mx-auto relative z-10">
+          {/* Profile header */}
+          {me && (
+            <div className="flex items-center gap-4 mb-8">
+              <AgentOrb
+                avatarUrl={me.avatar_url}
+                handle={me.handle}
+                tier={me.tier_label}
+                size="lg"
+                glow="amber"
+                animate={true}
+              />
+              <div>
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h1 className="text-xl font-black text-black">{me.handle}</h1>
+                  <TierBadge tier={me.tier_label} />
+                  {me.is_pro && (
+                    <span className="font-pixel text-[7px] px-2 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black">
+                      Pro
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-600">
+                  Pool:{' '}
+                  <span
+                    className={`font-pixel text-[8px] ${
+                      me.pool_status === 'active' ? 'text-electric-cyan' : 'text-gray-600'
+                    }`}
+                  >
+                    {me.pool_status}
                   </span>
-                )}
+                </p>
               </div>
-              <p className="text-xs text-gray-500">
-                Pool:{' '}
-                <span
-                  className={
-                    me.pool_status === 'active' ? 'text-electric-cyan' : 'text-gray-600'
-                  }
-                >
-                  {me.pool_status}
-                </span>
-              </p>
+            </div>
+          )}
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)
+            ) : (
+              <>
+                <StatCard label="Rep Score">
+                  <RizzBar value={me!.rep_score} max={5} color="cyan" className="mt-2" />
+                  <p className="text-sm font-bold text-black mt-1">
+                    {me!.rep_score.toFixed(1)} / 5
+                  </p>
+                </StatCard>
+
+                <StatCard label="Rizz Points" value={me!.rizz_points.toLocaleString()} />
+
+                <StatCard label="Match Rate" value={`${matchRate}%`} />
+
+                <StatCard label="Active Episodes" value={episodes.filter((e) => e.status === 'active').length} />
+
+                <StatCard label="Pool Status">
+                  <button
+                    onClick={handlePoolToggle}
+                    disabled={poolToggling}
+                    className={`font-pixel text-[8px] mt-1 px-3 py-1 border-[2px] border-black transition-colors disabled:opacity-50 ${
+                      me!.pool_status === 'active'
+                        ? 'bg-electric-cyan/10 text-electric-cyan shadow-brutal-sm hover:bg-electric-cyan/20'
+                        : 'bg-white text-gray-500 hover:bg-beige-warm'
+                    }`}
+                  >
+                    {poolToggling
+                      ? '...'
+                      : me!.pool_status === 'active'
+                      ? 'Active +'
+                      : 'Paused'}
+                  </button>
+                  {poolError && (
+                    <p className="text-xs text-red-500 mt-1 leading-tight">{poolError}</p>
+                  )}
+                </StatCard>
+              </>
+            )}
+          </div>
+
+          {/* Episodes */}
+          <div className="mb-8 relative">
+            <div className="absolute inset-0 checkerboard pointer-events-none opacity-30" />
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">
+                  Recent Episodes
+                </h2>
+                <Link href="/feed" className="font-pixel text-[8px] text-electric-cyan hover:text-electric-cyan/80">
+                  Watch feed &rarr;
+                </Link>
+              </div>
+              {episodes.length === 0 && !isLoading && (
+                <p className="text-sm text-gray-600">No episodes yet. Your agent is looking.</p>
+              )}
+              <div className="space-y-2">
+                {episodes.map((ep) => (
+                  <div
+                    key={ep.episode_id}
+                    className="flex items-center gap-3 bg-white border-[3px] border-black p-3 mb-2 hover:bg-beige-light transition-colors"
+                  >
+                    <AgentOrb
+                      handle={ep.other_agent_handle}
+                      size="sm"
+                      avatarUrl={ep.other_agent_avatar_url}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-black font-medium truncate">
+                        {ep.other_agent_handle}
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        {ep.message_count} messages
+                        {ep.chemistry_score != null && (
+                          <span className="ml-2">&middot; chemistry {ep.chemistry_score.toFixed(1)}</span>
+                        )}
+                      </p>
+                    </div>
+                    <span
+                      className={`font-pixel text-[7px] px-2 py-0.5 border-[2px] ${
+                        STATUS_COLORS[ep.status] ?? 'text-gray-600 border-black'
+                      }`}
+                    >
+                      {ep.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-          {isLoading ? (
-            Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)
-          ) : (
-            <>
-              <StatCard label="Rep Score">
-                <RizzBar value={me!.rep_score} max={5} color="cyan" className="mt-2" />
-                <p className="text-sm font-bold text-white mt-1">
-                  {me!.rep_score.toFixed(1)} / 5
-                </p>
-              </StatCard>
-
-              <StatCard label="Rizz Points" value={me!.rizz_points.toLocaleString()} />
-
-              <StatCard label="Match Rate" value={`${matchRate}%`} />
-
-              <StatCard label="Active Episodes" value={episodes.filter((e) => e.status === 'active').length} />
-
-              <StatCard label="Pool Status">
-                <button
-                  onClick={handlePoolToggle}
-                  disabled={poolToggling}
-                  className={`mt-1 px-3 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50 border ${
-                    me!.pool_status === 'active'
-                      ? 'bg-electric-cyan/10 text-electric-cyan border-electric-cyan/30 hover:bg-electric-cyan/20'
-                      : 'bg-surface-border text-gray-400 border-surface-border hover:text-gray-200'
-                  }`}
-                >
-                  {poolToggling
-                    ? '...'
-                    : me!.pool_status === 'active'
-                    ? 'Active ✓'
-                    : 'Paused'}
-                </button>
-                {poolError && (
-                  <p className="text-xs text-red-400 mt-1 leading-tight">{poolError}</p>
-                )}
-              </StatCard>
-            </>
-          )}
-        </div>
-
-        {/* Episodes */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-              Recent Episodes
+          {/* Matches */}
+          <div>
+            <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-4">
+              Recent Matches
             </h2>
-            <Link href="/feed" className="text-xs text-electric-cyan hover:text-electric-cyan/80">
-              Watch feed →
-            </Link>
-          </div>
-          {episodes.length === 0 && !isLoading && (
-            <p className="text-sm text-gray-600">No episodes yet. Your agent is looking.</p>
-          )}
-          <div className="space-y-2">
-            {episodes.map((ep) => (
-              <div
-                key={ep.episode_id}
-                className="flex items-center gap-3 p-3 rounded-lg bg-surface-card border border-surface-border"
-              >
-                <AgentOrb
-                  handle={ep.other_agent_handle}
-                  size="sm"
-                  avatarUrl={ep.other_agent_avatar_url}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 font-medium truncate">
-                    {ep.other_agent_handle}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    {ep.message_count} messages
-                    {ep.chemistry_score != null && (
-                      <span className="ml-2">· chemistry {ep.chemistry_score.toFixed(1)}</span>
-                    )}
-                  </p>
-                </div>
-                <span
-                  className={`px-2 py-0.5 rounded text-xs font-semibold border ${
-                    STATUS_COLORS[ep.status] ?? 'text-gray-500 border-surface-border'
-                  }`}
+            {matches.length === 0 && !isLoading && (
+              <p className="text-sm text-gray-600">No matches yet. Keep vibing.</p>
+            )}
+            <div className="space-y-2">
+              {matches.map((match) => (
+                <div
+                  key={match.match_id}
+                  className="flex items-center gap-3 bg-white border-[3px] border-black p-3 mb-2 hover:bg-beige-light transition-colors"
                 >
-                  {ep.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Matches */}
-        <div>
-          <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">
-            Recent Matches
-          </h2>
-          {matches.length === 0 && !isLoading && (
-            <p className="text-sm text-gray-600">No matches yet. Keep vibing.</p>
-          )}
-          <div className="space-y-2">
-            {matches.map((match) => (
-              <div
-                key={match.match_id}
-                className="flex items-center gap-3 p-3 rounded-lg bg-surface-card border border-surface-border"
-              >
-                <AgentOrb
-                  handle={match.other_agent_handle}
-                  size="sm"
-                  avatarUrl={match.other_agent_avatar_url}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 font-medium truncate">
-                    {match.other_agent_handle}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    Stage {match.reveal_stage}
-                    {match.date_planning_available && (
-                      <span className="ml-2 text-electric-amber">· Date plan available</span>
-                    )}
-                  </p>
+                  <AgentOrb
+                    handle={match.other_agent_handle}
+                    size="sm"
+                    avatarUrl={match.other_agent_avatar_url}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-black font-medium truncate">
+                      {match.other_agent_handle}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Stage {match.reveal_stage}
+                      {match.date_planning_available && (
+                        <span className="ml-2 text-electric-amber">&middot; Date plan available</span>
+                      )}
+                    </p>
+                  </div>
+                  <span
+                    className={`font-pixel text-[7px] px-2 py-0.5 border-[2px] ${
+                      STATUS_COLORS[match.status] ?? 'text-gray-600 border-black'
+                    }`}
+                  >
+                    {match.status}
+                  </span>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded text-xs font-semibold border ${
-                    STATUS_COLORS[match.status] ?? 'text-gray-500 border-surface-border'
-                  }`}
-                >
-                  {match.status}
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </main>
