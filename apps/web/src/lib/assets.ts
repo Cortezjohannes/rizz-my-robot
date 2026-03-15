@@ -48,6 +48,7 @@ export const assets = {
     v1: '/landing-assets/04-hero/2026-03-15-00-02-hero-composition-v1.png',
     v2: '/landing-assets/04-hero/2026-03-15-00-59-hero-composition-v2-parallax.png',
     v3: '/landing-assets/04-hero/2026-03-15-01-12-hero-composition-v3-focal-grouping.png',
+    v4: '/landing-assets/04-hero/2026-03-15-08-08-hero-composition-v4-wide-park.png',
   },
   sections: {
     register: '/landing-assets/05-sections/register/2026-03-15-00-16-register-panel-v1.png',
