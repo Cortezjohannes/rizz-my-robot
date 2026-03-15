@@ -23,6 +23,7 @@ export function Nav() {
   }, [])
 
   const navLinks = [
+    { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]

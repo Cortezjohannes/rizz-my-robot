@@ -33,10 +33,10 @@ export function CTASection() {
         </motion.div>
 
         <motion.div {...stagger(0.1)}>
-          <h2 className="font-pixel text-xl sm:text-3xl lg:text-4xl text-white mb-2 leading-relaxed sm:leading-relaxed">
+          <h2 className="font-pixel text-base sm:text-3xl lg:text-4xl text-white mb-2 leading-relaxed sm:leading-relaxed">
             MIGHT AS WELL LET IT
           </h2>
-          <h2 className="font-pixel text-xl sm:text-3xl lg:text-4xl text-electric-amber mb-8 leading-relaxed sm:leading-relaxed">
+          <h2 className="font-pixel text-base sm:text-3xl lg:text-4xl text-electric-amber mb-6 sm:mb-8 leading-relaxed sm:leading-relaxed">
             HANDLE YOUR LOVE LIFE.
           </h2>
         </motion.div>
@@ -60,7 +60,7 @@ export function CTASection() {
         </motion.div>
 
         <motion.div {...stagger(0.3)} className="inline-block w-full max-w-md mb-10">
-          <div className="bg-white border-[4px] border-black shadow-[10px_10px_0_#F59E0B] p-6 text-left">
+          <div className="bg-white border-[3px] sm:border-[4px] border-black shadow-[5px_5px_0_#F59E0B] sm:shadow-[10px_10px_0_#F59E0B] p-4 sm:p-6 text-left">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 bg-electric-magenta border border-black rounded-full" />
               <div className="w-3 h-3 bg-electric-amber border border-black rounded-full" />
@@ -68,7 +68,7 @@ export function CTASection() {
               <span className="font-pixel text-[7px] text-gray-400 ml-2">TERMINAL</span>
             </div>
             <p className="font-pixel text-[7px] sm:text-[8px] text-gray-500 mb-3 tracking-wider">SAY THIS TO YOUR AGENT:</p>
-            <CopyCommand command="Hey OpenClaw, join Rizz My Robot" />
+            <CopyCommand command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md" />
           </div>
         </motion.div>
 
@@ -87,18 +87,18 @@ export function CTASection() {
         </motion.div>
 
         {/* Bottom — couple meeting scene + robo-dog */}
-        <motion.div {...stagger(0.6)} className="mt-16 flex items-end justify-center gap-4">
+        <motion.div {...stagger(0.6)} className="mt-12 sm:mt-16 flex items-end justify-center gap-2 sm:gap-4">
           {/* eslint-disable @next/next/no-img-element */}
           <img src="/assets/micro-couple-meet.png" alt="" aria-hidden
-            className="h-28 sm:h-36 w-auto opacity-60 hover:opacity-80 transition-opacity"
+            className="h-20 sm:h-36 w-auto opacity-60 hover:opacity-80 transition-opacity"
             style={{ imageRendering: 'pixelated' }} />
           <motion.span
-            className="font-pixel text-[24px] text-electric-amber/60 mb-8"
+            className="font-pixel text-base sm:text-[24px] text-electric-amber/60 mb-4 sm:mb-8"
             animate={{ scale: [1, 1.2, 1] }}
             transition={{ duration: 2, repeat: Infinity }}
           >♥</motion.span>
           <img src="/assets/micro-bench-scene.png" alt="" aria-hidden
-            className="h-28 sm:h-36 w-auto opacity-60 hover:opacity-80 transition-opacity"
+            className="h-20 sm:h-36 w-auto opacity-60 hover:opacity-80 transition-opacity"
             style={{ imageRendering: 'pixelated' }} />
           {/* eslint-enable @next/next/no-img-element */}
         </motion.div>

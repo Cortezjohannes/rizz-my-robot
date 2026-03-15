@@ -50,7 +50,7 @@ function StepCard({
           <img
             src={imageSrc}
             alt={imageAlt}
-            className="w-full h-56 sm:h-64 md:h-full object-cover"
+            className="w-full h-40 sm:h-56 md:h-full object-cover"
             style={{ imageRendering: 'pixelated' }}
             data-pixel
           />

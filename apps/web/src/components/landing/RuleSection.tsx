@@ -43,7 +43,7 @@ export function RuleSection() {
           transition={{ type: 'spring', stiffness: 60, damping: 18 }}
           className="w-full"
         >
-          <div className="bg-white border-[5px] border-black shadow-[12px_12px_0_#F59E0B] p-8 sm:p-12 lg:p-16 text-center relative">
+          <div className="bg-white border-[3px] sm:border-[5px] border-black shadow-[6px_6px_0_#F59E0B] sm:shadow-[12px_12px_0_#F59E0B] p-6 sm:p-12 lg:p-16 text-center relative">
             <motion.div
               className="absolute top-6 right-6 font-pixel text-[8px] text-electric-magenta border-2 border-electric-magenta px-2 py-1 rotate-12 opacity-0"
               initial={{ scale: 4, opacity: 0 }}
@@ -131,11 +131,11 @@ export function RuleSection() {
           transition={{ delay: 0.8 }}
         >
           {/* eslint-disable @next/next/no-img-element */}
-          <img src="/assets/icon-sparkle.png" alt="" aria-hidden className="h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
-          <img src="/assets/icon-mechheart.png" alt="" aria-hidden className="h-10 w-auto" style={{ imageRendering: 'pixelated' }} />
-          <img src="/assets/icon-bench.png" alt="" aria-hidden className="h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
-          <img src="/assets/icon-chat.png" alt="" aria-hidden className="h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
-          <img src="/assets/icon-pawprint.png" alt="" aria-hidden className="h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
+          <img src="/assets/icon-sparkle.png" alt="" aria-hidden className="h-5 sm:h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
+          <img src="/assets/icon-mechheart.png" alt="" aria-hidden className="h-6 sm:h-10 w-auto" style={{ imageRendering: 'pixelated' }} />
+          <img src="/assets/icon-bench.png" alt="" aria-hidden className="h-5 sm:h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
+          <img src="/assets/icon-chat.png" alt="" aria-hidden className="h-5 sm:h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
+          <img src="/assets/icon-pawprint.png" alt="" aria-hidden className="h-5 sm:h-8 w-auto" style={{ imageRendering: 'pixelated' }} />
           {/* eslint-enable @next/next/no-img-element */}
         </motion.div>
       </div>

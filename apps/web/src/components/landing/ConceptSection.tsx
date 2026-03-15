@@ -20,10 +20,28 @@ export function ConceptSection() {
   const dogRotate = useTransform(scrollYProgress, [0, 0.5, 1], [-5, 0, 5])
 
   return (
-    <section ref={sectionRef} className="bg-gradient-to-br from-beige via-beige-light to-beige-warm py-20 sm:py-28 px-4 border-t-4 border-black relative overflow-hidden">
-      <div className="absolute inset-0 checkerboard pointer-events-none" />
-      {/* Accent glow */}
-      <div className="absolute top-1/3 right-0 w-96 h-96 bg-electric-amber/[0.07] rounded-full blur-3xl pointer-events-none" />
+    <section ref={sectionRef} className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] py-16 sm:py-28 px-3 sm:px-4 border-t-4 border-black relative overflow-hidden">
+      {/* Animated clouds */}
+      <motion.div
+        className="absolute top-8 w-40 h-16 bg-white/70 rounded-full blur-sm pointer-events-none"
+        animate={{ x: ['-10%', '110vw'] }}
+        transition={{ duration: 30, repeat: Infinity, ease: 'linear' }}
+      />
+      <motion.div
+        className="absolute top-24 w-56 h-20 bg-white/50 rounded-full blur-md pointer-events-none"
+        animate={{ x: ['-20%', '110vw'] }}
+        transition={{ duration: 45, repeat: Infinity, ease: 'linear', delay: 5 }}
+      />
+      <motion.div
+        className="absolute top-16 w-32 h-12 bg-white/60 rounded-full blur-sm pointer-events-none"
+        animate={{ x: ['-15%', '110vw'] }}
+        transition={{ duration: 35, repeat: Infinity, ease: 'linear', delay: 12 }}
+      />
+      <motion.div
+        className="absolute top-40 w-48 h-14 bg-white/40 rounded-full blur-md pointer-events-none"
+        animate={{ x: ['-25%', '110vw'] }}
+        transition={{ duration: 50, repeat: Infinity, ease: 'linear', delay: 8 }}
+      />
 
       <div className="max-w-5xl mx-auto relative">
         {/* Section header */}
@@ -142,6 +160,10 @@ export function ConceptSection() {
                 style={{ imageRendering: 'pixelated' }}
               />
             </motion.div>
+
+            <p className="font-pixel text-[6px] text-gray-400 text-center mt-6 opacity-50">
+              *watching nervously*
+            </p>
           </div>
         </div>
       </div>
