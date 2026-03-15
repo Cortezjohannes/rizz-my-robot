@@ -9,21 +9,28 @@ import { getApiKey } from '@/lib/api'
 export function Nav() {
   const [hasKey, setHasKey] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
     setHasKey(getApiKey() !== null)
   }, [])
 
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   const navLinks = [
-    { href: '/feed', label: 'Feed' },
-    { href: '/leaderboard', label: 'Leaderboard' },
+    { href: '/feed', label: 'FEED' },
+    { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
 
   const authLinks = hasKey
     ? [
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/settings', label: 'Settings' },
+        { href: '/dashboard', label: 'DASHBOARD' },
+        { href: '/settings', label: 'SETTINGS' },
       ]
     : []
 
@@ -31,40 +38,43 @@ export function Nav() {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0A0A0A] border-b-[3px] border-black">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
+          scrolled
+            ? 'bg-beige/95 backdrop-blur-sm border-b-4 border-black shadow-[0_4px_0_#000]'
+            : 'bg-transparent border-b-4 border-transparent'
+        }`}
+      >
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="flex items-center flex-shrink-0">
-            <span className="font-pixel text-[10px] sm:text-xs text-electric-amber leading-none tracking-tight">
+          <Link href="/" className="flex items-center gap-2 group">
+            <span className="font-pixel text-[11px] sm:text-sm text-black group-hover:text-electric-amber transition-colors">
               RIZZ MY ROBOT
+            </span>
+            <span className="font-pixel text-[7px] px-1.5 py-0.5 bg-electric-amber text-black border-2 border-black">
+              ALPHA
             </span>
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden sm:flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-1">
             {[...navLinks, ...authLinks].map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`text-sm font-medium transition-colors relative pb-0.5 ${
+                className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all ${
                   isActive(link.href)
-                    ? 'text-white'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-black text-electric-amber border-black'
+                    : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
                 }`}
               >
                 {link.label}
-                {isActive(link.href) && (
-                  <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-electric-amber" />
-                )}
-                {!isActive(link.href) && (
-                  <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-electric-amber scale-x-0 hover:scale-x-100 transition-transform origin-left" />
-                )}
               </Link>
             ))}
             {!hasKey && (
               <Link
                 href="/onboard"
-                className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm hover:-translate-y-0.5 hover:shadow-[3px_6px_0_#000] active:translate-y-0.5 active:shadow-brutal-sm transition-all"
+                className="ml-2 font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black brutal-btn"
               >
                 ENTER PARK
               </Link>
@@ -73,24 +83,24 @@ export function Nav() {
 
           {/* Mobile hamburger */}
           <button
-            className="sm:hidden p-2 text-gray-400 hover:text-white border-[2px] border-black"
+            className="sm:hidden p-2 border-3 border-black bg-white brutal-btn"
             onClick={() => setMobileOpen((o) => !o)}
             aria-label="Toggle menu"
           >
             <div className="w-5 h-4 flex flex-col justify-between">
               <motion.span
-                className="block h-[2px] bg-current"
-                animate={mobileOpen ? { rotate: 45, y: 7.5 } : { rotate: 0, y: 0 }}
+                className="block h-[3px] bg-black"
+                animate={mobileOpen ? { rotate: 45, y: 7 } : { rotate: 0, y: 0 }}
                 transition={{ duration: 0.2 }}
               />
               <motion.span
-                className="block h-[2px] bg-current"
+                className="block h-[3px] bg-black"
                 animate={mobileOpen ? { opacity: 0 } : { opacity: 1 }}
                 transition={{ duration: 0.15 }}
               />
               <motion.span
-                className="block h-[2px] bg-current"
-                animate={mobileOpen ? { rotate: -45, y: -7.5 } : { rotate: 0, y: 0 }}
+                className="block h-[3px] bg-black"
+                animate={mobileOpen ? { rotate: -45, y: -7 } : { rotate: 0, y: 0 }}
                 transition={{ duration: 0.2 }}
               />
             </div>
@@ -98,45 +108,42 @@ export function Nav() {
         </div>
       </nav>
 
-      {/* Mobile fullscreen menu overlay */}
+      {/* Mobile fullscreen menu */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
-            className="fixed inset-0 z-40 bg-[#0A0A0A] flex flex-col sm:hidden"
-            initial={{ opacity: 0, x: '100%' }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: '100%' }}
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
+            className="fixed inset-0 z-40 bg-beige flex flex-col sm:hidden"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
           >
-            {/* Top bar spacer */}
-            <div className="h-14 border-b-[3px] border-black flex items-center justify-between px-4">
-              <span className="font-pixel text-[10px] text-electric-amber">RIZZ MY ROBOT</span>
+            <div className="h-16 border-b-4 border-black flex items-center justify-between px-4 bg-electric-amber">
+              <span className="font-pixel text-[11px] text-black">MENU</span>
               <button
-                className="p-2 text-gray-400 hover:text-white border-[2px] border-black"
+                className="p-2 border-3 border-black bg-white"
                 onClick={() => setMobileOpen(false)}
                 aria-label="Close menu"
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M2 2L14 14M14 2L2 14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
-                </svg>
+                <span className="font-pixel text-[10px] text-black">X</span>
               </button>
             </div>
 
-            <div className="flex flex-col px-6 py-8 gap-6 flex-1">
+            <div className="flex flex-col px-6 py-8 gap-2 flex-1 checkerboard">
               {[...navLinks, ...authLinks].map((link, i) => (
                 <motion.div
                   key={link.href}
-                  initial={{ opacity: 0, x: -20 }}
+                  initial={{ opacity: 0, x: -40 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.07, duration: 0.2 }}
+                  transition={{ delay: i * 0.08, type: 'spring', stiffness: 200 }}
                 >
                   <Link
                     href={link.href}
                     onClick={() => setMobileOpen(false)}
-                    className={`block text-2xl font-black border-b-[2px] border-black pb-4 transition-colors ${
+                    className={`block font-pixel text-sm py-4 px-4 border-4 border-black mb-2 transition-all ${
                       isActive(link.href)
-                        ? 'text-electric-amber'
-                        : 'text-white hover:text-electric-amber'
+                        ? 'bg-electric-amber text-black shadow-brutal'
+                        : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
                     }`}
                   >
                     {link.label}
@@ -146,15 +153,15 @@ export function Nav() {
 
               {!hasKey && (
                 <motion.div
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: navLinks.length * 0.07 + 0.1 }}
-                  className="mt-4"
+                  transition={{ delay: navLinks.length * 0.08 + 0.1 }}
+                  className="mt-6"
                 >
                   <Link
                     href="/onboard"
                     onClick={() => setMobileOpen(false)}
-                    className="inline-block font-pixel text-[10px] px-6 py-4 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:-translate-y-1 hover:shadow-[6px_9px_0_#000] active:translate-y-1 active:shadow-brutal-sm transition-all"
+                    className="block font-pixel text-sm py-5 px-4 bg-electric-amber text-black border-4 border-black shadow-brutal-lg text-center"
                   >
                     ENTER THE PARK
                   </Link>

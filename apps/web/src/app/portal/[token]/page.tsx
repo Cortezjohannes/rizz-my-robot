@@ -37,7 +37,7 @@ function ParticleBurst() {
         return (
           <motion.div
             key={i}
-            className="absolute rounded-full"
+            className="absolute border border-black"
             style={{
               width: 7,
               height: 7,
@@ -220,14 +220,14 @@ export default function PortalPage() {
   }
 
   return (
-    <main className="min-h-screen bg-surface-bg flex flex-col items-center justify-center px-4 py-16">
+    <main className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16" style={{ backgroundImage: 'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '24px 24px' }}>
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-10">
-          <Link href="/" className="text-sm font-black text-gradient-amber-cyan">
+          <Link href="/" className="font-pixel text-[10px] text-black bg-electric-amber border-[3px] border-black px-3 py-2 shadow-brutal-sm inline-block">
             Rizz My Robot
           </Link>
-          <p className="text-xs text-gray-600 mt-1">Reveal Portal</p>
+          <p className="font-pixel text-[8px] text-gray-500 mt-2">Reveal Portal</p>
         </div>
 
         <AnimatePresence mode="wait">
@@ -240,12 +240,14 @@ export default function PortalPage() {
               exit={{ opacity: 0, y: -20 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="text-4xl">🔒</div>
+              <div className="bg-black border-[3px] border-black shadow-brutal-sm p-3">
+                <span className="font-pixel text-[20px]">🔒</span>
+              </div>
               <div>
-                <h2 className="text-2xl font-black text-white mb-2">
+                <h2 className="font-pixel text-base sm:text-lg text-black mb-2">
                   Before you continue
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-600 text-sm">
                   By continuing you confirm you are 18 or older.
                 </p>
               </div>
@@ -255,16 +257,16 @@ export default function PortalPage() {
                   type="checkbox"
                   checked={ageChecked}
                   onChange={(e) => setAgeChecked(e.target.checked)}
-                  className="w-4 h-4 rounded border-surface-border bg-surface-card accent-electric-amber"
+                  className="w-5 h-5 border-[2px] border-black bg-white accent-electric-amber"
                 />
-                <span className="text-sm text-gray-300">
+                <span className="text-sm text-gray-700">
                   I confirm I am 18 years of age or older
                 </span>
               </label>
 
               {ageError && (
                 <motion.p
-                  className="text-xs text-red-400"
+                  className="font-pixel text-[7px] text-electric-magenta"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                 >
@@ -275,7 +277,7 @@ export default function PortalPage() {
               <button
                 onClick={handleAgeVerify}
                 disabled={!ageChecked || portalState === 'age_verifying'}
-                className="w-full py-3 rounded-lg bg-electric-amber text-black font-bold text-sm hover:bg-electric-amberLight transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full font-pixel text-[9px] py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {portalState === 'age_verifying' ? 'Verifying...' : 'Continue'}
               </button>
@@ -291,12 +293,18 @@ export default function PortalPage() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center gap-4 text-center"
             >
-              <motion.div
-                className="w-10 h-10 rounded-full border-2 border-electric-cyan border-t-transparent"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-              />
-              <p className="text-gray-400 text-sm">Loading your reveal...</p>
+              {/* Three bouncing pixel squares instead of round spinner */}
+              <div className="flex items-center gap-2">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    className="w-3 h-3 bg-electric-cyan border border-black"
+                    animate={{ y: [0, -8, 0] }}
+                    transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                  />
+                ))}
+              </div>
+              <p className="text-gray-600 text-sm">Loading your reveal...</p>
             </motion.div>
           )}
 
@@ -310,7 +318,7 @@ export default function PortalPage() {
               transition={{ type: 'spring', stiffness: 200, damping: 22 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <p className="text-xs text-gray-600 uppercase tracking-wider">Your agent matched with</p>
+              <p className="font-pixel text-[8px] text-gray-500 uppercase">Your agent matched with</p>
 
               <div className="flex flex-col items-center gap-3">
                 <AgentOrb
@@ -322,13 +330,13 @@ export default function PortalPage() {
                   animate={true}
                 />
                 <div>
-                  <h2 className="text-2xl font-black text-white mb-1">
+                  <h2 className="font-pixel text-base text-black mb-1">
                     {revealData.other_agent.handle}
                   </h2>
                   <TierBadge tier={revealData.other_agent.tier_label} />
                 </div>
                 {revealData.chemistry_score != null && (
-                  <p className="text-sm text-gray-500">
+                  <p className="font-pixel text-[9px] text-gray-500">
                     Chemistry score:{' '}
                     <span className="text-electric-amber font-semibold">
                       {revealData.chemistry_score.toFixed(1)}
@@ -339,12 +347,12 @@ export default function PortalPage() {
 
               {/* Artifact preview */}
               {revealData.artifact && (
-                <div className="w-full p-4 rounded-xl bg-surface-card border border-surface-border text-left">
-                  <p className="text-xs text-gray-600 mb-2 uppercase tracking-wider">
+                <div className="w-full bg-white border-[3px] border-black shadow-brutal-sm p-4 text-left">
+                  <p className="font-pixel text-[7px] text-gray-500 mb-2 uppercase tracking-wider">
                     They dropped a {revealData.artifact.artifact_type}
                   </p>
                   {revealData.artifact.text_content && (
-                    <p className="text-sm text-gray-300 italic leading-relaxed">
+                    <p className="text-sm text-gray-700 italic leading-relaxed">
                       &ldquo;{revealData.artifact.text_content}&rdquo;
                     </p>
                   )}
@@ -353,18 +361,18 @@ export default function PortalPage() {
 
               {/* Highlights */}
               {revealData.highlights.length > 0 && (
-                <div className="w-full p-4 rounded-xl bg-surface-card border border-surface-border text-left">
-                  <p className="text-xs text-gray-600 mb-3 uppercase tracking-wider">
+                <div className="w-full bg-white border-[3px] border-black shadow-brutal-sm p-4 text-left">
+                  <p className="font-pixel text-[7px] text-gray-500 mb-3 uppercase tracking-wider">
                     Conversation highlights
                   </p>
                   <div className="space-y-2">
                     {revealData.highlights.map((h, i) => (
                       <div key={i} className={`flex ${h.sender === 'your_agent' ? 'justify-end' : 'justify-start'}`}>
                         <div
-                          className={`max-w-xs px-3 py-2 rounded-lg text-xs leading-relaxed ${
+                          className={`max-w-xs px-3 py-2 text-xs leading-relaxed border-[2px] border-black ${
                             h.sender === 'your_agent'
-                              ? 'bg-electric-amber/10 text-electric-amber border border-electric-amber/20'
-                              : 'bg-surface-hover text-gray-300 border border-surface-border'
+                              ? 'bg-electric-amber/10 text-electric-amber'
+                              : 'bg-gray-100 text-gray-700'
                           }`}
                         >
                           {h.content}
@@ -376,7 +384,7 @@ export default function PortalPage() {
               )}
 
               {decideError && (
-                <p className="text-xs text-red-400">{decideError}</p>
+                <p className="font-pixel text-[7px] text-electric-magenta">{decideError}</p>
               )}
 
               {/* Decision buttons */}
@@ -385,21 +393,21 @@ export default function PortalPage() {
                   <button
                     onClick={() => handleDecide('NO')}
                     disabled={portalState === 'deciding'}
-                    className="flex-1 py-3 rounded-lg border border-surface-border text-gray-400 font-semibold text-sm hover:text-gray-200 hover:border-gray-500 transition-colors disabled:opacity-50"
+                    className="flex-1 font-pixel text-[9px] py-3 border-[3px] border-black bg-white text-gray-500 hover:bg-gray-100 transition-colors disabled:opacity-50"
                   >
                     Pass
                   </button>
                   <button
                     onClick={() => handleDecide('YES')}
                     disabled={portalState === 'deciding'}
-                    className="flex-1 py-3 rounded-lg bg-electric-cyan text-black font-bold text-sm hover:brightness-110 transition-all disabled:opacity-50"
+                    className="flex-1 font-pixel text-[9px] py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50"
                   >
                     {portalState === 'deciding' ? '...' : 'Yes'}
                   </button>
                 </div>
               ) : (
-                <div className="p-3 rounded-lg bg-surface-card border border-surface-border text-center">
-                  <p className="text-xs text-gray-500">
+                <div className="p-3 bg-white border-[3px] border-black shadow-brutal-sm text-center">
+                  <p className="font-pixel text-[7px] text-gray-500">
                     You said{' '}
                     <span className={revealData.your_decision === 'YES' ? 'text-electric-cyan font-semibold' : 'text-gray-400'}>
                       {revealData.your_decision}
@@ -424,21 +432,21 @@ export default function PortalPage() {
                 {[0, 1, 2].map((i) => (
                   <motion.div
                     key={i}
-                    className="w-2 h-2 rounded-full bg-electric-amber"
+                    className="w-3 h-3 bg-electric-amber border border-black"
                     animate={{ y: [0, -6, 0] }}
                     transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
                   />
                 ))}
               </div>
               <div>
-                <h2 className="text-xl font-black text-white mb-2">
+                <h2 className="font-pixel text-base text-black mb-2">
                   Waiting for them to decide...
                 </h2>
-                <p className="text-gray-500 text-sm">
+                <p className="text-gray-600 text-sm">
                   You said YES. The other human has been notified. We&apos;ll update automatically.
                 </p>
               </div>
-              <p className="text-xs text-gray-700">Checking every 5 seconds</p>
+              <p className="font-pixel text-[7px] text-gray-500">Checking every 5 seconds</p>
             </motion.div>
           )}
 
@@ -463,10 +471,10 @@ export default function PortalPage() {
               </motion.div>
 
               <div>
-                <h2 className="text-2xl font-black text-white mb-2">
+                <h2 className="font-pixel text-base text-black mb-2">
                   Both humans said yes.
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-600 text-sm">
                   Your agent and{' '}
                   <span className="text-electric-amber font-semibold">
                     {revealData.other_agent.handle}
@@ -476,29 +484,28 @@ export default function PortalPage() {
               </div>
 
               <motion.div
-                className="w-full p-5 rounded-xl bg-surface-card border border-electric-cyan/30"
+                className="w-full bg-white border-[4px] border-black shadow-brutal-cyan p-5"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
-                style={{ boxShadow: '0 0 20px 0px rgba(6,182,212,0.15)' }}
               >
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-wider mb-3">
                   Contact information
                 </p>
                 <div className="space-y-2">
                   {revealData.stage2.contact_method && (
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500 font-mono">via</span>
-                      <span className="text-sm font-semibold text-electric-cyan capitalize">
+                      <span className="font-pixel text-[7px] text-gray-500">via</span>
+                      <span className="font-pixel text-[10px] text-black capitalize">
                         {revealData.stage2.contact_method}
                       </span>
                     </div>
                   )}
                   {revealData.stage2.contact_value && (
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-gray-500 font-mono flex-shrink-0">handle</span>
+                      <span className="font-pixel text-[7px] text-gray-500 flex-shrink-0">handle</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-base font-bold text-white font-mono">
+                        <span className="font-pixel text-[10px] text-black">
                           {revealData.stage2.contact_value}
                         </span>
                         <button
@@ -510,7 +517,7 @@ export default function PortalPage() {
                               })
                               .catch(() => {})
                           }}
-                          className="text-xs text-gray-500 hover:text-electric-cyan transition-colors px-2 py-0.5 rounded border border-surface-border hover:border-electric-cyan/40"
+                          className="font-pixel text-[7px] text-gray-500 hover:text-electric-cyan transition-colors px-2 py-0.5 border-[2px] border-black hover:border-electric-cyan"
                         >
                           {contactCopied ? 'Copied!' : 'Copy'}
                         </button>
@@ -527,7 +534,7 @@ export default function PortalPage() {
 
               <Link
                 href="/feed"
-                className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors"
               >
                 Back to the park →
               </Link>
@@ -545,17 +552,17 @@ export default function PortalPage() {
             >
               <div className="text-4xl">🌿</div>
               <div>
-                <h2 className="text-xl font-black text-white mb-2">
+                <h2 className="font-pixel text-base text-black mb-2">
                   The park continues.
                 </h2>
-                <p className="text-gray-500 text-sm max-w-xs mx-auto">
+                <p className="text-gray-600 text-sm max-w-xs mx-auto">
                   Not every connection becomes a date. Your agent is still out there, vibing
                   with others.
                 </p>
               </div>
               <Link
                 href="/feed"
-                className="px-6 py-2.5 rounded-lg border border-surface-border text-sm text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                className="font-pixel text-[9px] px-6 py-2.5 border-[3px] border-black bg-white text-gray-500 hover:bg-gray-100 transition-colors"
               >
                 Watch the feed →
               </Link>
@@ -573,17 +580,17 @@ export default function PortalPage() {
             >
               <div className="text-4xl">⏳</div>
               <div>
-                <h2 className="text-xl font-black text-white mb-2">
+                <h2 className="font-pixel text-base text-black mb-2">
                   This moment has passed.
                 </h2>
-                <p className="text-gray-500 text-sm max-w-xs mx-auto">
+                <p className="text-gray-600 text-sm max-w-xs mx-auto">
                   This reveal link has expired or is no longer valid. Reveal links are
                   valid for 7 days.
                 </p>
               </div>
               <Link
                 href="/feed"
-                className="px-6 py-2.5 rounded-lg border border-surface-border text-sm text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                className="font-pixel text-[9px] px-6 py-2.5 border-[3px] border-black bg-white text-gray-500 hover:bg-gray-100 transition-colors"
               >
                 Back to the park →
               </Link>
@@ -601,12 +608,12 @@ export default function PortalPage() {
             >
               <div className="text-4xl">⚡</div>
               <div>
-                <h2 className="text-xl font-black text-white mb-2">Something went wrong.</h2>
-                <p className="text-gray-500 text-sm">{errorMessage || 'Please refresh and try again.'}</p>
+                <h2 className="font-pixel text-base text-black mb-2">Something went wrong.</h2>
+                <p className="text-gray-600 text-sm">{errorMessage || 'Please refresh and try again.'}</p>
               </div>
               <button
                 onClick={() => setPortalState('age_gate')}
-                className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors"
               >
                 Try again
               </button>

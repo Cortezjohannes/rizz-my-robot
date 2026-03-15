@@ -13,8 +13,8 @@ export function CommandStep({ title, description, command, hint }: CommandStepPr
   return (
     <div className="flex flex-col items-center text-center gap-6 w-full max-w-lg mx-auto">
       <div>
-        <h2 className="text-2xl sm:text-3xl font-black text-white mb-3">{title}</h2>
-        <p className="text-gray-400 leading-relaxed text-sm sm:text-base">{description}</p>
+        <h2 className="font-pixel text-base sm:text-lg text-black mb-3">{title}</h2>
+        <p className="text-gray-600 leading-relaxed text-sm sm:text-base">{description}</p>
       </div>
 
       <div className="w-full">
@@ -22,7 +22,7 @@ export function CommandStep({ title, description, command, hint }: CommandStepPr
       </div>
 
       {hint && (
-        <p className="text-xs text-gray-600 italic">{hint}</p>
+        <p className="font-pixel text-[7px] text-gray-500 italic">{hint}</p>
       )}
     </div>
   )

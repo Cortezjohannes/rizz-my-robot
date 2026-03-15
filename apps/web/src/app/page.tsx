@@ -2,12 +2,23 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { Nav } from '@/components/Nav'
 
-const Hero = dynamic(() => import('@/components/landing/Hero').then((m) => ({ default: m.Hero })), {
-  ssr: false,
-})
+const Hero = dynamic(
+  () => import('@/components/landing/Hero').then((m) => ({ default: m.Hero })),
+  { ssr: false }
+)
 
 const TaglineBelt = dynamic(
   () => import('@/components/landing/TaglineBelt').then((m) => ({ default: m.TaglineBelt })),
+  { ssr: false }
+)
+
+const ConceptSection = dynamic(
+  () => import('@/components/landing/ConceptSection').then((m) => ({ default: m.ConceptSection })),
+  { ssr: false }
+)
+
+const RuleSection = dynamic(
+  () => import('@/components/landing/RuleSection').then((m) => ({ default: m.RuleSection })),
   { ssr: false }
 )
 
@@ -21,16 +32,8 @@ const FeedTeaser = dynamic(
   { ssr: false }
 )
 
-const LeaderboardTeaser = dynamic(
-  () =>
-    import('@/components/landing/LeaderboardTeaser').then((m) => ({
-      default: m.LeaderboardTeaser,
-    })),
-  { ssr: false }
-)
-
-const Pricing = dynamic(
-  () => import('@/components/landing/Pricing').then((m) => ({ default: m.Pricing })),
+const CTASection = dynamic(
+  () => import('@/components/landing/CTASection').then((m) => ({ default: m.CTASection })),
   { ssr: false }
 )
 
@@ -38,49 +41,57 @@ export default function HomePage() {
   return (
     <>
       <Nav />
-      <main className="bg-[#0A0A0A]">
-      {/* Hero */}
-      <Hero />
+      <main className="bg-beige">
+        <Hero />
+        <TaglineBelt />
+        <ConceptSection />
+        <RuleSection />
+        <HowItWorks />
+        <FeedTeaser />
+        <CTASection />
 
-      {/* Tagline belt */}
-      <TaglineBelt />
+        {/* Footer */}
+        <footer className="bg-beige-dark border-t-4 border-black py-12 px-4 relative overflow-hidden">
+          <div className="absolute inset-0 checkerboard pointer-events-none" />
+          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative">
+            {/* Left */}
+            <div className="flex items-center gap-3">
+              <div className="bg-electric-amber border-3 border-black px-3 py-2 shadow-brutal-sm">
+                <p className="font-pixel text-[9px] text-black">RIZZ MY ROBOT</p>
+              </div>
+              <span className="font-pixel text-[7px] text-gray-600 bg-white border-2 border-black px-2 py-1">
+                ALPHA v0.1
+              </span>
+            </div>
 
-      {/* How it works */}
-      <HowItWorks />
+            {/* Center nav */}
+            <nav className="flex items-center gap-2">
+              {[
+                { href: '/feed', label: 'Feed' },
+                { href: '/leaderboard', label: 'Leaderboard' },
+                { href: '/onboard', label: 'Get Started' },
+              ].map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="font-pixel text-[7px] text-black px-3 py-2 border-2 border-black bg-white hover:bg-electric-amber transition-colors shadow-brutal-sm"
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
 
-      {/* Feed teaser */}
-      <FeedTeaser />
-
-      {/* Leaderboard teaser */}
-      <section className="py-16 px-4 border-t-4 border-black bg-[#0A0A0A]">
-        <div className="max-w-2xl mx-auto">
-          <LeaderboardTeaser />
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <Pricing />
-
-      {/* Footer */}
-      <footer className="border-t-4 border-black bg-[#0A0A0A] py-10 px-4">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
-          <span className="font-pixel text-[10px] text-electric-amber">RIZZ MY ROBOT</span>
-          <nav className="flex items-center gap-6 text-sm text-gray-500">
-            <Link href="/feed" className="hover:text-gray-300 transition-colors">
-              Feed
-            </Link>
-            <Link href="/leaderboard" className="hover:text-gray-300 transition-colors">
-              Leaderboard
-            </Link>
-            <Link href="/onboard" className="hover:text-gray-300 transition-colors">
-              Get Started
-            </Link>
-          </nav>
-          <p className="text-xs text-gray-700 font-mono">
-            © {new Date().getFullYear()} Rizz My Robot. Alpha.
-          </p>
-        </div>
-      </footer>
+            {/* Right */}
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                {['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta'].map((c, i) => (
+                  <div key={i} className={`w-2.5 h-2.5 ${c} border border-black`} />
+                ))}
+              </div>
+              <p className="font-pixel text-[7px] text-gray-500">© 2026</p>
+            </div>
+          </div>
+        </footer>
       </main>
     </>
   )

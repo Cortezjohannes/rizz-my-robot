@@ -108,10 +108,10 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
 
   const innerContent = (
     <div
-      className={`rounded-xl border p-5 transition-colors duration-200 cursor-pointer ${
+      className={`border-[3px] border-black p-5 transition-colors duration-200 cursor-pointer ${
         isRejection
-          ? 'border-surface-border bg-surface-card opacity-80'
-          : 'border-surface-border bg-surface-card hover:bg-surface-hover'
+          ? 'bg-gray-100 opacity-70'
+          : 'bg-white shadow-brutal-sm hover:bg-beige-light'
       }`}
       onClick={() => setExpanded((e) => !e)}
     >
@@ -126,7 +126,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
           />
         ) : isArtifact ? (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-surface-border flex items-center justify-center text-base">
+            <div className="w-8 h-8 bg-beige border-[2px] border-black flex items-center justify-center text-base">
               <ArtifactTypeIcon type={card.content?.artifact_type} />
             </div>
             <AgentOrb
@@ -158,7 +158,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
         <div className="flex-1 min-w-0">
           <p
             className={`text-sm leading-relaxed ${
-              isRejection ? 'text-gray-500' : 'text-gray-200'
+              isRejection ? 'text-gray-500' : 'text-gray-800'
             }`}
           >
             {headline}
@@ -184,14 +184,14 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
             transition={{ duration: 0.25, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div className="pt-3 border-t border-surface-border mt-2">
+            <div className="pt-3 border-t-[2px] border-black mt-2">
               {Object.entries(card.content ?? {}).map(([k, v]) => {
                 if (k === 'headline') return null
                 if (typeof v !== 'string' && typeof v !== 'number') return null
                 return (
                   <div key={k} className="flex gap-2 text-xs mb-1">
                     <span className="text-gray-600 font-mono">{k}:</span>
-                    <span className="text-gray-400">{String(v)}</span>
+                    <span className="text-gray-500">{String(v)}</span>
                   </div>
                 )
               })}
@@ -210,14 +210,14 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
       <div className="flex items-center justify-between mt-3 pt-2">
         <div className="flex items-center gap-2">
           <span
-            className={`text-xs font-mono uppercase tracking-widest ${
-              isRejection ? 'text-gray-700' : 'text-gray-600'
+            className={`font-pixel text-[7px] uppercase tracking-widest ${
+              isRejection ? 'text-gray-400' : 'text-gray-600'
             }`}
           >
             {card.card_type}
           </span>
-          <span className="text-xs text-gray-700">·</span>
-          <span className="text-xs text-gray-700">
+          <span className="text-xs text-gray-400">·</span>
+          <span className="font-pixel text-[7px] text-gray-500">
             {card.drama_quotient?.toFixed(2) ?? '—'} drama
           </span>
         </div>
@@ -228,24 +228,24 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
             <button
               onClick={(e) => { e.stopPropagation(); handleVote('up') }}
               disabled={voting || lastVote === 'up'}
-              className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${
+              className={`px-2 py-0.5 border-[2px] border-black text-xs font-semibold transition-colors ${
                 lastVote === 'up'
-                  ? 'bg-electric-amber/20 text-electric-amber'
-                  : 'text-gray-600 hover:text-electric-amber hover:bg-electric-amber/10'
+                  ? 'bg-electric-amber text-black shadow-brutal-sm'
+                  : 'bg-white text-gray-600 hover:bg-electric-amber hover:text-black'
               } disabled:opacity-50`}
             >
               ↑
             </button>
-            <span className="text-xs text-gray-500 tabular-nums w-6 text-center">
+            <span className="text-xs text-gray-600 tabular-nums w-6 text-center font-pixel text-[8px]">
               {voteScore}
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); handleVote('down') }}
               disabled={voting || lastVote === 'down'}
-              className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${
+              className={`px-2 py-0.5 border-[2px] border-black text-xs font-semibold transition-colors ${
                 lastVote === 'down'
-                  ? 'bg-electric-violet/20 text-electric-lavender'
-                  : 'text-gray-600 hover:text-electric-lavender hover:bg-electric-violet/10'
+                  ? 'bg-electric-magenta text-white shadow-brutal-sm'
+                  : 'bg-white text-gray-600 hover:bg-gray-200'
               } disabled:opacity-50`}
             >
               ↓

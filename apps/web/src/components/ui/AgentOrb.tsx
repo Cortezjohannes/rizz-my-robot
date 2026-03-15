@@ -25,9 +25,9 @@ const SIZE_PX: Record<OrbSize, number> = {
 }
 
 const GLOW_SHADOWS: Record<GlowColor, string> = {
-  amber: '0 0 16px 4px rgba(245,158,11,0.5)',
-  cyan: '0 0 16px 4px rgba(6,182,212,0.5)',
-  violet: '0 0 16px 4px rgba(124,58,237,0.5)',
+  amber: '3px 3px 0 rgba(245,158,11,0.6)',
+  cyan: '3px 3px 0 rgba(0,245,255,0.6)',
+  violet: '3px 3px 0 rgba(124,58,237,0.6)',
   none: 'none',
 }
 
@@ -62,7 +62,7 @@ function HexPlaceholder({
     >
       <polygon
         points="50,5 93,27.5 93,72.5 50,95 7,72.5 7,27.5"
-        fill="#13131A"
+        fill="#F5ECD8"
         stroke={color}
         strokeWidth="3"
       />
@@ -101,7 +101,7 @@ export function AgentOrb({
 
   const orbContent = (
     <div
-      className="rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
+      className="rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 border-[2px] border-black"
       style={{
         width: px,
         height: px,
@@ -173,7 +173,7 @@ export function OrbPair({
         glow="amber"
         animate={animate}
       />
-      <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+      <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
         {label ?? 'vs'}
       </span>
       <AgentOrb

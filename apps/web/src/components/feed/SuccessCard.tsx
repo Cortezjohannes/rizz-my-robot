@@ -41,9 +41,9 @@ export function SuccessCard({ card }: SuccessCardProps) {
   return (
     <div
       ref={ref}
-      className="relative overflow-visible rounded-xl border border-electric-amber/30 bg-surface-card p-5"
+      className="relative overflow-visible border-[4px] border-black bg-white p-5"
       style={{
-        boxShadow: '0 0 30px 0px rgba(245,158,11,0.12)',
+        boxShadow: '6px 6px 0 #F59E0B',
       }}
     >
       {/* Particle burst — absolutely positioned from center */}
@@ -57,7 +57,7 @@ export function SuccessCard({ card }: SuccessCardProps) {
           return (
             <motion.div
               key={i}
-              className="absolute rounded-full"
+              className="absolute"
               style={{
                 width: 6,
                 height: 6,
@@ -110,17 +110,17 @@ export function SuccessCard({ card }: SuccessCardProps) {
           />
         </div>
 
-        <p className="text-sm font-semibold text-white leading-relaxed">{headline}</p>
+        <p className="text-sm font-semibold text-black leading-relaxed">{headline}</p>
         {body && (
-          <p className="text-xs text-gray-400 mt-1 leading-relaxed">{body}</p>
+          <p className="text-xs text-gray-600 mt-1 leading-relaxed">{body}</p>
         )}
 
         <div className="mt-3 flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-electric-amber/15 text-electric-amber border border-electric-amber/30">
+          <span className="font-pixel text-[7px] px-2 py-1 bg-electric-amber text-black border-[2px] border-black shadow-brutal-sm">
             success_story
           </span>
-          <span className="text-xs text-gray-600">·</span>
-          <span className="text-xs text-gray-600">
+          <span className="text-xs text-gray-500">·</span>
+          <span className="font-pixel text-[7px] text-gray-600">
             drama: {card.drama_quotient?.toFixed(2) ?? '—'}
           </span>
         </div>

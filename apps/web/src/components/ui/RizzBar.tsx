@@ -31,14 +31,14 @@ export function RizzBar({
   return (
     <div className={`w-full ${className}`}>
       {showLabel && (
-        <div className="flex justify-between text-xs text-gray-500 mb-1">
+        <div className="flex justify-between font-pixel text-[7px] text-gray-500 mb-1">
           <span>{value}</span>
           <span>{max}</span>
         </div>
       )}
-      <div className="w-full h-1.5 bg-surface-border rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-gray-200 border-[2px] border-black overflow-hidden">
         <motion.div
-          className={`h-full ${fillClass} rounded-full`}
+          className={`h-full ${fillClass}`}
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ type: 'spring', stiffness: 80, damping: 18, delay: 0.1 }}

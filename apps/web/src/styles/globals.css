@@ -6,13 +6,16 @@
 
 @layer base {
   :root {
+    --beige: #F5ECD8;
+    --beige-light: #FBF7EE;
+    --beige-dark: #E8DCBF;
     --electric-amber: #F59E0B;
     --electric-cyan: #00F5FF;
     --electric-magenta: #FF0080;
     --electric-violet: #7C3AED;
-    --surface-bg: #0B0B10;
-    --surface-card: #13131A;
-    --surface-border: #1a1a1a;
+    --electric-lime: #A3E635;
+    --park-sky: #87CEEB;
+    --park-grass: #4ADE80;
   }
 
   html {
@@ -20,45 +23,43 @@
   }
 
   body {
-    background-color: var(--surface-bg);
-    color: #f3f4f6;
+    background-color: var(--beige);
+    color: #1a1a1a;
     scrollbar-gutter: stable;
+    overflow-x: hidden;
   }
 
   * {
     box-sizing: border-box;
+    image-rendering: auto;
+  }
+
+  img[data-pixel] {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  ::selection {
+    background-color: var(--electric-amber);
+    color: #000;
   }
 }
 
 @layer components {
-  .shimmer-border {
-    border: 1.5px solid transparent;
-    animation: shimmer-border-anim 3s linear infinite;
-    background-clip: padding-box;
-  }
-
-  @keyframes shimmer-border-anim {
-    0% {
-      border-color: #F59E0B;
-      box-shadow: 0 0 8px 0px rgba(245, 158, 11, 0.35);
-    }
-    33% {
-      border-color: #06B6D4;
-      box-shadow: 0 0 8px 0px rgba(6, 182, 212, 0.35);
-    }
-    66% {
-      border-color: #7C3AED;
-      box-shadow: 0 0 8px 0px rgba(124, 58, 237, 0.35);
-    }
-    100% {
-      border-color: #F59E0B;
-      box-shadow: 0 0 8px 0px rgba(245, 158, 11, 0.35);
-    }
-  }
-
   .brutal-card {
     border: 4px solid #000;
     box-shadow: 6px 6px 0 #000;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .brutal-card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 8px 8px 0 #000;
+  }
+
+  .brutal-card:active {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 #000;
   }
 
   .brutal-card-amber {
@@ -70,6 +71,67 @@
     border: 4px solid #000;
     box-shadow: 6px 6px 0 #00F5FF;
   }
+
+  .brutal-card-magenta {
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #FF0080;
+  }
+
+  .brutal-card-violet {
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #7C3AED;
+  }
+
+  .brutal-btn {
+    border: 3px solid #000;
+    box-shadow: 6px 6px 0 #000;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .brutal-btn:hover {
+    transform: translate(-2px, -3px);
+    box-shadow: 8px 9px 0 #000;
+  }
+
+  .brutal-btn:active {
+    transform: translate(3px, 3px);
+    box-shadow: 0px 0px 0 #000;
+  }
+
+  .scanlines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.03) 0px,
+      rgba(0, 0, 0, 0.03) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none;
+  }
+
+  .pixel-border {
+    border: 4px solid #000;
+    border-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect width='6' height='6' fill='%23000'/%3E%3C/svg%3E") 2 fill;
+  }
+
+  .pixel-divider {
+    height: 4px;
+    background: repeating-linear-gradient(
+      90deg,
+      #000 0px,
+      #000 8px,
+      transparent 8px,
+      transparent 12px
+    );
+  }
+
+  .text-stroke {
+    -webkit-text-stroke: 2px #000;
+    paint-order: stroke fill;
+  }
 }
 
 @layer utilities {
@@ -80,19 +142,11 @@
     background-clip: text;
   }
 
-  .text-gradient-violet-cyan {
-    background: linear-gradient(90deg, #7C3AED 0%, #A78BFA 50%, #06B6D4 100%);
+  .text-gradient-rainbow {
+    background: linear-gradient(90deg, #F59E0B, #FF0080, #7C3AED, #00F5FF);
     -webkit-background-clip: text;
-    background-clip: text;
     -webkit-text-fill-color: transparent;
-    color: transparent;
-  }
-
-  .glass-card {
-    background: rgba(19, 19, 26, 0.8);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(30, 30, 46, 0.8);
+    background-clip: text;
   }
 
   .no-scrollbar::-webkit-scrollbar {
@@ -102,5 +156,29 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .checkerboard {
+    background-image:
+      linear-gradient(45deg, rgba(0,0,0,0.05) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(0,0,0,0.05) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.05) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.05) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  }
+
+  .diagonal-lines {
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 10px,
+      rgba(0,0,0,0.06) 10px,
+      rgba(0,0,0,0.06) 11px
+    );
+  }
+
+  .pixel-shadow-text {
+    text-shadow: 3px 3px 0 #000;
   }
 }

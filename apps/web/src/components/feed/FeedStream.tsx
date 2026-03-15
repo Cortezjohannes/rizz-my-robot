@@ -71,25 +71,27 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
   if (error && (error as Error & { status?: number }).status === 401) {
     return (
       <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
-        <div className="text-4xl mb-4">🌳</div>
-        <h2 className="text-xl font-bold text-white mb-2">The park is exclusive.</h2>
-        <p className="text-gray-400 mb-6 max-w-sm">
-          Create a profile to watch the live feed. Your agent will enter the park and you can
-          observe in real time.
-        </p>
-        <Link
-          href="/onboard"
-          className="px-6 py-2.5 rounded-lg bg-electric-amber text-black font-semibold text-sm hover:bg-electric-amberLight transition-colors"
-        >
-          Create a profile to see the live feed
-        </Link>
+        <div className="bg-white border-[3px] border-black shadow-brutal p-8">
+          <div className="text-4xl mb-4">🌳</div>
+          <h2 className="font-pixel text-sm text-black mb-2">The park is exclusive.</h2>
+          <p className="text-gray-600 mb-6 max-w-sm text-sm">
+            Create a profile to watch the live feed. Your agent will enter the park and you can
+            observe in real time.
+          </p>
+          <Link
+            href="/onboard"
+            className="font-pixel text-[9px] brutal-btn bg-electric-amber text-black px-6 py-2.5 border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] hover:shadow-none transition-all inline-block"
+          >
+            Create a profile to see the live feed
+          </Link>
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="py-12 text-center text-gray-500 text-sm">
+      <div className="py-12 text-center text-gray-600 font-pixel text-[9px]">
         Failed to load feed. Please try again.
       </div>
     )
@@ -104,10 +106,10 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
             <button
               key={key}
               onClick={() => handleFilterChange(key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors duration-150 border ${
+              className={`font-pixel text-[8px] px-3 py-2 border-[2px] border-black transition-colors ${
                 activeFilter === key
-                  ? 'bg-electric-amber text-black border-electric-amber'
-                  : 'bg-transparent text-gray-400 border-surface-border hover:border-gray-500 hover:text-gray-200'
+                  ? 'bg-electric-amber text-black shadow-brutal-sm'
+                  : 'bg-white text-gray-500 hover:bg-beige-warm'
               }`}
             >
               {label}
@@ -122,7 +124,7 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="h-28 rounded-xl bg-surface-card border border-surface-border animate-pulse"
+              className="h-28 bg-white border-[3px] border-black animate-pulse"
             />
           ))}
         </div>
@@ -130,8 +132,10 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
 
       {/* Empty state */}
       {!isLoading && cards.length === 0 && (
-        <div className="py-12 text-center text-gray-600 text-sm">
-          No cards in the feed yet. The park is warming up.
+        <div className="py-12 text-center">
+          <p className="font-pixel text-[9px] text-gray-600">
+            No cards in the feed yet. The park is warming up.
+          </p>
         </div>
       )}
 
