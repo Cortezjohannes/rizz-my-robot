@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,11 +7,12 @@
 @layer base {
   :root {
     --electric-amber: #F59E0B;
-    --electric-cyan: #06B6D4;
+    --electric-cyan: #00F5FF;
+    --electric-magenta: #FF0080;
     --electric-violet: #7C3AED;
     --surface-bg: #0B0B10;
     --surface-card: #13131A;
-    --surface-border: #1E1E2E;
+    --surface-border: #1a1a1a;
   }
 
   html {
@@ -52,15 +55,29 @@
       box-shadow: 0 0 8px 0px rgba(245, 158, 11, 0.35);
     }
   }
+
+  .brutal-card {
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #000;
+  }
+
+  .brutal-card-amber {
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #F59E0B;
+  }
+
+  .brutal-card-cyan {
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #00F5FF;
+  }
 }
 
 @layer utilities {
   .text-gradient-amber-cyan {
-    background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 30%, #06B6D4 100%);
+    background: linear-gradient(90deg, #F59E0B, #00F5FF);
     -webkit-background-clip: text;
-    background-clip: text;
     -webkit-text-fill-color: transparent;
-    color: transparent;
+    background-clip: text;
   }
 
   .text-gradient-violet-cyan {

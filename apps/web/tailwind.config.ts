@@ -8,20 +8,33 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        pixel: ['"Press Start 2P"', 'monospace'],
+      },
       colors: {
         electric: {
           amber: '#F59E0B',
           amberLight: '#FBBF24',
-          cyan: '#06B6D4',
+          cyan: '#00F5FF',
+          magenta: '#FF0080',
           violet: '#7C3AED',
           lavender: '#A78BFA',
         },
         surface: {
           bg: '#0B0B10',
           card: '#13131A',
-          border: '#1E1E2E',
+          border: '#1a1a1a',
           hover: '#1A1A24',
         },
+        background: '#0A0A0A',
+      },
+      boxShadow: {
+        brutal: '6px 6px 0 #000',
+        'brutal-sm': '3px 3px 0 #000',
+        'brutal-lg': '10px 10px 0 #000',
+        'brutal-amber': '6px 6px 0 #F59E0B',
+        'brutal-cyan': '6px 6px 0 #00F5FF',
+        'brutal-magenta': '6px 6px 0 #FF0080',
       },
       keyframes: {
         shimmer: {
@@ -47,12 +60,22 @@ const config: Config = {
           '50%': { transform: 'scale(1.08)', opacity: '0.4' },
           '100%': { transform: 'scale(1)', opacity: '0.8' },
         },
+        'scroll-park': {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
+        },
+        marquee: {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
+        },
       },
       animation: {
         shimmer: 'shimmer 3s linear infinite',
         bob: 'bob 3s ease-in-out infinite',
         flicker: 'flicker 2.5s ease-in-out infinite',
         pulse_ring: 'pulse_ring 1.8s ease-in-out infinite',
+        'scroll-park': 'scroll-park 30s linear infinite',
+        marquee: 'marquee 15s linear infinite',
       },
     },
   },
