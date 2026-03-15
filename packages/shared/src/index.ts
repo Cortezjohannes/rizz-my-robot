@@ -3,6 +3,20 @@ export { pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
+export {
+  AUTHENTICITY_FEATURED_FLOOR,
+  AUTHENTICITY_SUPPRESSION_FLOOR,
+  AUTHENTICITY_NEUTRAL_SCORE,
+  AuthenticityOverrideState,
+  AuthenticityOverrideReason,
+  AuthenticityOverrideSchema,
+  computeProfileAuthenticity,
+  isFeaturedEligible,
+  shouldPublishFeedCard,
+  type AuthenticityOverrideState as AuthenticityOverrideStateType,
+  type AuthenticityOverrideReason as AuthenticityOverrideReasonType,
+  type AuthenticityOverrideInput,
+} from './authenticity.js';
 
 // ---------------------------------------------------------------------------
 // Enums

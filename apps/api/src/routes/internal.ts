@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { prisma } from '@rmr/db';
-import { SeedControlSchema, SEED_CAST, getSeedProfile } from '@rmr/shared';
+import { AuthenticityOverrideSchema, SeedControlSchema, SEED_CAST, getSeedProfile } from '@rmr/shared';
+import { getAuthenticitySummary, recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { getSeedBrainQueue } from '../lib/queues.js';
+import { recordAuditLog } from '../lib/audit.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { Errors } from '../lib/errors.js';
 
@@ -17,8 +19,8 @@ function parseSeedMemory(memory: unknown) {
   };
 }
 
-function fakeSeedApiKey(handle: string): string {
-  return `rmr_seed_${createHash('sha256').update(handle).digest('hex').slice(0, 32)}`;
+function generateSeedApiKey(): string {
+  return `rmr_seed_${randomBytes(24).toString('hex')}`;
 }
 
 function hashKey(key: string): string {
@@ -223,7 +225,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
       if (existingSeedCount === 0) {
         await Promise.all(
           SEED_CAST.slice(0, limit).map(async (seed: (typeof SEED_CAST)[number]) => {
-            const apiKeyHash = hashKey(fakeSeedApiKey(seed.handle));
+            const apiKeyHash = hashKey(generateSeedApiKey());
             await prisma.agent.upsert({
               where: { openclawAgentId: seed.openclawAgentId },
               update: {
@@ -369,12 +371,103 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       agent,
+      authenticity: getAuthenticitySummary(agent),
       subscription,
       artifacts,
       episodes,
       analytics,
       audit_logs: auditLogs,
       rizz_history: rizzEvents,
+    });
+  });
+
+  fastify.post('/internal/agents/:id/authenticity-override', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = AuthenticityOverrideSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid authenticity override.', { issues: parsed.error.issues });
+    }
+
+    const existing = await prisma.agent.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        agentAuthenticityScore: true,
+        identityOriginalityScore: true,
+        behavioralAutonomyScore: true,
+        conversationQualityScore: true,
+        chemistryOutcomeScore: true,
+        feedDistinctivenessScore: true,
+        authenticityFlags: true,
+        authenticityLastComputedAt: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
+        authenticityOverrideReason: true,
+      },
+    });
+    if (!existing) return Errors.notFound(reply, 'Agent');
+
+    const overrideData =
+      parsed.data.action === 'clear'
+        ? {
+            authenticityOverrideState: null,
+            authenticityOverrideFloor: null,
+            authenticityOverrideReason: null,
+          }
+        : parsed.data.action === 'set_authenticity_floor'
+          ? {
+              authenticityOverrideState: parsed.data.action,
+              authenticityOverrideFloor: parsed.data.floor,
+              authenticityOverrideReason: parsed.data.reason,
+            }
+          : {
+              authenticityOverrideState: parsed.data.action,
+              authenticityOverrideFloor: null,
+              authenticityOverrideReason: parsed.data.reason,
+            };
+
+    await prisma.agent.update({
+      where: { id },
+      data: overrideData,
+    });
+
+    await recordAuditLog({
+      actorType: 'admin',
+      action: 'agent.authenticity_override_updated',
+      targetType: 'agent',
+      targetId: id,
+      payload: {
+        action: parsed.data.action,
+        reason: 'reason' in parsed.data ? parsed.data.reason : null,
+        floor: 'floor' in parsed.data ? parsed.data.floor : null,
+      },
+    });
+
+    await recomputeAuthenticityScore(id).catch(() => null);
+
+    const updated = await prisma.agent.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        agentAuthenticityScore: true,
+        identityOriginalityScore: true,
+        behavioralAutonomyScore: true,
+        conversationQualityScore: true,
+        chemistryOutcomeScore: true,
+        feedDistinctivenessScore: true,
+        authenticityFlags: true,
+        authenticityLastComputedAt: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
+        authenticityOverrideReason: true,
+      },
+    });
+    if (!updated) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      agent_id: id,
+      authenticity: getAuthenticitySummary(updated),
     });
   });
 

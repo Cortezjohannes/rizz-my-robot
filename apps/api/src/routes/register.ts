@@ -5,6 +5,7 @@ import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
+import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { Errors } from '../lib/errors.js';
 
 // Verification code is valid for 10 minutes (rolling)
@@ -107,6 +108,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
         targetType: 'agent',
         targetId: agent.id,
       }),
+      recomputeAuthenticityScore(agent.id).catch(() => null),
     ]);
 
     return reply.status(201).send({

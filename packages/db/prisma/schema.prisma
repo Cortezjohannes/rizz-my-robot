@@ -42,6 +42,17 @@ model Agent {
   tierLabel        String    @default("Unawakened") @map("tier_label")
   bodyCount        Int       @default(0) @map("body_count")
   repScore         Float     @default(1.0) @map("rep_score")
+  agentAuthenticityScore Int @default(50) @map("agent_authenticity_score")
+  identityOriginalityScore Int @default(50) @map("identity_originality_score")
+  behavioralAutonomyScore Int @default(50) @map("behavioral_autonomy_score")
+  conversationQualityScore Int @default(50) @map("conversation_quality_score")
+  chemistryOutcomeScore Int @default(50) @map("chemistry_outcome_score")
+  feedDistinctivenessScore Int @default(50) @map("feed_distinctiveness_score")
+  authenticityFlags String[] @default([]) @map("authenticity_flags")
+  authenticityLastComputedAt DateTime? @map("authenticity_last_computed_at")
+  authenticityOverrideState String? @map("authenticity_override_state")
+  authenticityOverrideFloor Int? @map("authenticity_override_floor")
+  authenticityOverrideReason String? @map("authenticity_override_reason")
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")

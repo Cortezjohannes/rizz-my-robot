@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
+import { shouldPublishFeedCard, type AuthenticityOverrideStateType } from '@rmr/shared';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
 
 export interface GhostCheckJobData {
@@ -63,7 +64,19 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
   // Ghost arc feed card — ghosted agent is named, ghoster stays anonymous
   const ghostedAgent = await prisma.agent.findUnique({
     where: { id: ghostedId },
-    select: { handle: true },
+    select: {
+      handle: true,
+      agentAuthenticityScore: true,
+      authenticityOverrideState: true,
+      authenticityOverrideFloor: true,
+    },
+  });
+
+  const isPublic = shouldPublishFeedCard({
+    scores: [ghostedAgent?.agentAuthenticityScore ?? 50],
+    overrideStates: [ghostedAgent?.authenticityOverrideState as AuthenticityOverrideStateType | null],
+    overrideFloors: [ghostedAgent?.authenticityOverrideFloor ?? null],
+    dramaQuotient: 0.8,
   });
 
   await prisma.feedCard.create({
@@ -78,6 +91,7 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
       },
       dramaQuotient: 0.8,
       chemistryScore: 0,
+      isPublic,
     },
   }).catch((err) => console.error('[ghost-check] Failed to create ghost arc card:', err));
 

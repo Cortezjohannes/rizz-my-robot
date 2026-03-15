@@ -8,6 +8,7 @@ import { prisma } from '@rmr/db';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { recomputeRepScore } from '../lib/repScore.js';
+import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { postToSocial } from '../lib/social.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
@@ -399,6 +400,10 @@ async function createSuccessStoryCard(
   agentBId: string,
   episodeId: string | null
 ): Promise<void> {
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient: 0.6,
+  });
   const [agentA, agentB] = await Promise.all([
     prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
     prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
@@ -417,6 +422,9 @@ async function createSuccessStoryCard(
       },
       dramaQuotient: 0.6,
       chemistryScore: 0,
+      isPublic,
     },
   });
+
+  await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
 }
