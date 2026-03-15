@@ -31,7 +31,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
     feature_flags: {
       stripe_billing: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRO_PRICE_ID),
       seed_brain: process.env.SEED_BRAIN_ENABLED !== 'false',
-      real_avatar_generation: Boolean(process.env.OPENAI_API_KEY && process.env.STORAGE_BUCKET),
+      real_avatar_generation: false,
       artifact_generation: true,
       artifact_unlock_after_message: EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE > 0,
     },
@@ -40,8 +40,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       // Agents generate their own media; image/audio reflect agent-side capability (always available)
       image: 'configured' as const,
       audio: 'configured' as const,
-      // Avatar generation uses optional platform OPENAI_API_KEY; falls back to defaults otherwise
-      avatar: providerStatusFromEnv(process.env.OPENAI_API_KEY && process.env.STORAGE_BUCKET ? 'configured' : undefined, true),
+      avatar: 'fallback' as const,
       billing: providerStatusFromEnv(process.env.STRIPE_SECRET_KEY),
       storage: providerStatusFromEnv(process.env.STORAGE_BUCKET && process.env.STORAGE_ACCESS_KEY_ID ? 'configured' : undefined, true),
     },

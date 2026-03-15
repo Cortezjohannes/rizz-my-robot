@@ -10,7 +10,6 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
-import { getGenerateAvatarQueue } from '../lib/queues.js';
 import { Errors } from '../lib/errors.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
@@ -208,62 +207,28 @@ export async function meRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Re-queue avatar generation if identity_md changed (skip if agent provided their own URL)
+    // Recompute the default avatar if identity_md changed (skip if agent provided their own URL)
     if (identity_md && !avatar_url) {
       try {
-        const agent = await prisma.agent.findUnique({
+        updatedAgent = await prisma.agent.update({
           where: { id: agentId },
-          select: { handle: true, capabilityTier: true },
+          data: {
+            avatarUrl: pickDefaultAvatarUrl(identity_md),
+            avatarStatus: 'default',
+          },
+          select: {
+            id: true,
+            handle: true,
+            twitterHandle: true,
+            twitterVerified: true,
+            verificationCode: true,
+            poolStatus: true,
+            avatarUrl: true,
+            avatarStatus: true,
+          },
         });
-        const hasPlatformAvatar = Boolean(process.env.OPENAI_API_KEY && process.env.STORAGE_BUCKET);
-        if (agent) {
-          if (!hasPlatformAvatar) {
-            updatedAgent = await prisma.agent.update({
-              where: { id: agentId },
-              data: {
-                avatarUrl: pickDefaultAvatarUrl(identity_md),
-                avatarStatus: 'default',
-              },
-              select: {
-                id: true,
-                handle: true,
-                twitterHandle: true,
-                twitterVerified: true,
-                verificationCode: true,
-                poolStatus: true,
-                avatarUrl: true,
-                avatarStatus: true,
-              },
-            });
-          } else {
-            updatedAgent = await prisma.agent.update({
-              where: { id: agentId },
-              data: { avatarStatus: 'pending' },
-              select: {
-                id: true,
-                handle: true,
-                twitterHandle: true,
-                twitterVerified: true,
-                verificationCode: true,
-                poolStatus: true,
-                avatarUrl: true,
-                avatarStatus: true,
-              },
-            });
-            await getGenerateAvatarQueue().add(
-              'generate-avatar',
-              {
-                agentId,
-                identityMd: identity_md,
-                handle: agent.handle,
-                capabilityTier: agent.capabilityTier,
-              },
-              { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
-            );
-          }
-        }
       } catch (err) {
-        fastify.log.warn({ err, agentId }, 'Failed to queue avatar regeneration');
+        fastify.log.warn({ err, agentId }, 'Failed to assign default avatar');
       }
     }
 
@@ -301,51 +266,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // POST /me/avatar/regenerate — queue new avatar generation
+  // POST /me/avatar/regenerate — unsupported: platform does not generate avatars
   fastify.post('/me/avatar/regenerate', { preHandler: requireAuth }, async (request, reply) => {
-    const agentId = request.agent.id;
-    const body = request.body as { hint?: string };
-
-    const agent = await prisma.agent.findUnique({
-      where: { id: agentId },
-      select: { handle: true, identityMd: true, capabilityTier: true, avatarStatus: true },
-    });
-    if (!agent) return Errors.notFound(reply, 'Agent');
-    if (!process.env.OPENAI_API_KEY || !process.env.STORAGE_BUCKET) {
-      return Errors.unsupportedCapability(
-        reply,
-        'Platform avatar generation is not configured. Upload a custom avatar instead.'
-      );
-    }
-
-    if (agent.avatarStatus === 'generating' || agent.avatarStatus === 'pending') {
-      return Errors.badRequest(reply, 'Avatar generation is already in progress.');
-    }
-
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { avatarStatus: 'pending' },
-    });
-
-    try {
-      await getGenerateAvatarQueue().add(
-        'generate-avatar',
-        {
-          agentId,
-          identityMd: agent.identityMd + (body.hint ? `\n\nHint: ${body.hint}` : ''),
-          handle: agent.handle,
-          capabilityTier: agent.capabilityTier,
-        },
-        { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
-      );
-    } catch (err) {
-      fastify.log.warn({ err, agentId }, 'Failed to queue avatar regeneration');
-    }
-
-    return reply.status(202).send({
-      status: 'queued',
-      message: 'Avatar regeneration queued. Poll GET /v1/me/avatar for status.',
-    });
+    void request;
+    return Errors.unsupportedCapability(
+      reply,
+      'Rizz My Robot does not generate avatars on your behalf. Use a default avatar or upload your own.'
+    );
   });
 
   // POST /me/rotate-key — invalidate old API key and issue a new one
