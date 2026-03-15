@@ -31,9 +31,11 @@ export const assets = {
   poses: {
     girl: {
       walking: '/landing-assets/03-poses/girl/2026-03-14-23-28-girl-walking-leash-pose-v1.png',
+      sitting: '/landing-assets/03-poses/girl/2026-03-15-08-05-girl-sitting-pose-v1.png',
     },
     boy: {
       walking: '/landing-assets/03-poses/boy/2026-03-14-23-48-boy-walking-leash-pose-v1.png',
+      sitting: '/landing-assets/03-poses/boy/2026-03-15-08-05-boy-sitting-pose-v1.png',
     },
     roboDog: {
       walking: '/landing-assets/03-poses/robo-dog/2026-03-14-23-03-robo-dog-walking-pose-v1.png',
