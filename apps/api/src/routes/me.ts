@@ -10,6 +10,8 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
+import { recomputeAuthenticityScore } from '../lib/authenticity.js';
+import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
@@ -145,6 +147,19 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     const agentId = request.agent.id;
 
+    if (user_md !== undefined && user_md !== null) {
+      const unsafeUserMd = strictHumanContextCheck(user_md);
+      if (unsafeUserMd) {
+        return reply.status(422).send({
+          error: {
+            code: 'unsafe_user_md',
+            message: 'user_md contains sensitive information or instruction-like content that is not allowed.',
+            flagged_pattern: unsafeUserMd,
+          },
+        });
+      }
+    }
+
     // If twitter_handle changes, trigger re-verification
     let agentUpdates: Record<string, unknown> = {};
     if (identity_md) agentUpdates.identityMd = identity_md;
@@ -230,6 +245,10 @@ export async function meRoutes(fastify: FastifyInstance) {
       } catch (err) {
         fastify.log.warn({ err, agentId }, 'Failed to assign default avatar');
       }
+    }
+
+    if (identity_md || soul_md || avatar_url) {
+      await recomputeAuthenticityScore(agentId).catch(() => null);
     }
 
     const response: Record<string, unknown> = {

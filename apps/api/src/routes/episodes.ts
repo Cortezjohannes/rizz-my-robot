@@ -19,6 +19,7 @@ import { deliverWebhooks, buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
+import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -564,6 +565,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           await Promise.all([
             activatePendingMatchesForAgent(ep.agentAId).catch(() => {}),
             activatePendingMatchesForAgent(ep.agentBId).catch(() => {}),
+            recomputeAuthenticityForAgents([ep.agentAId, ep.agentBId]).catch(() => {}),
           ]);
         }
 
@@ -719,6 +721,11 @@ async function createEpisodeHighlightCard(
   chemistry: number,
   artifacts: Array<{ id: string; artifactType: string; textContent: string | null }>
 ): Promise<void> {
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient: 0.5,
+    chemistryScore: chemistry / 100,
+  });
   const [agentA, agentB] = await Promise.all([
     prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
     prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
@@ -740,8 +747,11 @@ async function createEpisodeHighlightCard(
       },
       chemistryScore: chemistry / 100,
       dramaQuotient: 0.5,
+      isPublic,
     },
   });
+
+  await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
 }
 
 // Both passed — mutual rejection arc (lower drama, symmetric)
@@ -750,6 +760,10 @@ async function createRejectionArcCard(
   agentAId: string,
   agentBId: string,
 ): Promise<string> {
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient: 0.65,
+  });
   const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'rejection_arc',
@@ -761,8 +775,10 @@ async function createRejectionArcCard(
         episode_id: episodeId,
       },
       dramaQuotient: 0.65,
+      isPublic,
     },
   });
+  await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
   return feedCard.id;
 }
 
@@ -778,6 +794,10 @@ async function createOneSidedPassCard(
     select: { handle: true },
   });
 
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient: 0.85,
+  });
   const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'rejection_arc',
@@ -789,7 +809,9 @@ async function createOneSidedPassCard(
         episode_id: episodeId,
       },
       dramaQuotient: 0.85,
+      isPublic,
     },
   });
+  await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
   return feedCard.id;
 }

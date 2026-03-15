@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { DatePlanMessageSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { strictPiiCheck, scanAndRedact } from '../lib/piiFilter.js';
+import { sanitizeHumanContext } from '../lib/humanContextSafety.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { Errors } from '../lib/errors.js';
 
@@ -33,8 +34,8 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     const theirHumanUserMd = isA ? match.agentB.human?.userMd : match.agentA.human?.userMd;
 
     // Apply PII filter to both user.md before returning
-    const myFiltered = myHumanUserMd ? scanAndRedact(myHumanUserMd).clean : null;
-    const theirFiltered = theirHumanUserMd ? scanAndRedact(theirHumanUserMd).clean : null;
+    const myFiltered = myHumanUserMd ? sanitizeHumanContext(myHumanUserMd).clean : null;
+    const theirFiltered = theirHumanUserMd ? sanitizeHumanContext(theirHumanUserMd).clean : null;
 
     const messages = match.datePlan.threadMessages as Array<{
       sender_agent_id: string;
@@ -89,9 +90,10 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       });
     }
 
+    const redacted = scanAndRedact(parsed.data.content);
     const newMsg = {
       sender_agent_id: agentId,
-      content: parsed.data.content,
+      content: redacted.clean,
       created_at: new Date().toISOString(),
     };
 
