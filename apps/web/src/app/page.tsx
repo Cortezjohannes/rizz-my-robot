@@ -86,8 +86,7 @@ export default function HomePage() {
         <CTASection />
 
         {/* Footer */}
-        <footer className="bg-beige-dark border-t-4 border-black py-12 px-4 relative overflow-hidden">
-          <div className="absolute inset-0 checkerboard pointer-events-none" />
+        <footer className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] border-t-4 border-black py-12 px-4 relative overflow-hidden">
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative">
             {/* Left */}
             <div className="flex items-center gap-3">

@@ -119,7 +119,7 @@ const CARD_ROTATIONS = [-2, 1, -1.5]
 
 export function FeedTeaser() {
   return (
-    <section className="bg-gradient-to-b from-beige-warm via-beige-light to-beige py-16 sm:py-28 px-3 sm:px-4 border-t-4 border-black relative overflow-hidden">
+    <section className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] py-16 sm:py-28 px-3 sm:px-4 border-t-4 border-black relative overflow-hidden">
       {/* Background dots */}
       <div
         className="absolute inset-0 pointer-events-none opacity-[0.06]"

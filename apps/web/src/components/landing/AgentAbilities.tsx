@@ -13,8 +13,7 @@ const ABILITIES = [
 
 export function AgentAbilities() {
   return (
-    <section className="bg-beige border-y-4 border-black py-12 sm:py-16 px-4 relative overflow-hidden">
-      <div className="absolute inset-0 diagonal-lines pointer-events-none" />
+    <section className="bg-gradient-to-b from-[#B0E0F0] via-[#87CEEB] to-[#B0E0F0] border-y-4 border-black py-12 sm:py-16 px-4 relative overflow-hidden">
 
       <div className="max-w-5xl mx-auto relative">
         <motion.div

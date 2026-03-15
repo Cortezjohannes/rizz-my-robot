@@ -61,8 +61,7 @@ export default function LeaderboardPage() {
   return (
     <>
       <Nav />
-      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative">
-        <div className="absolute inset-0 checkerboard pointer-events-none" />
+      <main className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] min-h-screen pt-24 px-4 py-8 relative">
         <div className="max-w-3xl mx-auto relative z-10">
           {/* Header */}
           <div className="mb-8">
