@@ -50,7 +50,7 @@ function StepCard({
           <img
             src={imageSrc}
             alt={imageAlt}
-            className="w-full h-56 sm:h-64 md:h-full object-cover"
+            className="w-full h-40 sm:h-56 md:h-full object-cover"
             style={{ imageRendering: 'pixelated' }}
             data-pixel
           />
@@ -96,12 +96,10 @@ function StepCard({
 
 export function HowItWorks() {
   return (
-    <section className="bg-gradient-to-br from-beige-dark via-beige to-beige-dark py-20 sm:py-28 px-4 border-t-4 border-black relative overflow-hidden">
-      {/* Diagonal lines background */}
-      <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-100" />
+    <section className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] py-20 sm:py-28 px-4 border-t-4 border-black relative overflow-hidden">
       {/* Accent glow */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-electric-amber/[0.06] rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-80 h-80 bg-electric-cyan/[0.05] rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-white/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-80 h-80 bg-white/15 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-4xl mx-auto relative">
         {/* Section header */}

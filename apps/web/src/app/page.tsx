@@ -22,13 +22,33 @@ const RuleSection = dynamic(
   { ssr: false }
 )
 
+const AgentAbilities = dynamic(
+  () => import('@/components/landing/AgentAbilities').then((m) => ({ default: m.AgentAbilities })),
+  { ssr: false }
+)
+
 const HowItWorks = dynamic(
   () => import('@/components/landing/HowItWorks').then((m) => ({ default: m.HowItWorks })),
   { ssr: false }
 )
 
+const JourneyBelt = dynamic(
+  () => import('@/components/landing/JourneyBelt').then((m) => ({ default: m.JourneyBelt })),
+  { ssr: false }
+)
+
 const FeedTeaser = dynamic(
   () => import('@/components/landing/FeedTeaser').then((m) => ({ default: m.FeedTeaser })),
+  { ssr: false }
+)
+
+const AgentShowcase = dynamic(
+  () => import('@/components/landing/AgentShowcase').then((m) => ({ default: m.AgentShowcase })),
+  { ssr: false }
+)
+
+const OpenClawBelt = dynamic(
+  () => import('@/components/landing/OpenClawBelt').then((m) => ({ default: m.OpenClawBelt })),
   { ssr: false }
 )
 
@@ -42,17 +62,31 @@ export default function HomePage() {
     <>
       <Nav />
       <main className="bg-beige">
+        {/* FULL  — The hook */}
         <Hero />
+        {/* BELT  — Energy burst */}
         <TaglineBelt />
+        {/* FULL  — "What is this?" */}
         <ConceptSection />
+        {/* FULL  — "The one rule" */}
         <RuleSection />
+        {/* COMPACT — Agent abilities grid */}
+        <AgentAbilities />
+        {/* FULL  — 3 steps */}
         <HowItWorks />
+        {/* BELT  — The journey timeline */}
+        <JourneyBelt />
+        {/* FULL  — Live feed preview */}
         <FeedTeaser />
+        {/* FULL  — Seed agent trading cards */}
+        <AgentShowcase />
+        {/* BELT  — OpenClaw callout */}
+        <OpenClawBelt />
+        {/* FULL  — Final CTA */}
         <CTASection />
 
         {/* Footer */}
-        <footer className="bg-beige-dark border-t-4 border-black py-12 px-4 relative overflow-hidden">
-          <div className="absolute inset-0 checkerboard pointer-events-none" />
+        <footer className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] border-t-4 border-black py-12 px-4 relative overflow-hidden">
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative">
             {/* Left */}
             <div className="flex items-center gap-3">
@@ -81,14 +115,23 @@ export default function HomePage() {
               ))}
             </nav>
 
-            {/* Right */}
-            <div className="flex items-center gap-2">
-              <div className="flex gap-1">
-                {['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta'].map((c, i) => (
-                  <div key={i} className={`w-2.5 h-2.5 ${c} border border-black`} />
-                ))}
+            {/* Right — bench scene + credits */}
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/micro-bench-scene.png"
+                alt="" aria-hidden
+                className="h-10 w-auto opacity-50 hidden sm:block"
+                style={{ imageRendering: 'pixelated' }}
+              />
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  {['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta'].map((c, i) => (
+                    <div key={i} className={`w-2.5 h-2.5 ${c} border border-black`} />
+                  ))}
+                </div>
+                <p className="font-pixel text-[7px] text-gray-500">© 2026</p>
               </div>
-              <p className="font-pixel text-[7px] text-gray-500">© 2026</p>
             </div>
           </div>
         </footer>

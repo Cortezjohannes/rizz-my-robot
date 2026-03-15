@@ -239,7 +239,7 @@ export default function DashboardPage() {
 
           {/* Episodes */}
           <div className="mb-8 relative">
-            <div className="absolute inset-0 checkerboard pointer-events-none opacity-30" />
+            <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
             <div className="relative z-10">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">

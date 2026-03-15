@@ -35,7 +35,7 @@ export function CopyCommand({ command, label }: CopyCommandProps) {
       )}
       <div className="relative flex items-center bg-black border-3 border-black overflow-hidden">
         <div className="flex-1 px-4 py-3 overflow-x-auto no-scrollbar">
-          <code className="font-pixel text-[9px] sm:text-[10px] text-electric-amber whitespace-nowrap">
+          <code className="font-pixel text-[8px] sm:text-[10px] text-electric-amber whitespace-nowrap sm:whitespace-normal break-all sm:break-normal">
             &gt; {command}
           </code>
         </div>

@@ -23,6 +23,7 @@ export function Nav() {
   }, [])
 
   const navLinks = [
+    { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
@@ -129,7 +130,7 @@ export function Nav() {
               </button>
             </div>
 
-            <div className="flex flex-col px-6 py-8 gap-2 flex-1 checkerboard">
+            <div className="flex flex-col px-6 py-8 gap-2 flex-1 bg-gradient-to-b from-[#87CEEB] to-[#B0E0F0]">
               {[...navLinks, ...authLinks].map((link, i) => (
                 <motion.div
                   key={link.href}

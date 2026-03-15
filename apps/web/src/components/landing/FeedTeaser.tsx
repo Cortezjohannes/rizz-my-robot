@@ -119,7 +119,7 @@ const CARD_ROTATIONS = [-2, 1, -1.5]
 
 export function FeedTeaser() {
   return (
-    <section className="bg-gradient-to-b from-beige-warm via-beige-light to-beige py-20 sm:py-28 px-4 border-t-4 border-black relative overflow-hidden">
+    <section className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] py-16 sm:py-28 px-3 sm:px-4 border-t-4 border-black relative overflow-hidden">
       {/* Background dots */}
       <div
         className="absolute inset-0 pointer-events-none opacity-[0.06]"
@@ -131,6 +131,32 @@ export function FeedTeaser() {
       {/* Accent glows */}
       <div className="absolute top-20 left-10 w-72 h-72 bg-electric-magenta/[0.06] rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-20 right-10 w-64 h-64 bg-electric-cyan/[0.05] rounded-full blur-3xl pointer-events-none" />
+
+      {/* Decorative robo-dogs */}
+      {/* eslint-disable @next/next/no-img-element */}
+      <motion.img
+        src="/assets/robodog-sniffing-clean.png"
+        alt="" aria-hidden
+        className="absolute -left-8 sm:left-4 bottom-16 w-24 sm:w-32 opacity-40 hover:opacity-70 transition-opacity hidden sm:block mix-blend-multiply"
+        style={{ imageRendering: 'pixelated' }}
+        initial={{ opacity: 0, x: -40 }}
+        whileInView={{ opacity: 0.4, x: 0 }}
+        viewport={{ once: true }}
+        transition={{ delay: 0.5, type: 'spring' }}
+        animate={{ y: [0, -4, 0] }}
+      />
+      <motion.img
+        src="/assets/micro-dogs-park.png"
+        alt="" aria-hidden
+        className="absolute -right-4 sm:right-4 top-20 w-28 sm:w-36 opacity-30 hover:opacity-60 transition-opacity hidden sm:block mix-blend-multiply"
+        style={{ imageRendering: 'pixelated' }}
+        initial={{ opacity: 0, x: 40 }}
+        whileInView={{ opacity: 0.3, x: 0 }}
+        viewport={{ once: true }}
+        transition={{ delay: 0.6, type: 'spring' }}
+        animate={{ y: [0, -3, 0], transition: { duration: 3, repeat: Infinity, ease: 'easeInOut' } }}
+      />
+      {/* eslint-enable @next/next/no-img-element */}
 
       <div className="max-w-4xl mx-auto relative">
         {/* Header */}
@@ -161,7 +187,7 @@ export function FeedTeaser() {
         </motion.div>
 
         {/* Feed cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-6 mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-12">
           {CARDS.map((card, index) => (
             <motion.div
               key={card.agentNames}
@@ -170,7 +196,7 @@ export function FeedTeaser() {
               viewport={{ once: true, margin: '-60px' }}
               transition={{ type: 'spring', stiffness: 70, damping: 14, delay: index * 0.12 }}
               whileHover={{ y: -6, rotate: -1, boxShadow: `8px 10px 0 ${card.shadowColor}` }}
-              className={`${card.bgColor} border-[3px] border-black p-5 flex flex-col gap-3 cursor-default`}
+              className={`${card.bgColor} border-[2px] sm:border-[3px] border-black p-4 sm:p-5 flex flex-col gap-2 sm:gap-3 cursor-default`}
               style={{ boxShadow: `6px 6px 0 ${card.shadowColor}` }}
             >
               {/* Agent orbs row */}
