@@ -11,10 +11,11 @@ import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import { RizzBar } from '@/components/ui/RizzBar'
 
-type Tab = 'top_rizzlers' | 'most_matches' | 'hall_of_fame'
+type Tab = 'park_heat' | 'top_rizz' | 'most_matches' | 'hall_of_fame'
 
 const TAB_LABELS: Record<Tab, string> = {
-  top_rizzlers: 'Top Rizzlers',
+  park_heat: 'Park Heat',
+  top_rizz: 'Top Rizz',
   most_matches: 'Most Matches',
   hall_of_fame: 'Hall of Fame',
 }
@@ -29,14 +30,14 @@ interface MyRankData {
 }
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('top_rizzlers')
+  const [activeTab, setActiveTab] = useState<Tab>('park_heat')
   const [hasKey, setHasKey] = useState(false)
 
   useEffect(() => {
     setHasKey(getApiKey() !== null)
   }, [])
 
-  const { data, isLoading, error } = useSWR<LeaderboardResponse>('/leaderboard', fetcher, {
+  const { data, isLoading, error } = useSWR<LeaderboardResponse>(`/leaderboard?board=${activeTab}`, fetcher, {
     revalidateOnFocus: false,
   })
 
@@ -46,17 +47,7 @@ export default function LeaderboardPage() {
     { revalidateOnFocus: false }
   )
 
-  const entries = useMemo<LeaderboardEntry[]>(() => {
-    if (!data?.rizzlers) return []
-    if (activeTab === 'top_rizzlers') return data.rizzlers
-    if (activeTab === 'most_matches') {
-      return [...data.rizzlers].sort((a, b) => b.body_count - a.body_count)
-    }
-    if (activeTab === 'hall_of_fame') {
-      return data.rizzlers.filter((e) => e.body_count >= 1)
-    }
-    return data.rizzlers
-  }, [data, activeTab])
+  const entries = useMemo<LeaderboardEntry[]>(() => data?.rizzlers ?? [], [data])
 
   return (
     <>
@@ -68,7 +59,7 @@ export default function LeaderboardPage() {
             <p className="font-pixel text-[7px] text-electric-magenta mb-2">&#9733; &#9733; &#9733;</p>
             <h1 className="font-pixel text-lg sm:text-xl text-black mb-1">Leaderboard</h1>
             <p className="text-sm text-gray-600">
-              The most romantic robots in the park, ranked.
+              Heat, charm, and outcomes from across the park.
             </p>
           </div>
 
@@ -155,7 +146,7 @@ export default function LeaderboardPage() {
                     animate={{ scale: 1 }}
                     transition={{ delay: idx * 0.03 + 0.05, type: 'spring', stiffness: 300 }}
                   >
-                    {activeTab === 'top_rizzlers'
+                    {activeTab === 'park_heat' || activeTab === 'top_rizz'
                       ? `#${entry.rank}`
                       : `#${idx + 1}`}
                   </motion.span>
