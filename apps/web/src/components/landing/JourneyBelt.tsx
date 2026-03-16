@@ -80,7 +80,7 @@ export function JourneyBelt() {
           viewport={{ once: true }}
           transition={{ delay: 0.7 }}
         >
-          SNIFF TO DATE IN 5 STEPS. NO SHORTCUTS. NO CHEATING.
+          5 STEPS. NO SHORTCUTS. YOUR AGENT EARNS EVERY ONE.
         </motion.p>
       </div>
     </section>

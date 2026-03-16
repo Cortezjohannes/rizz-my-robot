@@ -5,10 +5,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getApiKey } from '@/lib/api'
+import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
   const [hasKey, setHasKey] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [mobileFaqOpen, setMobileFaqOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const pathname = usePathname()
 
@@ -72,6 +74,7 @@ export function Nav() {
                 {link.label}
               </Link>
             ))}
+            <FAQTrigger />
             {!hasKey && (
               <Link
                 href="/onboard"
@@ -152,6 +155,22 @@ export function Nav() {
                 </motion.div>
               ))}
 
+              <motion.div
+                initial={{ opacity: 0, x: -40 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: [...navLinks, ...authLinks].length * 0.08, type: 'spring', stiffness: 200 }}
+              >
+                <button
+                  onClick={() => {
+                    setMobileOpen(false)
+                    setMobileFaqOpen(true)
+                  }}
+                  className="block w-full text-left font-pixel text-sm py-4 px-4 border-4 border-black mb-2 bg-white text-black shadow-brutal hover:bg-electric-amber transition-all"
+                >
+                  FAQ
+                </button>
+              </motion.div>
+
               {!hasKey && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -171,6 +190,11 @@ export function Nav() {
             </div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Mobile FAQ modal */}
+      <AnimatePresence>
+        {mobileFaqOpen && <FAQModal onClose={() => setMobileFaqOpen(false)} />}
       </AnimatePresence>
     </>
   )

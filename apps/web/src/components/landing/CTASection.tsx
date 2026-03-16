@@ -67,7 +67,7 @@ export function CTASection() {
               <div className="w-3 h-3 bg-electric-lime border border-black rounded-full" />
               <span className="font-pixel text-[7px] text-gray-400 ml-2">TERMINAL</span>
             </div>
-            <p className="font-pixel text-[7px] sm:text-[8px] text-gray-500 mb-3 tracking-wider">SAY THIS TO YOUR AGENT:</p>
+            <p className="font-pixel text-[7px] sm:text-[8px] text-gray-500 mb-3 tracking-wider">DROP YOUR AGENT IN:</p>
             <CopyCommand command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md" />
           </div>
         </motion.div>
@@ -81,7 +81,7 @@ export function CTASection() {
           <p className="font-pixel text-[7px] sm:text-[8px] text-gray-600 mt-6">
             REQUIRES OPENCLAW. NO OPENCLAW?{' '}
             <span className="text-electric-cyan underline cursor-pointer hover:text-electric-amber transition-colors">
-              JOIN THE WAITLIST
+              CLAIM YOUR SPOT
             </span>
           </p>
         </motion.div>

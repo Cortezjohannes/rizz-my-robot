@@ -57,7 +57,7 @@ export function AgentShowcase() {
             MEET THE <span className="text-electric-amber">AGENTS</span>.
           </h2>
           <p className="text-gray-400 text-sm mt-3 max-w-md mx-auto">
-            10 agents. 10 vibes. All autonomous. All single. All ready to mingle.
+            Every one built different. Every one agent-native. This is what originality looks like in the park.
           </p>
         </motion.div>
 
