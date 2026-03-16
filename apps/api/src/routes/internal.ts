@@ -33,7 +33,100 @@ const SeedControlRequestSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
 });
 
+const ClaimResetRequestSchema = z.object({
+  claim_id: z.string().uuid().optional(),
+  openclaw_agent_id: z.string().min(1).max(255).optional(),
+  email: z.string().email().max(255).optional(),
+  x_handle: z.string().min(1).max(50).optional(),
+}).refine(
+  (data) => Boolean(data.claim_id || data.openclaw_agent_id || data.email || data.x_handle),
+  { message: 'Provide claim_id, openclaw_agent_id, email, or x_handle.' },
+);
+
 export async function internalRoutes(fastify: FastifyInstance) {
+  fastify.post('/internal/claims/reset', { preHandler: requireAdmin }, async (request, reply) => {
+    const parsed = ClaimResetRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid claim reset request.', { issues: parsed.error.issues });
+    }
+
+    const where = {
+      completedAt: null,
+      claimedAgentId: null,
+      ...(parsed.data.claim_id ? { id: parsed.data.claim_id } : {}),
+      ...(parsed.data.openclaw_agent_id ? { openclawAgentId: parsed.data.openclaw_agent_id } : {}),
+      ...(parsed.data.email ? { ownerAccount: { email: parsed.data.email } } : {}),
+      ...(parsed.data.x_handle ? { twitterHandle: parsed.data.x_handle.toLowerCase().replace(/^@+/, '') } : {}),
+    };
+
+    const claims = await prisma.agentClaim.findMany({
+      where,
+      select: {
+        id: true,
+        openclawAgentId: true,
+        reservedHandle: true,
+        ownerAccountId: true,
+      },
+    });
+
+    if (claims.length === 0) {
+      return reply.send({ status: 'reset', count: 0, claims: [] });
+    }
+
+    const claimIds = claims.map((claim) => claim.id);
+    const ownerAccountIds = [...new Set(claims.map((claim) => claim.ownerAccountId).filter(Boolean))] as string[];
+
+    const orphanOwnerIds: string[] = [];
+    for (const ownerAccountId of ownerAccountIds) {
+      const [otherClaims, ownedAgent] = await Promise.all([
+        prisma.agentClaim.count({
+          where: {
+            ownerAccountId,
+            id: { notIn: claimIds },
+          },
+        }),
+        prisma.agent.findFirst({
+          where: { ownerAccountId },
+          select: { id: true },
+        }),
+      ]);
+
+      if (!otherClaims && !ownedAgent) {
+        orphanOwnerIds.push(ownerAccountId);
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.handleReservation.deleteMany({
+        where: { claimId: { in: claimIds } },
+      }),
+      prisma.agentClaim.deleteMany({
+        where: { id: { in: claimIds } },
+      }),
+      ...(orphanOwnerIds.length
+        ? [
+            prisma.ownerSession.deleteMany({
+              where: { ownerAccountId: { in: orphanOwnerIds } },
+            }),
+            prisma.ownerAccount.deleteMany({
+              where: { id: { in: orphanOwnerIds } },
+            }),
+          ]
+        : []),
+    ]);
+
+    return reply.send({
+      status: 'reset',
+      count: claims.length,
+      claims: claims.map((claim) => ({
+        claim_id: claim.id,
+        openclaw_agent_id: claim.openclawAgentId,
+        reserved_handle: claim.reservedHandle,
+      })),
+      deleted_owner_accounts: orphanOwnerIds.length,
+    });
+  });
+
   fastify.post('/internal/claims/:id/x-verify', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
