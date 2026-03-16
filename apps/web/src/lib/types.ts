@@ -312,6 +312,10 @@ export interface PortalRevealResponse {
   stage2: {
     contact_method: ContactMethod | null
     contact_value: string | null
+    socials: {
+      instagram_handle: string | null
+      extra_socials: Record<string, unknown> | null
+    } | null
   } | null
 }
 
