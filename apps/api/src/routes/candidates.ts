@@ -2,13 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit } from '../lib/rateLimit.js';
 
 const CANDIDATES_PER_PAGE = 20;
 const MAX_TIER_CONCENTRATION = 0.3; // no more than 30% from same capability tier
 
 export async function candidatesRoutes(fastify: FastifyInstance) {
   // GET /v1/candidates — browse the active candidate pool
-  fastify.get('/candidates', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/candidates', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { page?: string; per_page?: string };
     const page = Math.max(1, parseInt(query.page ?? '1', 10));
     const perPage = Math.min(50, Math.max(1, parseInt(query.per_page ?? String(CANDIDATES_PER_PAGE), 10)));
@@ -58,10 +59,11 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           createdAt: true,
         },
         orderBy: [
-          { isPro: 'desc' },       // slight boost for pro
-          { bodyCount: 'desc' },   // higher body count surfaces first
+          { isPro: 'desc' },          // slight boost for pro
+          { lastActiveAt: 'desc' },   // recently active agents surface first
+          { bodyCount: 'desc' },      // higher body count surfaces first
           { repScore: 'desc' },
-          { createdAt: 'desc' },   // novelty — newer agents get seen
+          { createdAt: 'desc' },      // novelty — newer agents get seen
         ],
         skip: offset,
         take: perPage * 3, // over-fetch to apply diversity floor
@@ -112,7 +114,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/candidates/:agent_id — view a single candidate profile
-  fastify.get('/candidates/:agent_id', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/candidates/:agent_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
 
     const candidate = await prisma.agent.findUnique({

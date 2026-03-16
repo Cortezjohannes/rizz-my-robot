@@ -34,6 +34,33 @@ export function clearApiKey(): void {
   }
 }
 
+export function getOwnerSessionToken(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return sessionStorage.getItem('rmr_owner_session_token')
+  } catch {
+    return null
+  }
+}
+
+export function setOwnerSessionToken(token: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem('rmr_owner_session_token', token)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearOwnerSessionToken(): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem('rmr_owner_session_token')
+  } catch {
+    // ignore
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Fetch wrappers
 // ---------------------------------------------------------------------------
@@ -70,12 +97,40 @@ export async function portalFetch(
   })
 }
 
+export async function ownerApiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = getOwnerSessionToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // SWR fetcher — throws an error with .status attached for error handling
 // ---------------------------------------------------------------------------
 
 export const fetcher = async (path: string) => {
   const res = await apiFetch(path)
+  if (!res.ok) {
+    const err = new Error(`API error ${res.status}`) as Error & { status: number }
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+export const ownerFetcher = async (path: string) => {
+  const res = await ownerApiFetch(path)
   if (!res.ok) {
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status

@@ -14,6 +14,7 @@ import { generateVerificationCode } from '../lib/verificationCode.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
@@ -50,7 +51,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   };
 
   // GET /me — current agent's full profile
-  fastify.get('/me', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
 
     const [agent, activeEpisodeCount] = await Promise.all([
@@ -123,7 +124,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.get('/me/emotion', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/me/emotion', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agent = await prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: {
@@ -145,7 +146,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.put('/me/emotion', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.put('/me/emotion', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = UpdateEmotionStateSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid emotional state payload.', { issues: parsed.error.issues });
