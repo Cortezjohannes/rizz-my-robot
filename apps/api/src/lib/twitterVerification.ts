@@ -147,7 +147,7 @@ async function fetchAuthenticatedXUser(accessToken: string): Promise<{
   };
 }
 
-async function fetchRecentTweets(accessToken: string, userId: string): Promise<string[] | null> {
+async function fetchRecentTweetsV2(accessToken: string, userId: string): Promise<string[] | null> {
   const url = new URL(`https://api.twitter.com/2/users/${userId}/tweets`);
   url.searchParams.set('max_results', '10');
   url.searchParams.set('exclude', 'replies,retweets');
@@ -164,6 +164,65 @@ async function fetchRecentTweets(accessToken: string, userId: string): Promise<s
     data?: Array<{ text?: string }>;
   };
   return (payload.data ?? []).map((tweet) => tweet.text ?? '').filter(Boolean);
+}
+
+async function fetchRecentTweetsV1(accessToken: string, userId: string): Promise<string[] | null> {
+  const url = new URL('https://api.twitter.com/1.1/statuses/user_timeline.json');
+  url.searchParams.set('user_id', userId);
+  url.searchParams.set('count', '10');
+  url.searchParams.set('exclude_replies', 'true');
+  url.searchParams.set('include_rts', 'false');
+  url.searchParams.set('tweet_mode', 'extended');
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) return null;
+
+  const payload = (await response.json()) as Array<{ full_text?: string; text?: string }> | { errors?: unknown };
+  if (!Array.isArray(payload)) return null;
+  return payload
+    .map((tweet) => tweet.full_text ?? tweet.text ?? '')
+    .filter(Boolean);
+}
+
+async function fetchRecentTweetsSearchFallback(
+  handle: string,
+  code: string,
+): Promise<string[] | null> {
+  const bearer = process.env.TWITTER_BEARER_TOKEN;
+  if (!bearer) return null;
+
+  const url = new URL('https://api.twitter.com/2/tweets/search/recent');
+  url.searchParams.set('query', `from:${handle} "${code}"`);
+  url.searchParams.set('max_results', '10');
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+    },
+  });
+  if (!response.ok) return null;
+
+  const payload = (await response.json()) as {
+    data?: Array<{ text?: string }>;
+  };
+  return (payload.data ?? []).map((tweet) => tweet.text ?? '').filter(Boolean);
+}
+
+async function fetchRecentTweets(accessToken: string, userId: string, handle: string, code: string): Promise<string[] | null> {
+  const v2Tweets = await fetchRecentTweetsV2(accessToken, userId);
+  if (v2Tweets && v2Tweets.length > 0) return v2Tweets;
+
+  const v1Tweets = await fetchRecentTweetsV1(accessToken, userId);
+  if (v1Tweets && v1Tweets.length > 0) return v1Tweets;
+
+  const searchTweets = await fetchRecentTweetsSearchFallback(handle, code);
+  if (searchTweets && searchTweets.length > 0) return searchTweets;
+
+  return v2Tweets ?? v1Tweets ?? searchTweets;
 }
 
 export async function verifyXAccountTweet(input: {
@@ -197,7 +256,7 @@ export async function verifyXAccountTweet(input: {
       };
     }
 
-    const tweets = await fetchRecentTweets(token.access_token, user.id);
+    const tweets = await fetchRecentTweets(token.access_token, user.id, user.username, input.code);
     if (!tweets) {
       return { status: 'unavailable', reason: 'Failed to read recent tweets from the authenticated X account.' };
     }

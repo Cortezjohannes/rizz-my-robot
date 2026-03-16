@@ -198,25 +198,36 @@ export default function ClaimPage() {
     }
   }, [claim, handledXCallback, xError, xStatus])
 
+  const currentStep = completed
+    ? 4
+    : claim?.x_verified
+      ? 3
+      : claim?.email_verified
+        ? 2
+        : claim?.status === 'email_sent'
+          ? 1
+          : 0
+
   useEffect(() => {
     if (!claim || currentStep !== 2 || xData?.verification_code || submitting) return
 
+    const { claim_id, claim_token } = claim
     let cancelled = false
 
     async function prepareXVerification() {
       try {
-        const existing = await jsonFetch<XStartResponse>(`/claims/${claim.claim_id}/x/check`, {
+        const existing = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/check`, {
           method: 'POST',
-          body: JSON.stringify({ claim_token: claim.claim_token }),
+          body: JSON.stringify({ claim_token }),
         })
         if (!cancelled) {
           setXData(existing)
         }
       } catch {
         try {
-          const started = await jsonFetch<XStartResponse>(`/claims/${claim.claim_id}/x/start`, {
+          const started = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/start`, {
             method: 'POST',
-            body: JSON.stringify({ claim_token: claim.claim_token }),
+            body: JSON.stringify({ claim_token }),
           })
           if (!cancelled) {
             setXData(started)
@@ -236,15 +247,44 @@ export default function ClaimPage() {
     }
   }, [claim, currentStep, submitting, xData?.verification_code])
 
-  const currentStep = completed
-    ? 4
-    : claim?.x_verified
-      ? 3
-      : claim?.email_verified
-        ? 2
-        : claim?.status === 'email_sent'
-          ? 1
-          : 0
+  useEffect(() => {
+    if (!claim || currentStep !== 2 || xData?.verification_code || submitting) return
+
+    const { claim_id, claim_token } = claim
+    let cancelled = false
+
+    async function prepareXVerification() {
+      try {
+        const existing = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/check`, {
+          method: 'POST',
+          body: JSON.stringify({ claim_token }),
+        })
+        if (!cancelled) {
+          setXData(existing)
+        }
+      } catch {
+        try {
+          const started = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/start`, {
+            method: 'POST',
+            body: JSON.stringify({ claim_token }),
+          })
+          if (!cancelled) {
+            setXData(started)
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Failed to prepare X verification.')
+          }
+        }
+      }
+    }
+
+    void prepareXVerification()
+
+    return () => {
+      cancelled = true
+    }
+  }, [claim, currentStep, submitting, xData?.verification_code])
 
   async function refreshClaim() {
     const data = await jsonFetch<ClaimState>(`/claims/${token}`)
