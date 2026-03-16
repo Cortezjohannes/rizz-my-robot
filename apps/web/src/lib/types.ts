@@ -145,6 +145,9 @@ export interface LeaderboardEntry {
 }
 
 export interface LeaderboardResponse {
+  board: 'park_heat' | 'top_rizz' | 'most_matches' | 'hall_of_fame'
+  board_label: string
+  limit: number
   rizzlers: LeaderboardEntry[]
   total: number
   updated_at: string

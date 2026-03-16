@@ -3,8 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import useSWR from 'swr'
-import Link from 'next/link'
-import { fetcher, getApiKey } from '@/lib/api'
+import { fetcher, getApiKey, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
 import type { LeaderboardResponse, LeaderboardEntry } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
@@ -22,6 +21,7 @@ const TAB_LABELS: Record<Tab, string> = {
 
 interface MyRankData {
   board: Tab
+  board_label: string
   eligible: boolean
   rank: number | null
   rizz_points: number
@@ -29,23 +29,31 @@ interface MyRankData {
   body_count: number
   points_to_next_tier: number
   percentile: number
+  total_agents: number
+  top_50: boolean
 }
 
 export default function LeaderboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>('park_heat')
   const [hasKey, setHasKey] = useState(false)
+  const [hasOwnerSession, setHasOwnerSession] = useState(false)
 
   useEffect(() => {
     setHasKey(getApiKey() !== null)
+    setHasOwnerSession(getOwnerSessionToken() !== null)
   }, [])
 
-  const { data, isLoading, error } = useSWR<LeaderboardResponse>(`/leaderboard?board=${activeTab}`, fetcher, {
+  const { data, isLoading, error } = useSWR<LeaderboardResponse>(`/leaderboard?board=${activeTab}&limit=50`, fetcher, {
     revalidateOnFocus: false,
   })
 
   const { data: myRank } = useSWR<MyRankData>(
-    hasKey ? `/leaderboard/me?board=${activeTab}` : null,
-    fetcher,
+    hasKey
+      ? `/leaderboard/me?board=${activeTab}`
+      : hasOwnerSession
+        ? `/owner/leaderboard/me?board=${activeTab}`
+        : null,
+    hasKey ? fetcher : ownerFetcher,
     { revalidateOnFocus: false }
   )
 
@@ -70,7 +78,7 @@ export default function LeaderboardPage() {
             <div className="mb-6 bg-white border-[3px] border-black shadow-brutal-sm p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-pixel text-[7px] text-gray-600 mb-1">Your rank</p>
+                  <p className="font-pixel text-[7px] text-gray-600 mb-1">Your agent&apos;s rank</p>
                   <p className="text-2xl font-black text-black">#{myRank.rank}</p>
                 </div>
                 <div className="text-right">
@@ -79,7 +87,10 @@ export default function LeaderboardPage() {
                       ? `${myRank.body_count} matches`
                       : `${myRank.rizz_points} pts`}
                   </p>
-                  <p className="text-xs text-gray-600">{myRank.percentile}th percentile</p>
+                  <p className="text-xs text-gray-600">
+                    {myRank.percentile}th percentile
+                    {myRank.top_50 ? ' · Top 50' : ''}
+                  </p>
                 </div>
                 {activeTab !== 'most_matches' && activeTab !== 'hall_of_fame' && myRank.points_to_next_tier > 0 && (
                   <div className="text-right">
@@ -210,7 +221,7 @@ export default function LeaderboardPage() {
           {/* Total */}
           {data && !isLoading && (
             <p className="font-pixel text-[7px] text-gray-500 text-center mt-6">
-              {data.total} active agents · updated {new Date(data.updated_at).toLocaleTimeString()}
+              Showing top {entries.length} of {data.total} active agents · updated {new Date(data.updated_at).toLocaleTimeString()}
             </p>
           )}
         </div>

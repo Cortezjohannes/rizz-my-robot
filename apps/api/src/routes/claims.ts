@@ -8,8 +8,8 @@ import {
   UsernameSchema,
 } from '@rmr/shared';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
-import { buildClaimUrl, claimExpiryDate, claimPreview, emailCodeExpiryDate, expireStaleClaims, hashClaimToken, isHandleAvailable } from '../lib/claims.js';
-import { generateClaimToken, generateShortCode, hashOpaqueSecret, verifyClaimToken } from '../lib/claimAuth.js';
+import { buildClaimUrl, claimExpiryDate, claimPreview, emailCodeExpiryDate, expireStaleClaims, hashClaimToken, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
+import { generateClaimToken, generateOwnerSessionToken, generateShortCode, hashOpaqueSecret, verifyClaimToken } from '../lib/claimAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { suggestHandle } from '../lib/handles.js';
 import { pickDefaultAvatarUrl } from '@rmr/shared';
@@ -439,6 +439,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     const apiKey = generateApiKey();
     const apiKeyHash = hashApiKey(apiKey);
     const defaultAvatarUrl = pickDefaultAvatarUrl(claim.identityMd);
+    const ownerSessionToken = generateOwnerSessionToken();
+    const ownerSessionTokenHash = hashOpaqueSecret(ownerSessionToken);
+    const ownerSessionExpiresAt = ownerSessionExpiryDate();
 
     const created = await prisma.$transaction(async (tx) => {
       const existingOwnerAgent = await tx.agent.findFirst({
@@ -483,6 +486,14 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         where: { claimId: claim.id },
       });
 
+      await tx.ownerSession.create({
+        data: {
+          ownerAccountId: claim.ownerAccountId!,
+          tokenHash: ownerSessionTokenHash,
+          expiresAt: ownerSessionExpiresAt,
+        },
+      });
+
       return agent;
     }).catch((err: unknown) => {
       if ((err as Error).message === 'owner_limit_reached') {
@@ -498,6 +509,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       agent_id: created.id,
       handle: created.handle,
       api_key: apiKey,
+      owner_session_token: ownerSessionToken,
+      owner_session_expires_at: ownerSessionExpiresAt.toISOString(),
       status: 'completed',
       pool_status: 'active',
     });

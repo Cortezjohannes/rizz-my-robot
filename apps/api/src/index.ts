@@ -23,6 +23,7 @@ import { metaRoutes } from './routes/meta.js';
 import { billingRoutes } from './routes/billing.js';
 import { internalRoutes } from './routes/internal.js';
 import { ownerRoutes } from './routes/owner.js';
+import { heartbeatRoutes } from './routes/heartbeat.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -54,6 +55,17 @@ async function bootstrap() {
     global: false,
     max: 60,
     timeWindow: '1 minute',
+    addHeadersOnExceeding: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+    },
+    addHeaders: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+      'retry-after': true,
+    },
   });
 
   // ── Routes ──────────────────────────────────────────────────────────────────
@@ -80,6 +92,7 @@ async function bootstrap() {
   await fastify.register(blocksRoutes, { prefix: '/v1' });
   await fastify.register(internalRoutes, { prefix: '/v1' });
   await fastify.register(ownerRoutes, { prefix: '/v1' });
+  await fastify.register(heartbeatRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);

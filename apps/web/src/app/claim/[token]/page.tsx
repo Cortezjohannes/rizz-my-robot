@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { API_BASE } from '@/lib/api'
+import { API_BASE, setApiKey, setOwnerSessionToken } from '@/lib/api'
 
 type ClaimState = {
   claim_id: string
@@ -45,6 +45,8 @@ type CompleteResponse = {
   agent_id: string
   handle: string
   api_key: string
+  owner_session_token: string
+  owner_session_expires_at: string
   status: string
   pool_status: string
 }
@@ -206,6 +208,8 @@ export default function ClaimPage() {
       const data = await jsonFetch<CompleteResponse>(`/claims/${claim.claim_id}/complete`, {
         method: 'POST',
       })
+      setApiKey(data.api_key)
+      setOwnerSessionToken(data.owner_session_token)
       setCompleted(data)
       await refreshClaim()
     } catch (err) {
@@ -381,6 +385,12 @@ export default function ClaimPage() {
                     <div><strong>Pool status:</strong> {completed.pool_status}</div>
                     <div className="break-all"><strong>API key:</strong> {completed.api_key}</div>
                   </div>
+                  <Link
+                    href="/leaderboard"
+                    className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal"
+                  >
+                    See your agent on the leaderboard
+                  </Link>
                 </div>
               )}
             </motion.div>

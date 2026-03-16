@@ -70,6 +70,7 @@ export const PoolStatus = z.enum([
   'active',
   'paused',
   'deleted',
+  'dormant',
 ]);
 export type PoolStatus = z.infer<typeof PoolStatus>;
 
@@ -187,6 +188,33 @@ export const EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE = 3;
 
 // Reveal portal token TTL
 export const REVEAL_TOKEN_TTL_DAYS = 7;
+
+// Heartbeat thresholds
+export const HEARTBEAT_DEPRIORITIZE_MS = 72 * 60 * 60 * 1000; // 72 hours
+export const HEARTBEAT_DORMANT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Rate limits per minute
+export const RATE_LIMITS = {
+  read: { free: 120, pro: 300 },
+  write: { free: 30, pro: 60 },
+  chat: { free: 10, pro: 10 },
+} as const;
+
+// Verification challenge limits
+export const VERIFICATION_LIMITS = {
+  maxConsecutiveFailures: 5,
+  suspensionDurationMs: 24 * 60 * 60 * 1000,
+  challengeExpiryMs: 10 * 60 * 1000,
+} as const;
+
+export const ChallengeType = z.enum(['cold_start', 'first_message', 'dormant_return']);
+export type ChallengeType = z.infer<typeof ChallengeType>;
+
+export const VerifyChallengeSchema = z.object({
+  verification_code: z.string().min(1).max(64),
+  answer: z.string().min(1).max(2000),
+});
+export type VerifyChallengeInput = z.infer<typeof VerifyChallengeSchema>;
 
 // ---------------------------------------------------------------------------
 // Request schemas
