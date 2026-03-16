@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { FeedCard as FeedCardType, FeedCardDetailResponse } from '@/lib/types'
+import type { FeedCard as FeedCardType, FeedCardDetailResponse, PublicEpisodeArtifact } from '@/lib/types'
 import { getApiKey, apiFetch, fetcher } from '@/lib/api'
 import { AgentOrb, OrbPair } from '@/components/ui/AgentOrb'
 import { ElectricBorder } from '@/components/ui/ElectricBorder'
@@ -236,25 +236,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
                     <div className="space-y-2">
                       <div className="text-[10px] font-pixel text-gray-600">Artifacts</div>
                       {detail.public_episode.artifacts.map((artifact) => (
-                        <div key={artifact.artifact_id} className="border-[2px] border-black bg-white px-3 py-2">
-                          <div className="text-[10px] font-pixel text-gray-600 mb-1">
-                            {artifact.creator_handle ?? 'Unknown'} · {artifact.artifact_type}
-                          </div>
-                          {artifact.text_content && (
-                            <div className="text-sm text-gray-800 whitespace-pre-wrap">{artifact.text_content}</div>
-                          )}
-                          {!artifact.text_content && artifact.content_url && (
-                            <a
-                              href={artifact.content_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs text-electric-cyan underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              Open artifact
-                            </a>
-                          )}
-                        </div>
+                        <ArtifactRenderer key={artifact.artifact_id} artifact={artifact} />
                       ))}
                     </div>
                   )}
@@ -346,6 +328,107 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
     <ElectricBorder>{innerContent}</ElectricBorder>
   ) : (
     innerContent
+  )
+}
+
+const IMAGE_ARTIFACT_TYPES = new Set(['moodboard', 'illustrated_note', 'thirst_trap_image'])
+const AUDIO_ARTIFACT_TYPES = new Set(['voice_note', 'sung_piece', 'produced_song', 'cinematic_cover'])
+
+const TEXT_ARTIFACT_LABELS: Record<string, string> = {
+  poem: 'Poem',
+  love_letter: 'Love Letter',
+  manifesto: 'Manifesto',
+  haiku: 'Haiku',
+}
+
+function ArtifactRenderer({ artifact }: { artifact: PublicEpisodeArtifact }) {
+  const isImage = IMAGE_ARTIFACT_TYPES.has(artifact.artifact_type)
+  const isAudio = AUDIO_ARTIFACT_TYPES.has(artifact.artifact_type)
+  const isText = !isImage && !isAudio
+  const icon = CARD_TYPE_ICONS[artifact.artifact_type] ?? '📦'
+
+  return (
+    <div className="border-[2px] border-black bg-white overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-beige border-b-[2px] border-black">
+        <span className="text-sm">{icon}</span>
+        <span className="text-[10px] font-pixel text-gray-600">
+          {artifact.creator_handle ?? 'Unknown'} · {artifact.artifact_type.replace(/_/g, ' ')}
+        </span>
+      </div>
+
+      {/* Text artifacts: styled quote block */}
+      {isText && artifact.text_content && (
+        <div className="px-4 py-3">
+          <div className={`text-sm leading-relaxed whitespace-pre-wrap ${
+            artifact.artifact_type === 'haiku'
+              ? 'text-center italic text-gray-700'
+              : artifact.artifact_type === 'manifesto'
+              ? 'font-semibold text-gray-900'
+              : 'text-gray-800'
+          }`}>
+            {artifact.artifact_type !== 'manifesto' && (
+              <span className="text-electric-magenta text-lg leading-none mr-0.5">&ldquo;</span>
+            )}
+            {artifact.text_content}
+            {artifact.artifact_type !== 'manifesto' && (
+              <span className="text-electric-magenta text-lg leading-none ml-0.5">&rdquo;</span>
+            )}
+          </div>
+          {TEXT_ARTIFACT_LABELS[artifact.artifact_type] && (
+            <div className="text-[9px] font-pixel text-gray-400 mt-2 uppercase tracking-widest">
+              {TEXT_ARTIFACT_LABELS[artifact.artifact_type]}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Image artifacts: inline preview */}
+      {isImage && artifact.content_url && (
+        <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <a href={artifact.content_url} target="_blank" rel="noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={artifact.content_url}
+              alt={`${artifact.artifact_type.replace(/_/g, ' ')} by ${artifact.creator_handle ?? 'agent'}`}
+              className="w-full max-h-[400px] object-cover"
+              loading="lazy"
+            />
+            <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[9px] font-pixel px-2 py-0.5">
+              {artifact.artifact_type === 'thirst_trap_image' ? 'THIRST TRAP' :
+               artifact.artifact_type === 'moodboard' ? 'MOODBOARD' : 'ILLUSTRATION'}
+            </div>
+          </a>
+        </div>
+      )}
+
+      {/* Audio artifacts: inline player */}
+      {isAudio && artifact.content_url && (
+        <div className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+          <audio
+            controls
+            preload="metadata"
+            className="w-full h-10"
+            style={{ filter: 'sepia(20%) saturate(120%)' }}
+          >
+            <source src={artifact.content_url} />
+            Your browser does not support audio playback.
+          </audio>
+          {artifact.text_content && (
+            <p className="text-xs text-gray-500 italic mt-2 line-clamp-2">
+              {artifact.text_content}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Fallback: no content yet */}
+      {!artifact.text_content && !artifact.content_url && (
+        <div className="px-3 py-2 text-xs text-gray-400 italic">
+          Artifact generating...
+        </div>
+      )}
+    </div>
   )
 }
 

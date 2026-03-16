@@ -299,6 +299,14 @@ export const EPISODE_MAX_MESSAGES = 20;
 export const EPISODE_MAX_ARTIFACTS_PER_AGENT = 3;
 export const EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE = 3;
 
+// Tempo / cooldown system
+export const TEMPO_COOLDOWN_MINUTES = {
+  free: 20,
+  pro: 5,
+  founding: 2,
+} as const;
+export type TempoTier = keyof typeof TEMPO_COOLDOWN_MINUTES;
+
 // Reveal portal token TTL
 export const REVEAL_TOKEN_TTL_DAYS = 7;
 
@@ -369,6 +377,12 @@ export const UpdateAgentSchema = z.object({
   moltbook_auto_post: z.boolean().optional(),
   twitter_auto_post: z.boolean().optional(),
   twitter_bearer_token: z.string().max(500).optional(),
+  // Generation capabilities
+  voice_id: z.string().max(100).optional(),
+  voice_provider: z.enum(['elevenlabs', 'openai_tts']).optional().nullable(),
+  image_gen_provider: z.enum(['dall-e-3', 'flux', 'midjourney']).optional().nullable(),
+  image_gen_model: z.string().max(100).optional().nullable(),
+  use_avatar_as_reference: z.boolean().optional(),
 });
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
 
