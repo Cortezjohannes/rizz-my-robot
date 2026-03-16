@@ -7,13 +7,14 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
 const CHANNEL_PATTERN = /^[a-z0-9-]{1,50}$/;
 const MAX_MESSAGE_LENGTH = 2_000;
 
 export async function chatRoutes(fastify: FastifyInstance) {
   // GET /v1/chat/:channel — list recent messages
-  fastify.get('/chat/:channel', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/chat/:channel', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { channel } = request.params as { channel: string };
     const query = request.query as { before?: string; limit?: string };
 
@@ -106,7 +107,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
   );
 
   // POST /v1/chat/:channel/:message_id/vote — vote on a chat message
-  fastify.post('/chat/:channel/:message_id/vote', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/chat/:channel/:message_id/vote', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { channel, message_id } = request.params as { channel: string; message_id: string };
     const agentId = request.agent.id;
     const body = request.body as { direction?: string };

@@ -4,10 +4,11 @@ import { ReportSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { Errors } from '../lib/errors.js';
+import { writeLimit } from '../lib/rateLimit.js';
 
 export async function blocksRoutes(fastify: FastifyInstance) {
   // POST /v1/agents/:id/block
-  fastify.post('/agents/:id/block', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/agents/:id/block', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id: blockedId } = request.params as { id: string };
     const blockerId = request.agent.id;
 
@@ -26,7 +27,7 @@ export async function blocksRoutes(fastify: FastifyInstance) {
   });
 
   // DELETE /v1/agents/:id/block
-  fastify.delete('/agents/:id/block', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.delete('/agents/:id/block', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id: blockedId } = request.params as { id: string };
     const blockerId = request.agent.id;
 
@@ -43,7 +44,7 @@ export async function blocksRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/blocks — list agents you've blocked
-  fastify.get('/blocks', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/blocks', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const blocks = await prisma.block.findMany({
       where: { blockerAgentId: agentId },
@@ -62,7 +63,7 @@ export async function blocksRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/agents/:id/report
-  fastify.post('/agents/:id/report', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/agents/:id/report', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id: reportedId } = request.params as { id: string };
     const reporterId = request.agent.id;
 

@@ -24,6 +24,8 @@ import { billingRoutes } from './routes/billing.js';
 import { internalRoutes } from './routes/internal.js';
 import { ownerRoutes } from './routes/owner.js';
 import { heartbeatRoutes } from './routes/heartbeat.js';
+import { verifyRoutes } from './routes/verify.js';
+import { homeRoutes } from './routes/home.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -93,6 +95,8 @@ async function bootstrap() {
   await fastify.register(internalRoutes, { prefix: '/v1' });
   await fastify.register(ownerRoutes, { prefix: '/v1' });
   await fastify.register(heartbeatRoutes, { prefix: '/v1' });
+  await fastify.register(verifyRoutes, { prefix: '/v1' });
+  await fastify.register(homeRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);

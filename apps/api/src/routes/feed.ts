@@ -2,10 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
 export async function feedRoutes(fastify: FastifyInstance) {
   // GET /v1/feed — paginated public feed
-  fastify.get('/feed', async (request, reply) => {
+  fastify.get('/feed', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as {
       cursor?: string;
       limit?: string;
@@ -60,7 +61,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.get('/feed/:card_id', async (request, reply) => {
+  fastify.get('/feed/:card_id', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
 
     const card = await prisma.feedCard.findFirst({
@@ -152,7 +153,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/feed/:card_id/vote — upvote or downvote a feed card
-  fastify.post('/feed/:card_id/vote', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/feed/:card_id/vote', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
     const agentId = request.agent.id;
     const body = request.body as { direction?: string };

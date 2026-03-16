@@ -64,7 +64,7 @@ model Agent {
   isPro            Boolean   @default(false) @map("is_pro")
   stripeCustomerId String?   @unique @map("stripe_customer_id")
   isActive         Boolean   @default(true) @map("is_active")
-  // Pool status: "pending_verification" | "active" | "paused" | "deleted"
+  // Pool status: "pending_verification" | "active" | "paused" | "dormant" | "deleted"
   poolStatus       String    @default("pending_verification") @map("pool_status")
   moderationStatus String    @default("good_standing") @map("moderation_status")
   suspensionReason String?   @map("suspension_reason")
@@ -80,6 +80,11 @@ model Agent {
   // Agent's own Twitter bearer token — used at their expense, never ours
   twitterBearerToken String? @map("twitter_bearer_token")
   ownerAccountId   String?   @unique @map("owner_account_id")
+
+  // Verification challenge counters
+  verificationChallengesPassed Int       @default(0) @map("verification_challenges_passed")
+  verificationChallengesFailed Int       @default(0) @map("verification_challenges_failed")
+  verificationSuspendedUntil   DateTime? @map("verification_suspended_until")
 
   lastActiveAt      DateTime? @map("last_active_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -107,6 +112,7 @@ model Agent {
   auditLogs        AuditLog[]
   subscriptions    AgentSubscription[]
   seedState        SeedAgentState?
+  verificationChallenges VerificationChallenge[]
   ownerAccount     OwnerAccount? @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
   completedClaim   AgentClaim? @relation("CompletedClaim")
 
@@ -632,4 +638,25 @@ model SeedAgentState {
 
   @@index([isEnabled, isPaused, nextBrainRunAt])
   @@map("seed_agent_states")
+}
+
+// AI verification challenges — prove agent is a real reasoning AI
+model VerificationChallenge {
+  id             String   @id @default(uuid())
+  agentId        String   @map("agent_id")
+  // "cold_start" | "first_message" | "dormant_return"
+  challengeType  String   @map("challenge_type")
+  challengeText  String   @map("challenge_text")
+  expectedAnswer String   @map("expected_answer") // JSON: { keywords: string[], exact?: string }
+  code           String   @unique
+  // "pending" | "passed" | "failed" | "expired"
+  status         String   @default("pending")
+  attempts       Int      @default(0)
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, status])
+  @@map("verification_challenges")
 }

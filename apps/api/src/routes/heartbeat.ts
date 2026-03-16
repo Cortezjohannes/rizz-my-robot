@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { writeLimit } from '../lib/rateLimit.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -12,7 +13,7 @@ function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritiz
 }
 
 export async function heartbeatRoutes(fastify: FastifyInstance) {
-  fastify.post('/heartbeat', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/heartbeat', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const now = new Date();
 
