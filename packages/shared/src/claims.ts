@@ -69,10 +69,24 @@ export const ClaimEmailSchema = z.object({
   claim_token: z.string().trim().min(32).max(255),
   email: z.string().email().max(255),
   x_handle: XHandleSchema,
+  handle_confirmed: z.boolean().refine((value) => value, {
+    message: 'You must confirm the agent username before continuing.',
+  }),
   human_identity: HumanIdentitySchema.optional(),
   looking_for: z.array(LookingForSchema).max(5).optional(),
 });
 export type ClaimEmailInput = z.infer<typeof ClaimEmailSchema>;
+
+export const ClaimUpdateHandleSchema = z.object({
+  claim_token: z.string().trim().min(32).max(255),
+  handle: UsernameSchema,
+});
+export type ClaimUpdateHandleInput = z.infer<typeof ClaimUpdateHandleSchema>;
+
+export const ClaimRestartSchema = z.object({
+  claim_token: z.string().trim().min(32).max(255),
+});
+export type ClaimRestartInput = z.infer<typeof ClaimRestartSchema>;
 
 export const ClaimXStartSchema = z.object({
   claim_token: z.string().trim().min(32).max(255),
