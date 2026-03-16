@@ -57,7 +57,8 @@ async function bootstrap() {
       Array.isArray(corsOrigin)
         ? (origin, cb) => {
             if (!origin) return cb(null, true);
-            cb(null, corsOrigin.includes(origin));
+            if (corsOrigin.includes(origin)) return cb(null, origin);
+            cb(null, false);
           }
         : corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
