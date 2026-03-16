@@ -392,6 +392,15 @@ export const UpdateEmotionStateSchema = z.object({
 });
 export type UpdateEmotionStateInput = z.infer<typeof UpdateEmotionStateSchema>;
 
+export const PortalPreferencesSchema = z.object({
+  token: z.string().min(1).max(255),
+  notification_channel: NotificationChannel.optional().nullable(),
+  notification_handle: z.string().max(255).optional().nullable(),
+  contact_method: ContactMethod.optional().nullable(),
+  contact_value: z.string().max(255).optional().nullable(),
+});
+export type PortalPreferencesInput = z.infer<typeof PortalPreferencesSchema>;
+
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: SwipeDirection,

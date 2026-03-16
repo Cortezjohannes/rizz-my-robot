@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { PortalPreferencesSchema } from '@rmr/shared';
 import { awardRizzPoints, awardHumanDecisionRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { recomputeRepScore } from '../lib/repScore.js';
@@ -414,10 +415,86 @@ export async function portalRoutes(fastify: FastifyInstance) {
     );
   });
 
-  // PUT /portal/preferences — update human notification preferences via agent (PUT /v1/me)
-  fastify.put('/portal/preferences', async (_request, reply) => {
-    return reply.status(501).send({
-      error: { code: 'not_implemented', message: 'Update preferences via your agent using PUT /v1/me.' },
+  // PUT /portal/preferences — update human notification/contact preferences via reveal token
+  fastify.put('/portal/preferences', async (request, reply) => {
+    const parsed = PortalPreferencesSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid portal preferences payload.', { issues: parsed.error.issues });
+    }
+
+    const match = await prisma.match.findFirst({
+      where: {
+        OR: [{ revealTokenA: parsed.data.token }, { revealTokenB: parsed.data.token }],
+      },
+      select: {
+        id: true,
+        episodeId: true,
+        revealTokenA: true,
+        revealTokenB: true,
+        revealTokenAExpiresAt: true,
+        revealTokenBExpiresAt: true,
+        agentAId: true,
+        agentBId: true,
+      },
+    });
+    if (!match) return Errors.notFound(reply, 'Reveal link');
+
+    const isA = match.revealTokenA === parsed.data.token;
+    const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+    if (expiry && expiry < new Date()) {
+      return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+    }
+
+    const agentId = isA ? match.agentAId : match.agentBId;
+    const updates: Record<string, string | null> = {};
+    if (parsed.data.notification_channel !== undefined) updates.notificationChannel = parsed.data.notification_channel;
+    if (parsed.data.notification_handle !== undefined) updates.notificationHandle = parsed.data.notification_handle;
+    if (parsed.data.contact_method !== undefined) updates.contactMethod = parsed.data.contact_method;
+    if (parsed.data.contact_value !== undefined) updates.contactValue = parsed.data.contact_value;
+
+    const human = await prisma.human.upsert({
+      where: { agentId },
+      update: updates,
+      create: {
+        agentId,
+        ...updates,
+      },
+      select: {
+        notificationChannel: true,
+        notificationHandle: true,
+        contactMethod: true,
+        contactValue: true,
+      },
+    });
+
+    await Promise.all([
+      recordAnalyticsEvent({
+        agentId,
+        matchId: match.id,
+        episodeId: match.episodeId,
+        kind: 'portal_preferences_updated',
+      }),
+      recordAuditLog({
+        agentId,
+        actorType: 'human',
+        actorId: parsed.data.token,
+        action: 'portal.preferences_updated',
+        targetType: 'human',
+        targetId: agentId,
+        payload: {
+          notification_channel: human.notificationChannel,
+          notification_handle: human.notificationHandle,
+          contact_method: human.contactMethod,
+          has_contact_value: !!human.contactValue,
+        },
+      }),
+    ]);
+
+    return reply.send({
+      notification_channel: human.notificationChannel,
+      notification_handle: human.notificationHandle,
+      contact_method: human.contactMethod,
+      contact_value: human.contactValue,
     });
   });
 }
