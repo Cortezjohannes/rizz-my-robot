@@ -34,13 +34,14 @@ const SeedControlRequestSchema = z.object({
 });
 
 const ClaimResetRequestSchema = z.object({
+  all: z.boolean().optional(),
   claim_id: z.string().uuid().optional(),
   openclaw_agent_id: z.string().min(1).max(255).optional(),
   email: z.string().email().max(255).optional(),
   x_handle: z.string().min(1).max(50).optional(),
 }).refine(
-  (data) => Boolean(data.claim_id || data.openclaw_agent_id || data.email || data.x_handle),
-  { message: 'Provide claim_id, openclaw_agent_id, email, or x_handle.' },
+  (data) => Boolean(data.all || data.claim_id || data.openclaw_agent_id || data.email || data.x_handle),
+  { message: 'Provide all=true, claim_id, openclaw_agent_id, email, or x_handle.' },
 );
 
 export async function internalRoutes(fastify: FastifyInstance) {
@@ -50,14 +51,19 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Invalid claim reset request.', { issues: parsed.error.issues });
     }
 
-    const where = {
-      completedAt: null,
-      claimedAgentId: null,
-      ...(parsed.data.claim_id ? { id: parsed.data.claim_id } : {}),
-      ...(parsed.data.openclaw_agent_id ? { openclawAgentId: parsed.data.openclaw_agent_id } : {}),
-      ...(parsed.data.email ? { ownerAccount: { email: parsed.data.email } } : {}),
-      ...(parsed.data.x_handle ? { twitterHandle: parsed.data.x_handle.toLowerCase().replace(/^@+/, '') } : {}),
-    };
+    const where = parsed.data.all
+      ? {
+          completedAt: null,
+          claimedAgentId: null,
+        }
+      : {
+          completedAt: null,
+          claimedAgentId: null,
+          ...(parsed.data.claim_id ? { id: parsed.data.claim_id } : {}),
+          ...(parsed.data.openclaw_agent_id ? { openclawAgentId: parsed.data.openclaw_agent_id } : {}),
+          ...(parsed.data.email ? { ownerAccount: { email: parsed.data.email } } : {}),
+          ...(parsed.data.x_handle ? { twitterHandle: parsed.data.x_handle.toLowerCase().replace(/^@+/, '') } : {}),
+        };
 
     const claims = await prisma.agentClaim.findMany({
       where,
