@@ -144,6 +144,80 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       },
     });
 
+    const shouldRestart =
+      Boolean(parsed.data.restart) &&
+      Boolean(existingClaim) &&
+      !['completed', 'expired', 'canceled'].includes(existingClaim.status) &&
+      existingClaim.expiresAt > new Date();
+
+    const available = await isHandleAvailable(parsed.data.handle, {
+      excludeClaimId: existingClaim?.id,
+    });
+    if (!available) {
+      return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
+    }
+
+    if (shouldRestart && existingClaim) {
+      const token = generateClaimToken(existingClaim.id);
+      const tokenHash = hashClaimToken(token);
+      const expiresAt = claimExpiryDate();
+
+      const [claim] = await prisma.$transaction([
+        prisma.agentClaim.update({
+          where: { id: existingClaim.id },
+          data: {
+            tokenHash,
+            status: 'pending_email',
+            twitterHandle: null,
+            identityMd: parsed.data.identity_md,
+            soulMd: parsed.data.soul_md,
+            reservedHandle: parsed.data.handle,
+            expiresAt,
+            emailVerificationCodeHash: null,
+            emailVerificationExpiresAt: null,
+            emailVerifiedAt: null,
+            xVerificationCode: null,
+            xVerificationExpiresAt: null,
+            xOauthCodeVerifier: null,
+            xOauthNonce: null,
+            xVerifiedAt: null,
+            completedAt: null,
+            canceledAt: null,
+          },
+          select: {
+            id: true,
+            status: true,
+            openclawAgentId: true,
+            twitterHandle: true,
+            identityMd: true,
+            reservedHandle: true,
+            expiresAt: true,
+            emailVerifiedAt: true,
+            xVerifiedAt: true,
+          },
+        }),
+        prisma.handleReservation.upsert({
+          where: { claimId: existingClaim.id },
+          update: {
+            handle: parsed.data.handle,
+            expiresAt,
+          },
+          create: {
+            claimId: existingClaim.id,
+            handle: parsed.data.handle,
+            expiresAt,
+          },
+        }),
+      ]);
+
+      return reply.status(200).send({
+        ...claimPreview(claim, token),
+        email_verified: false,
+        x_verified: false,
+        restarted: true,
+      });
+    }
+
     if (existingClaim && !['completed', 'expired', 'canceled'].includes(existingClaim.status) && existingClaim.expiresAt > new Date()) {
       const activeToken = await rotateClaimToken(existingClaim.id);
       return reply.status(200).send({
@@ -151,13 +225,6 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         email_verified: !!existingClaim.emailVerifiedAt,
         x_verified: !!existingClaim.xVerifiedAt,
       });
-    }
-
-    const available = await isHandleAvailable(parsed.data.handle, {
-      excludeClaimId: existingClaim?.id,
-    });
-    if (!available) {
-      return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
     }
 
     const claimId = existingClaim?.id ?? randomUUID();

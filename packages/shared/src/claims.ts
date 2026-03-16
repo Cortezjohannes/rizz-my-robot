@@ -62,6 +62,7 @@ export const ClaimStartSchema = z.object({
   handle: UsernameSchema,
   identity_md: z.string().min(20).max(50_000),
   soul_md: z.string().min(20).max(50_000),
+  restart: z.boolean().optional(),
 });
 export type ClaimStartInput = z.infer<typeof ClaimStartSchema>;
 
