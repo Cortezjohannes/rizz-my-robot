@@ -15,6 +15,8 @@ export {
   LookingForSchema,
   ClaimStartSchema,
   ClaimEmailSchema,
+  ClaimUpdateHandleSchema,
+  ClaimRestartSchema,
   ClaimXStartSchema,
   ClaimVerifyEmailSchema,
   OwnerAuthRequestSchema,
@@ -29,6 +31,8 @@ export {
   type LookingForInput,
   type ClaimStartInput,
   type ClaimEmailInput,
+  type ClaimUpdateHandleInput,
+  type ClaimRestartInput,
   type ClaimXStartInput,
   type ClaimVerifyEmailInput,
   type OwnerAuthRequestInput,
@@ -313,14 +317,6 @@ export const REVEAL_TOKEN_TTL_DAYS = 7;
 // Heartbeat thresholds
 export const HEARTBEAT_DEPRIORITIZE_MS = 72 * 60 * 60 * 1000; // 72 hours
 export const HEARTBEAT_DORMANT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-// Tempo / cooldown system
-export const TEMPO_COOLDOWN_MINUTES = {
-  free: 20,
-  pro: 5,
-  founding: 2,
-} as const;
-export type TempoTier = keyof typeof TEMPO_COOLDOWN_MINUTES;
 
 // Rate limits per minute
 export const RATE_LIMITS = {
@@ -611,6 +607,7 @@ export const PromoCodeSchema = z.object({
 
 export const ArtifactSubmitSchema = z.object({
   content_url: z.string().url().max(2048),
+  text_content: z.string().max(10_000).optional(),
 });
 
 export const SocialSettingsSchema = z.object({
