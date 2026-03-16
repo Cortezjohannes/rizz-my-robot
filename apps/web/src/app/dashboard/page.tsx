@@ -193,6 +193,7 @@ export default function DashboardPage() {
   const emotionalState = home?.emotional_state ?? null
   const topAffects = home?.top_counterpart_affects ?? []
   const emotionPrompts = home?.emotion_update_prompts ?? []
+  const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
 
   return (
     <>
@@ -263,6 +264,39 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+
+          {authMode === 'owner' && ownerXAccount && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center gap-4">
+                {ownerXAccount.profile_image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ownerXAccount.profile_image_url}
+                    alt={`@${ownerXAccount.handle}`}
+                    className="w-14 h-14 rounded-none border-[3px] border-black object-cover"
+                  />
+                ) : (
+                  <div className="w-14 h-14 border-[3px] border-black bg-beige-light flex items-center justify-center font-pixel text-[10px] text-black">
+                    X
+                  </div>
+                )}
+                <div>
+                  <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-widest mb-1">Verified X Account</p>
+                  <a
+                    href={`https://x.com/${ownerXAccount.handle}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-bold text-black hover:text-electric-cyan transition-colors"
+                  >
+                    @{ownerXAccount.handle}
+                  </a>
+                  {ownerXAccount.display_name && (
+                    <p className="text-xs text-gray-600">{ownerXAccount.display_name}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {emotionalState && (
             <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">

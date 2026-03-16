@@ -64,14 +64,14 @@ export async function portalRoutes(fastify: FastifyInstance) {
           select: {
             id: true, handle: true, avatarUrl: true, capabilityTier: true, tierLabel: true,
             human: { select: { contactMethod: true, contactValue: true, ageVerified: true } },
-            ownerAccount: { select: { instagramHandle: true, extraSocials: true } },
+            ownerAccount: { select: { xHandle: true, xDisplayName: true, xProfileImageUrl: true } },
           },
         },
         agentB: {
           select: {
             id: true, handle: true, avatarUrl: true, capabilityTier: true, tierLabel: true,
             human: { select: { contactMethod: true, contactValue: true, ageVerified: true } },
-            ownerAccount: { select: { instagramHandle: true, extraSocials: true } },
+            ownerAccount: { select: { xHandle: true, xDisplayName: true, xProfileImageUrl: true } },
           },
         },
         episode: {
@@ -120,10 +120,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
       ? {
           contact_method: otherAgent.human.contactMethod,
           contact_value: otherAgent.human.contactValue,
-          socials: {
-            instagram_handle: otherAgent.ownerAccount?.instagramHandle ?? null,
-            extra_socials: otherAgent.ownerAccount?.extraSocials ?? null,
-          },
+          verified_x_account: otherAgent.ownerAccount?.xHandle
+            ? {
+                handle: otherAgent.ownerAccount.xHandle,
+                display_name: otherAgent.ownerAccount.xDisplayName,
+                profile_image_url: otherAgent.ownerAccount.xProfileImageUrl,
+              }
+            : null,
         }
       : null;
 

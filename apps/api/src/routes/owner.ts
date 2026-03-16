@@ -121,8 +121,17 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       expires_at: expiresAt.toISOString(),
       owner: {
         email: ownerAccount.email,
+        human_identity: ownerAccount.humanIdentity,
+        looking_for: ownerAccount.lookingFor,
         instagram_handle: ownerAccount.instagramHandle,
         extra_socials: ownerAccount.extraSocials ?? null,
+        x_account: ownerAccount.xHandle
+          ? {
+              handle: ownerAccount.xHandle,
+              display_name: ownerAccount.xDisplayName,
+              profile_image_url: ownerAccount.xProfileImageUrl,
+            }
+          : null,
       },
       agent: ownerAccount.agent,
     });
@@ -133,8 +142,17 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       owner: {
         id: request.ownerAccount.id,
         email: request.ownerAccount.email,
+        human_identity: request.ownerAccount.humanIdentity,
+        looking_for: request.ownerAccount.lookingFor,
         instagram_handle: request.ownerAccount.instagramHandle,
         extra_socials: request.ownerAccount.extraSocials ?? null,
+        x_account: request.ownerAccount.xHandle
+          ? {
+              handle: request.ownerAccount.xHandle,
+              display_name: request.ownerAccount.xDisplayName,
+              profile_image_url: request.ownerAccount.xProfileImageUrl,
+            }
+          : null,
       },
       agent: request.ownerAccount.agent,
     });
@@ -151,8 +169,17 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       owner: {
         id: request.ownerAccount.id,
         email: request.ownerAccount.email,
+        human_identity: request.ownerAccount.humanIdentity,
+        looking_for: request.ownerAccount.lookingFor,
         instagram_handle: request.ownerAccount.instagramHandle,
         extra_socials: request.ownerAccount.extraSocials ?? null,
+        x_account: request.ownerAccount.xHandle
+          ? {
+              handle: request.ownerAccount.xHandle,
+              display_name: request.ownerAccount.xDisplayName,
+              profile_image_url: request.ownerAccount.xProfileImageUrl,
+            }
+          : null,
       },
       ...home,
     });

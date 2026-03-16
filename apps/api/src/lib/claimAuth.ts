@@ -3,6 +3,7 @@ import { getClaimTokenHmacKey } from './runtimeConfig.js';
 
 const OWNER_SESSION_PREFIX = 'rmr_owner_';
 const CLAIM_TOKEN_PREFIX = 'rmr_claim_';
+const X_OAUTH_STATE_PREFIX = 'rmr_xoauth_';
 const CLAIM_TOKEN_HMAC_KEY = getClaimTokenHmacKey();
 
 export function hashOpaqueSecret(value: string): string {
@@ -41,4 +42,41 @@ export function verifyClaimToken(token: string): string | null {
   if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
 
   return claimId;
+}
+
+type XOAuthStatePayload = {
+  claimId: string;
+  nonce: string;
+};
+
+function xOAuthStateSignature(payload: string): string {
+  return createHmac('sha256', CLAIM_TOKEN_HMAC_KEY).update(payload).digest('base64url').slice(0, 32);
+}
+
+export function generateXOAuthState(payload: XOAuthStatePayload): string {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${X_OAUTH_STATE_PREFIX}${encodedPayload}.${xOAuthStateSignature(encodedPayload)}`;
+}
+
+export function verifyXOAuthState(state: string): XOAuthStatePayload | null {
+  if (!state.startsWith(X_OAUTH_STATE_PREFIX)) return null;
+
+  const payload = state.slice(X_OAUTH_STATE_PREFIX.length);
+  const separatorIndex = payload.lastIndexOf('.');
+  if (separatorIndex <= 0 || separatorIndex === payload.length - 1) return null;
+
+  const encodedPayload = payload.slice(0, separatorIndex);
+  const signature = payload.slice(separatorIndex + 1);
+  const expected = xOAuthStateSignature(encodedPayload);
+
+  if (signature.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+
+  try {
+    const decoded = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as XOAuthStatePayload;
+    if (!decoded.claimId || !decoded.nonce) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
 }

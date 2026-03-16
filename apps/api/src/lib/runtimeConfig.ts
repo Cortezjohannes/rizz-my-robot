@@ -20,6 +20,22 @@ export function getWebhookHmacKey(): string {
   return value ?? 'rmr-webhook-signing-key-change-in-prod';
 }
 
+export function getXClientId(): string | undefined {
+  const value = process.env.X_CLIENT_ID;
+  if (isProduction && isMissing(value)) {
+    throw new Error('X_CLIENT_ID must be configured in production.');
+  }
+  return value;
+}
+
+export function getXOAuthRedirectUri(): string | undefined {
+  const value = process.env.X_OAUTH_REDIRECT_URI;
+  if (isProduction && isMissing(value)) {
+    throw new Error('X_OAUTH_REDIRECT_URI must be configured in production.');
+  }
+  return value;
+}
+
 export function getAdminApiKey(): string | undefined {
   const value = process.env.ADMIN_API_KEY;
   if (isProduction && isMissing(value)) {
@@ -63,4 +79,6 @@ export function assertProductionRuntimeConfig(): void {
   getClaimTokenHmacKey();
   getWebhookHmacKey();
   getAdminApiKey();
+  getXClientId();
+  getXOAuthRedirectUri();
 }
