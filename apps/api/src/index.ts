@@ -52,7 +52,7 @@ async function bootstrap() {
   // CORS — agents call from any host
   await fastify.register(cors, {
     origin: getCorsOrigin(),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   // Rate limiting — global: false means opt-in per route via config.rateLimit
