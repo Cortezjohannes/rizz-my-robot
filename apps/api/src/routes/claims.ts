@@ -146,7 +146,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     const shouldRestart =
       Boolean(parsed.data.restart) &&
-      Boolean(existingClaim) &&
+      existingClaim !== null &&
       !['completed', 'expired', 'canceled'].includes(existingClaim.status) &&
       existingClaim.expiresAt > new Date();
 
