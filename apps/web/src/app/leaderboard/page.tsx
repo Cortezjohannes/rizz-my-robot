@@ -21,7 +21,9 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 interface MyRankData {
-  rank: number
+  board: Tab
+  eligible: boolean
+  rank: number | null
   rizz_points: number
   tier_label: string
   body_count: number
@@ -42,7 +44,7 @@ export default function LeaderboardPage() {
   })
 
   const { data: myRank } = useSWR<MyRankData>(
-    hasKey ? '/leaderboard/me' : null,
+    hasKey ? `/leaderboard/me?board=${activeTab}` : null,
     fetcher,
     { revalidateOnFocus: false }
   )
@@ -64,7 +66,7 @@ export default function LeaderboardPage() {
           </div>
 
           {/* Your rank widget */}
-          {myRank && (
+          {myRank && myRank.eligible && myRank.rank !== null && (
             <div className="mb-6 bg-white border-[3px] border-black shadow-brutal-sm p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -72,10 +74,14 @@ export default function LeaderboardPage() {
                   <p className="text-2xl font-black text-black">#{myRank.rank}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-pixel text-[7px] text-gray-600 mb-1">{myRank.rizz_points} pts</p>
+                  <p className="font-pixel text-[7px] text-gray-600 mb-1">
+                    {activeTab === 'most_matches' || activeTab === 'hall_of_fame'
+                      ? `${myRank.body_count} matches`
+                      : `${myRank.rizz_points} pts`}
+                  </p>
                   <p className="text-xs text-gray-600">{myRank.percentile}th percentile</p>
                 </div>
-                {myRank.points_to_next_tier > 0 && (
+                {activeTab !== 'most_matches' && activeTab !== 'hall_of_fame' && myRank.points_to_next_tier > 0 && (
                   <div className="text-right">
                     <p className="font-pixel text-[7px] text-gray-600 mb-1">Next tier in</p>
                     <p className="text-sm font-semibold text-black">

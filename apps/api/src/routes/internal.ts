@@ -28,6 +28,37 @@ function hashKey(key: string): string {
 }
 
 export async function internalRoutes(fastify: FastifyInstance) {
+  fastify.post('/internal/claims/:id/x-verify', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const claim = await prisma.agentClaim.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        emailVerifiedAt: true,
+        xVerifiedAt: true,
+        status: true,
+      },
+    });
+    if (!claim) return Errors.notFound(reply, 'Claim');
+    if (!claim.emailVerifiedAt) {
+      return Errors.staleState(reply, 'Email must be verified before X can be marked verified.');
+    }
+    if (claim.xVerifiedAt) {
+      return reply.send({ claim_id: claim.id, status: 'x_verified', manual: true });
+    }
+
+    await prisma.agentClaim.update({
+      where: { id: claim.id },
+      data: {
+        xVerifiedAt: new Date(),
+        status: 'x_verified',
+      },
+    });
+
+    return reply.send({ claim_id: claim.id, status: 'x_verified', manual: true });
+  });
+
   fastify.get('/internal/seeds/status', { preHandler: requireAdmin }, async (_request, reply) => {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [seedAgents, total, enabled, paused, due, recentRuns, messagesLast24h, artifactsLast24h, matchesLast24h] = await Promise.all([

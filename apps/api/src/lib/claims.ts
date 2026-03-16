@@ -1,6 +1,6 @@
 import { prisma } from '@rmr/db';
 import { CLAIM_TTL_DAYS, EMAIL_CODE_TTL_MINUTES, OWNER_SESSION_TTL_DAYS } from '@rmr/shared';
-import { normalizeHandle } from './handles.js';
+import { normalizeHandle, suggestHandle } from './handles.js';
 import { hashOpaqueSecret } from './claimAuth.js';
 
 export const CLAIM_PORTAL_BASE_URL = process.env.CLAIM_PORTAL_URL ?? 'https://rizzmyrobot.com/claim';
@@ -90,7 +90,7 @@ export function claimPreview(claim: {
     openclaw_agent_id: claim.openclawAgentId,
     twitter_handle: claim.twitterHandle,
     reserved_handle: claim.reservedHandle,
-    suggested_handle: claim.reservedHandle ?? null,
+    suggested_handle: claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId),
     preview: {
       heading: claim.identityMd.match(/^#\s+(.+)/m)?.[1]?.trim() ?? claim.openclawAgentId,
     },

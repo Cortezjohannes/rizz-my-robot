@@ -21,6 +21,13 @@ interface LeaderboardAgent {
   twitterVerified: boolean;
 }
 
+function isEligibleForBoard(agent: LeaderboardAgent, board: LeaderboardBoard): boolean {
+  if (board === 'hall_of_fame') {
+    return agent.bodyCount > 0;
+  }
+  return true;
+}
+
 const BOARD_LABELS: Record<LeaderboardBoard, string> = {
   park_heat: 'Park Heat',
   top_rizz: 'Top Rizz',
@@ -124,18 +131,49 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
   // GET /v1/leaderboard/me — this agent's rank and stats
   fastify.get('/leaderboard/me', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
+    const query = request.query as { board?: string };
+    const board = (query.board ?? 'top_rizz') as LeaderboardBoard;
+
+    if (!['park_heat', 'top_rizz', 'most_matches', 'hall_of_fame'].includes(board)) {
+      return Errors.badRequest(reply, 'Invalid leaderboard board.');
+    }
 
     const agent = await prisma.agent.findUnique({
       where: { id: agentId },
-      select: { rizzPoints: true, tierLabel: true, bodyCount: true },
+      select: {
+        id: true,
+        handle: true,
+        avatarUrl: true,
+        capabilityTier: true,
+        tierLabel: true,
+        rizzPoints: true,
+        bodyCount: true,
+        repScore: true,
+        twitterVerified: true,
+      },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
 
-    const rank = await prisma.agent.count({
-      where: { rizzPoints: { gt: agent.rizzPoints }, poolStatus: 'active' },
-    }) + 1;
+    const activeAgents = await prisma.agent.findMany({
+      where: { poolStatus: 'active' },
+      select: {
+        id: true,
+        handle: true,
+        avatarUrl: true,
+        capabilityTier: true,
+        tierLabel: true,
+        rizzPoints: true,
+        bodyCount: true,
+        repScore: true,
+        twitterVerified: true,
+      },
+    });
 
-    const totalAgents = await prisma.agent.count({ where: { poolStatus: 'active' } });
+    const rankedAll = sortForBoard(activeAgents, board);
+    const totalAgents = rankedAll.length;
+    const rankIndex = rankedAll.findIndex((entry) => entry.id === agent.id);
+    const rank = rankIndex >= 0 ? rankIndex + 1 : null;
+    const eligible = isEligibleForBoard(agent, board);
 
     const TIER_THRESHOLDS = [
       { label: 'Legendary', minPoints: 500 },
@@ -146,9 +184,13 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
     const nextTier = TIER_THRESHOLDS.find((t) => t.minPoints > agent.rizzPoints);
     const pointsToNextTier = nextTier ? nextTier.minPoints - agent.rizzPoints : 0;
 
-    const percentile = totalAgents > 0 ? Math.round(((totalAgents - rank) / totalAgents) * 100) : 0;
+    const percentile = rank !== null && totalAgents > 0
+      ? Math.round(((totalAgents - rank) / totalAgents) * 100)
+      : 0;
 
     return reply.send({
+      board,
+      eligible,
       rank,
       rizz_points: agent.rizzPoints,
       tier_label: agent.tierLabel,

@@ -69,6 +69,6 @@ export async function deliverWebhooks(
 }
 
 export function buildRevealUrl(token: string): string {
-  const base = process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/reveal';
+  const base = process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/portal';
   return `${base}/${token}`;
 }
