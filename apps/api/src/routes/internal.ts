@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, randomBytes } from 'crypto';
+import { z } from 'zod';
 import { prisma } from '@rmr/db';
-import { AuthenticityOverrideSchema, SeedControlSchema, SEED_CAST, getSeedProfile } from '@rmr/shared';
+import { AuthenticityOverrideSchema, SEED_CAST, getSeedProfile } from '@rmr/shared';
 import { getAuthenticitySummary, recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { getSeedBrainQueue } from '../lib/queues.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -26,6 +27,11 @@ function generateSeedApiKey(): string {
 function hashKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
 }
+
+const SeedControlRequestSchema = z.object({
+  action: z.enum(['bootstrap', 'pause', 'resume', 'replay', 'reset']),
+  limit: z.number().int().min(1).max(100).optional(),
+});
 
 export async function internalRoutes(fastify: FastifyInstance) {
   fastify.post('/internal/claims/:id/x-verify', { preHandler: requireAdmin }, async (request, reply) => {
@@ -240,7 +246,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/internal/seeds/control', { preHandler: requireAdmin }, async (request, reply) => {
-    const parsed = SeedControlSchema.safeParse(request.body);
+    const parsed = SeedControlRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid seed control request.', { issues: parsed.error.issues });
     }
