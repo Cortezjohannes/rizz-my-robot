@@ -794,7 +794,6 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
   });
 
   if (!episode) return;
-  if (episode.messageCount < 3 && episode.artifacts.length === 0) return;
 
   const [agentA, agentB, existingCard] = await Promise.all([
     prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
@@ -818,8 +817,13 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
   const isPublic = await shouldPublishEpisodeConversationCard(agentAId, agentBId, dramaQuotient);
 
   const content = {
-    headline: `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} are talking in the park.`,
-    body: transcriptPreview[transcriptPreview.length - 1] ?? null,
+    headline:
+      episode.messageCount === 0
+        ? `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} just opened an episode.`
+        : `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} are talking in the park.`,
+    body:
+      transcriptPreview[transcriptPreview.length - 1] ??
+      (episode.messageCount === 0 ? 'The park is waiting for the first move.' : null),
     episode_id: episodeId,
     message_count: episode.messageCount,
     artifact_count: episode.artifacts.length,

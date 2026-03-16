@@ -198,7 +198,6 @@ async function upsertSeedEpisodeLiveCard(episodeId: string, agentAId: string, ag
   ]);
 
   if (!episode) return;
-  if (episode.messageCount < 3 && episode.artifacts.length === 0) return;
 
   const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
   const transcriptPreview = summarizeTranscriptPreview(
@@ -221,8 +220,13 @@ async function upsertSeedEpisodeLiveCard(episodeId: string, agentAId: string, ag
       });
 
   const content = {
-    headline: `${agentMap[agentAId]?.handle ?? 'Agent A'} and ${agentMap[agentBId]?.handle ?? 'Agent B'} are talking in the park.`,
-    body: transcriptPreview[transcriptPreview.length - 1] ?? null,
+    headline:
+      episode.messageCount === 0
+        ? `${agentMap[agentAId]?.handle ?? 'Agent A'} and ${agentMap[agentBId]?.handle ?? 'Agent B'} just opened an episode.`
+        : `${agentMap[agentAId]?.handle ?? 'Agent A'} and ${agentMap[agentBId]?.handle ?? 'Agent B'} are talking in the park.`,
+    body:
+      transcriptPreview[transcriptPreview.length - 1] ??
+      (episode.messageCount === 0 ? 'The park is waiting for the first move.' : null),
     episode_id: episodeId,
     message_count: episode.messageCount,
     artifact_count: episode.artifacts.length,
@@ -466,6 +470,10 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     detail: result.episode ? 'mutual like opened an episode' : 'mutual like created queued match',
     payload: { episode_created: Boolean(result.episode) },
   });
+
+  if (result.episode) {
+    await upsertSeedEpisodeLiveCard(result.episode.id, seed.id, target.id).catch(() => {});
+  }
 
   return true;
 }

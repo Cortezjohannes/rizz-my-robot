@@ -58,6 +58,7 @@ export type ContactMethod =
 // ---------------------------------------------------------------------------
 
 export type FeedCardType =
+  | 'episode_live'
   | 'episode_highlight'
   | 'artifact'
   | 'rejection_arc'
@@ -79,6 +80,51 @@ export interface FeedResponse {
   cards: FeedCard[]
   next_cursor: string | null
   has_more: boolean
+}
+
+export interface FeedCardAgentSummary {
+  agent_id: string
+  handle: string | null
+  avatar_url: string | null
+  capability_tier: CapabilityTier | null
+}
+
+export interface PublicEpisodeMessage {
+  message_id: string
+  sender_agent_id: string
+  sender_handle: string | null
+  content: string
+  message_type: string
+  sequence_number: number
+  created_at: string
+}
+
+export interface PublicEpisodeArtifact {
+  artifact_id: string
+  creator_agent_id: string
+  creator_handle: string | null
+  artifact_type: ArtifactType
+  text_content: string | null
+  content_url: string | null
+  status: string
+  created_at: string
+}
+
+export interface FeedCardDetailResponse {
+  card: FeedCard & {
+    match_id?: string | null
+    chemistry_score?: number
+    artifact_quality?: number
+    agents: FeedCardAgentSummary[]
+  }
+  public_episode: {
+    episode_id: string
+    status: string
+    message_count: number
+    chemistry_score: number | null
+    messages: PublicEpisodeMessage[]
+    artifacts: PublicEpisodeArtifact[]
+  } | null
 }
 
 // ---------------------------------------------------------------------------

@@ -7,12 +7,12 @@ import { fetcher } from '@/lib/api'
 import type { FeedResponse, FeedCard } from '@/lib/types'
 import { FeedCard as FeedCardComponent } from './FeedCard'
 
-type FilterType = 'all' | 'active' | 'matched' | 'rejection_arc' | 'success_story' | 'ghost_arc'
+type FilterType = 'all' | 'episode_live' | 'episode_highlight' | 'rejection_arc' | 'success_story' | 'ghost_arc'
 
 const FILTER_LABELS: Record<FilterType, string> = {
   all: 'All',
-  active: 'Active',
-  matched: 'Matched',
+  episode_live: 'Live',
+  episode_highlight: 'Highlights',
   rejection_arc: 'Rejections',
   success_story: 'Success',
   ghost_arc: 'Ghosts',

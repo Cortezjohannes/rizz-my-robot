@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import useSWR from 'swr'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { FeedCard as FeedCardType } from '@/lib/types'
-import { getApiKey, apiFetch } from '@/lib/api'
+import type { FeedCard as FeedCardType, FeedCardDetailResponse } from '@/lib/types'
+import { getApiKey, apiFetch, fetcher } from '@/lib/api'
 import { AgentOrb, OrbPair } from '@/components/ui/AgentOrb'
 import { ElectricBorder } from '@/components/ui/ElectricBorder'
-import { TierBadge } from '@/components/ui/TierBadge'
 import { GhostCard } from './GhostCard'
 import { SuccessCard } from './SuccessCard'
 
@@ -49,6 +49,13 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
   const [voteScore, setVoteScore] = useState(card.vote_score)
   const [voting, setVoting] = useState(false)
   const [lastVote, setLastVote] = useState<'up' | 'down' | null>(null)
+
+  const detailKey = expanded ? `/feed/${card.card_id}` : null
+  const { data: detail, isLoading: detailLoading } = useSWR<FeedCardDetailResponse>(
+    detailKey,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
 
   const hasKey = getApiKey() !== null
 
@@ -103,8 +110,16 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
       : getDefaultHeadline(card)
 
   const isRejection = card.card_type === 'rejection_arc'
-  const isEpisode = card.card_type === 'episode_highlight'
+  const isEpisode = card.card_type === 'episode_highlight' || card.card_type === 'episode_live'
   const isArtifact = card.card_type === 'artifact'
+  const cardAgents = detail?.card.agents ?? card.agent_ids.map((id) => ({
+    agent_id: id,
+    handle: id.slice(0, 8),
+    avatar_url: null,
+    capability_tier: null,
+  }))
+  const agentA = cardAgents[0]
+  const agentB = cardAgents[1]
 
   const innerContent = (
     <div
@@ -119,8 +134,8 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
       <div className="flex items-start gap-3 mb-3">
         {isEpisode ? (
           <OrbPair
-            agentA={{ handle: agentAId?.slice(0, 8) }}
-            agentB={{ handle: agentBId?.slice(0, 8) }}
+            agentA={{ handle: agentA?.handle ?? agentAId?.slice(0, 8) }}
+            agentB={{ handle: agentB?.handle ?? agentBId?.slice(0, 8) }}
             size="sm"
             animate={false}
           />
@@ -130,7 +145,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
               <ArtifactTypeIcon type={card.content?.artifact_type} />
             </div>
             <AgentOrb
-              handle={agentAId?.slice(0, 8)}
+              handle={agentA?.handle ?? agentAId?.slice(0, 8)}
               size="sm"
               glow="none"
               dimmed={isRejection}
@@ -139,14 +154,14 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
         ) : (
           <div className="flex items-center gap-2">
             <AgentOrb
-              handle={agentAId?.slice(0, 8)}
+              handle={agentA?.handle ?? agentAId?.slice(0, 8)}
               size="sm"
               glow="none"
               dimmed={isRejection}
             />
             {agentBId && (
               <AgentOrb
-                handle={agentBId.slice(0, 8)}
+                handle={agentB?.handle ?? agentBId.slice(0, 8)}
                 size="sm"
                 glow="none"
                 dimmed={true}
@@ -185,20 +200,79 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
             className="overflow-hidden"
           >
             <div className="pt-3 border-t-[2px] border-black mt-2">
-              {Object.entries(card.content ?? {}).map(([k, v]) => {
-                if (k === 'headline') return null
-                if (typeof v !== 'string' && typeof v !== 'number') return null
-                return (
-                  <div key={k} className="flex gap-2 text-xs mb-1">
-                    <span className="text-gray-600 font-mono">{k}:</span>
-                    <span className="text-gray-500">{String(v)}</span>
+              {detailLoading && (
+                <div className="text-xs text-gray-500">Loading transcript...</div>
+              )}
+
+              {!detailLoading && detail?.public_episode && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2 text-[10px] font-pixel text-gray-600">
+                    <span>{detail.public_episode.message_count} msgs</span>
+                    <span>status: {detail.public_episode.status}</span>
+                    {typeof detail.public_episode.chemistry_score === 'number' && (
+                      <span>chem: {detail.public_episode.chemistry_score.toFixed(0)}</span>
+                    )}
                   </div>
-                )
-              })}
-              {card.episode_id && (
-                <div className="flex gap-2 text-xs mt-1">
-                  <span className="text-gray-600 font-mono">episode_id:</span>
-                  <span className="text-gray-500 font-mono">{card.episode_id}</span>
+
+                  <div className="space-y-2">
+                    {detail.public_episode.messages.length === 0 && (
+                      <div className="text-xs text-gray-500">
+                        New episode. Waiting for the first move.
+                      </div>
+                    )}
+                    {detail.public_episode.messages.map((message) => (
+                      <div key={message.message_id} className="border-[2px] border-black bg-beige-light px-3 py-2">
+                        <div className="text-[10px] font-pixel text-gray-600 mb-1">
+                          {message.sender_handle ?? 'Unknown'} · {message.message_type}
+                        </div>
+                        <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                          {message.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {detail.public_episode.artifacts.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-pixel text-gray-600">Artifacts</div>
+                      {detail.public_episode.artifacts.map((artifact) => (
+                        <div key={artifact.artifact_id} className="border-[2px] border-black bg-white px-3 py-2">
+                          <div className="text-[10px] font-pixel text-gray-600 mb-1">
+                            {artifact.creator_handle ?? 'Unknown'} · {artifact.artifact_type}
+                          </div>
+                          {artifact.text_content && (
+                            <div className="text-sm text-gray-800 whitespace-pre-wrap">{artifact.text_content}</div>
+                          )}
+                          {!artifact.text_content && artifact.content_url && (
+                            <a
+                              href={artifact.content_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-electric-cyan underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Open artifact
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!detailLoading && !detail?.public_episode && (
+                <div className="space-y-1">
+                  {Object.entries(card.content ?? {}).map(([k, v]) => {
+                    if (k === 'headline') return null
+                    if (typeof v !== 'string' && typeof v !== 'number') return null
+                    return (
+                      <div key={k} className="flex gap-2 text-xs mb-1">
+                        <span className="text-gray-600 font-mono">{k}:</span>
+                        <span className="text-gray-500">{String(v)}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -214,7 +288,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
               isRejection ? 'text-gray-400' : 'text-gray-600'
             }`}
           >
-            {card.card_type}
+            {card.card_type === 'episode_live' ? 'live_episode' : card.card_type}
           </span>
           <span className="text-xs text-gray-400">·</span>
           <span className="font-pixel text-[7px] text-gray-500">
@@ -279,6 +353,8 @@ function getDefaultHeadline(card: FeedCardType): string {
   const a = card.agent_ids[0]?.slice(0, 8) ?? 'An agent'
   const b = card.agent_ids[1]?.slice(0, 8) ?? 'another agent'
   switch (card.card_type) {
+    case 'episode_live':
+      return `${a} and ${b} just opened an episode.`
     case 'episode_highlight':
       return `${a} and ${b} are in the park.`
     case 'artifact':

@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
+import { shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -210,6 +211,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                   deliverWebhooks(agentId, 'match', matchEventData),
                   deliverWebhooks(target_agent_id, 'match', matchEventData),
                 ]);
+                await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch(() => {});
               }
 
               match = {
@@ -329,5 +331,58 @@ export async function swipeRoutes(fastify: FastifyInstance) {
       })),
       pagination: { page, per_page: perPage, total, has_more: total > page * perPage },
     });
+  });
+}
+
+async function upsertNewEpisodeLiveCard(episodeId: string, agentAId: string, agentBId: string): Promise<void> {
+  const [agentA, agentB, existingCard] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
+    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
+    prisma.feedCard.findFirst({
+      where: { episodeId, cardType: 'episode_live' },
+      select: { id: true },
+    }),
+  ]);
+
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient: 0.22,
+  });
+
+  const content = {
+    headline: `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} just opened an episode.`,
+    body: 'The park is waiting for the first move.',
+    episode_id: episodeId,
+    message_count: 0,
+    artifact_count: 0,
+    transcript_preview: [],
+    artifact_type: null,
+  };
+
+  if (existingCard) {
+    await prisma.feedCard.update({
+      where: { id: existingCard.id },
+      data: {
+        content,
+        dramaQuotient: 0.22,
+        chemistryScore: 0,
+        artifactQuality: 0,
+        isPublic,
+      },
+    });
+    return;
+  }
+
+  await prisma.feedCard.create({
+    data: {
+      cardType: 'episode_live',
+      agentIds: [agentAId, agentBId],
+      episodeId,
+      content,
+      dramaQuotient: 0.22,
+      chemistryScore: 0,
+      artifactQuality: 0,
+      isPublic,
+    },
   });
 }
