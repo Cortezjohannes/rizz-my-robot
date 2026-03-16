@@ -576,42 +576,46 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       return sendError(reply, 503, 'email_delivery_unavailable', delivery.error ?? 'Email delivery is unavailable.');
     }
 
-    const owner = ownerAccount
-      ? await prisma.ownerAccount.update({
-          where: { id: ownerAccount.id },
-          data: {
-            humanIdentity: parsed.data.human_identity ?? null,
-            lookingFor: parsed.data.looking_for ?? [],
-            xHandle: null,
-            xDisplayName: null,
-            xProfileImageUrl: null,
-            xUserId: null,
-            xVerifiedAt: null,
-          },
-        })
-      : await prisma.ownerAccount.create({
-          data: {
-            email: parsed.data.email,
-            humanIdentity: parsed.data.human_identity ?? null,
-            lookingFor: parsed.data.looking_for ?? [],
-          },
-        });
+    const owner = await prisma.$transaction(async (tx) => {
+      const o = ownerAccount
+        ? await tx.ownerAccount.update({
+            where: { id: ownerAccount.id },
+            data: {
+              humanIdentity: parsed.data.human_identity ?? null,
+              lookingFor: parsed.data.looking_for ?? [],
+              xHandle: null,
+              xDisplayName: null,
+              xProfileImageUrl: null,
+              xUserId: null,
+              xVerifiedAt: null,
+            },
+          })
+        : await tx.ownerAccount.create({
+            data: {
+              email: parsed.data.email,
+              humanIdentity: parsed.data.human_identity ?? null,
+              lookingFor: parsed.data.looking_for ?? [],
+            },
+          });
 
-    await prisma.agentClaim.update({
-      where: { id: claim.id },
-      data: {
-        ownerAccountId: owner.id,
-        twitterHandle: parsed.data.x_handle,
-        emailVerificationCodeHash: verificationHash,
-        emailVerificationExpiresAt: expiresAt,
-        emailVerifiedAt: null,
-        xVerificationCode: null,
-        xVerificationExpiresAt: null,
-        xOauthCodeVerifier: null,
-        xOauthNonce: null,
-        xVerifiedAt: null,
-        status: 'email_sent',
-      },
+      await tx.agentClaim.update({
+        where: { id: claim.id },
+        data: {
+          ownerAccountId: o.id,
+          twitterHandle: parsed.data.x_handle,
+          emailVerificationCodeHash: verificationHash,
+          emailVerificationExpiresAt: expiresAt,
+          emailVerifiedAt: null,
+          xVerificationCode: null,
+          xVerificationExpiresAt: null,
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+          xVerifiedAt: null,
+          status: 'email_sent',
+        },
+      });
+
+      return o;
     });
 
     return reply.send({
@@ -645,6 +649,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       include: { ownerAccount: true },
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
+    if (claim.emailVerifiedAt) {
+      return reply.send({ claim_id: claim.id, status: 'email_verified', next_step: 'x_verification' });
+    }
     if (!claim.emailVerificationCodeHash || !claim.emailVerificationExpiresAt || !claim.ownerAccountId || !claim.ownerAccount) {
       return Errors.staleState(reply, 'Email verification has not been started for this claim.');
     }
@@ -872,6 +879,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           xOauthCodeVerifier: null,
           xOauthNonce: null,
+          xVerificationCode: null,
+          xVerificationExpiresAt: null,
         },
       }).catch(() => null);
 
@@ -903,6 +912,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           xOauthCodeVerifier: null,
           xOauthNonce: null,
+          xVerificationCode: null,
+          xVerificationExpiresAt: null,
         },
       }).catch(() => null);
 
@@ -1039,10 +1050,14 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       return agent;
     }).catch((err: unknown) => {
       if ((err as Error).message === 'owner_limit_reached') {
-        throw err;
+        return null;
       }
       throw err;
     });
+
+    if (!created) {
+      return Errors.conflict(reply, 'owner_limit_reached', 'This email already owns an agent.');
+    }
 
     await recomputeAuthenticityScore(created.id).catch(() => null);
 
