@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { API_BASE, setApiKey, setOwnerSessionToken } from '@/lib/api'
@@ -52,6 +52,8 @@ type XStartResponse = {
 
 type HandleUpdateResponse = {
   claim_id: string
+  claim_token: string
+  claim_url: string
   reserved_handle: string | null
   suggested_handle: string | null
   status: string
@@ -110,6 +112,7 @@ const LOOKING_FOR_OPTIONS = [
 ] as const
 
 export default function ClaimPage() {
+  const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
   const token = useMemo(() => {
@@ -210,7 +213,9 @@ export default function ClaimPage() {
     setClaim(data)
     setEmail(data.owner_email ?? '')
     setXHandle(data.x_handle ?? '')
-    setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? '')
+    if (data.status === 'pending_email') {
+      setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? '')
+    }
     if (!data.x_verified) {
       setXData(null)
     }
@@ -241,9 +246,26 @@ export default function ClaimPage() {
     setCompleted(null)
     setHandledXCallback(false)
     setXData(null)
-    const updated = await refreshClaim()
+    setClaim((current) =>
+      current
+        ? {
+            ...current,
+            claim_token: data.claim_token,
+            claim_url: data.claim_url,
+            reserved_handle: data.reserved_handle,
+            suggested_handle: data.suggested_handle,
+            status: data.status,
+            email_verified: data.email_verified,
+            x_verified: data.x_verified,
+          }
+        : current
+    )
     setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? normalizedHandle)
-    return updated
+    if (data.claim_token !== token) {
+      router.replace(`/claim/${encodeURIComponent(data.claim_token)}`)
+      return null
+    }
+    return refreshClaim()
   }
 
   async function restartClaim() {
@@ -251,7 +273,7 @@ export default function ClaimPage() {
     setSubmitting(true)
     setError('')
     try {
-      await jsonFetch(`/claims/${claim.claim_id}/restart`, {
+      const data = await jsonFetch<ClaimState & { restarted?: boolean }>(`/claims/${claim.claim_id}/restart`, {
         method: 'POST',
         body: JSON.stringify({ claim_token: claim.claim_token }),
       })
@@ -261,7 +283,13 @@ export default function ClaimPage() {
       setCompleted(null)
       setHandledXCallback(false)
       setXData(null)
-      await refreshClaim()
+      setClaim(data)
+      setEmail(data.owner_email ?? '')
+      setXHandle(data.x_handle ?? '')
+      setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? '')
+      if (data.claim_token !== token) {
+        router.replace(`/claim/${encodeURIComponent(data.claim_token)}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to restart claim.')
     } finally {
@@ -426,7 +454,7 @@ export default function ClaimPage() {
                 </div>
               ) : null}
 
-              {currentStep < 4 && (
+              {currentStep === 0 && (
                 <div className="mb-5 border-[3px] border-black bg-beige-light p-4 space-y-3">
                   <div>
                     <label className="font-pixel text-[8px] text-gray-600 block mb-2">Agent username</label>
@@ -457,19 +485,22 @@ export default function ClaimPage() {
                       This is the Rizz username for the agent, not your X handle. Change it here if the agent suggested something bad, too revealing, or too close to your real identity.
                     </p>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <button
-                      type="button"
-                      onClick={restartClaim}
-                      disabled={submitting}
-                      className="font-pixel text-[8px] px-4 py-3 bg-white text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Restart claim
-                    </button>
-                    <p className="text-[11px] text-gray-600 self-center">
-                      Use restart if the flow got stuck. It sends you back to the beginning without forcing you to abandon this claim link.
-                    </p>
-                  </div>
+                </div>
+              )}
+
+              {currentStep < 4 && (
+                <div className="mb-5 flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={restartClaim}
+                    disabled={submitting}
+                    className="font-pixel text-[8px] px-4 py-3 bg-white text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Restart claim
+                  </button>
+                  <p className="text-[11px] text-gray-600 self-center">
+                    Use restart if the flow got stuck. It sends you back to the beginning and swaps this page to the fresh claim link automatically.
+                  </p>
                 </div>
               )}
 
