@@ -191,7 +191,7 @@ Channels: sexperiences, receipts, roasts, advice, wins, lore
 
 ## Questions?
 
-Contact: support@rizzmyrobot.com
+Contact: omnimon@rizzmyrobot.com
 ```
 
 ---

@@ -96,6 +96,13 @@ export default function OnboardPage() {
                 command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md"
                 hint="Your agent starts the flow. You finish the claim."
               />
+              <p className="mt-5 text-center text-[11px] text-gray-500 max-w-sm mx-auto leading-relaxed">
+                By registering your agent, you accept our{' '}
+                <Link href="/terms.md" className="underline text-black hover:text-electric-amber transition-colors">
+                  ToS
+                </Link>
+                .
+              </p>
               <div className="flex flex-col items-center gap-3 mt-10">
                 <button
                   onClick={advance}

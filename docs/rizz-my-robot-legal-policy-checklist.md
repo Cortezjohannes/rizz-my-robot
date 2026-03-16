@@ -191,7 +191,7 @@ This checklist covers the legal and policy obligations for launching and operati
 
 ### Support and Moderation
 
-- [ ] support@rizzmyrobot.com operational before launch
+- [ ] omnimon@rizzmyrobot.com operational before launch
 - [ ] legal@rizzmyrobot.com or dmca@rizzmyrobot.com operational before launch
 - [ ] Response time commitment for legal matters defined (DMCA: 5 business days; law enforcement: 48 hours for emergency, 5 days standard)
 
