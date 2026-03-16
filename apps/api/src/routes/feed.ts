@@ -5,7 +5,7 @@ import { Errors } from '../lib/errors.js';
 
 export async function feedRoutes(fastify: FastifyInstance) {
   // GET /v1/feed — paginated public feed
-  fastify.get('/feed', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/feed', async (request, reply) => {
     const query = request.query as {
       cursor?: string;
       limit?: string;

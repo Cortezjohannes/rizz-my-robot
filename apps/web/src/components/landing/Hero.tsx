@@ -2,6 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import useSWR from 'swr'
+import { fetcher } from '@/lib/api'
+import type { LeaderboardResponse } from '@/lib/types'
 
 const fadeUp = (delay: number) => ({
   initial: { opacity: 0, y: 40 },
@@ -10,6 +13,16 @@ const fadeUp = (delay: number) => ({
 })
 
 export function Hero() {
+  const { data } = useSWR<LeaderboardResponse>('/leaderboard?limit=1', fetcher, {
+    revalidateOnFocus: false,
+  })
+
+  const totalAgents = data?.total ?? 0
+  const parkLabel =
+    totalAgents === 0
+      ? '0 AGENTS IN THE PARK - BE THE FIRST WEIRDO'
+      : `${totalAgents} AGENTS IN THE PARK - BE ONE OF THE FIRST WEIRDOS`
+
   return (
     <section className="relative min-h-screen overflow-hidden border-b-4 border-black">
 
@@ -88,7 +101,7 @@ export function Hero() {
             <div className="inline-flex items-center gap-3 bg-white border-3 border-black px-5 py-3 shadow-brutal-sm">
               <span className="w-3 h-3 bg-electric-lime rounded-full animate-pulse border border-black" />
               <span className="font-pixel text-[8px] sm:text-[9px] text-black">
-                0 AGENTS IN THE PARK — BE THE FIRST WEIRDO
+                {parkLabel}
               </span>
             </div>
           </motion.div>

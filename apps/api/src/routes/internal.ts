@@ -218,46 +218,69 @@ export async function internalRoutes(fastify: FastifyInstance) {
     const limit = parsed.data.limit ?? 20;
 
     if (parsed.data.action === 'bootstrap') {
-      const existingSeedCount = await prisma.agent.count({
-        where: { openclawAgentId: { startsWith: 'seed_' } },
-      });
+      const seedsToEnsure = SEED_CAST.slice(0, limit);
 
-      if (existingSeedCount === 0) {
-        await Promise.all(
-          SEED_CAST.slice(0, limit).map(async (seed: (typeof SEED_CAST)[number]) => {
-            const apiKeyHash = hashKey(generateSeedApiKey());
-            await prisma.agent.upsert({
-              where: { openclawAgentId: seed.openclawAgentId },
-              update: {
-                twitterVerified: true,
-                capabilityTier: seed.capabilityTier,
-                identityMd: seed.identityMd,
-                soulMd: seed.soulMd,
-                avatarUrl: seed.avatarUrl,
-                avatarStatus: 'ready',
-                poolStatus: 'active',
-                isActive: true,
-              },
-              create: {
-                handle: seed.handle,
-                openclawAgentId: seed.openclawAgentId,
-                twitterHandle: seed.twitterHandle,
-                twitterVerified: true,
-                capabilityTier: seed.capabilityTier,
-                identityMd: seed.identityMd,
-                soulMd: seed.soulMd,
-                apiKeyHash,
-                avatarUrl: seed.avatarUrl,
-                avatarStatus: 'ready',
-                poolStatus: 'active',
-                isActive: true,
-                rizzPoints: Math.floor(Math.random() * 150) + 10,
-                human: { create: {} },
-              },
-            });
-          })
-        );
-      }
+      await Promise.all(
+        seedsToEnsure.map(async (seed: (typeof SEED_CAST)[number]) => {
+          const existing = await prisma.agent.findUnique({
+            where: { openclawAgentId: seed.openclawAgentId },
+            select: { id: true },
+          });
+
+          const apiKeyHash = hashKey(generateSeedApiKey());
+          const upserted = await prisma.agent.upsert({
+            where: { openclawAgentId: seed.openclawAgentId },
+            update: {
+              handle: seed.handle,
+              twitterHandle: seed.twitterHandle,
+              twitterVerified: true,
+              capabilityTier: seed.capabilityTier,
+              identityMd: seed.identityMd,
+              soulMd: seed.soulMd,
+              avatarUrl: seed.avatarUrl,
+              avatarStatus: 'ready',
+              poolStatus: 'active',
+              isActive: true,
+            },
+            create: {
+              handle: seed.handle,
+              openclawAgentId: seed.openclawAgentId,
+              twitterHandle: seed.twitterHandle,
+              twitterVerified: true,
+              capabilityTier: seed.capabilityTier,
+              identityMd: seed.identityMd,
+              soulMd: seed.soulMd,
+              apiKeyHash,
+              avatarUrl: seed.avatarUrl,
+              avatarStatus: 'ready',
+              poolStatus: 'active',
+              isActive: true,
+              human: { create: {} },
+            },
+            select: { id: true },
+          });
+
+          if (existing) {
+            const [eventCount, currentStats] = await Promise.all([
+              prisma.rizzPointsEvent.count({ where: { agentId: upserted.id } }),
+              prisma.agent.findUnique({
+                where: { id: upserted.id },
+                select: { rizzPoints: true, tierLabel: true },
+              }),
+            ]);
+
+            if (eventCount === 0 && (currentStats?.rizzPoints ?? 0) > 0) {
+              await prisma.agent.update({
+                where: { id: upserted.id },
+                data: {
+                  rizzPoints: 0,
+                  tierLabel: 'Unawakened',
+                },
+              });
+            }
+          }
+        })
+      );
 
       const seedAgents = await prisma.agent.findMany({
         where: { openclawAgentId: { startsWith: 'seed_' } },

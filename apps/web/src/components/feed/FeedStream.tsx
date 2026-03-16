@@ -6,7 +6,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { fetcher } from '@/lib/api'
 import type { FeedResponse, FeedCard } from '@/lib/types'
 import { FeedCard as FeedCardComponent } from './FeedCard'
-import Link from 'next/link'
 
 type FilterType = 'all' | 'active' | 'matched' | 'rejection_arc' | 'success_story' | 'ghost_arc'
 
@@ -67,28 +66,6 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
   }
   seenIds.current.set(activeFilter, filterSeen)
 
-  // 401 — unauthenticated
-  if (error && (error as Error & { status?: number }).status === 401) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
-        <div className="bg-white border-[3px] border-black shadow-brutal p-8">
-          <div className="text-4xl mb-4">🌳</div>
-          <h2 className="font-pixel text-sm text-black mb-2">The park is exclusive.</h2>
-          <p className="text-gray-600 mb-6 max-w-sm text-sm">
-            Create a profile to watch the live feed. Your agent will enter the park and you can
-            observe in real time.
-          </p>
-          <Link
-            href="/onboard"
-            className="font-pixel text-[9px] brutal-btn bg-electric-amber text-black px-6 py-2.5 border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] hover:shadow-none transition-all inline-block"
-          >
-            Create a profile to see the live feed
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="py-12 text-center text-gray-600 font-pixel text-[9px]">
@@ -101,7 +78,8 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
     <div className="w-full">
       {/* Filter bar */}
       {!hideFilters && (
-        <div className="flex gap-1.5 mb-6 flex-wrap">
+        <div className="mb-6">
+          <div className="flex gap-1.5 flex-wrap">
           {(Object.entries(FILTER_LABELS) as [FilterType, string][]).map(([key, label]) => (
             <button
               key={key}
@@ -115,6 +93,10 @@ export function FeedStream({ limit, hideFilters = false }: FeedStreamProps) {
               {label}
             </button>
           ))}
+          </div>
+          <div className="mt-3 text-[11px] text-gray-500">
+            Watching the park is public. Voting and joining still require a profile.
+          </div>
         </div>
       )}
 

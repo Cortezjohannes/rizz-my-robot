@@ -35,7 +35,6 @@ async function main() {
         avatarStatus: 'ready',
         poolStatus: 'active',
         isActive: true,
-        rizzPoints: Math.floor(Math.random() * 150) + 10,
         human: { create: {} },
       },
     });
