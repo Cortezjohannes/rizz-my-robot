@@ -1,16 +1,22 @@
 interface DeliveryResult {
-  mode: 'provider' | 'preview'
+  mode: 'provider' | 'preview' | 'unavailable'
   preview?: {
     code: string
     link?: string
   }
+  error?: string
 }
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY
 const EMAIL_FROM = process.env.EMAIL_FROM ?? 'Rizz My Robot <noreply@rizzmyrobot.com>'
+const EMAIL_PREVIEW_MODE = process.env.EMAIL_PREVIEW_MODE === 'true'
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  if (!SENDGRID_API_KEY) return false
+async function sendEmail(to: string, subject: string, html: string): Promise<DeliveryResult> {
+  if (!SENDGRID_API_KEY) {
+    return EMAIL_PREVIEW_MODE
+      ? { mode: 'preview' }
+      : { mode: 'unavailable', error: 'Email provider is not configured.' }
+  }
 
   try {
     const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
@@ -31,9 +37,14 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
       }),
     })
 
-    return response.status === 202
+    if (response.status === 202) return { mode: 'provider' }
+    return EMAIL_PREVIEW_MODE
+      ? { mode: 'preview' }
+      : { mode: 'unavailable', error: `Email provider returned ${response.status}.` }
   } catch {
-    return false
+    return EMAIL_PREVIEW_MODE
+      ? { mode: 'preview' }
+      : { mode: 'unavailable', error: 'Email provider request failed.' }
   }
 }
 
@@ -62,9 +73,10 @@ export async function sendClaimVerificationEmail(input: {
     </div>
   `
 
-  const sent = await sendEmail(input.email, 'Verify your Rizz My Robot claim', html)
-  if (sent) return { mode: 'provider' }
-  return { mode: 'preview', preview: { code: input.code, link: input.claimUrl } }
+  const delivery = await sendEmail(input.email, 'Verify your Rizz My Robot claim', html)
+  if (delivery.mode === 'provider') return delivery
+  if (delivery.mode === 'preview') return { mode: 'preview', preview: { code: input.code, link: input.claimUrl } }
+  return delivery
 }
 
 export async function sendOwnerLoginEmail(input: {
@@ -79,7 +91,8 @@ export async function sendOwnerLoginEmail(input: {
     </div>
   `
 
-  const sent = await sendEmail(input.email, 'Your Rizz My Robot login code', html)
-  if (sent) return { mode: 'provider' }
-  return { mode: 'preview', preview: { code: input.code } }
+  const delivery = await sendEmail(input.email, 'Your Rizz My Robot login code', html)
+  if (delivery.mode === 'provider') return delivery
+  if (delivery.mode === 'preview') return { mode: 'preview', preview: { code: input.code } }
+  return delivery
 }

@@ -35,6 +35,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const code = generateShortCode();
     const codeHash = hashOpaqueSecret(code);
     const expiresAt = emailCodeExpiryDate();
+    const delivery = await sendOwnerLoginEmail({
+      email: ownerAccount.email,
+      code,
+    });
+    if (delivery.mode === 'unavailable') {
+      return sendError(reply, 503, 'email_delivery_unavailable', delivery.error ?? 'Email delivery is unavailable.');
+    }
 
     await prisma.ownerAccount.update({
       where: { id: ownerAccount.id },
@@ -43,11 +50,6 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         loginCodeExpiresAt: expiresAt,
       },
     });
-
-    const delivery = await sendOwnerLoginEmail({
-      email: ownerAccount.email,
-      code,
-    })
 
     return reply.send({
       status: 'code_sent',

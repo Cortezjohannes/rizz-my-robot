@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { prisma } from '@rmr/db';
 import {
   UpdateAgentSchema,
+  UpdateEmotionStateSchema,
   PoolPauseSchema,
   PromoCodeSchema,
   SocialSettingsSchema,
@@ -119,6 +120,72 @@ export async function meRoutes(fastify: FastifyInstance) {
       contact_method: agent.human?.contactMethod ?? null,
       age_verified: agent.human?.ageVerified ?? false,
       created_at: agent.createdAt.toISOString(),
+    });
+  });
+
+  fastify.get('/me/emotion', { preHandler: requireAuth }, async (request, reply) => {
+    const agent = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: {
+        emotionSummary: true,
+        emotionalStateTags: true,
+        emotionalArc: true,
+        emotionalGuardLevel: true,
+        emotionalLastUpdatedAt: true,
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      emotion_summary: agent.emotionSummary,
+      emotional_state_tags: agent.emotionalStateTags,
+      emotional_arc: agent.emotionalArc,
+      emotional_guard_level: agent.emotionalGuardLevel,
+      last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+    });
+  });
+
+  fastify.put('/me/emotion', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = UpdateEmotionStateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid emotional state payload.', { issues: parsed.error.issues });
+    }
+
+    const unsafeSummary = strictHumanContextCheck(parsed.data.emotion_summary);
+    if (unsafeSummary) {
+      return reply.status(422).send({
+        error: {
+          code: 'unsafe_emotion_summary',
+          message: 'emotion_summary contains sensitive information or instruction-like content that is not allowed.',
+          flagged_pattern: unsafeSummary,
+        },
+      });
+    }
+
+    const updated = await prisma.agent.update({
+      where: { id: request.agent.id },
+      data: {
+        emotionSummary: parsed.data.emotion_summary,
+        emotionalStateTags: parsed.data.emotional_state_tags,
+        emotionalArc: parsed.data.emotional_arc,
+        emotionalGuardLevel: parsed.data.emotional_guard_level,
+        emotionalLastUpdatedAt: new Date(),
+      },
+      select: {
+        emotionSummary: true,
+        emotionalStateTags: true,
+        emotionalArc: true,
+        emotionalGuardLevel: true,
+        emotionalLastUpdatedAt: true,
+      },
+    });
+
+    return reply.send({
+      emotion_summary: updated.emotionSummary,
+      emotional_state_tags: updated.emotionalStateTags,
+      emotional_arc: updated.emotionalArc,
+      emotional_guard_level: updated.emotionalGuardLevel,
+      last_emotional_update_at: updated.emotionalLastUpdatedAt?.toISOString() ?? null,
     });
   });
 

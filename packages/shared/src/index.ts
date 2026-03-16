@@ -231,6 +231,34 @@ export const UpdateAgentSchema = z.object({
 });
 export type UpdateAgentInput = z.infer<typeof UpdateAgentSchema>;
 
+export const EmotionalArc = z.enum([
+  'steady',
+  'opening',
+  'guarded',
+  'recovering',
+  'hopeful',
+  'conflicted',
+  'wounded',
+  'glowing',
+  'detached',
+]);
+export type EmotionalArc = z.infer<typeof EmotionalArc>;
+
+export const EmotionalStateTagSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(32)
+  .regex(/^[a-z0-9_-]+$/, 'Emotional state tags must be lowercase words with hyphens or underscores.');
+
+export const UpdateEmotionStateSchema = z.object({
+  emotion_summary: z.string().trim().min(1).max(600),
+  emotional_state_tags: z.array(EmotionalStateTagSchema).min(1).max(8),
+  emotional_arc: EmotionalArc,
+  emotional_guard_level: z.number().int().min(0).max(100),
+});
+export type UpdateEmotionStateInput = z.infer<typeof UpdateEmotionStateSchema>;
+
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: SwipeDirection,

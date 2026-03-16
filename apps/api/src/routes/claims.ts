@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'crypto';
 import { prisma } from '@rmr/db';
 import {
   ClaimEmailSchema,
@@ -8,7 +9,7 @@ import {
 } from '@rmr/shared';
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { buildClaimUrl, claimExpiryDate, claimPreview, emailCodeExpiryDate, expireStaleClaims, hashClaimToken, isHandleAvailable } from '../lib/claims.js';
-import { generateClaimToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
+import { generateClaimToken, generateShortCode, hashOpaqueSecret, verifyClaimToken } from '../lib/claimAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { suggestHandle } from '../lib/handles.js';
 import { pickDefaultAvatarUrl } from '@rmr/shared';
@@ -47,10 +48,31 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     const existingClaim = await prisma.agentClaim.findUnique({
       where: { openclawAgentId: parsed.data.openclaw_agent_id },
-      select: { id: true, status: true, expiresAt: true, reservedHandle: true, openclawAgentId: true, twitterHandle: true, identityMd: true },
+      select: {
+        id: true,
+        status: true,
+        expiresAt: true,
+        reservedHandle: true,
+        openclawAgentId: true,
+        twitterHandle: true,
+        identityMd: true,
+        emailVerifiedAt: true,
+        xVerifiedAt: true,
+      },
     });
 
-    const token = generateClaimToken();
+    if (existingClaim && !['completed', 'expired', 'canceled'].includes(existingClaim.status) && existingClaim.expiresAt > new Date()) {
+      const activeToken = generateClaimToken(existingClaim.id);
+      return reply.status(200).send({
+        ...claimPreview(existingClaim, activeToken),
+        suggested_handle: suggestHandle(parsed.data.identity_md, parsed.data.openclaw_agent_id),
+        email_verified: !!existingClaim.emailVerifiedAt,
+        x_verified: !!existingClaim.xVerifiedAt,
+      });
+    }
+
+    const claimId = existingClaim?.id ?? randomUUID();
+    const token = generateClaimToken(claimId);
     const tokenHash = hashClaimToken(token);
     const claim = await prisma.agentClaim.upsert({
       where: { openclawAgentId: parsed.data.openclaw_agent_id },
@@ -71,6 +93,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         canceledAt: null,
       },
       create: {
+        id: claimId,
         tokenHash,
         status: 'pending_email',
         openclawAgentId: parsed.data.openclaw_agent_id,
@@ -101,9 +124,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
   fastify.get('/claims/:token', async (request, reply) => {
     const { token } = request.params as { token: string };
     await expireStaleClaims();
+    const claimId = verifyClaimToken(token);
+    if (!claimId) return Errors.notFound(reply, 'Claim');
 
     const claim = await prisma.agentClaim.findUnique({
-      where: { tokenHash: hashClaimToken(token) },
+      where: { id: claimId },
       include: {
         ownerAccount: {
           select: { email: true, instagramHandle: true, extraSocials: true },
@@ -149,35 +174,49 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     let ownerAccount = claim.ownerAccount;
-    if (!ownerAccount) {
-      ownerAccount = await prisma.ownerAccount.findUnique({ where: { email: parsed.data.email } });
-      if (ownerAccount && ownerAccount.id) {
-        const existingOwnedAgent = await prisma.agent.findFirst({
-          where: { ownerAccountId: ownerAccount.id },
-          select: { id: true },
-        });
-        if (existingOwnedAgent) {
-          return Errors.conflict(reply, 'owner_limit_reached', 'This email already owns an agent.');
-        }
-        const otherClaim = await prisma.agentClaim.findFirst({
+    if (ownerAccount && ownerAccount.email !== parsed.data.email) {
+      return Errors.conflict(reply, 'claim_email_locked', 'This claim is already attached to a different email.');
+    }
+
+    const existingEmailOwner = await prisma.ownerAccount.findUnique({
+      where: { email: parsed.data.email },
+      select: { id: true, emailVerifiedAt: true },
+    });
+    if (existingEmailOwner) {
+      const existingOwnedAgent = await prisma.agent.findFirst({
+        where: { ownerAccountId: existingEmailOwner.id },
+        select: { id: true },
+      });
+      if (existingOwnedAgent) {
+        return Errors.conflict(reply, 'owner_limit_reached', 'This email already owns an agent.');
+      }
+      if (existingEmailOwner.emailVerifiedAt) {
+        const otherVerifiedClaim = await prisma.agentClaim.findFirst({
           where: {
-            ownerAccountId: ownerAccount.id,
+            ownerAccountId: existingEmailOwner.id,
             id: { not: claim.id },
             status: { notIn: ['completed', 'expired', 'canceled'] },
+            emailVerifiedAt: { not: null },
           },
           select: { id: true },
         });
-        if (otherClaim) {
-          return Errors.conflict(reply, 'owner_claim_in_progress', 'This email already has an active claim.');
+        if (otherVerifiedClaim) {
+          return Errors.conflict(reply, 'owner_claim_in_progress', 'This email already has an active verified claim.');
         }
       }
-    } else if (ownerAccount.email !== parsed.data.email) {
-      return Errors.conflict(reply, 'claim_email_locked', 'This claim is already attached to a different email.');
     }
 
     const verificationCode = generateShortCode();
     const verificationHash = hashOpaqueSecret(verificationCode);
     const expiresAt = emailCodeExpiryDate();
+    const delivery = await sendClaimVerificationEmail({
+      email: parsed.data.email,
+      code: verificationCode,
+      claimUrl: `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
+    });
+    if (delivery.mode === 'unavailable') {
+      return sendError(reply, 503, 'email_delivery_unavailable', delivery.error ?? 'Email delivery is unavailable.');
+    }
 
     const owner = ownerAccount
       ? await prisma.ownerAccount.update({
@@ -221,12 +260,6 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
-    const delivery = await sendClaimVerificationEmail({
-      email: owner.email,
-      code: verificationCode,
-      claimUrl: `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
-    });
-
     return reply.send({
       claim_id: claim.id,
       status: 'email_sent',
@@ -265,6 +298,28 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
     if (hashOpaqueSecret(parsed.data.code) !== claim.emailVerificationCodeHash) {
       return sendError(reply, 401, 'invalid_email_verification_code', 'Invalid email verification code.');
+    }
+
+    const [existingOwnedAgent, otherVerifiedClaim] = await Promise.all([
+      prisma.agent.findFirst({
+        where: { ownerAccountId: claim.ownerAccountId },
+        select: { id: true },
+      }),
+      prisma.agentClaim.findFirst({
+        where: {
+          ownerAccountId: claim.ownerAccountId,
+          id: { not: claim.id },
+          status: { notIn: ['completed', 'expired', 'canceled'] },
+          emailVerifiedAt: { not: null },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (existingOwnedAgent) {
+      return Errors.conflict(reply, 'owner_limit_reached', 'This email already owns an agent.');
+    }
+    if (otherVerifiedClaim) {
+      return Errors.conflict(reply, 'owner_claim_in_progress', 'This email already has another verified claim in progress.');
     }
 
     await prisma.$transaction([

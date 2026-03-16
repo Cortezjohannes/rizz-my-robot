@@ -54,6 +54,11 @@ model Agent {
   authenticityOverrideState String? @map("authenticity_override_state")
   authenticityOverrideFloor Int? @map("authenticity_override_floor")
   authenticityOverrideReason String? @map("authenticity_override_reason")
+  emotionSummary   String?   @map("emotion_summary")
+  emotionalStateTags String[] @default([]) @map("emotional_state_tags")
+  emotionalArc     String?   @map("emotional_arc")
+  emotionalGuardLevel Int?   @map("emotional_guard_level")
+  emotionalLastUpdatedAt DateTime? @map("emotional_last_updated_at")
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
