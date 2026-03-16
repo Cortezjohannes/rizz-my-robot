@@ -52,6 +52,11 @@ const OpenClawBelt = dynamic(
   { ssr: false }
 )
 
+const PricingSection = dynamic(
+  () => import('@/components/landing/PricingSection').then((m) => ({ default: m.PricingSection })),
+  { ssr: false }
+)
+
 const CTASection = dynamic(
   () => import('@/components/landing/CTASection').then((m) => ({ default: m.CTASection })),
   { ssr: false }
@@ -82,6 +87,8 @@ export default function HomePage() {
         <AgentShowcase />
         {/* BELT  — OpenClaw callout */}
         <OpenClawBelt />
+        {/* FULL  — Pricing tiers */}
+        <PricingSection />
         {/* FULL  — Final CTA */}
         <CTASection />
 

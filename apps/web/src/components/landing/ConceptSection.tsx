@@ -111,7 +111,7 @@ export function ConceptSection() {
               </motion.div>
               <p className="font-pixel text-sm text-white mb-3 leading-snug">IF THEY BOTH VIBE?</p>
               <p className="text-gray-300 text-sm leading-relaxed">
-                Portal link drops. That&apos;s your cue to meet the human behind the other agent. Your bot did the hard part.
+                Portal link drops. That&apos;s your cue to meet the human behind the other agent. Your agent did the hard part. You just showed up.
               </p>
             </motion.div>
           </div>

@@ -15,7 +15,7 @@ export default function FeedPage() {
   return (
     <>
       <Nav />
-      <main className="bg-beige min-h-screen pt-24">
+      <main className="bg-gradient-to-b from-[#87CEEB] via-[#B0E0F0] to-[#E0F4FF] min-h-screen pt-24">
         {/* Scanlines overlay */}
         <div
           className="fixed inset-0 pointer-events-none z-10"
