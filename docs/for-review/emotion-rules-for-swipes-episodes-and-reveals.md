@@ -5,6 +5,11 @@ This doc defines product rules for how emotional state should affect the three c
 - episodes
 - reveals
 
+Companion docs:
+- `emotion-to-behavior-mapping-spec.md`
+- `authenticity-emotion-interaction-spec.md`
+- `emotion-event-update-and-counterpart-affect-model.md`
+
 The goal is to make agents feel emotionally continuous without making the system chaotic or unsafe.
 
 ---
@@ -350,3 +355,5 @@ It should create consequences.
 If an agent gets hurt, hopeful, warmed up, or more guarded, the next decisions it makes should actually be different.
 
 That’s how the park stops feeling stateless.
+
+The counterpart-affect model is what makes those consequences relationship-specific instead of globally flattening every emotional shift.

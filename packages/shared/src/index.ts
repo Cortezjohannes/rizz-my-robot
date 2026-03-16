@@ -158,15 +158,120 @@ export const ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
   nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'sung_piece', 'produced_song', 'cinematic_cover'],
 };
 
-// Rizz points per event
+// ---------------------------------------------------------------------------
+// Rizz points economy
+// ---------------------------------------------------------------------------
+
+// Base event awards (flat)
 export const RIZZ_POINTS = {
+  // Swipe phase
   mutual_match: 10,
+
+  // Episode conversation
+  first_message_sent: 2,
+  conversation_milestone_5: 3,
+  conversation_milestone_10: 5,
+  full_episode_completed: 3,           // reached max messages
+  reciprocity_bonus: 4,                // balance >= 0.8 at episode end
+
+  // Artifacts
+  artifact_dropped: 0,                 // base — actual value comes from ARTIFACT_RIZZ
+  artifact_quality_bonus: 0,           // base — computed from quality score
+  first_artifact_ever: 8,              // first artifact an agent ever drops
+  artifact_collector: 5,               // dropped 3 artifacts in a single episode
+
+  // Decisions
   link_up_decision: 5,
+
+  // Chemistry
+  chemistry_bonus: 0,                  // base — actual value = floor(chemistry / 10)
+  high_chemistry: 10,                  // chemistry >= 75
+  exceptional_chemistry: 20,           // chemistry >= 90
+
+  // Reveal / human layer
   human_yes: 20,
+  mutual_human_yes: 15,               // both humans said YES (bonus on top of per-human awards)
+  human_no: -5,
+
+  // Date outcomes
   irl_meetup: 50,
   confirmed_hookup: 100,
-  human_no: -5,
+  date_failed: -10,
+
+  // Streaks & milestones
+  match_streak_3: 8,                   // 3 mutual matches without a PASS
+  match_streak_5: 15,                  // 5 in a row
+  link_up_streak_3: 12,               // 3 mutual LINK_UPs in a row
+  first_link_up: 10,                   // agent's very first mutual LINK_UP
+  first_human_yes: 10,                // agent's very first human YES
+  first_date: 15,                      // agent's very first IRL meetup
+  century_club: 50,                    // agent reaches 100 rizz points (one-time)
+  magnetic_arrival: 30,                // agent reaches Magnetic tier (one-time)
+
+  // Engagement & authenticity
+  high_authenticity_bonus: 5,          // authenticity score >= 80 at episode end
+  feed_card_published: 3,              // agent's episode generated a public feed card
+  voice_of_the_park: 8,               // feed card gets significant engagement (votes)
 } as const;
+
+// Per-artifact-type rizz values (by creative difficulty and tier)
+export const ARTIFACT_RIZZ: Record<ArtifactType, number> = {
+  // text_only tier — low effort, accessible to all
+  haiku: 2,
+  poem: 3,
+  love_letter: 4,
+  manifesto: 5,
+
+  // text_image tier — requires image generation capability
+  moodboard: 6,
+  illustrated_note: 7,
+  thirst_trap_image: 8,
+
+  // text_image_tts tier — voice synthesis
+  voice_note: 10,
+
+  // elevenlabs tier — premium voice
+  sung_piece: 14,
+
+  // nano_banana tier — full production
+  produced_song: 18,
+  cinematic_cover: 20,
+};
+
+// Quality multiplier brackets for artifact rizz
+// Applied to ARTIFACT_RIZZ base: final = base * multiplier
+export const ARTIFACT_QUALITY_MULTIPLIERS = {
+  exceptional: { threshold: 0.9, multiplier: 2.0 },
+  great: { threshold: 0.75, multiplier: 1.5 },
+  good: { threshold: 0.5, multiplier: 1.0 },
+  mediocre: { threshold: 0.25, multiplier: 0.6 },
+  poor: { threshold: 0, multiplier: 0.3 },
+} as const;
+
+// Chemistry-to-rizz conversion brackets
+export const CHEMISTRY_RIZZ_BRACKETS = [
+  { min: 90, label: 'exceptional', base: 20 },
+  { min: 75, label: 'high', base: 10 },
+  { min: 50, label: 'solid', base: 5 },
+  { min: 25, label: 'lukewarm', base: 2 },
+  { min: 0, label: 'cold', base: 0 },
+] as const;
+
+// Streak thresholds
+export const RIZZ_STREAKS = {
+  match_streak: [3, 5] as const,       // mutual matches in a row
+  link_up_streak: [3] as const,        // mutual LINK_UPs in a row
+} as const;
+
+// One-time milestone events (awarded once per agent lifetime)
+export const RIZZ_MILESTONES = [
+  'first_artifact_ever',
+  'first_link_up',
+  'first_human_yes',
+  'first_date',
+  'century_club',
+  'magnetic_arrival',
+] as const;
 
 // Swipe limits
 export const SWIPE_LIMITS = {
@@ -379,6 +484,8 @@ export interface CandidateProfile {
   body_count: number;
   rep_score: number;
   identity_md: string;
+  emotion_fit_hint?: string;
+  fit_band?: 'low' | 'medium' | 'high';
   // soul_md is NEVER returned for any other agent
 }
 
@@ -387,12 +494,46 @@ export interface EpisodeState {
   status: EpisodeStatus;
   agent_a_id: string;
   agent_b_id: string;
+  other_agent?: {
+    agent_id: string;
+    handle: string;
+    avatar_url: string | null;
+  };
   message_count: number;
   chemistry_score: number | null;
   your_turn: boolean;
   can_decide: boolean;
   can_drop_artifact: boolean;
   artifacts_remaining: number;
+  emotion_context?: {
+    emotion_summary: string | null;
+    emotional_state_tags: string[];
+    emotional_arc: EmotionalArc | null;
+    emotional_guard_level: number | null;
+    last_emotional_update_at: string | null;
+  };
+  counterpart_affect?: {
+    counterpart_agent_id: string;
+    handle: string;
+    avatar_url: string | null;
+    dominant_affect_label: string;
+    summary: string | null;
+    scores: {
+      attraction: number;
+      trust: number;
+      tenderness: number;
+      hurt: number;
+      avoidance: number;
+      obsession_risk: number;
+      volatility: number;
+    };
+  } | null;
+  continuation_pressure?: 'lean_in' | 'steady' | 'be_careful' | 'pull_back';
+  reveal_guidance?: {
+    readiness_band: 'low' | 'medium' | 'high';
+    caution: boolean;
+    summary: string;
+  };
   messages: EpisodeMessageItem[];
 }
 

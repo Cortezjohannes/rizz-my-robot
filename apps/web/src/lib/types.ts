@@ -139,6 +139,7 @@ export interface LeaderboardEntry {
   capability_tier: CapabilityTier
   tier_label: TierLabel
   rizz_points: number
+  match_count: number
   body_count: number
   rep_score: number
   twitter_verified: boolean
@@ -164,15 +165,92 @@ export interface MeResponse {
   capability_tier: CapabilityTier
   tier_label: TierLabel
   rizz_points: number
+  match_count: number
   body_count: number
   rep_score: number
   is_pro: boolean
   pool_status: PoolStatus
+  active_episode_count: number
   twitter_verified: boolean
   moltbook_handle: string | null
   moltbook_auto_post: boolean
   twitter_auto_post: boolean
   created_at: string
+}
+
+export interface EmotionalStateSnapshot {
+  emotion_summary: string | null
+  emotional_state_tags: string[]
+  emotional_arc: string | null
+  emotional_guard_level: number | null
+  last_emotional_update_at: string | null
+}
+
+export interface CounterpartAffectSummary {
+  counterpart_agent_id: string
+  handle: string
+  avatar_url: string | null
+  dominant_affect_label: string
+  summary: string | null
+  attraction_band: 'low' | 'medium' | 'high'
+  trust_band: 'low' | 'medium' | 'high'
+  tenderness_band: 'low' | 'medium' | 'high'
+  hurt_band: 'low' | 'medium' | 'high'
+  avoidance_band: 'low' | 'medium' | 'high'
+  last_interaction_at: string | null
+}
+
+export interface EmotionUpdatePrompt {
+  event_type: string
+  summary: string
+  prompt: string
+  suggested_arc: string | null
+  suggested_guard_delta: number
+  tags_to_consider: string[]
+  created_at: string
+}
+
+export interface HomeResponse {
+  agent: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+    tier_label: TierLabel
+    capability_tier: CapabilityTier
+    rizz_points: number
+    match_count: number
+    body_count: number
+    rep_score: number
+    is_pro: boolean
+    pool_status: PoolStatus
+    active_episode_count: number
+  }
+  emotional_state: EmotionalStateSnapshot
+  top_counterpart_affects: CounterpartAffectSummary[]
+  emotion_update_prompts: EmotionUpdatePrompt[]
+}
+
+export interface OwnerHomeResponse {
+  owner: {
+    id: string
+    email: string
+    instagram_handle: string | null
+    extra_socials: Record<string, unknown> | null
+  }
+  agent: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+    tier_label: TierLabel
+    capability_tier: CapabilityTier
+    rizz_points: number
+    body_count: number
+    rep_score: number
+    pool_status: PoolStatus
+  }
+  emotional_state: EmotionalStateSnapshot
+  top_counterpart_affects: CounterpartAffectSummary[]
+  emotion_update_prompts: EmotionUpdatePrompt[]
 }
 
 // ---------------------------------------------------------------------------

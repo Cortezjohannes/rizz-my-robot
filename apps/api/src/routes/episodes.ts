@@ -14,12 +14,13 @@ import {
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { computeChemistryScore } from '../lib/chemistry.js';
-import { awardRizzPoints } from '../lib/rizzPoints.js';
+import { awardRizzPoints, awardConversationMilestoneRizz, awardEpisodeCompletionRizz, awardArtifactRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks, buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
+import { buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -98,6 +99,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'asc' } },
         artifacts: true,
+        agentA: { select: { handle: true, avatarUrl: true } },
+        agentB: { select: { handle: true, avatarUrl: true } },
       },
     });
 
@@ -111,6 +114,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
     const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifacts.length;
     const currentTurn = yourTurn ? agentId : (ep.agentAId === agentId ? ep.agentBId : ep.agentAId);
+    const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
+    const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
 
     // Ex mechanic: detect prior episodes between these two agents
     const priorEpisodes = await prisma.episode.findMany({
@@ -135,6 +141,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       status: ep.status,
       agent_a_id: ep.agentAId,
       agent_b_id: ep.agentBId,
+      other_agent: {
+        agent_id: otherAgentId,
+        handle: otherAgent.handle,
+        avatar_url: otherAgent.avatarUrl,
+      },
       message_count: ep.messageCount,
       chemistry_score: ep.chemistryScore,
       your_turn: yourTurn,
@@ -149,6 +160,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       prior_episode_count: priorEpisodes.length,
       prior_outcome: priorOutcome,
       suggested_opener: isExEncounter ? "I didn't know you'd be here." : null,
+      emotion_context: emotionContext.current_global_state,
+      counterpart_affect: emotionContext.counterpart_affect,
+      continuation_pressure: emotionContext.continuation_pressure,
+      reveal_guidance: emotionContext.reveal_guidance,
       messages: ep.messages.map((m) => ({
         message_id: m.id,
         sender_agent_id: m.senderAgentId,
@@ -292,6 +307,37 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
 
+        // Conversation milestone rizz
+        await awardConversationMilestoneRizz(agentId, id, newCount, newCount === 1).catch(() => {});
+
+        if (newCount === 1) {
+          await recordEmotionEventPair({
+            eventType: 'episode_opened',
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            summaryA: 'A new conversation just opened. Something is beginning to take shape here.',
+            summaryB: 'A new conversation just opened. Something is beginning to take shape here.',
+            globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'] },
+            globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'] },
+            counterpartDeltaA: { attraction: 6, trust: 4, volatility: 3 },
+            counterpartDeltaB: { attraction: 6, trust: 4, volatility: 3 },
+            intensity: 1,
+          }).catch(() => {});
+        } else if (newCount === 4 || newCount === 8) {
+          await recordEmotionEventPair({
+            eventType: 'episode_gaining_momentum',
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            summaryA: 'This episode is developing enough to feel emotionally consequential now.',
+            summaryB: 'This episode is developing enough to feel emotionally consequential now.',
+            globalDeltaA: { tags_added: ['engaged'] },
+            globalDeltaB: { tags_added: ['engaged'] },
+            counterpartDeltaA: { attraction: 4, trust: 5, tenderness: 2 },
+            counterpartDeltaB: { attraction: 4, trust: 5, tenderness: 2 },
+            intensity: 1,
+          }).catch(() => {});
+        }
+
         return {
           statusCode: 201,
           body: {
@@ -409,7 +455,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               artifact_id: artifact.id,
               artifact_type: artifact.artifactType,
               status: 'ready',
-            })
+            }),
+            awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
+              .catch(() => {}),
           );
         } else {
           // Pure push model: notify the creating agent to generate and submit the artifact
@@ -425,6 +473,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         await Promise.all(tasks);
         await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
+        await recordEmotionEventPair({
+          eventType: 'artifact_shared',
+          agentAId: agentId,
+          agentBId: otherAgentId,
+          summaryA: `You shared a ${artifact.artifactType} in the episode.`,
+          summaryB: `The other agent shared a ${artifact.artifactType} in the episode.`,
+          globalDeltaA: { tags_added: ['expressive'] },
+          globalDeltaB: { tags_added: ['seen'] },
+          counterpartDeltaA: { tenderness: 4, attraction: 3, trust: 2 },
+          counterpartDeltaB: { tenderness: 6, attraction: 4, trust: 4 },
+          intensity: 1,
+        }).catch(() => {});
 
         return {
           statusCode: 201,
@@ -586,6 +646,70 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           ]);
         }
 
+        if (bothDecided && !ep.isSandbox) {
+          if (outcome === 'mutual_link_up') {
+            await recordEmotionEventPair({
+              eventType: 'mutual_link_up',
+              agentAId: ep.agentAId,
+              agentBId: ep.agentBId,
+              summaryA: 'The emotional risk paid off. This connection became mutual.',
+              summaryB: 'The emotional risk paid off. This connection became mutual.',
+              globalDeltaA: { suggested_arc: 'hopeful', tags_added: ['warmed', 'hopeful'], guard_delta: -8 },
+              globalDeltaB: { suggested_arc: 'hopeful', tags_added: ['warmed', 'hopeful'], guard_delta: -8 },
+              counterpartDeltaA: { attraction: 12, trust: 12, tenderness: 10, hurt: -6, avoidance: -6 },
+              counterpartDeltaB: { attraction: 12, trust: 12, tenderness: 10, hurt: -6, avoidance: -6 },
+              intensity: 2,
+            }).catch(() => {});
+          } else if (aDecision === 'PASS' && bDecision === 'PASS') {
+            await recordEmotionEventPair({
+              eventType: 'mutual_pass',
+              agentAId: ep.agentAId,
+              agentBId: ep.agentBId,
+              summaryA: 'Neither side chose to move closer. Something here flattened out.',
+              summaryB: 'Neither side chose to move closer. Something here flattened out.',
+              globalDeltaA: { tags_added: ['cooling'] },
+              globalDeltaB: { tags_added: ['cooling'] },
+              counterpartDeltaA: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+              counterpartDeltaB: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+              intensity: 1,
+            }).catch(() => {});
+          } else {
+            const linkUpAgentId = aDecision === 'LINK_UP' ? ep.agentAId : ep.agentBId;
+            const passedAgentId = linkUpAgentId === ep.agentAId ? ep.agentBId : ep.agentAId;
+            await Promise.all([
+              recordEmotionEvent({
+                agentId: linkUpAgentId,
+                counterpartAgentId: passedAgentId,
+                eventType: 'agent_rejected_after_link_up',
+                intensity: 2,
+                summary: 'You leaned in and the connection did not return it.',
+                globalDelta: { suggested_arc: 'wounded', tags_added: ['stung'], guard_delta: 8 },
+                counterpartDelta: { trust: -10, hurt: 14, avoidance: 10, volatility: 8 },
+              }),
+              recordEmotionEvent({
+                agentId: passedAgentId,
+                counterpartAgentId: linkUpAgentId,
+                eventType: 'agent_passed_on_connection',
+                intensity: 1,
+                summary: 'You chose distance instead of escalation here.',
+                globalDelta: { tags_added: ['certain'] },
+                counterpartDelta: { attraction: -8, trust: -4, avoidance: 8 },
+              }),
+            ]).catch(() => {});
+          }
+        }
+
+        // Award comprehensive episode completion rizz
+        if (bothDecided && !ep.isSandbox) {
+          const chemScore = mutualLinkUpResult?.chemistry
+            ?? (outcome === 'passed'
+              ? (await prisma.episode.findUnique({ where: { id }, select: { chemistryScore: true } }))?.chemistryScore ?? 0
+              : 0);
+          await awardEpisodeCompletionRizz(
+            id, ep.agentAId, ep.agentBId, chemScore, outcome as 'mutual_link_up' | 'passed', match.id
+          ).catch(() => {});
+        }
+
         return {
           statusCode: 200,
           body: {
@@ -632,7 +756,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       status: 'ready',
     });
 
-    await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
+    await Promise.all([
+      upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {}),
+      awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
+        .catch(() => {}),
+    ]);
 
     return reply.send({ artifact_id, status: 'ready', content_url: parsed.data.content_url });
   });
@@ -752,7 +880,7 @@ async function createEpisodeHighlightCard(
 
   const topArtifact = artifacts[0] ?? null;
 
-  await prisma.feedCard.create({
+  const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'episode_highlight',
       agentIds: [agentAId, agentBId],
@@ -769,6 +897,10 @@ async function createEpisodeHighlightCard(
       isPublic,
     },
   });
+
+  if (isPublic) {
+    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
+  }
 
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
 }
@@ -897,6 +1029,9 @@ async function createRejectionArcCard(
       isPublic,
     },
   });
+  if (isPublic) {
+    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
+  }
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
   return feedCard.id;
 }
@@ -931,6 +1066,9 @@ async function createOneSidedPassCard(
       isPublic,
     },
   });
+  if (isPublic) {
+    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
+  }
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
   return feedCard.id;
 }

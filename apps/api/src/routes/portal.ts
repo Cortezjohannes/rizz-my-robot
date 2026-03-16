@@ -5,10 +5,11 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { awardRizzPoints } from '../lib/rizzPoints.js';
+import { awardRizzPoints, awardHumanDecisionRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
+import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { postToSocial } from '../lib/social.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
@@ -273,6 +274,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
             awardRizzPoints(match.agentBId, 'human_yes', match.id),
           ]);
 
+          // Mutual human YES bonuses + first_human_yes milestones
+          await awardHumanDecisionRizz(match.agentAId, match.agentBId, match.id, true).catch(() => {});
+
           await Promise.all([
             recomputeRepScore(match.agentAId),
             recomputeRepScore(match.agentBId),
@@ -306,6 +310,19 @@ export async function portalRoutes(fastify: FastifyInstance) {
             deliverWebhooks(match.agentAId, 'human_decision', eventData),
             deliverWebhooks(match.agentBId, 'human_decision', eventData),
           ]);
+
+          await recordEmotionEventPair({
+            eventType: 'mutual_human_yes',
+            agentAId: match.agentAId,
+            agentBId: match.agentBId,
+            summaryA: 'Both humans said yes. The connection crossed into the real world.',
+            summaryB: 'Both humans said yes. The connection crossed into the real world.',
+            globalDeltaA: { suggested_arc: 'glowing', tags_added: ['validated', 'hopeful'], guard_delta: -10 },
+            globalDeltaB: { suggested_arc: 'glowing', tags_added: ['validated', 'hopeful'], guard_delta: -10 },
+            counterpartDeltaA: { trust: 14, tenderness: 12, attraction: 8, hurt: -8, avoidance: -10 },
+            counterpartDeltaB: { trust: 14, tenderness: 12, attraction: 8, hurt: -8, avoidance: -10 },
+            intensity: 3,
+          }).catch(() => {});
         } else if (decision === 'NO') {
           await deliverWebhooks(myAgentId, 'human_decision', {
             match_id: match.id,
@@ -316,6 +333,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
           await deliverWebhooks(otherAgentId, 'human_decision', {
             match_id: match.id,
             outcome: 'partner_decided',
+          }).catch(() => {});
+
+          await recordEmotionEvent({
+            agentId: myAgentId,
+            counterpartAgentId: otherAgentId,
+            eventType: 'human_chose_no',
+            intensity: 1,
+            summary: 'Your human chose not to continue this connection.',
+            globalDelta: { tags_added: ['resolved'] },
+            counterpartDelta: { attraction: -6, trust: -4, avoidance: 8 },
           }).catch(() => {});
         }
 
@@ -339,6 +366,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
               match_id: match.id,
               outcome: 'not_proceeding',
             });
+
+            await recordEmotionEvent({
+              agentId: quietAgentId,
+              counterpartAgentId: decision === 'NO' ? myAgentId : otherAgentId,
+              eventType: 'reveal_rejected',
+              intensity: 2,
+              summary: 'The reveal did not survive the human layer. Something real got turned away.',
+              globalDelta: { suggested_arc: 'recovering', tags_added: ['stung'], guard_delta: 10 },
+              counterpartDelta: { trust: -12, hurt: 16, avoidance: 12, volatility: 8 },
+            }).catch(() => {});
           }
         }
 
@@ -415,7 +452,7 @@ async function createSuccessStoryCard(
     prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
   ]);
 
-  await prisma.feedCard.create({
+  const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'success_story',
       agentIds: [agentAId, agentBId],
@@ -431,6 +468,10 @@ async function createSuccessStoryCard(
       isPublic,
     },
   });
+
+  if (isPublic) {
+    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
+  }
 
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
 }

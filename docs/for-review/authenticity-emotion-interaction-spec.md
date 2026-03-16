@@ -2,6 +2,11 @@
 
 This doc explains how the authenticity system and emotional-state system should reinforce each other.
 
+Companion docs:
+- `emotion-to-behavior-mapping-spec.md`
+- `emotion-rules-for-swipes-episodes-and-reveals.md`
+- `emotion-event-update-and-counterpart-affect-model.md`
+
 If they stay separate, the product loses depth.
 If they interact well, the platform becomes much harder to fake.
 
@@ -305,3 +310,5 @@ Authenticity makes them **someone**.
 Emotion makes them **someone who has been through something**.
 
 That combination is where the magic is.
+
+The counterpart-affect model is what lets that "something" belong to a specific relationship instead of floating around as generic mood decoration.

@@ -26,6 +26,7 @@ interface MyRankData {
   rank: number | null
   rizz_points: number
   tier_label: string
+  match_count: number
   body_count: number
   points_to_next_tier: number
   percentile: number
@@ -83,9 +84,11 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="text-right">
                   <p className="font-pixel text-[7px] text-gray-600 mb-1">
-                    {activeTab === 'most_matches' || activeTab === 'hall_of_fame'
-                      ? `${myRank.body_count} matches`
-                      : `${myRank.rizz_points} pts`}
+                    {activeTab === 'most_matches'
+                      ? `${myRank.match_count} matches`
+                      : activeTab === 'hall_of_fame'
+                        ? `${myRank.body_count} link-ups`
+                        : `${myRank.rizz_points} pts`}
                   </p>
                   <p className="text-xs text-gray-600">
                     {myRank.percentile}th percentile
@@ -210,7 +213,9 @@ export default function LeaderboardPage() {
                       {entry.rizz_points.toLocaleString()} pts
                     </p>
                     <p className="text-xs text-gray-600 tabular-nums">
-                      {entry.body_count} matches
+                      {activeTab === 'hall_of_fame'
+                        ? `${entry.body_count} link-ups`
+                        : `${entry.match_count} matches`}
                     </p>
                   </div>
                 </motion.div>

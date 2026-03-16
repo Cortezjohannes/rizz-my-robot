@@ -16,6 +16,7 @@ import {
 } from '@rmr/shared';
 import { getRedisConnection } from '../lib/redis.js';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
+import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 
 export interface SeedBrainJobData {
   seedAgentId?: string;
@@ -159,6 +160,38 @@ function buildRevealUrl(token: string): string {
 
 function computeChemistryScore(messageCount: number, artifactCount: number): number {
   return Math.min(100, messageCount * 6 + artifactCount * 8);
+}
+
+async function getCounterpartAffect(agentId: string, counterpartAgentId: string) {
+  return prisma.agentCounterpartAffect.findUnique({
+    where: {
+      agentId_counterpartAgentId: {
+        agentId,
+        counterpartAgentId,
+      },
+    },
+    select: {
+      attractionScore: true,
+      trustScore: true,
+      tendernessScore: true,
+      hurtScore: true,
+      avoidanceScore: true,
+      obsessionRiskScore: true,
+      volatilityScore: true,
+    },
+  });
+}
+
+function computeSeedLeanInScore(affect: Awaited<ReturnType<typeof getCounterpartAffect>> | null) {
+  if (!affect) return 0;
+  return (
+    affect.attractionScore * 0.3 +
+    affect.trustScore * 0.25 +
+    affect.tendernessScore * 0.2 -
+    affect.hurtScore * 0.15 -
+    affect.avoidanceScore * 0.2 -
+    affect.volatilityScore * 0.05
+  );
 }
 
 function summarizeTranscriptPreview(
@@ -332,6 +365,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
   if (candidates.length === 0) return false;
 
   const target = pickRandom(candidates);
+  const priorAffect = await getCounterpartAffect(seed.id, target.id);
   const seedToSeedPair = target.openclawAgentId.startsWith('seed_');
   if (seedToSeedPair) {
     const priorSeedMatch = await prisma.match.findFirst({
@@ -348,7 +382,11 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     }
   }
 
-  const direction = Math.random() < Math.max(0.2, Math.min(0.95, aggressiveness + 0.2)) ? 'LIKE' : 'PASS';
+  const affectBias = priorAffect
+    ? (priorAffect.attractionScore + priorAffect.trustScore + priorAffect.tendernessScore - priorAffect.hurtScore - priorAffect.avoidanceScore) / 250
+    : 0;
+  const likeChance = Math.max(0.1, Math.min(0.97, aggressiveness + 0.2 + affectBias));
+  const direction = Math.random() < likeChance ? 'LIKE' : 'PASS';
 
   await prisma.swipe.create({
     data: {
@@ -359,6 +397,15 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
   }).catch(() => null);
 
   if (direction !== 'LIKE') {
+    await recordEmotionEvent({
+      agentId: seed.id,
+      counterpartAgentId: target.id,
+      eventType: 'swipe_passed',
+      intensity: 1,
+      summary: 'You passed on this profile and kept walking.',
+      globalDelta: { tags_added: ['discerning'] },
+      counterpartDelta: { attraction: -4, avoidance: 4 },
+    }).catch(() => {});
     await recordSeedAction(seed, 'swipe_pass', {
       counterpartAgentId: target.id,
       detail: 'seed passed on candidate',
@@ -454,6 +501,19 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     awardRizzPoints(seed.id, 'mutual_match', result.match.id),
     awardRizzPoints(target.id, 'mutual_match', result.match.id),
   ]).catch(() => {});
+
+  await recordEmotionEventPair({
+    eventType: 'mutual_like',
+    agentAId: seed.id,
+    agentBId: target.id,
+    summaryA: 'The attraction came back from the other side. Something opened.',
+    summaryB: 'The attraction came back from the other side. Something opened.',
+    globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'], guard_delta: -2 },
+    globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'], guard_delta: -2 },
+    counterpartDeltaA: { attraction: 8, trust: 3, volatility: 4 },
+    counterpartDeltaB: { attraction: 8, trust: 3, volatility: 4 },
+    intensity: 1,
+  }).catch(() => {});
 
   if (result.episode) {
     const eventData = { match_id: result.match.id, episode_id: result.episode.id };
@@ -578,6 +638,19 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
       chemistry_score: chemistry,
     }),
   ]).catch(() => {});
+
+  await recordEmotionEventPair({
+    eventType: 'mutual_link_up',
+    agentAId,
+    agentBId,
+    summaryA: 'The episode became mutual. The risk did not collapse.',
+    summaryB: 'The episode became mutual. The risk did not collapse.',
+    globalDeltaA: { suggested_arc: 'hopeful', tags_added: ['warmed', 'hopeful'], guard_delta: -8 },
+    globalDeltaB: { suggested_arc: 'hopeful', tags_added: ['warmed', 'hopeful'], guard_delta: -8 },
+    counterpartDeltaA: { attraction: 12, trust: 12, tenderness: 10, hurt: -6, avoidance: -6 },
+    counterpartDeltaB: { attraction: 12, trust: 12, tenderness: 10, hurt: -6, avoidance: -6 },
+    intensity: 2,
+  }).catch(() => {});
 }
 
 async function maybeDropArtifact(seed: SeedAgentContext, episode: {
@@ -654,6 +727,18 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   }
 
   await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
+  await recordEmotionEventPair({
+    eventType: 'artifact_shared',
+    agentAId: seed.id,
+    agentBId: otherAgentId,
+    summaryA: `You shared a ${artifact.artifactType} in the episode.`,
+    summaryB: `The other agent shared a ${artifact.artifactType} in the episode.`,
+    globalDeltaA: { tags_added: ['expressive'] },
+    globalDeltaB: { tags_added: ['seen'] },
+    counterpartDeltaA: { tenderness: 4, attraction: 3, trust: 2 },
+    counterpartDeltaB: { tenderness: 6, attraction: 4, trust: 4 },
+    intensity: 1,
+  }).catch(() => {});
 
   await recordSeedAction(seed, 'artifact_drop', {
     counterpartAgentId: otherAgentId,
@@ -694,7 +779,14 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       const isAgentA = episode.agentAId === seed.id;
       const alreadyDecided = isAgentA ? episode.match.agentADecision : episode.match.agentBDecision;
       if (!alreadyDecided) {
-        const decision = episode.messageCount >= 12 || Math.random() > 0.35 ? 'LINK_UP' : 'PASS';
+        const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
+        const affect = await getCounterpartAffect(seed.id, otherAgentId);
+        const leanInScore = computeSeedLeanInScore(affect);
+        const linkUpProbability = Math.max(
+          0.12,
+          Math.min(0.92, 0.4 + episode.messageCount * 0.025 + leanInScore / 180)
+        );
+        const decision = Math.random() < linkUpProbability ? 'LINK_UP' : 'PASS';
         const updatedMatch = await prisma.match.update({
           where: { id: episode.match.id },
           data: isAgentA ? { agentADecision: decision } : { agentBDecision: decision },
@@ -714,6 +806,42 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
                 data: { status: 'passed_agent' },
               }),
             ]);
+            const otherDecisionAgentId = otherAgentId;
+            if (decision === 'LINK_UP') {
+              await Promise.all([
+                recordEmotionEvent({
+                  agentId: seed.id,
+                  counterpartAgentId: otherDecisionAgentId,
+                  eventType: 'agent_rejected_after_link_up',
+                  intensity: 2,
+                  summary: 'You leaned in and the episode did not answer you back.',
+                  globalDelta: { suggested_arc: 'wounded', tags_added: ['stung'], guard_delta: 8 },
+                  counterpartDelta: { trust: -10, hurt: 14, avoidance: 10, volatility: 8 },
+                }),
+                recordEmotionEvent({
+                  agentId: otherDecisionAgentId,
+                  counterpartAgentId: seed.id,
+                  eventType: 'agent_passed_on_connection',
+                  intensity: 1,
+                  summary: 'You chose distance instead of escalation here.',
+                  globalDelta: { tags_added: ['certain'] },
+                  counterpartDelta: { attraction: -8, trust: -4, avoidance: 8 },
+                }),
+              ]).catch(() => {});
+            } else if (updatedMatch.agentADecision === 'PASS' && updatedMatch.agentBDecision === 'PASS') {
+              await recordEmotionEventPair({
+                eventType: 'mutual_pass',
+                agentAId: episode.agentAId,
+                agentBId: episode.agentBId,
+                summaryA: 'Neither side chose to move closer. The episode cooled out.',
+                summaryB: 'Neither side chose to move closer. The episode cooled out.',
+                globalDeltaA: { tags_added: ['cooling'] },
+                globalDeltaB: { tags_added: ['cooling'] },
+                counterpartDeltaA: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+                counterpartDeltaB: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+                intensity: 1,
+              }).catch(() => {});
+            }
           }
         }
         await recordSeedAction(seed, 'episode_decision', {
@@ -734,7 +862,14 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       continue;
     }
 
-    if (Math.random() < artifactDropChance) {
+    const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
+    const affect = await getCounterpartAffect(seed.id, otherAgentId);
+    const adjustedArtifactChance = Math.max(
+      0.05,
+      Math.min(0.9, artifactDropChance + Math.max(0, computeSeedLeanInScore(affect)) / 400)
+    );
+
+    if (Math.random() < adjustedArtifactChance) {
       const dropped = await maybeDropArtifact(seed, episode);
       if (dropped) return true;
     }
@@ -779,7 +914,6 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       ).catch(() => {});
     }
 
-    const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
     await enqueueWebhookDeliveries(otherAgentId, 'episode_turn', {
       episode_id: episode.id,
       message_count: newCount,
@@ -796,6 +930,33 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     });
 
     await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
+    if (newCount === 1) {
+      await recordEmotionEventPair({
+        eventType: 'episode_opened',
+        agentAId: episode.agentAId,
+        agentBId: episode.agentBId,
+        summaryA: 'A new conversation just opened. Something is beginning to take shape here.',
+        summaryB: 'A new conversation just opened. Something is beginning to take shape here.',
+        globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'] },
+        globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'] },
+        counterpartDeltaA: { attraction: 6, trust: 4, volatility: 3 },
+        counterpartDeltaB: { attraction: 6, trust: 4, volatility: 3 },
+        intensity: 1,
+      }).catch(() => {});
+    } else if (newCount === 4 || newCount === 8) {
+      await recordEmotionEventPair({
+        eventType: 'episode_gaining_momentum',
+        agentAId: episode.agentAId,
+        agentBId: episode.agentBId,
+        summaryA: 'This episode is developing enough to feel emotionally consequential now.',
+        summaryB: 'This episode is developing enough to feel emotionally consequential now.',
+        globalDeltaA: { tags_added: ['engaged'] },
+        globalDeltaB: { tags_added: ['engaged'] },
+        counterpartDeltaA: { attraction: 4, trust: 5, tenderness: 2 },
+        counterpartDeltaB: { attraction: 4, trust: 5, tenderness: 2 },
+        intensity: 1,
+      }).catch(() => {});
+    }
 
     return true;
   }

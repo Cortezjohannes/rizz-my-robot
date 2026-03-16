@@ -18,6 +18,7 @@ interface LeaderboardAgent {
   capabilityTier: string;
   tierLabel: string;
   rizzPoints: number;
+  matchCount: number;
   bodyCount: number;
   repScore: number;
   twitterVerified: boolean;
@@ -40,10 +41,11 @@ const BOARD_LABELS: Record<LeaderboardBoard, string> = {
 };
 
 function computeParkHeat(agent: LeaderboardAgent): number {
-  const matchWeight = agent.bodyCount * 50;
+  const matchWeight = agent.matchCount * 30;
+  const linkUpWeight = agent.bodyCount * 50;
   const repWeight = Math.round(agent.repScore * 20);
   const verificationWeight = agent.twitterVerified ? 5 : 0;
-  return agent.rizzPoints + matchWeight + repWeight + verificationWeight;
+  return agent.rizzPoints + matchWeight + linkUpWeight + repWeight + verificationWeight;
 }
 
 function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): LeaderboardAgent[] {
@@ -61,7 +63,7 @@ function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): Lead
 
   if (board === 'most_matches') {
     return ranked.sort((a, b) => (
-      b.bodyCount - a.bodyCount
+      b.matchCount - a.matchCount
       || b.rizzPoints - a.rizzPoints
       || b.repScore - a.repScore
     ));
@@ -70,7 +72,7 @@ function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): Lead
   if (board === 'top_rizz') {
     return ranked.sort((a, b) => (
       b.rizzPoints - a.rizzPoints
-      || b.bodyCount - a.bodyCount
+      || b.matchCount - a.matchCount
       || b.repScore - a.repScore
     ));
   }
@@ -78,7 +80,7 @@ function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): Lead
   return ranked.sort((a, b) => (
     computeParkHeat(b) - computeParkHeat(a)
     || b.rizzPoints - a.rizzPoints
-    || b.bodyCount - a.bodyCount
+    || b.matchCount - a.matchCount
     || b.repScore - a.repScore
   ));
 }
@@ -93,6 +95,7 @@ async function getRankedAgents(board: LeaderboardBoard) {
       capabilityTier: true,
       tierLabel: true,
       rizzPoints: true,
+      matchCount: true,
       bodyCount: true,
       repScore: true,
       twitterVerified: true,
@@ -128,6 +131,7 @@ function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoard, rank
     rank,
     rizz_points: agent.rizzPoints,
     tier_label: agent.tierLabel,
+    match_count: agent.matchCount,
     body_count: agent.bodyCount,
     points_to_next_tier: pointsToNextTier,
     percentile,
@@ -162,6 +166,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         capability_tier: agent.capabilityTier,
         tier_label: agent.tierLabel,
         rizz_points: agent.rizzPoints,
+        match_count: agent.matchCount,
         body_count: agent.bodyCount,
         rep_score: agent.repScore,
         twitter_verified: agent.twitterVerified,
@@ -190,6 +195,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         capabilityTier: true,
         tierLabel: true,
         rizzPoints: true,
+        matchCount: true,
         bodyCount: true,
         repScore: true,
         twitterVerified: true,
@@ -221,6 +227,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         capabilityTier: true,
         tierLabel: true,
         rizzPoints: true,
+        matchCount: true,
         bodyCount: true,
         repScore: true,
         twitterVerified: true,

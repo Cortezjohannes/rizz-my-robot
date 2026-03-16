@@ -333,6 +333,22 @@ export async function internalRoutes(fastify: FastifyInstance) {
           },
         }),
         prisma.webhookDelivery.deleteMany({ where: { agentId: { in: seedAgentIds } } }),
+        prisma.authoredEmotionEvent.deleteMany({
+          where: {
+            OR: [
+              { agentId: { in: seedAgentIds } },
+              { counterpartAgentId: { in: seedAgentIds } },
+            ],
+          },
+        }),
+        prisma.agentCounterpartAffect.deleteMany({
+          where: {
+            OR: [
+              { agentId: { in: seedAgentIds } },
+              { counterpartAgentId: { in: seedAgentIds } },
+            ],
+          },
+        }),
         prisma.rizzPointsEvent.deleteMany({
           where: {
             OR: [
@@ -409,6 +425,11 @@ export async function internalRoutes(fastify: FastifyInstance) {
             dailySwipeCount: 0,
             dailySwipeResetAt: null,
             lastActiveAt: null,
+            emotionSummary: null,
+            emotionalStateTags: [],
+            emotionalArc: null,
+            emotionalGuardLevel: 50,
+            emotionalLastUpdatedAt: null,
           },
         }),
       ]);
@@ -550,7 +571,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
   fastify.get('/internal/agents/:id/overview', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const [agent, artifacts, episodes, analytics, auditLogs, rizzEvents, subscription] = await Promise.all([
+    const [agent, artifacts, episodes, analytics, auditLogs, rizzEvents, subscription, counterpartAffects, emotionEvents] = await Promise.all([
       prisma.agent.findUnique({
         where: { id },
         include: {
@@ -587,6 +608,26 @@ export async function internalRoutes(fastify: FastifyInstance) {
         where: { agentId: id },
         orderBy: { updatedAt: 'desc' },
       }),
+      prisma.agentCounterpartAffect.findMany({
+        where: { agentId: id },
+        include: {
+          counterpart: {
+            select: { id: true, handle: true, avatarUrl: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+      }),
+      prisma.authoredEmotionEvent.findMany({
+        where: { agentId: id },
+        include: {
+          counterpartAgent: {
+            select: { id: true, handle: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -600,6 +641,38 @@ export async function internalRoutes(fastify: FastifyInstance) {
       analytics,
       audit_logs: auditLogs,
       rizz_history: rizzEvents,
+      counterpart_affects: counterpartAffects.map((row) => ({
+        counterpart_agent_id: row.counterpartAgentId,
+        handle: row.counterpart.handle,
+        avatar_url: row.counterpart.avatarUrl,
+        dominant_affect_label: row.dominantAffectLabel,
+        summary: row.summary,
+        scores: {
+          attraction: row.attractionScore,
+          trust: row.trustScore,
+          tenderness: row.tendernessScore,
+          hurt: row.hurtScore,
+          avoidance: row.avoidanceScore,
+          obsession_risk: row.obsessionRiskScore,
+          volatility: row.volatilityScore,
+        },
+        last_interaction_at: row.lastInteractionAt?.toISOString() ?? null,
+        last_meaningful_shift_at: row.lastMeaningfulShiftAt?.toISOString() ?? null,
+      })),
+      emotion_events: emotionEvents.map((event) => ({
+        event_type: event.eventType,
+        intensity: event.intensity,
+        counterpart_agent_id: event.counterpartAgentId,
+        counterpart_handle: event.counterpartAgent?.handle ?? null,
+        summary: event.summary,
+        global_delta: event.globalDelta,
+        counterpart_delta: event.counterpartDelta,
+        arc_before: event.arcBefore,
+        arc_after: event.arcAfter,
+        tags_added: event.tagsAdded,
+        tags_removed: event.tagsRemoved,
+        created_at: event.createdAt.toISOString(),
+      })),
     });
   });
 

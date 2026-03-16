@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
+import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -30,6 +31,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       recentFeed,
       rizzEvents,
       leaderboardRank,
+      topCounterpartAffects,
+      emotionUpdatePrompts,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -45,6 +48,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           avatarStatus: true,
           rizzPoints: true,
           tierLabel: true,
+          matchCount: true,
           bodyCount: true,
           repScore: true,
           isPro: true,
@@ -134,6 +138,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
           },
         },
       }),
+      getTopCounterpartAffects(agentId, 4),
+      getEmotionUpdatePrompts(agentId, 3),
     ]);
 
     if (!agent) {
@@ -172,6 +178,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         avatar_status: agent.avatarStatus,
         rizz_points: agent.rizzPoints,
         tier_label: agent.tierLabel,
+        match_count: agent.matchCount,
         body_count: agent.bodyCount,
         rep_score: agent.repScore,
         is_pro: agent.isPro,
@@ -194,6 +201,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
         emotional_guard_level: agent.emotionalGuardLevel,
         last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
       },
+      top_counterpart_affects: topCounterpartAffects,
+      emotion_update_prompts: emotionUpdatePrompts,
       active_episodes: activeEpisodes.map((ep) => {
         const other = isA(ep) ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
