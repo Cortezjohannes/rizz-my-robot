@@ -171,6 +171,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           data: {
             tokenHash,
             status: 'pending_email',
+            ownerAccountId: null,
             twitterHandle: null,
             identityMd: parsed.data.identity_md,
             soulMd: parsed.data.soul_md,
@@ -241,6 +242,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         update: {
           tokenHash,
           status: 'pending_email',
+          ownerAccountId: null,
           twitterHandle: null,
           identityMd: parsed.data.identity_md,
           soulMd: parsed.data.soul_md,
@@ -453,6 +455,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           tokenHash: hashClaimToken(nextToken),
           status: 'pending_email',
+          ownerAccountId: null,
+          twitterHandle: null,
           expiresAt,
           emailVerificationCodeHash: null,
           emailVerificationExpiresAt: null,
@@ -577,10 +581,12 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     const owner = await prisma.$transaction(async (tx) => {
-      const o = ownerAccount
+      const ownerRecordId = ownerAccount?.id ?? existingEmailOwner?.id;
+      const o = ownerRecordId
         ? await tx.ownerAccount.update({
-            where: { id: ownerAccount.id },
+            where: { id: ownerRecordId },
             data: {
+              email: parsed.data.email,
               humanIdentity: parsed.data.human_identity ?? null,
               lookingFor: parsed.data.looking_for ?? [],
               xHandle: null,
