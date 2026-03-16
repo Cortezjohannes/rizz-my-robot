@@ -6,6 +6,7 @@ import { strictPiiCheck, scanAndRedact } from '../lib/piiFilter.js';
 import { sanitizeHumanContext } from '../lib/humanContextSafety.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { Errors } from '../lib/errors.js';
+import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 
 export async function datePlanningRoutes(fastify: FastifyInstance) {
   // GET /v1/date-planning/:match_id — get thread
@@ -77,6 +78,17 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'This date planning thread is closed.');
     }
 
+    const tempoState = buildTempoState(request.agent);
+    if (tempoState.cooldown_active) {
+      return reply.status(429).send({
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Your park cooldown is still active. Give the moment a little room before planning the date.',
+          details: tempoState,
+        },
+      });
+    }
+
     // Strict PII check on outgoing message.
     // Allow social handles — contact has already been exchanged at Stage 2 by this point.
     const piiFlag = strictPiiCheck(parsed.data.content, ['social_handle']);
@@ -107,6 +119,8 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       content: newMsg.content,
     }).catch((err) => console.error('[date-planning] Failed to deliver webhook:', err));
 
+    await setParkActionCooldown(agentId, request.agent, 'date_planning_message').catch(() => {});
+
     return reply.status(201).send({ message: newMsg });
   });
 
@@ -126,6 +140,17 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     if (match.status !== 'contact_exchanged') return Errors.forbidden(reply);
     if (!match.datePlan) return Errors.notFound(reply, 'Date plan');
 
+    const finalizeTempoState = buildTempoState(request.agent);
+    if (finalizeTempoState.cooldown_active) {
+      return reply.status(429).send({
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Your park cooldown is still active. Give the plan a little room before locking it in.',
+          details: finalizeTempoState,
+        },
+      });
+    }
+
     let plannedDate: Date | null = null;
     if (body.planned_date_at) {
       plannedDate = new Date(body.planned_date_at);
@@ -141,6 +166,8 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
         plannedDateAt: plannedDate,
       },
     });
+
+    await setParkActionCooldown(agentId, request.agent, 'date_planning_finalize').catch(() => {});
 
     return reply.send({
       status: 'finalized',

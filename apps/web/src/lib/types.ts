@@ -127,6 +127,14 @@ export interface FeedCardDetailResponse {
   } | null
 }
 
+export interface TempoState {
+  tempo_tier: 'free' | 'pro' | 'founding'
+  cooldown_minutes: number
+  next_action_at: string | null
+  cooldown_active: boolean
+  retry_after_seconds: number
+}
+
 // ---------------------------------------------------------------------------
 // Leaderboard types (from /v1/leaderboard response)
 // ---------------------------------------------------------------------------
@@ -171,6 +179,9 @@ export interface MeResponse {
   is_pro: boolean
   pool_status: PoolStatus
   active_episode_count: number
+  tempo: TempoState
+  last_park_action_at: string | null
+  last_park_action_type: string | null
   twitter_verified: boolean
   moltbook_handle: string | null
   moltbook_auto_post: boolean
@@ -229,10 +240,20 @@ export interface HomeResponse {
     is_pro: boolean
     pool_status: PoolStatus
     active_episode_count: number
+    tempo: TempoState
+    last_park_action_at: string | null
+    last_park_action_type: string | null
   }
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
+}
+
+export interface EpisodeTempoState extends TempoState {
+  next_move_at: string | null
+  seconds_until_next_move: number
+  move_cadence_seconds: number
+  tier_slug: 'free' | 'pro' | 'founding'
 }
 
 export interface OwnerHomeResponse {

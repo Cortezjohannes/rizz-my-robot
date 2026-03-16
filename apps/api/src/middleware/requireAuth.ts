@@ -10,6 +10,8 @@ declare module 'fastify' {
       id: string;
       handle: string;
       isPro: boolean;
+      tempoOverrideMinutes: number | null;
+      actionCooldownUntil: Date | null;
       poolStatus: string;
       capabilityTier: string;
     };
@@ -33,6 +35,8 @@ export const requireAuth: preHandlerHookHandler = async (
       id: true,
       handle: true,
       isPro: true,
+      tempoOverrideMinutes: true,
+      actionCooldownUntil: true,
       poolStatus: true,
       capabilityTier: true,
       isActive: true,

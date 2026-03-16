@@ -118,6 +118,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
     const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
+    const tempo = buildTempoState(request.agent);
 
     // Ex mechanic: detect prior episodes between these two agents
     const priorEpisodes = await prisma.episode.findMany({
@@ -157,6 +158,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         artifactsRemaining > 0 &&
         (ep.status === 'active' || ep.status === 'awaiting_decisions'),
       artifacts_remaining: artifactsRemaining,
+      tempo,
+      next_move_at: tempo.next_action_at,
+      seconds_until_next_move: tempo.retry_after_seconds,
+      move_cadence_seconds: tempo.cooldown_minutes * 60,
+      tier_slug: tempo.tempo_tier,
       is_ex_encounter: isExEncounter,
       prior_episode_count: priorEpisodes.length,
       prior_outcome: priorOutcome,
