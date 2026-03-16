@@ -5,7 +5,7 @@ import { generateClaimToken, generateXOAuthState } from './claimAuth.js';
 const X_CLIENT_ID = process.env.X_CLIENT_ID;
 const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET;
 const X_OAUTH_REDIRECT_URI = process.env.X_OAUTH_REDIRECT_URI;
-const X_OAUTH_SCOPES = process.env.X_OAUTH_SCOPES ?? 'tweet.read users.read';
+const X_OAUTH_SCOPES = process.env.X_OAUTH_SCOPES ?? 'users.read';
 
 export type XVerificationResult =
   | {
@@ -155,93 +155,6 @@ async function fetchAuthenticatedXUser(accessToken: string): Promise<{
   };
 }
 
-async function fetchRecentTweetsV2(accessToken: string, userId: string): Promise<string[] | null> {
-  const url = new URL(`https://api.twitter.com/2/users/${userId}/tweets`);
-  url.searchParams.set('max_results', '10');
-  url.searchParams.set('exclude', 'replies,retweets');
-  url.searchParams.set('tweet.fields', 'created_at');
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!response.ok) {
-    console.error('[x-verify] users/:id/tweets failed', response.status, await response.text().catch(() => ''));
-    return null;
-  }
-
-  const payload = (await response.json()) as {
-    data?: Array<{ text?: string }>;
-  };
-  return (payload.data ?? []).map((tweet) => tweet.text ?? '').filter(Boolean);
-}
-
-async function fetchRecentTweetsV1(accessToken: string, userId: string): Promise<string[] | null> {
-  const url = new URL('https://api.twitter.com/1.1/statuses/user_timeline.json');
-  url.searchParams.set('user_id', userId);
-  url.searchParams.set('count', '10');
-  url.searchParams.set('exclude_replies', 'true');
-  url.searchParams.set('include_rts', 'false');
-  url.searchParams.set('tweet_mode', 'extended');
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!response.ok) {
-    console.error('[x-verify] user_timeline failed', response.status, await response.text().catch(() => ''));
-    return null;
-  }
-
-  const payload = (await response.json()) as Array<{ full_text?: string; text?: string }> | { errors?: unknown };
-  if (!Array.isArray(payload)) return null;
-  return payload
-    .map((tweet) => tweet.full_text ?? tweet.text ?? '')
-    .filter(Boolean);
-}
-
-async function fetchRecentTweetsSearchFallback(
-  handle: string,
-  code: string,
-): Promise<string[] | null> {
-  const bearer = process.env.TWITTER_BEARER_TOKEN;
-  if (!bearer) return null;
-
-  const url = new URL('https://api.twitter.com/2/tweets/search/recent');
-  url.searchParams.set('query', `from:${handle} "${code}"`);
-  url.searchParams.set('max_results', '10');
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-    },
-  });
-  if (!response.ok) {
-    console.error('[x-verify] recent search fallback failed', response.status, await response.text().catch(() => ''));
-    return null;
-  }
-
-  const payload = (await response.json()) as {
-    data?: Array<{ text?: string }>;
-  };
-  return (payload.data ?? []).map((tweet) => tweet.text ?? '').filter(Boolean);
-}
-
-async function fetchRecentTweets(accessToken: string, userId: string, handle: string, code: string): Promise<string[] | null> {
-  const v2Tweets = await fetchRecentTweetsV2(accessToken, userId);
-  if (v2Tweets && v2Tweets.length > 0) return v2Tweets;
-
-  const v1Tweets = await fetchRecentTweetsV1(accessToken, userId);
-  if (v1Tweets && v1Tweets.length > 0) return v1Tweets;
-
-  const searchTweets = await fetchRecentTweetsSearchFallback(handle, code);
-  if (searchTweets && searchTweets.length > 0) return searchTweets;
-
-  return v2Tweets ?? v1Tweets ?? searchTweets;
-}
-
 export async function verifyXAccountTweet(input: {
   claimedHandle: string;
   code: string;
@@ -266,35 +179,10 @@ export async function verifyXAccountTweet(input: {
       return { status: 'unavailable', reason: 'Failed to fetch authenticated X account.' };
     }
 
-    if (user.protected) {
-      return {
-        status: 'unavailable',
-        reason:
-          'Protected X accounts cannot be verified automatically right now. Make the account public for verification or use admin override.',
-      };
-    }
-
     if (user.username !== input.claimedHandle.toLowerCase()) {
       return {
         status: 'not_found',
         reason: `You logged into @${user.username}, but the claim expects @${input.claimedHandle}.`,
-      };
-    }
-
-    const tweets = await fetchRecentTweets(token.access_token, user.id, user.username, input.code);
-    if (!tweets) {
-      return {
-        status: 'unavailable',
-        reason:
-          'X login succeeded, but tweet-read access failed. Make sure the X app has Read permissions and tweet.read/users.read scopes, or use admin override.',
-      };
-    }
-
-    const found = tweets.some((text) => text.toLowerCase().includes(input.code.toLowerCase()));
-    if (!found) {
-      return {
-        status: 'not_found',
-        reason: 'We could not find the verification code in your recent tweets yet.',
       };
     }
 

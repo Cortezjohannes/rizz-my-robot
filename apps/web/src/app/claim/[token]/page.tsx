@@ -704,15 +704,15 @@ export default function ClaimPage() {
               {currentStep === 2 && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-700">
-                    Post the verification tweet from <strong>@{claim.x_handle}</strong>, then log in with X so we can confirm that same account posted it.
+                    Log in with X as <strong>@{claim.x_handle}</strong>. For alpha, that login is enough to prove ownership of the account. The tweet is optional flavor.
                   </p>
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm space-y-2">
                     <div>Account to verify: <strong>@{claim.x_handle}</strong></div>
                     {xData?.verification_code ? (
-                      <div>Tweet code: <strong>{xData.verification_code}</strong></div>
+                      <div>Optional tweet code: <strong>{xData.verification_code}</strong></div>
                     ) : null}
                     <div className="text-gray-700 break-words">
-                      Tweet this exactly:
+                      Optional tweet:
                     </div>
                     <div className="font-medium break-words">
                       {xData?.tweet_template ?? `I'm claiming @${requestedHandle} on Rizz My Robot. My verification code is ________`}
@@ -724,10 +724,10 @@ export default function ClaimPage() {
                     disabled={submitting}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting ? 'Opening X...' : 'Tweet code and log in with X'}
+                    {submitting ? 'Opening X...' : 'Log in with X'}
                   </button>
                   <p className="text-[11px] text-gray-500">
-                    We request read-only access so we can confirm the authenticated X account matches the handle above and that it posted the verification tweet.
+                    We request read-only access so we can confirm the authenticated X account matches the handle above.
                   </p>
                 </div>
               )}
