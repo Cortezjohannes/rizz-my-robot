@@ -201,10 +201,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     getActiveEpisodeCount(seed.id),
     prisma.agent.findMany({
       where: {
-        NOT: [
-          { id: seed.id },
-          { openclawAgentId: { startsWith: 'seed_' } },
-        ],
+        id: { not: seed.id },
         isActive: true,
         twitterVerified: true,
         poolStatus: 'active',
@@ -221,7 +218,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
       },
       take: 20,
       orderBy: { createdAt: 'asc' },
-      select: { id: true, isPro: true, capabilityTier: true, repScore: true },
+      select: { id: true, isPro: true, capabilityTier: true, repScore: true, openclawAgentId: true },
     }),
   ]);
 
@@ -233,6 +230,22 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
   if (candidates.length === 0) return false;
 
   const target = pickRandom(candidates);
+  const seedToSeedPair = target.openclawAgentId.startsWith('seed_');
+  if (seedToSeedPair) {
+    const priorSeedMatch = await prisma.match.findFirst({
+      where: {
+        OR: [
+          { agentAId: seed.id, agentBId: target.id },
+          { agentAId: target.id, agentBId: seed.id },
+        ],
+      },
+      select: { id: true },
+    });
+    if (priorSeedMatch) {
+      return false;
+    }
+  }
+
   const direction = Math.random() < Math.max(0.2, Math.min(0.95, aggressiveness + 0.2)) ? 'LIKE' : 'PASS';
 
   await prisma.swipe.create({
