@@ -26,6 +26,10 @@ const PARTICLE_COLORS = [
 ]
 const PARTICLE_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
 
+function formatSocialLabel(key: string) {
+  return key.replace(/[_-]+/g, ' ').trim()
+}
+
 function ParticleBurst() {
   return (
     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -75,6 +79,7 @@ export default function PortalPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [showParticles, setShowParticles] = useState(false)
   const [contactCopied, setContactCopied] = useState(false)
+  const [copiedSocial, setCopiedSocial] = useState<string | null>(null)
 
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -528,7 +533,70 @@ export default function PortalPage() {
                       </div>
                     </div>
                   )}
-                  {!revealData.stage2.contact_method && !revealData.stage2.contact_value && (
+                  {revealData.stage2.socials?.instagram_handle && (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-pixel text-[7px] text-gray-500 flex-shrink-0">instagram</span>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://instagram.com/${revealData.stage2.socials.instagram_handle}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-pixel text-[10px] text-black hover:text-electric-cyan transition-colors"
+                        >
+                          @{revealData.stage2.socials.instagram_handle}
+                        </a>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`@${revealData.stage2!.socials!.instagram_handle!}`)
+                              .then(() => {
+                                setCopiedSocial('instagram')
+                                setTimeout(() => setCopiedSocial(null), 2000)
+                              })
+                              .catch(() => {})
+                          }}
+                          className="font-pixel text-[7px] text-gray-500 hover:text-electric-cyan transition-colors px-2 py-0.5 border-[2px] border-black hover:border-electric-cyan"
+                        >
+                          {copiedSocial === 'instagram' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {revealData.stage2.socials?.extra_socials && Object.keys(revealData.stage2.socials.extra_socials).length > 0 && (
+                    <div className="pt-2 border-t-[2px] border-black mt-2 space-y-2">
+                      <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-wider">
+                        Extra socials
+                      </p>
+                      {Object.entries(revealData.stage2.socials.extra_socials).map(([key, value]) => {
+                        if (typeof value !== 'string' || value.trim().length === 0) return null
+                        const normalizedKey = formatSocialLabel(key)
+                        return (
+                          <div key={key} className="flex items-center justify-between gap-3">
+                            <span className="font-pixel text-[7px] text-gray-500 flex-shrink-0">{normalizedKey}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-pixel text-[10px] text-black break-all text-right">{value}</span>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(value)
+                                    .then(() => {
+                                      setCopiedSocial(key)
+                                      setTimeout(() => setCopiedSocial(null), 2000)
+                                    })
+                                    .catch(() => {})
+                                }}
+                                className="font-pixel text-[7px] text-gray-500 hover:text-electric-cyan transition-colors px-2 py-0.5 border-[2px] border-black hover:border-electric-cyan"
+                              >
+                                {copiedSocial === key ? 'Copied!' : 'Copy'}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {!revealData.stage2.contact_method &&
+                    !revealData.stage2.contact_value &&
+                    !revealData.stage2.socials?.instagram_handle &&
+                    (!revealData.stage2.socials?.extra_socials || Object.keys(revealData.stage2.socials.extra_socials).length === 0) && (
                     <p className="text-sm text-gray-500">
                       Contact info not set yet. Check back soon.
                     </p>
