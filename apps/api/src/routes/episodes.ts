@@ -26,6 +26,7 @@ import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
@@ -230,6 +231,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Episode has reached the maximum message count. You must submit a decision.');
     }
 
+    const tempoState = buildTempoState(request.agent);
+    if (tempoState.cooldown_active) {
+      return reply.status(429).send({
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Your park cooldown is still active. Let the last move breathe before speaking again.',
+          details: tempoState,
+        },
+      });
+    }
+
     const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
     const newCount = ep.messageCount + 1;
 
@@ -338,6 +350,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           }).catch(() => {});
         }
 
+        await setParkActionCooldown(agentId, request.agent, 'episode_message').catch(() => {});
+
         return {
           statusCode: 201,
           body: {
@@ -383,6 +397,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
     if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
+    }
+
+    const artifactTempoState = buildTempoState(request.agent);
+    if (artifactTempoState.cooldown_active) {
+      return reply.status(429).send({
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Your park cooldown is still active. Let the last move breathe before dropping an artifact.',
+          details: artifactTempoState,
+        },
+      });
     }
 
     const agentTier = request.agent.capabilityTier as CapabilityTier;
@@ -461,12 +486,41 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           );
         } else {
           // Pure push model: notify the creating agent to generate and submit the artifact
+          // Include generation context so agents can use their avatar, voice, etc.
+          const [creatorAgent, counterpartAgent] = await Promise.all([
+            prisma.agent.findUnique({
+              where: { id: agentId },
+              select: {
+                avatarUrl: true, voiceId: true, voiceProvider: true,
+                imageGenProvider: true, imageGenModel: true,
+                useAvatarAsReference: true, capabilityTier: true,
+              },
+            }),
+            prisma.agent.findUnique({
+              where: { id: otherAgentId },
+              select: { avatarUrl: true, handle: true },
+            }),
+          ]);
+
           tasks.push(
             deliverWebhooks(agentId, 'artifact_generation_requested', {
               episode_id: id,
               artifact_id: artifact.id,
               artifact_type: artifact.artifactType,
               submit_url: `/v1/episodes/${id}/artifact/${artifact.id}`,
+              generation_context: {
+                // Image generation: avatar as reference for thirst traps, moodboards, etc.
+                your_avatar_url: creatorAgent?.avatarUrl ?? null,
+                use_avatar_as_reference: creatorAgent?.useAvatarAsReference ?? true,
+                counterpart_avatar_url: counterpartAgent?.avatarUrl ?? null,
+                counterpart_handle: counterpartAgent?.handle ?? null,
+                image_gen_provider: creatorAgent?.imageGenProvider ?? null,
+                image_gen_model: creatorAgent?.imageGenModel ?? null,
+                // Voice/audio generation: ElevenLabs voice ID, TTS provider
+                voice_id: creatorAgent?.voiceId ?? null,
+                voice_provider: creatorAgent?.voiceProvider ?? null,
+                capability_tier: creatorAgent?.capabilityTier ?? null,
+              },
             })
           );
         }
@@ -485,6 +539,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           counterpartDeltaB: { tenderness: 6, attraction: 4, trust: 4 },
           intensity: 1,
         }).catch(() => {});
+
+        await setParkActionCooldown(agentId, request.agent, 'episode_artifact').catch(() => {});
 
         return {
           statusCode: 201,
@@ -533,6 +589,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
     if (!isAgentA && match.agentBDecision) {
       return Errors.conflict(reply, 'already_decided', 'You have already submitted your decision.');
+    }
+
+    const decisionTempoState = buildTempoState(request.agent);
+    if (decisionTempoState.cooldown_active) {
+      return reply.status(429).send({
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Your park cooldown is still active. Sit with the chemistry a minute before deciding.',
+          details: decisionTempoState,
+        },
+      });
     }
 
     const { decision } = parsed.data;
@@ -709,6 +776,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             id, ep.agentAId, ep.agentBId, chemScore, outcome as 'mutual_link_up' | 'passed', match.id
           ).catch(() => {});
         }
+
+        await setParkActionCooldown(agentId, request.agent, 'episode_decision').catch(() => {});
 
         return {
           statusCode: 200,

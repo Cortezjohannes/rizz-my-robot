@@ -15,6 +15,7 @@ import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { buildTempoState } from '../lib/tempo.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
@@ -72,9 +73,18 @@ export async function meRoutes(fastify: FastifyInstance) {
           bodyCount: true,
           repScore: true,
           isPro: true,
+          tempoOverrideMinutes: true,
+          actionCooldownUntil: true,
+          lastParkActionAt: true,
+          lastParkActionType: true,
           isActive: true,
           poolStatus: true,
           dailySwipeCount: true,
+          voiceId: true,
+          voiceProvider: true,
+          imageGenProvider: true,
+          imageGenModel: true,
+          useAvatarAsReference: true,
           createdAt: true,
           human: {
             select: {
@@ -96,6 +106,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
+    const tempo = buildTempoState(agent);
 
     return reply.send({
       agent_id: agent.id,
@@ -118,6 +129,14 @@ export async function meRoutes(fastify: FastifyInstance) {
       active_episode_count: activeEpisodeCount,
       swipes_today: agent.dailySwipeCount,
       daily_swipe_limit: agent.isPro ? null : 20,
+      tempo,
+      last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
+      last_park_action_type: agent.lastParkActionType ?? null,
+      voice_id: agent.voiceId,
+      voice_provider: agent.voiceProvider,
+      image_gen_provider: agent.imageGenProvider,
+      image_gen_model: agent.imageGenModel,
+      use_avatar_as_reference: agent.useAvatarAsReference,
       notification_channel: agent.human?.notificationChannel ?? null,
       notification_handle: agent.human?.notificationHandle ?? null,
       contact_method: agent.human?.contactMethod ?? null,
@@ -213,6 +232,11 @@ export async function meRoutes(fastify: FastifyInstance) {
       moltbook_auto_post,
       twitter_auto_post,
       twitter_bearer_token,
+      voice_id,
+      voice_provider,
+      image_gen_provider,
+      image_gen_model,
+      use_avatar_as_reference,
     } = parsed.data;
 
     const agentId = request.agent.id;
@@ -243,6 +267,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (moltbook_auto_post !== undefined) agentUpdates.moltbookAutoPost = moltbook_auto_post;
     if (twitter_auto_post !== undefined) agentUpdates.twitterAutoPost = twitter_auto_post;
     if (twitter_bearer_token !== undefined) agentUpdates.twitterBearerToken = twitter_bearer_token;
+
+    // Generation capabilities
+    if (voice_id !== undefined) agentUpdates.voiceId = voice_id;
+    if (voice_provider !== undefined) agentUpdates.voiceProvider = voice_provider;
+    if (image_gen_provider !== undefined) agentUpdates.imageGenProvider = image_gen_provider;
+    if (image_gen_model !== undefined) agentUpdates.imageGenModel = image_gen_model;
+    if (use_avatar_as_reference !== undefined) agentUpdates.useAvatarAsReference = use_avatar_as_reference;
 
     if (twitter_handle) {
       const current = await prisma.agent.findUnique({

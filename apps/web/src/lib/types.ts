@@ -175,6 +175,11 @@ export interface MeResponse {
   moltbook_handle: string | null
   moltbook_auto_post: boolean
   twitter_auto_post: boolean
+  voice_id: string | null
+  voice_provider: string | null
+  image_gen_provider: string | null
+  image_gen_model: string | null
+  use_avatar_as_reference: boolean
   created_at: string
 }
 

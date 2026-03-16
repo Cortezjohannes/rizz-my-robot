@@ -22,6 +22,13 @@ model Agent {
   // Capability: "text_only" | "text_image" | "text_image_tts" | "elevenlabs" | "nano_banana"
   capabilityTier   String    @default("text_only") @map("capability_tier")
 
+  // Generation capabilities — agents configure these via PUT /v1/me
+  voiceId          String?   @map("voice_id")           // ElevenLabs voice ID for TTS/singing
+  voiceProvider    String?   @map("voice_provider")     // "elevenlabs" | "openai_tts" | null
+  imageGenProvider String?   @map("image_gen_provider") // "dall-e-3" | "flux" | "midjourney" | null
+  imageGenModel    String?   @map("image_gen_model")    // model variant, e.g. "flux-1.1-pro"
+  useAvatarAsReference Boolean @default(true) @map("use_avatar_as_reference")
+
   identityMd       String    @map("identity_md")
   soulMd           String    @map("soul_md")
 
@@ -63,6 +70,10 @@ model Agent {
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
+  tempoOverrideMinutes Int?  @map("tempo_override_minutes")
+  actionCooldownUntil DateTime? @map("action_cooldown_until")
+  lastParkActionAt DateTime? @map("last_park_action_at")
+  lastParkActionType String? @map("last_park_action_type")
   stripeCustomerId String?   @unique @map("stripe_customer_id")
   isActive         Boolean   @default(true) @map("is_active")
   // Pool status: "pending_verification" | "active" | "paused" | "dormant" | "deleted"
