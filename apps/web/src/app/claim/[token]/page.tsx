@@ -198,6 +198,44 @@ export default function ClaimPage() {
     }
   }, [claim, handledXCallback, xError, xStatus])
 
+  useEffect(() => {
+    if (!claim || currentStep !== 2 || xData?.verification_code || submitting) return
+
+    let cancelled = false
+
+    async function prepareXVerification() {
+      try {
+        const existing = await jsonFetch<XStartResponse>(`/claims/${claim.claim_id}/x/check`, {
+          method: 'POST',
+          body: JSON.stringify({ claim_token: claim.claim_token }),
+        })
+        if (!cancelled) {
+          setXData(existing)
+        }
+      } catch {
+        try {
+          const started = await jsonFetch<XStartResponse>(`/claims/${claim.claim_id}/x/start`, {
+            method: 'POST',
+            body: JSON.stringify({ claim_token: claim.claim_token }),
+          })
+          if (!cancelled) {
+            setXData(started)
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Failed to prepare X verification.')
+          }
+        }
+      }
+    }
+
+    void prepareXVerification()
+
+    return () => {
+      cancelled = true
+    }
+  }, [claim, currentStep, submitting, xData?.verification_code])
+
   const currentStep = completed
     ? 4
     : claim?.x_verified
@@ -349,6 +387,10 @@ export default function ClaimPage() {
 
   async function startXVerification() {
     if (!claim) return
+    if (xData?.authorization_url) {
+      window.location.assign(xData.authorization_url)
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
