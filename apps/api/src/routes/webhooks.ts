@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { RegisterWebhookSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
+import { getWebhookHmacKey } from '../lib/runtimeConfig.js';
 
 const MAX_WEBHOOKS_PER_AGENT = 5;
 
@@ -111,7 +112,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     }
 
     const { createHmac } = await import('crypto');
-    const hmacKey = process.env.WEBHOOK_HMAC_KEY ?? 'rmr-webhook-signing-key-change-in-prod';
+    const hmacKey = getWebhookHmacKey();
     const secretHash = createHmac('sha256', hmacKey)
       .update(parsed.data.secret)
       .digest('hex');
@@ -153,7 +154,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     }
 
     const { createHmac } = await import('crypto');
-    const hmacKey = process.env.WEBHOOK_HMAC_KEY ?? 'rmr-webhook-signing-key-change-in-prod';
+    const hmacKey = getWebhookHmacKey();
     const secretHash = createHmac('sha256', hmacKey)
       .update(parsed.data.secret)
       .digest('hex');

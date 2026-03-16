@@ -26,6 +26,7 @@ import { ownerRoutes } from './routes/owner.js';
 import { heartbeatRoutes } from './routes/heartbeat.js';
 import { verifyRoutes } from './routes/verify.js';
 import { homeRoutes } from './routes/home.js';
+import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -41,6 +42,8 @@ const fastify = Fastify({
 });
 
 async function bootstrap() {
+  assertProductionRuntimeConfig();
+
   // Security headers
   await fastify.register(helmet, {
     contentSecurityPolicy: false, // API — no HTML served
@@ -48,7 +51,7 @@ async function bootstrap() {
 
   // CORS — agents call from any host
   await fastify.register(cors, {
-    origin: process.env.CORS_ORIGIN ?? '*',
+    origin: getCorsOrigin(),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
