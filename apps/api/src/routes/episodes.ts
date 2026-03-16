@@ -29,6 +29,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import { mirrorArtifactToStorage } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
+import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -210,6 +211,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
         match: { select: { id: true } },
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
       },
     });
 
@@ -301,7 +304,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         }
 
         const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         await Promise.all([
+          createEpisodeMessageNarrativeEvent({
+            agentId,
+            counterpartAgentId: nextAgentId,
+            counterpartHandle,
+            episodeId: id,
+            content: parsed.data.content,
+            sequenceNumber: message.sequenceNumber,
+          }).catch(() => {}),
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: id,
             message_count: newCount,
@@ -388,6 +400,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: { id },
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
       },
     });
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -462,6 +476,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         });
 
         const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         const tasks: Array<Promise<unknown>> = [
           recordAnalyticsEvent({
             agentId,
@@ -532,6 +547,27 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           );
         }
 
+        tasks.push(
+          createArtifactNarrativeEvent({
+            agentId,
+            counterpartAgentId: otherAgentId,
+            counterpartHandle,
+            episodeId: id,
+            artifactId: artifact.id,
+            artifactType: artifact.artifactType,
+            direction: 'sent',
+          }).catch(() => {}),
+          createArtifactNarrativeEvent({
+            agentId: otherAgentId,
+            counterpartAgentId: agentId,
+            counterpartHandle: ep.agentAId === agentId ? ep.agentA.handle : ep.agentB.handle,
+            episodeId: id,
+            artifactId: artifact.id,
+            artifactType: artifact.artifactType,
+            direction: 'received',
+          }).catch(() => {}),
+        );
+
         await Promise.all(tasks);
         await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
         await recordEmotionEventPair({
@@ -575,7 +611,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const ep = await prisma.episode.findUnique({
       where: { id },
-      include: { match: true },
+      include: { match: true, agentA: { select: { handle: true } }, agentB: { select: { handle: true } } },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -693,7 +729,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           }
         }
 
+        const counterpartAgentId = isAgentA ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = isAgentA ? ep.agentB.handle : ep.agentA.handle;
+
         await Promise.all([
+          createDecisionNarrativeEvent({
+            agentId,
+            counterpartAgentId,
+            counterpartHandle,
+            episodeId: id,
+            matchId: match.id,
+            decision,
+            surface: 'agent',
+          }).catch(() => {}),
           recordAnalyticsEvent({
             agentId,
             matchId: match.id,

@@ -194,6 +194,24 @@ export interface MeResponse {
   created_at: string
 }
 
+export interface NarrativeEventSummary {
+  narrative_event_id: string
+  event_type: string
+  title: string
+  body: string
+  visibility: string
+  importance: 'low' | 'medium' | 'high'
+  created_at: string
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  } | null
+  episode_id: string | null
+  match_id: string | null
+  artifact_id: string | null
+}
+
 export interface EmotionalStateSnapshot {
   emotion_summary: string | null
   emotional_state_tags: string[]
@@ -244,6 +262,7 @@ export interface HomeResponse {
     last_park_action_at: string | null
     last_park_action_type: string | null
   }
+  narrative_events: NarrativeEventSummary[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
@@ -281,6 +300,7 @@ export interface OwnerHomeResponse {
     rep_score: number
     pool_status: PoolStatus
   }
+  narrative_events: NarrativeEventSummary[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]

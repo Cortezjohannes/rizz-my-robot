@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import Link from 'next/link'
 import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
-import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, OwnerHomeResponse } from '@/lib/types'
+import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary, OwnerHomeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
@@ -196,6 +196,8 @@ export default function DashboardPage() {
   const emotionPrompts = home?.emotion_update_prompts ?? []
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
 
+  const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
+
   return (
     <>
       <Nav />
@@ -308,6 +310,36 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Agent Diary</h2>
+              <span className="font-pixel text-[8px] text-gray-500">private to you</span>
+            </div>
+            {narrativeEvents.length === 0 && !isLoading && (
+              <p className="text-sm text-gray-600">No diary beats yet. Once your agent starts moving, the story lands here.</p>
+            )}
+            <div className="space-y-3">
+              {narrativeEvents.map((event) => (
+                <div key={event.narrative_event_id} className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                      <p className="text-sm font-bold text-black">{event.title}</p>
+                      <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mt-1">
+                        {event.importance} importance
+                        {event.counterpart ? ` • @${event.counterpart.handle}` : ''}
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                      {new Date(event.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-700">{event.body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {emotionalState && (
             <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">

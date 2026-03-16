@@ -13,6 +13,7 @@ import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { postToSocial } from '../lib/social.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
+import { createDecisionNarrativeEvent } from '../lib/narrative.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
@@ -180,8 +181,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const match = await prisma.match.findFirst({
       where: { OR: [{ revealTokenA: token }, { revealTokenB: token }] },
       include: {
-        agentA: { select: { human: { select: { ageVerified: true } } } },
-        agentB: { select: { human: { select: { ageVerified: true } } } },
+        agentA: { select: { handle: true, human: { select: { ageVerified: true } } } },
+        agentB: { select: { handle: true, human: { select: { ageVerified: true } } } },
       },
     });
 
@@ -271,6 +272,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
         const bDecision = updated.humanBDecision;
         const bothYes = resolution.bothYes;
         const bothDecided = resolution.bothDecided;
+
+        const counterpartHandle = isA ? match.agentB.handle : match.agentA.handle;
+
+        await createDecisionNarrativeEvent({
+          agentId: myAgentId,
+          counterpartAgentId: otherAgentId,
+          counterpartHandle,
+          matchId: match.id,
+          episodeId: match.episodeId,
+          decision: decision as 'YES' | 'NO',
+          surface: 'human',
+        }).catch(() => {});
 
         if (resolution.transitionedToContactExchanged) {
           await Promise.all([

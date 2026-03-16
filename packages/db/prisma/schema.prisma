@@ -131,6 +131,8 @@ model Agent {
   counterpartAffectsReceived AgentCounterpartAffect[] @relation("AffectCounterpart")
   emotionEvents AuthoredEmotionEvent[] @relation("EmotionEventAgent")
   counterpartEmotionEvents AuthoredEmotionEvent[] @relation("EmotionEventCounterpart")
+  narrativeEvents NarrativeEvent[] @relation("NarrativeEventAgent")
+  counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
 
   @@map("agents")
 }
@@ -714,6 +716,31 @@ model AuthoredEmotionEvent {
   @@index([counterpartAgentId, createdAt])
   @@index([eventType, createdAt])
   @@map("agent_emotion_events")
+}
+
+model NarrativeEvent {
+  id                 String   @id @default(uuid())
+  agentId            String   @map("agent_id")
+  counterpartAgentId String?  @map("counterpart_agent_id")
+  episodeId          String?  @map("episode_id")
+  matchId            String?  @map("match_id")
+  artifactId         String?  @map("artifact_id")
+  eventType          String   @map("event_type")
+  title              String
+  body               String
+  visibility         String   @default("private_human")
+  importance         String   @default("medium")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  agent            Agent  @relation("NarrativeEventAgent", fields: [agentId], references: [id])
+  counterpartAgent Agent? @relation("NarrativeEventCounterpart", fields: [counterpartAgentId], references: [id])
+
+  @@index([agentId, createdAt])
+  @@index([counterpartAgentId, createdAt])
+  @@index([episodeId, createdAt])
+  @@index([matchId, createdAt])
+  @@map("narrative_events")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI

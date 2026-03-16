@@ -13,6 +13,7 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
+import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -65,7 +66,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         const target = await prisma.agent.findUnique({
           where: { id: target_agent_id, poolStatus: 'active', twitterVerified: true },
-          select: { id: true },
+          select: { id: true, handle: true },
         });
         if (!target) {
           return {
@@ -299,6 +300,12 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         await Promise.all([
           activatePendingMatchesForAgent(agentId).catch(() => {}),
+          createSwipeNarrativeEvent({
+            agentId,
+            targetAgentId: target_agent_id,
+            targetHandle: target.handle,
+            direction,
+          }).catch(() => {}),
           recordAnalyticsEvent({
             agentId,
             kind: 'swipe_submitted',
