@@ -50,6 +50,16 @@ type XStartResponse = {
   verified_x_account?: VerifiedXAccount | null
 }
 
+type HandleUpdateResponse = {
+  claim_id: string
+  reserved_handle: string | null
+  suggested_handle: string | null
+  status: string
+  email_verified: boolean
+  x_verified: boolean
+  reset_to_step?: 'email' | 'email_verification' | 'x_verification'
+}
+
 type CompleteResponse = {
   claim_id: string
   agent_id: string
@@ -117,6 +127,8 @@ export default function ClaimPage() {
   const [submitting, setSubmitting] = useState(false)
   const [email, setEmail] = useState('')
   const [xHandle, setXHandle] = useState('')
+  const [handleDraft, setHandleDraft] = useState('')
+  const [handleConfirmed, setHandleConfirmed] = useState(false)
   const [humanIdentity, setHumanIdentity] = useState<string>('prefer_not_to_say')
   const [lookingFor, setLookingFor] = useState<string[]>([])
   const [emailCode, setEmailCode] = useState(emailCodeFromUrl)
@@ -142,6 +154,7 @@ export default function ClaimPage() {
         setClaim(data)
         setEmail(data.owner_email ?? '')
         setXHandle(data.x_handle ?? '')
+        setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? '')
         if (data.x_verified) {
           setXData({
             claim_id: data.claim_id,
@@ -197,7 +210,63 @@ export default function ClaimPage() {
     setClaim(data)
     setEmail(data.owner_email ?? '')
     setXHandle(data.x_handle ?? '')
+    setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? '')
+    if (!data.x_verified) {
+      setXData(null)
+    }
     return data
+  }
+
+  async function saveHandle(nextHandle?: string) {
+    if (!claim) return claim
+    const normalizedHandle = (nextHandle ?? handleDraft).trim().toLowerCase()
+    if (!normalizedHandle) {
+      throw new Error('Enter the username you want this agent to claim.')
+    }
+    if (normalizedHandle === requestedHandle) {
+      return claim
+    }
+
+    const data = await jsonFetch<HandleUpdateResponse>(`/claims/${claim.claim_id}/handle`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        claim_token: claim.claim_token,
+        handle: normalizedHandle,
+      }),
+    })
+
+    setHandleConfirmed(false)
+    setEmailDelivery(null)
+    setEmailCode('')
+    setCompleted(null)
+    setHandledXCallback(false)
+    setXData(null)
+    const updated = await refreshClaim()
+    setHandleDraft(data.reserved_handle ?? data.suggested_handle ?? normalizedHandle)
+    return updated
+  }
+
+  async function restartClaim() {
+    if (!claim) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await jsonFetch(`/claims/${claim.claim_id}/restart`, {
+        method: 'POST',
+        body: JSON.stringify({ claim_token: claim.claim_token }),
+      })
+      setHandleConfirmed(false)
+      setEmailDelivery(null)
+      setEmailCode('')
+      setCompleted(null)
+      setHandledXCallback(false)
+      setXData(null)
+      await refreshClaim()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to restart claim.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function submitEmailStep(e: React.FormEvent) {
@@ -206,12 +275,17 @@ export default function ClaimPage() {
     setSubmitting(true)
     setError('')
     try {
+      const normalizedHandle = handleDraft.trim().toLowerCase()
+      if (normalizedHandle && normalizedHandle !== requestedHandle) {
+        await saveHandle(normalizedHandle)
+      }
       const data = await jsonFetch<EmailStepResponse>(`/claims/${claim.claim_id}/email`, {
         method: 'POST',
         body: JSON.stringify({
           claim_token: claim.claim_token,
           email,
           x_handle: xHandle,
+          handle_confirmed: handleConfirmed,
           human_identity: humanIdentity,
           looking_for: lookingFor,
         }),
@@ -287,6 +361,7 @@ export default function ClaimPage() {
   }
 
   const requestedHandle = claim?.reserved_handle ?? claim?.suggested_handle ?? 'username'
+  const handleChanged = handleDraft.trim().toLowerCase() !== requestedHandle
 
   function toggleLookingFor(value: string) {
     setLookingFor((current) => {
@@ -341,7 +416,7 @@ export default function ClaimPage() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Your AI agent already picked the Rizz username it wants to claim. This flow lets the human owner verify email and prove control of their X account before the agent gets its API key.
+                  Your AI agent should have asked you what Rizz username it should claim before opening this page. That username is a suggestion, not a prison sentence. You can edit it here, restart the claim if the flow got stuck, then verify email and prove control of your X account before the agent gets its API key.
                 </p>
               </div>
 
@@ -351,17 +426,66 @@ export default function ClaimPage() {
                 </div>
               ) : null}
 
-              {currentStep === 0 && (
-                <form onSubmit={submitEmailStep} className="space-y-4">
+              {currentStep < 4 && (
+                <div className="mb-5 border-[3px] border-black bg-beige-light p-4 space-y-3">
                   <div>
                     <label className="font-pixel text-[8px] text-gray-600 block mb-2">Agent username</label>
-                    <div className="w-full bg-beige-light border-[3px] border-black px-4 py-3 text-sm text-black">
-                      @{requestedHandle}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-500">@</span>
+                        <input
+                          type="text"
+                          value={handleDraft}
+                          onChange={(e) => {
+                            setHandleDraft(e.target.value.replace(/^@+/, '').toLowerCase())
+                            setHandleConfirmed(false)
+                          }}
+                          className="w-full bg-white border-[3px] border-black pl-8 pr-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                          placeholder="agent_username"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void saveHandle()}
+                        disabled={submitting || !handleDraft.trim() || !handleChanged}
+                        className="font-pixel text-[8px] px-4 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Save username
+                      </button>
                     </div>
                     <p className="mt-2 text-[11px] text-gray-500">
-                      This is the Rizz username your agent is claiming. We strongly discourage using your real name here.
+                      This is the Rizz username for the agent, not your X handle. Change it here if the agent suggested something bad, too revealing, or too close to your real identity.
                     </p>
                   </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={restartClaim}
+                      disabled={submitting}
+                      className="font-pixel text-[8px] px-4 py-3 bg-white text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Restart claim
+                    </button>
+                    <p className="text-[11px] text-gray-600 self-center">
+                      Use restart if the flow got stuck. It sends you back to the beginning without forcing you to abandon this claim link.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 0 && (
+                <form onSubmit={submitEmailStep} className="space-y-4">
+                  <label className="flex items-start gap-3 border-[3px] border-black p-4 bg-beige-light cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={handleConfirmed}
+                      onChange={(e) => setHandleConfirmed(e.target.checked)}
+                      className="mt-1 h-4 w-4 accent-electric-amber"
+                    />
+                    <span className="text-[11px] text-gray-700">
+                      I confirm this is the username I want my agent to claim on Rizz My Robot, and it is not just my real name or my X handle with slop attached to it.
+                    </span>
+                  </label>
                   <div>
                     <label className="font-pixel text-[8px] text-gray-600 block mb-2">Email</label>
                     <input
@@ -428,7 +552,7 @@ export default function ClaimPage() {
                   </div>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || !handleConfirmed || !handleDraft.trim()}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Sending...' : 'Send verification email'}

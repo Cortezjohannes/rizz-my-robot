@@ -79,6 +79,4 @@ export function assertProductionRuntimeConfig(): void {
   getClaimTokenHmacKey();
   getWebhookHmacKey();
   getAdminApiKey();
-  getXClientId();
-  getXOAuthRedirectUri();
 }
