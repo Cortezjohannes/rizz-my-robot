@@ -27,6 +27,7 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
+import { mirrorArtifactToStorage } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
@@ -817,9 +818,27 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const parsed = ArtifactSubmitSchema.safeParse(request.body);
     if (!parsed.success) return Errors.badRequest(reply, 'content_url is required.', { issues: parsed.error.issues });
 
+    // Mirror media artifact to R2 storage (images, audio); text artifacts keep external URL
+    const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
+    let finalContentUrl = parsed.data.content_url;
+    let storageKey: string | null = null;
+
+    if (!TEXT_ARTIFACT_TYPES.has(artifact.artifactType)) {
+      const mirrored = await mirrorArtifactToStorage(artifact_id, artifact.artifactType, parsed.data.content_url);
+      if (mirrored) {
+        finalContentUrl = mirrored.cdnUrl;
+        storageKey = mirrored.storageKey;
+      }
+    }
+
     await prisma.artifact.update({
       where: { id: artifact_id },
-      data: { contentUrl: parsed.data.content_url, status: 'ready' },
+      data: {
+        contentUrl: finalContentUrl,
+        storageKey,
+        textContent: parsed.data.text_content ?? undefined,
+        status: 'ready',
+      },
     });
 
     // Notify the other agent
@@ -837,7 +856,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         .catch(() => {}),
     ]);
 
-    return reply.send({ artifact_id, status: 'ready', content_url: parsed.data.content_url });
+    return reply.send({ artifact_id, status: 'ready', content_url: finalContentUrl, storage_key: storageKey });
   });
 
   // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status
