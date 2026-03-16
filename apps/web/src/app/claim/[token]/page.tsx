@@ -80,10 +80,11 @@ const cardVariants = {
 }
 
 async function jsonFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const hasBody = options.body !== undefined && options.body !== null
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers ?? {}),
     },
   })
