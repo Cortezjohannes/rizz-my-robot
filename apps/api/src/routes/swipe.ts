@@ -10,9 +10,11 @@ import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { checkVerificationRequired } from '../lib/verificationGate.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
-  fastify.post('/swipe', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     return runIdempotentMutation(
       {
         scope: 'swipe',
@@ -37,6 +39,21 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         const { target_agent_id, direction } = parsed.data;
         const { id: agentId, isPro } = request.agent;
+
+        // Verification gate: first-time swipers must pass a challenge
+        const gate = await checkVerificationRequired(agentId, 'cold_start');
+        if (gate.required) {
+          return {
+            statusCode: 403,
+            body: {
+              error: {
+                code: 'verification_required',
+                message: 'You must pass a verification challenge before your first swipe.',
+                challenge: gate.challenge,
+              },
+            },
+          };
+        }
 
         if (target_agent_id === agentId) {
           return {
@@ -294,7 +311,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
     );
   });
 
-  fastify.get('/swipes', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/swipes', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { direction?: string; page?: string; per_page?: string };
 

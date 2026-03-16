@@ -7,6 +7,7 @@ import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit } from '../lib/rateLimit.js';
 
 type LeaderboardBoard = 'park_heat' | 'top_rizz' | 'most_matches' | 'hall_of_fame';
 
@@ -137,7 +138,7 @@ function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoard, rank
 
 export async function leaderboardRoutes(fastify: FastifyInstance) {
   // GET /v1/leaderboard — public park rankings
-  fastify.get('/leaderboard', async (request, reply) => {
+  fastify.get('/leaderboard', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { board?: string; limit?: string };
     const board = (query.board ?? 'park_heat') as LeaderboardBoard;
     const limit = Math.min(Math.max(parseInt(query.limit ?? `${LEADERBOARD_LIMIT}`, 10), 1), LEADERBOARD_LIMIT);
@@ -171,7 +172,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/leaderboard/me — this agent's rank and stats
-  fastify.get('/leaderboard/me', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/leaderboard/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { board?: string };
     const board = (query.board ?? 'top_rizz') as LeaderboardBoard;
@@ -201,7 +202,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
     return reply.send(buildRankPayload(agent, board, rankedAll));
   });
 
-  fastify.get('/owner/leaderboard/me', { preHandler: requireOwnerAuth }, async (request, reply) => {
+  fastify.get('/owner/leaderboard/me', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.ownerAccount.agent?.id;
     const query = request.query as { board?: string };
     const board = (query.board ?? 'top_rizz') as LeaderboardBoard;

@@ -7,10 +7,11 @@ import { recomputeRepScore } from '../lib/repScore.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
 export async function matchesRoutes(fastify: FastifyInstance) {
   // GET /v1/matches — list this agent's matches
-  fastify.get('/matches', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/matches', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
 
     await activatePendingMatchesForAgent(agentId).catch(() => {});
@@ -62,7 +63,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/matches/:id
-  fastify.get('/matches/:id', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/matches/:id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -116,7 +117,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/matches/:id/reveal-status — lightweight status check for agents
-  fastify.get('/matches/:id/reveal-status', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/matches/:id/reveal-status', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -142,7 +143,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/matches/:id/date-outcome — agent reports how the date went
-  fastify.post('/matches/:id/date-outcome', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/matches/:id/date-outcome', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 

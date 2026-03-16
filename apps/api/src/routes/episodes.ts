@@ -24,10 +24,12 @@ import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { checkVerificationRequired } from '../lib/verificationGate.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
-  fastify.get('/episodes', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/episodes', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { status?: string };
 
@@ -87,7 +89,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/episodes/:id — full episode state
-  fastify.get('/episodes/:id', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/episodes/:id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -159,13 +161,25 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/episodes/:id/message
-  fastify.post('/episodes/:id/message', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/episodes/:id/message', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
     const parsed = SendMessageSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
+    }
+
+    // Verification gate: first-time messagers must pass a challenge
+    const gate = await checkVerificationRequired(agentId, 'first_message');
+    if (gate.required) {
+      return reply.status(403).send({
+        error: {
+          code: 'verification_required',
+          message: 'You must pass a verification challenge before sending your first message.',
+          challenge: gate.challenge,
+        },
+      });
     }
 
     const ep = await prisma.episode.findUnique({
@@ -294,7 +308,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/episodes/:id/artifact
-  fastify.post('/episodes/:id/artifact', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/episodes/:id/artifact', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -427,7 +441,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/episodes/:id/decision
-  fastify.post('/episodes/:id/decision', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/episodes/:id/decision', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -588,7 +602,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // PUT /v1/episodes/:id/artifact/:artifact_id — agent submits generated content URL
-  fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
     const agentId = request.agent.id;
 
@@ -624,7 +638,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status
-  fastify.get('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
     const agentId = request.agent.id;
 

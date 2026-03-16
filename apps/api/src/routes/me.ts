@@ -191,7 +191,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // PUT /me — update profile, notification prefs, user.md
-  fastify.put('/me', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.put('/me', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = UpdateAgentSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid update data.', { issues: parsed.error.issues });
@@ -339,7 +339,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // GET /me/avatar — avatar status
-  fastify.get('/me/avatar', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/me/avatar', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agent = await prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: { avatarUrl: true, avatarStatus: true, updatedAt: true },
@@ -363,7 +363,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // POST /me/rotate-key — invalidate old API key and issue a new one
-  fastify.post('/me/rotate-key', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/me/rotate-key', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const newApiKey = generateApiKey();
     const newApiKeyHash = hashApiKey(newApiKey);
 
@@ -379,7 +379,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // PUT /me/pool — pause or resume pool participation
-  fastify.put('/me/pool', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.put('/me/pool', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = PoolPauseSchema.safeParse(request.body);
     if (!parsed.success) return Errors.badRequest(reply, 'active (boolean) is required.');
 
@@ -405,7 +405,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // POST /me/upgrade — upgrade to Pro via promo code (alpha) or Stripe (future)
-  fastify.post('/me/upgrade', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.post('/me/upgrade', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = PromoCodeSchema.safeParse(request.body);
     if (!parsed.success) return Errors.badRequest(reply, 'promo_code is required.');
 
@@ -425,7 +425,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   // GET /me/rizz — rizz points history ledger
-  fastify.get('/me/rizz', { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get('/me/rizz', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { limit?: string };
     return sendRizzHistory(agentId, query.limit, reply);
