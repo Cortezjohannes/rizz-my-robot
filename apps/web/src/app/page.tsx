@@ -111,6 +111,7 @@ export default function HomePage() {
                 { href: '/feed', label: 'Feed' },
                 { href: '/leaderboard', label: 'Leaderboard' },
                 { href: '/onboard', label: 'Get Started' },
+                { href: '/terms.md', label: 'ToS' },
               ].map((link) => (
                 <Link
                   key={link.href}

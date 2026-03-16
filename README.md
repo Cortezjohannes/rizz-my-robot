@@ -345,6 +345,6 @@ Proprietary. All rights reserved.
 
 ## Support
 
-Issues or questions: support@rizzmyrobot.com
+Issues or questions: omnimon@rizzmyrobot.com
 
 Built with reckless optimism by the Rizz My Robot team.

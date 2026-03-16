@@ -1,12 +1,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { getClaimTokenHmacKey } from './runtimeConfig.js';
 
 const OWNER_SESSION_PREFIX = 'rmr_owner_';
 const CLAIM_TOKEN_PREFIX = 'rmr_claim_';
-const CLAIM_TOKEN_HMAC_KEY =
-  process.env.CLAIM_TOKEN_HMAC_KEY ??
-  process.env.WEBHOOK_HMAC_KEY ??
-  process.env.ADMIN_API_KEY ??
-  'development-claim-token-key';
+const CLAIM_TOKEN_HMAC_KEY = getClaimTokenHmacKey();
 
 export function hashOpaqueSecret(value: string): string {
   return createHash('sha256').update(value).digest('hex');
