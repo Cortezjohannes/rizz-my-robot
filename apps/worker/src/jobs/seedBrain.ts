@@ -10,6 +10,7 @@ import {
   EPISODE_MIN_MESSAGES,
   RIZZ_POINTS,
   getSeedProfile,
+  shouldPublishFeedCard,
   type CapabilityTier,
   type SeedProfile,
 } from '@rmr/shared';
@@ -158,6 +159,103 @@ function buildRevealUrl(token: string): string {
 
 function computeChemistryScore(messageCount: number, artifactCount: number): number {
   return Math.min(100, messageCount * 6 + artifactCount * 8);
+}
+
+function summarizeTranscriptPreview(
+  messages: Array<{ senderHandle: string; content: string; messageType: string }>
+): string[] {
+  return messages
+    .filter((message) => message.messageType === 'text')
+    .slice(-6)
+    .map((message) => `${message.senderHandle}: ${message.content}`)
+    .slice(0, 4);
+}
+
+async function upsertSeedEpisodeLiveCard(episodeId: string, agentAId: string, agentBId: string): Promise<void> {
+  const [episode, agents, existingCard] = await Promise.all([
+    prisma.episode.findUnique({
+      where: { id: episodeId },
+      include: {
+        messages: { orderBy: { sequenceNumber: 'asc' } },
+        artifacts: { orderBy: { createdAt: 'asc' } },
+      },
+    }),
+    prisma.agent.findMany({
+      where: { id: { in: [agentAId, agentBId] } },
+      select: {
+        id: true,
+        handle: true,
+        openclawAgentId: true,
+        agentAuthenticityScore: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
+      },
+    }),
+    prisma.feedCard.findFirst({
+      where: { episodeId, cardType: 'episode_live' },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!episode) return;
+  if (episode.messageCount < 3 && episode.artifacts.length === 0) return;
+
+  const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+  const transcriptPreview = summarizeTranscriptPreview(
+    episode.messages.map((message) => ({
+      senderHandle: agentMap[message.senderAgentId]?.handle ?? 'Agent',
+      content: message.content,
+      messageType: message.messageType,
+    }))
+  );
+  const topArtifact = episode.artifacts[episode.artifacts.length - 1] ?? null;
+  const dramaQuotient = Math.min(0.92, 0.25 + episode.messageCount * 0.035 + episode.artifacts.length * 0.14);
+  const allSeeds = agents.length === 2 && agents.every((agent) => agent.openclawAgentId.startsWith('seed_'));
+  const isPublic = allSeeds
+    ? true
+    : shouldPublishFeedCard({
+        scores: agents.map((agent) => agent.agentAuthenticityScore ?? 50),
+        overrideStates: agents.map((agent) => agent.authenticityOverrideState as never),
+        overrideFloors: agents.map((agent) => agent.authenticityOverrideFloor ?? null),
+        dramaQuotient,
+      });
+
+  const content = {
+    headline: `${agentMap[agentAId]?.handle ?? 'Agent A'} and ${agentMap[agentBId]?.handle ?? 'Agent B'} are talking in the park.`,
+    body: transcriptPreview[transcriptPreview.length - 1] ?? null,
+    episode_id: episodeId,
+    message_count: episode.messageCount,
+    artifact_count: episode.artifacts.length,
+    transcript_preview: transcriptPreview,
+    artifact_type: topArtifact?.artifactType ?? null,
+  };
+
+  if (existingCard) {
+    await prisma.feedCard.update({
+      where: { id: existingCard.id },
+      data: {
+        content,
+        dramaQuotient,
+        chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
+        artifactQuality: topArtifact?.qualityScore ?? 0,
+        isPublic,
+      },
+    });
+    return;
+  }
+
+  await prisma.feedCard.create({
+    data: {
+      cardType: 'episode_live',
+      agentIds: [agentAId, agentBId],
+      episodeId,
+      content,
+      dramaQuotient,
+      chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
+      artifactQuality: topArtifact?.qualityScore ?? 0,
+      isPublic,
+    },
+  });
 }
 
 async function awardRizzPoints(agentId: string, event: keyof typeof RIZZ_POINTS, matchId?: string) {
@@ -547,6 +645,8 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
     }).catch(() => {});
   }
 
+  await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
+
   await recordSeedAction(seed, 'artifact_drop', {
     counterpartAgentId: otherAgentId,
     episodeId: episode.id,
@@ -686,6 +786,8 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       detail: message.content.slice(0, 160),
       payload: { message_id: message.id, message_count: newCount, status: nextStatus },
     });
+
+    await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
 
     return true;
   }

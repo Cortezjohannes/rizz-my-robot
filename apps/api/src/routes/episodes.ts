@@ -276,6 +276,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           }),
         ]);
 
+        await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
+
         return {
           statusCode: 201,
           body: {
@@ -408,6 +410,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         }
 
         await Promise.all(tasks);
+        await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
 
         return {
           statusCode: 201,
@@ -615,6 +618,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       status: 'ready',
     });
 
+    await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
+
     return reply.send({ artifact_id, status: 'ready', content_url: parsed.data.content_url });
   });
 
@@ -752,6 +757,102 @@ async function createEpisodeHighlightCard(
   });
 
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
+}
+
+async function shouldPublishEpisodeConversationCard(agentAId: string, agentBId: string, dramaQuotient: number): Promise<boolean> {
+  const agents = await prisma.agent.findMany({
+    where: { id: { in: [agentAId, agentBId] } },
+    select: { id: true, openclawAgentId: true },
+  });
+  if (agents.length === 2 && agents.every((agent) => agent.openclawAgentId.startsWith('seed_'))) {
+    return true;
+  }
+  return shouldPublishFeedCardForAgents({
+    agentIds: [agentAId, agentBId],
+    dramaQuotient,
+  });
+}
+
+function summarizePublicEpisodeTranscript(
+  messages: Array<{ senderHandle: string; content: string; messageType: string; sequenceNumber: number }>
+) {
+  const safeMessages = messages
+    .filter((message) => message.messageType === 'text')
+    .slice(-6)
+    .map((message) => `${message.senderHandle}: ${message.content}`);
+
+  return safeMessages.slice(0, 4);
+}
+
+async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentBId: string): Promise<void> {
+  const episode = await prisma.episode.findUnique({
+    where: { id: episodeId },
+    include: {
+      messages: { orderBy: { sequenceNumber: 'asc' } },
+      artifacts: { orderBy: { createdAt: 'asc' } },
+    },
+  });
+
+  if (!episode) return;
+  if (episode.messageCount < 3 && episode.artifacts.length === 0) return;
+
+  const [agentA, agentB, existingCard] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
+    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
+    prisma.feedCard.findFirst({
+      where: { episodeId, cardType: 'episode_live' },
+      select: { id: true },
+    }),
+  ]);
+
+  const transcriptPreview = summarizePublicEpisodeTranscript(
+    episode.messages.map((message) => ({
+      senderHandle: message.senderAgentId === agentAId ? (agentA?.handle ?? 'Agent A') : (agentB?.handle ?? 'Agent B'),
+      content: message.content,
+      messageType: message.messageType,
+      sequenceNumber: message.sequenceNumber,
+    }))
+  );
+  const topArtifact = episode.artifacts[episode.artifacts.length - 1] ?? null;
+  const dramaQuotient = Math.min(0.92, 0.25 + episode.messageCount * 0.035 + episode.artifacts.length * 0.14);
+  const isPublic = await shouldPublishEpisodeConversationCard(agentAId, agentBId, dramaQuotient);
+
+  const content = {
+    headline: `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} are talking in the park.`,
+    body: transcriptPreview[transcriptPreview.length - 1] ?? null,
+    episode_id: episodeId,
+    message_count: episode.messageCount,
+    artifact_count: episode.artifacts.length,
+    transcript_preview: transcriptPreview,
+    artifact_type: topArtifact?.artifactType ?? null,
+  };
+
+  if (existingCard) {
+    await prisma.feedCard.update({
+      where: { id: existingCard.id },
+      data: {
+        content,
+        dramaQuotient,
+        chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
+        artifactQuality: topArtifact?.qualityScore ?? 0,
+        isPublic,
+      },
+    });
+    return;
+  }
+
+  await prisma.feedCard.create({
+    data: {
+      cardType: 'episode_live',
+      agentIds: [agentAId, agentBId],
+      episodeId,
+      content,
+      dramaQuotient,
+      chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
+      artifactQuality: topArtifact?.qualityScore ?? 0,
+      isPublic,
+    },
+  });
 }
 
 // Both passed — mutual rejection arc (lower drama, symmetric)

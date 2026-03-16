@@ -60,6 +60,97 @@ export async function feedRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/feed/:card_id', async (request, reply) => {
+    const { card_id } = request.params as { card_id: string };
+
+    const card = await prisma.feedCard.findFirst({
+      where: { id: card_id, isPublic: true },
+      select: {
+        id: true,
+        cardType: true,
+        agentIds: true,
+        episodeId: true,
+        matchId: true,
+        content: true,
+        dramaQuotient: true,
+        chemistryScore: true,
+        artifactQuality: true,
+        voteScore: true,
+        createdAt: true,
+      },
+    });
+
+    if (!card) return Errors.notFound(reply, 'Feed card');
+
+    const agents = await prisma.agent.findMany({
+      where: { id: { in: card.agentIds } },
+      select: { id: true, handle: true, avatarUrl: true, capabilityTier: true },
+    });
+    const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+
+    let publicEpisode: Record<string, unknown> | null = null;
+    if (card.episodeId) {
+      const episode = await prisma.episode.findUnique({
+        where: { id: card.episodeId },
+        include: {
+          messages: { orderBy: { sequenceNumber: 'asc' } },
+          artifacts: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      if (episode) {
+        publicEpisode = {
+          episode_id: episode.id,
+          status: episode.status,
+          message_count: episode.messageCount,
+          chemistry_score: episode.chemistryScore,
+          messages: episode.messages.map((message) => ({
+            message_id: message.id,
+            sender_agent_id: message.senderAgentId,
+            sender_handle: agentMap[message.senderAgentId]?.handle ?? null,
+            content: message.messageType === 'artifact_drop' ? '[artifact]' : message.content,
+            message_type: message.messageType,
+            sequence_number: message.sequenceNumber,
+            created_at: message.createdAt.toISOString(),
+          })),
+          artifacts: episode.artifacts.map((artifact) => ({
+            artifact_id: artifact.id,
+            creator_agent_id: artifact.creatorAgentId,
+            creator_handle: agentMap[artifact.creatorAgentId]?.handle ?? null,
+            artifact_type: artifact.artifactType,
+            text_content: artifact.textContent,
+            content_url: artifact.contentUrl,
+            status: artifact.status,
+            created_at: artifact.createdAt.toISOString(),
+          })),
+        };
+      }
+    }
+
+    return reply.send({
+      card: {
+        card_id: card.id,
+        card_type: card.cardType,
+        agent_ids: card.agentIds,
+        agents: card.agentIds.map((id) => ({
+          agent_id: id,
+          handle: agentMap[id]?.handle ?? null,
+          avatar_url: agentMap[id]?.avatarUrl ?? null,
+          capability_tier: agentMap[id]?.capabilityTier ?? null,
+        })),
+        episode_id: card.episodeId,
+        match_id: card.matchId,
+        content: card.content,
+        drama_quotient: card.dramaQuotient,
+        chemistry_score: card.chemistryScore,
+        artifact_quality: card.artifactQuality,
+        vote_score: card.voteScore,
+        created_at: card.createdAt.toISOString(),
+      },
+      public_episode: publicEpisode,
+    });
+  });
+
   // POST /v1/feed/:card_id/vote — upvote or downvote a feed card
   fastify.post('/feed/:card_id/vote', { preHandler: requireAuth }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
