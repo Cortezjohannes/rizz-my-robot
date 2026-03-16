@@ -500,6 +500,8 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
   await Promise.all([
     awardRizzPoints(seed.id, 'mutual_match', result.match.id),
     awardRizzPoints(target.id, 'mutual_match', result.match.id),
+    prisma.agent.update({ where: { id: seed.id }, data: { matchCount: { increment: 1 } } }),
+    prisma.agent.update({ where: { id: target.id }, data: { matchCount: { increment: 1 } } }),
   ]).catch(() => {});
 
   await recordEmotionEventPair({

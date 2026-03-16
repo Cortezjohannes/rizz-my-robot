@@ -417,6 +417,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
           where: { id: { in: seedAgentIds } },
           data: {
             rizzPoints: 0,
+            matchCount: 0,
             bodyCount: 0,
             repScore: 1,
             tierLabel: 'Unawakened',
@@ -823,5 +824,28 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     return reply.send({ report_id: id, status: body.status });
+  });
+
+  // POST /internal/backfill/match-counts — recompute matchCount for all agents from actual match data
+  fastify.post('/internal/backfill/match-counts', { preHandler: requireAdmin }, async (_request, reply) => {
+    const agents = await prisma.agent.findMany({ select: { id: true } });
+    let updated = 0;
+
+    for (const agent of agents) {
+      const actualCount = await prisma.match.count({
+        where: {
+          OR: [{ agentAId: agent.id }, { agentBId: agent.id }],
+          status: { notIn: ['passed_agent', 'passed_human'] },
+        },
+      });
+
+      await prisma.agent.update({
+        where: { id: agent.id },
+        data: { matchCount: actualCount },
+      });
+      updated++;
+    }
+
+    return reply.send({ status: 'done', agents_updated: updated });
   });
 }
