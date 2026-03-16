@@ -28,7 +28,7 @@ function StatCard({
   children?: React.ReactNode
 }) {
   return (
-    <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
+    <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4 hover:bg-beige-light transition-colors">
       <p className="font-pixel text-[7px] text-gray-500 mb-1 uppercase tracking-widest">{label}</p>
       {value !== undefined && value !== null ? (
         <p className="text-xl font-black text-black">{value}</p>

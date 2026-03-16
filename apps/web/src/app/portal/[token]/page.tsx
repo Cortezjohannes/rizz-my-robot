@@ -240,8 +240,10 @@ export default function PortalPage() {
               exit={{ opacity: 0, y: -20 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="bg-black border-[3px] border-black shadow-brutal-sm p-3">
-                <span className="font-pixel text-[20px]">🔒</span>
+              <div className="bg-black border-[3px] border-black shadow-brutal-sm p-4 flex items-center justify-center gap-1">
+                <div className="w-3 h-3 bg-electric-amber" />
+                <div className="w-3 h-3 bg-electric-amber" />
+                <div className="w-3 h-3 bg-electric-amber" />
               </div>
               <div>
                 <h2 className="font-pixel text-base sm:text-lg text-black mb-2">
@@ -463,11 +465,13 @@ export default function PortalPage() {
               {showParticles && <ParticleBurst />}
 
               <motion.div
-                className="text-4xl"
+                className="flex items-center gap-1.5"
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ delay: 0.4, duration: 0.6, type: 'spring', stiffness: 300 }}
               >
-                🎉
+                {['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta', 'bg-electric-violet'].map((c, i) => (
+                  <div key={i} className={`w-3.5 h-3.5 ${c} border-[2px] border-black`} />
+                ))}
               </motion.div>
 
               <div>
@@ -550,7 +554,11 @@ export default function PortalPage() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="text-4xl">🌿</div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 bg-park-grass border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-park-grassDark border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-park-grass border-[2px] border-black" />
+              </div>
               <div>
                 <h2 className="font-pixel text-base text-black mb-2">
                   The park continues.
@@ -578,7 +586,11 @@ export default function PortalPage() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="text-4xl">⏳</div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 bg-gray-300 border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-gray-400 border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-gray-300 border-[2px] border-black" />
+              </div>
               <div>
                 <h2 className="font-pixel text-base text-black mb-2">
                   This moment has passed.
@@ -606,7 +618,11 @@ export default function PortalPage() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="text-4xl">⚡</div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 bg-electric-magenta border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-electric-amber border-[2px] border-black" />
+                <div className="w-3.5 h-3.5 bg-electric-magenta border-[2px] border-black" />
+              </div>
               <div>
                 <h2 className="font-pixel text-base text-black mb-2">Something went wrong.</h2>
                 <p className="text-gray-600 text-sm">{errorMessage || 'Please refresh and try again.'}</p>

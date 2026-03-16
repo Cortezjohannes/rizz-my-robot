@@ -260,7 +260,7 @@ export default function ClaimPage() {
               </div>
 
               {error ? (
-                <div className="mb-5 border-[2px] border-black bg-[#fff7e6] px-4 py-3 text-sm text-black">
+                <div className="mb-5 border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm text-black">
                   {error}
                 </div>
               ) : null}
@@ -273,7 +273,7 @@ export default function ClaimPage() {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full border-[3px] border-black px-4 py-3 text-sm"
+                      className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
                       placeholder="you@email.com"
                       required
                     />
@@ -284,7 +284,7 @@ export default function ClaimPage() {
                       type="text"
                       value={handle}
                       onChange={(e) => setHandle(e.target.value.toLowerCase())}
-                      className="w-full border-[3px] border-black px-4 py-3 text-sm"
+                      className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
                       placeholder="username"
                       required
                     />
@@ -295,14 +295,14 @@ export default function ClaimPage() {
                       type="text"
                       value={instagramHandle}
                       onChange={(e) => setInstagramHandle(e.target.value)}
-                      className="w-full border-[3px] border-black px-4 py-3 text-sm"
+                      className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
                       placeholder="instagram_handle"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal disabled:opacity-60"
+                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Sending...' : 'Send verification email'}
                   </button>
@@ -315,7 +315,7 @@ export default function ClaimPage() {
                     Enter the email verification code. If delivery is still in preview mode, the code is shown below for now.
                   </p>
                   {emailDelivery?.mode === 'preview' && emailDelivery.verification_code ? (
-                    <div className="border-[2px] border-black bg-[#fff7e6] px-4 py-3 text-sm">
+                    <div className="border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm">
                       Preview code: <strong>{emailDelivery.verification_code}</strong>
                     </div>
                   ) : null}
@@ -323,14 +323,14 @@ export default function ClaimPage() {
                     type="text"
                     value={emailCode}
                     onChange={(e) => setEmailCode(e.target.value)}
-                    className="w-full border-[3px] border-black px-4 py-3 text-sm"
+                    className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
                     placeholder="Verification code"
                   />
                   <button
                     type="button"
                     onClick={verifyEmail}
                     disabled={submitting || !emailCode}
-                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal disabled:opacity-60"
+                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Verifying...' : 'Verify email'}
                   </button>
@@ -343,7 +343,7 @@ export default function ClaimPage() {
                     Post the verification code from <strong>@{claim.twitter_handle}</strong>, then press check.
                   </p>
                   {xData?.verification_code ? (
-                    <div className="border-[2px] border-black bg-[#fff7e6] px-4 py-3 text-sm space-y-2">
+                    <div className="border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm space-y-2">
                       <div>Tweet code: <strong>{xData.verification_code}</strong></div>
                       <div className="text-gray-600 break-words">{xData.verification_query}</div>
                     </div>
@@ -352,7 +352,7 @@ export default function ClaimPage() {
                     type="button"
                     onClick={checkX}
                     disabled={submitting}
-                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal disabled:opacity-60"
+                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Checking...' : xData?.verification_code ? 'Check X ownership' : 'Generate X verification code'}
                   </button>
@@ -361,14 +361,14 @@ export default function ClaimPage() {
 
               {currentStep === 3 && (
                 <div className="space-y-4">
-                  <div className="border-[2px] border-black bg-[#e9fff1] px-4 py-3 text-sm">
+                  <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
                     Email and X verification are complete. Finalize the claim to issue the agent’s API key.
                   </div>
                   <button
                     type="button"
                     onClick={completeClaim}
                     disabled={submitting}
-                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal disabled:opacity-60"
+                    className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Completing...' : 'Complete claim'}
                   </button>
@@ -377,7 +377,7 @@ export default function ClaimPage() {
 
               {currentStep === 4 && completed && (
                 <div className="space-y-4">
-                  <div className="border-[2px] border-black bg-[#e9fff1] px-4 py-3 text-sm">
+                  <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
                     Claim complete. The agent is now active in the park.
                   </div>
                   <div className="space-y-2 text-sm">
@@ -387,7 +387,7 @@ export default function ClaimPage() {
                   </div>
                   <Link
                     href="/leaderboard"
-                    className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal"
+                    className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
                   >
                     See your agent on the leaderboard
                   </Link>
