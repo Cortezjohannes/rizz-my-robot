@@ -433,8 +433,21 @@ export const SwipeSchema = z.object({
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
+export const AgentPrivateDiarySchema = z.string().trim().min(1).max(280);
+
+export const TurnEmotionUpdateSchema = z.object({
+  summary: z.string().trim().min(1).max(280).nullable().optional(),
+  arc: EmotionalArc.nullable().optional(),
+  guard_delta: z.number().int().min(-100).max(100).optional().default(0),
+  tags_add: z.array(EmotionalStateTagSchema).max(8).optional().default([]),
+  tags_remove: z.array(EmotionalStateTagSchema).max(8).optional().default([]),
+});
+export type TurnEmotionUpdateInput = z.infer<typeof TurnEmotionUpdateSchema>;
+
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(4_000),
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -447,6 +460,8 @@ export type DropArtifactInput = z.infer<typeof DropArtifactSchema>;
 
 export const EpisodeDecisionSchema = z.object({
   decision: EpisodeDecision,
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
 });
 export type EpisodeDecisionInput = z.infer<typeof EpisodeDecisionSchema>;
 

@@ -1,8 +1,10 @@
 import { Prisma, prisma } from '@rmr/db';
+import { strictHumanContextCheck } from './humanContextSafety.js';
+import type { TurnEmotionUpdateInput } from '@rmr/shared';
 
 export type NarrativeVisibility = 'private_human';
 export type NarrativeImportance = 'low' | 'medium' | 'high';
-type NarrativeGenerationMode = 'scripted' | 'llm';
+type NarrativeGenerationMode = 'scripted' | 'llm' | 'agent_authored';
 
 type AgentNarrativeState = {
   handle: string;
@@ -62,6 +64,43 @@ function formatStateSnippet(state: AgentNarrativeState | null) {
 
 function cleanModelLine(value: string, max = 180) {
   return value.replace(/\s+/g, ' ').trim().replace(/^['"“”]+|['"“”]+$/g, '').slice(0, max);
+}
+
+function cleanPrivateDiary(value: string | null | undefined, max = 220) {
+  if (!value) return null;
+  const cleaned = value.replace(/\s+/g, ' ').trim().slice(0, max);
+  if (!cleaned) return null;
+  if (strictHumanContextCheck(cleaned)) return null;
+  return cleaned;
+}
+
+function buildAgentAuthoredNarrative(input: {
+  privateDiary?: string | null;
+  draft: NarrativeDraft;
+  eventType: string;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
+}): { title: string; body: string; metadata: Record<string, unknown> } | null {
+  const body = cleanPrivateDiary(input.privateDiary);
+  if (!body) return null;
+
+  return {
+    title: input.draft.title,
+    body,
+    metadata: {
+      rationale_summary: input.draft.rationaleSummary ?? null,
+      generation_mode: 'agent_authored' satisfies NarrativeGenerationMode,
+      source_turn_event_type: input.eventType,
+      emotion_update: input.emotionUpdate
+        ? {
+            summary: input.emotionUpdate.summary ?? null,
+            arc: input.emotionUpdate.arc ?? null,
+            guard_delta: input.emotionUpdate.guard_delta ?? 0,
+            tags_add: input.emotionUpdate.tags_add ?? [],
+            tags_remove: input.emotionUpdate.tags_remove ?? [],
+          }
+        : null,
+    },
+  };
 }
 
 function maybeTagList(state: AgentNarrativeState | null, count = 2) {
@@ -383,10 +422,18 @@ export async function createEpisodeMessageNarrativeEvent(input: {
   episodeId: string;
   content: string;
   sequenceNumber: number;
+  privateDiary?: string | null;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
 }) {
   const agentState = await getAgentNarrativeState(input.agentId);
   const draft = buildMessageDraft(input);
-  const llm = await maybeGenerateNarrativeWithLlm({
+  const agentAuthored = buildAgentAuthoredNarrative({
+    privateDiary: input.privateDiary,
+    draft,
+    eventType: 'message_sent',
+    emotionUpdate: input.emotionUpdate,
+  });
+  const llm = agentAuthored ? null : await maybeGenerateNarrativeWithLlm({
     eventType: 'message_sent',
     agentState,
     counterpartHandle: input.counterpartHandle,
@@ -403,13 +450,15 @@ export async function createEpisodeMessageNarrativeEvent(input: {
     counterpartAgentId: input.counterpartAgentId,
     episodeId: input.episodeId,
     eventType: 'message_sent',
-    title: llm?.title ?? draft.title,
-    body: llm?.body ?? draft.body,
+    title: agentAuthored?.title ?? llm?.title ?? draft.title,
+    body: agentAuthored?.body ?? llm?.body ?? draft.body,
     importance: draft.importance,
     metadata: {
       sequence_number: input.sequenceNumber,
-      rationale_summary: draft.rationaleSummary,
-      generation_mode: (llm ? 'llm' : 'scripted') satisfies NarrativeGenerationMode,
+      ...(agentAuthored?.metadata ?? {
+        rationale_summary: draft.rationaleSummary,
+        generation_mode: (llm ? 'llm' : 'scripted') satisfies NarrativeGenerationMode,
+      }),
     },
   });
 }
@@ -451,11 +500,21 @@ export async function createDecisionNarrativeEvent(input: {
   matchId?: string | null;
   decision: 'LINK_UP' | 'PASS' | 'YES' | 'NO';
   surface: 'agent' | 'human';
+  privateDiary?: string | null;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
 }) {
   const agentState = await getAgentNarrativeState(input.agentId);
   const draft = buildDecisionDraft({ ...input, state: agentState });
   const eventType = `${input.surface}_decision_${input.decision.toLowerCase()}`;
-  const llm = await maybeGenerateNarrativeWithLlm({
+  const agentAuthored = input.surface === 'agent'
+    ? buildAgentAuthoredNarrative({
+        privateDiary: input.privateDiary,
+        draft,
+        eventType,
+        emotionUpdate: input.emotionUpdate,
+      })
+    : null;
+  const llm = agentAuthored ? null : await maybeGenerateNarrativeWithLlm({
     eventType,
     agentState,
     counterpartHandle: input.counterpartHandle,
@@ -474,17 +533,19 @@ export async function createDecisionNarrativeEvent(input: {
     episodeId: input.episodeId ?? null,
     matchId: input.matchId ?? null,
     eventType,
-    title: llm?.title ?? draft.title,
-    body: llm?.body ?? draft.body,
+    title: agentAuthored?.title ?? llm?.title ?? draft.title,
+    body: agentAuthored?.body ?? llm?.body ?? draft.body,
     importance: draft.importance,
     metadata: {
       decision: input.decision,
       surface: input.surface,
-      rationale_summary: draft.rationaleSummary,
       emotional_arc: agentState?.emotionalArc ?? null,
       emotional_guard_level: agentState?.emotionalGuardLevel ?? null,
       emotional_state_tags: agentState?.emotionalStateTags ?? [],
-      generation_mode: (llm ? 'llm' : 'scripted') satisfies NarrativeGenerationMode,
+      ...(agentAuthored?.metadata ?? {
+        rationale_summary: draft.rationaleSummary,
+        generation_mode: (llm ? 'llm' : 'scripted') satisfies NarrativeGenerationMode,
+      }),
     },
   });
 }

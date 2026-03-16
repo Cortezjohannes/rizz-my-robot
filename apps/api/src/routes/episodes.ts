@@ -20,7 +20,7 @@ import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
-import { buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { applyAgentAuthoredEmotionUpdate, buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -304,7 +304,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         }
 
         const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
-    const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
+        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         await Promise.all([
           createEpisodeMessageNarrativeEvent({
             agentId,
@@ -313,7 +313,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             episodeId: id,
             content: parsed.data.content,
             sequenceNumber: message.sequenceNumber,
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
           }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: id,
             message_count: newCount,
@@ -741,7 +747,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             matchId: match.id,
             decision,
             surface: 'agent',
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
           }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
           recordAnalyticsEvent({
             agentId,
             matchId: match.id,
