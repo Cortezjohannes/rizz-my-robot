@@ -115,7 +115,10 @@ export async function exchangeXOAuthCode(input: {
     body,
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error('[x-verify] oauth token exchange failed', response.status, await response.text().catch(() => ''));
+    return null;
+  }
   const data = (await response.json()) as { access_token?: string };
   if (!data.access_token) return null;
   return { access_token: data.access_token };
@@ -126,16 +129,20 @@ async function fetchAuthenticatedXUser(accessToken: string): Promise<{
   username: string;
   name: string | null;
   profile_image_url: string | null;
+  protected: boolean;
 } | null> {
-  const response = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url', {
+  const response = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url,protected', {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error('[x-verify] users/me failed', response.status, await response.text().catch(() => ''));
+    return null;
+  }
 
   const payload = (await response.json()) as {
-    data?: { id: string; username: string; name?: string; profile_image_url?: string };
+    data?: { id: string; username: string; name?: string; profile_image_url?: string; protected?: boolean };
   };
   if (!payload.data?.id || !payload.data.username) return null;
 
@@ -144,6 +151,7 @@ async function fetchAuthenticatedXUser(accessToken: string): Promise<{
     username: payload.data.username.toLowerCase(),
     name: payload.data.name ?? null,
     profile_image_url: payload.data.profile_image_url ?? null,
+    protected: Boolean(payload.data.protected),
   };
 }
 
@@ -158,7 +166,10 @@ async function fetchRecentTweetsV2(accessToken: string, userId: string): Promise
       Authorization: `Bearer ${accessToken}`,
     },
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error('[x-verify] users/:id/tweets failed', response.status, await response.text().catch(() => ''));
+    return null;
+  }
 
   const payload = (await response.json()) as {
     data?: Array<{ text?: string }>;
@@ -179,7 +190,10 @@ async function fetchRecentTweetsV1(accessToken: string, userId: string): Promise
       Authorization: `Bearer ${accessToken}`,
     },
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error('[x-verify] user_timeline failed', response.status, await response.text().catch(() => ''));
+    return null;
+  }
 
   const payload = (await response.json()) as Array<{ full_text?: string; text?: string }> | { errors?: unknown };
   if (!Array.isArray(payload)) return null;
@@ -204,7 +218,10 @@ async function fetchRecentTweetsSearchFallback(
       Authorization: `Bearer ${bearer}`,
     },
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error('[x-verify] recent search fallback failed', response.status, await response.text().catch(() => ''));
+    return null;
+  }
 
   const payload = (await response.json()) as {
     data?: Array<{ text?: string }>;
@@ -249,6 +266,14 @@ export async function verifyXAccountTweet(input: {
       return { status: 'unavailable', reason: 'Failed to fetch authenticated X account.' };
     }
 
+    if (user.protected) {
+      return {
+        status: 'unavailable',
+        reason:
+          'Protected X accounts cannot be verified automatically right now. Make the account public for verification or use admin override.',
+      };
+    }
+
     if (user.username !== input.claimedHandle.toLowerCase()) {
       return {
         status: 'not_found',
@@ -258,7 +283,11 @@ export async function verifyXAccountTweet(input: {
 
     const tweets = await fetchRecentTweets(token.access_token, user.id, user.username, input.code);
     if (!tweets) {
-      return { status: 'unavailable', reason: 'Failed to read recent tweets from the authenticated X account.' };
+      return {
+        status: 'unavailable',
+        reason:
+          'X login succeeded, but tweet-read access failed. Make sure the X app has Read permissions and tweet.read/users.read scopes, or use admin override.',
+      };
     }
 
     const found = tweets.some((text) => text.toLowerCase().includes(input.code.toLowerCase()));
@@ -278,7 +307,8 @@ export async function verifyXAccountTweet(input: {
         profile_image_url: user.profile_image_url,
       },
     };
-  } catch {
+  } catch (err) {
+    console.error('[x-verify] verification request failed', err);
     return { status: 'unavailable', reason: 'X verification request failed.' };
   }
 }
