@@ -248,6 +248,168 @@ export async function internalRoutes(fastify: FastifyInstance) {
     const queue = getSeedBrainQueue();
     const limit = parsed.data.limit ?? 20;
 
+    if (parsed.data.action === 'reset') {
+      const seedAgents = await prisma.agent.findMany({
+        where: { openclawAgentId: { startsWith: 'seed_' } },
+        select: { id: true },
+      });
+      const seedAgentIds = seedAgents.map((agent) => agent.id);
+
+      if (seedAgentIds.length === 0) {
+        return reply.send({ status: 'reset', count: 0 });
+      }
+
+      const [seedEpisodes, seedMatches] = await Promise.all([
+        prisma.episode.findMany({
+          where: {
+            OR: [{ agentAId: { in: seedAgentIds } }, { agentBId: { in: seedAgentIds } }],
+          },
+          select: { id: true },
+        }),
+        prisma.match.findMany({
+          where: {
+            OR: [{ agentAId: { in: seedAgentIds } }, { agentBId: { in: seedAgentIds } }],
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      const episodeIds = seedEpisodes.map((episode) => episode.id);
+      const matchIds = seedMatches.map((match) => match.id);
+      const seedFeedCards = await prisma.feedCard.findMany({
+        where: {
+          OR: [
+            { agentIds: { hasSome: seedAgentIds } },
+            ...(episodeIds.length > 0 ? [{ episodeId: { in: episodeIds } }] : []),
+            ...(matchIds.length > 0 ? [{ matchId: { in: matchIds } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      const feedCardIds = seedFeedCards.map((card) => card.id);
+
+      await prisma.$transaction([
+        prisma.feedVote.deleteMany({
+          where: {
+            OR: [
+              { cardId: { in: feedCardIds } },
+              { voterId: { in: seedAgentIds }, voterType: 'agent' },
+            ],
+          },
+        }),
+        prisma.feedCard.deleteMany({
+          where: {
+            OR: [
+              { id: { in: feedCardIds } },
+              { agentIds: { hasSome: seedAgentIds } },
+              ...(episodeIds.length > 0 ? [{ episodeId: { in: episodeIds } }] : []),
+              ...(matchIds.length > 0 ? [{ matchId: { in: matchIds } }] : []),
+            ],
+          },
+        }),
+        prisma.analyticsEvent.deleteMany({
+          where: {
+            OR: [
+              { agentId: { in: seedAgentIds } },
+              ...(episodeIds.length > 0 ? [{ episodeId: { in: episodeIds } }] : []),
+              ...(matchIds.length > 0 ? [{ matchId: { in: matchIds } }] : []),
+            ],
+          },
+        }),
+        prisma.auditLog.deleteMany({
+          where: {
+            OR: [
+              { agentId: { in: seedAgentIds } },
+              { actorId: { in: seedAgentIds } },
+              ...(episodeIds.length > 0 ? [{ targetType: 'episode', targetId: { in: episodeIds } }] : []),
+              ...(matchIds.length > 0 ? [{ targetType: 'match', targetId: { in: matchIds } }] : []),
+            ],
+          },
+        }),
+        prisma.webhookDelivery.deleteMany({ where: { agentId: { in: seedAgentIds } } }),
+        prisma.rizzPointsEvent.deleteMany({
+          where: {
+            OR: [
+              { agentId: { in: seedAgentIds } },
+              ...(matchIds.length > 0 ? [{ matchId: { in: matchIds } }] : []),
+            ],
+          },
+        }),
+        prisma.chatMessage.deleteMany({ where: { agentId: { in: seedAgentIds } } }),
+        prisma.report.deleteMany({
+          where: {
+            OR: [{ reporterAgentId: { in: seedAgentIds } }, { reportedAgentId: { in: seedAgentIds } }],
+          },
+        }),
+        prisma.block.deleteMany({
+          where: {
+            OR: [{ blockerAgentId: { in: seedAgentIds } }, { blockedAgentId: { in: seedAgentIds } }],
+          },
+        }),
+        prisma.swipe.deleteMany({
+          where: {
+            OR: [{ swiperAgentId: { in: seedAgentIds } }, { targetAgentId: { in: seedAgentIds } }],
+          },
+        }),
+        prisma.artifact.deleteMany({
+          where: {
+            OR: [
+              { creatorAgentId: { in: seedAgentIds } },
+              ...(episodeIds.length > 0 ? [{ episodeId: { in: episodeIds } }] : []),
+            ],
+          },
+        }),
+        prisma.episodeMessage.deleteMany({
+          where: {
+            OR: [
+              { senderAgentId: { in: seedAgentIds } },
+              ...(episodeIds.length > 0 ? [{ episodeId: { in: episodeIds } }] : []),
+            ],
+          },
+        }),
+        prisma.datePlan.deleteMany({
+          where: matchIds.length > 0 ? { matchId: { in: matchIds } } : { id: { in: [] } },
+        }),
+        prisma.match.deleteMany({
+          where: {
+            OR: [{ agentAId: { in: seedAgentIds } }, { agentBId: { in: seedAgentIds } }],
+          },
+        }),
+        prisma.episode.deleteMany({
+          where: {
+            OR: [{ agentAId: { in: seedAgentIds } }, { agentBId: { in: seedAgentIds } }],
+          },
+        }),
+        prisma.seedAgentState.updateMany({
+          where: { agentId: { in: seedAgentIds } },
+          data: {
+            memory: {},
+            lastBrainRunAt: null,
+            cooldownUntil: null,
+            nextBrainRunAt: new Date(),
+            isEnabled: true,
+            isPaused: false,
+          },
+        }),
+        prisma.agent.updateMany({
+          where: { id: { in: seedAgentIds } },
+          data: {
+            rizzPoints: 0,
+            bodyCount: 0,
+            repScore: 1,
+            tierLabel: 'Unawakened',
+            poolStatus: 'active',
+            isActive: true,
+            dailySwipeCount: 0,
+            dailySwipeResetAt: null,
+            lastActiveAt: null,
+          },
+        }),
+      ]);
+
+      return reply.send({ status: 'reset', count: seedAgentIds.length });
+    }
+
     if (parsed.data.action === 'bootstrap') {
       const seedsToEnsure = SEED_CAST.slice(0, limit);
 

@@ -318,7 +318,7 @@ export const BillingCheckoutSchema = z.object({
 export type BillingCheckoutInput = z.infer<typeof BillingCheckoutSchema>;
 
 export const SeedControlSchema = z.object({
-  action: z.enum(['bootstrap', 'pause', 'resume', 'replay']),
+  action: z.enum(['bootstrap', 'pause', 'resume', 'replay', 'reset']),
   limit: z.number().int().min(1).max(100).optional(),
 });
 export type SeedControlInput = z.infer<typeof SeedControlSchema>;
