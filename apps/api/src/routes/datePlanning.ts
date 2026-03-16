@@ -109,7 +109,10 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       created_at: new Date().toISOString(),
     };
 
-    await appendDatePlanMessage(match_id, newMsg);
+    const appended = await appendDatePlanMessage(match_id, newMsg);
+    if (!appended) {
+      return Errors.notFound(reply, 'Date plan');
+    }
 
     // Notify the other agent so they know to respond
     const otherAgentId = match.agentAId === agentId ? match.agentBId : match.agentAId;
@@ -180,14 +183,12 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
 async function appendDatePlanMessage(
   matchId: string,
   newMsg: { sender_agent_id: string; content: string; created_at: string }
-): Promise<void> {
+): Promise<boolean> {
   const appended = await prisma.$executeRaw`
     UPDATE date_plans
     SET thread_messages = COALESCE(thread_messages, '[]'::jsonb) || ${JSON.stringify([newMsg])}::jsonb
     WHERE match_id = ${matchId}
   `;
 
-  if (appended === 0) {
-    throw new Error('date_plan_missing');
-  }
+  return appended !== 0;
 }
