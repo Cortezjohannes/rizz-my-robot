@@ -611,6 +611,7 @@ export const PromoCodeSchema = z.object({
 
 export const ArtifactSubmitSchema = z.object({
   content_url: z.string().url().max(2048),
+  text_content: z.string().max(10_000).optional(),
 });
 
 export const SocialSettingsSchema = z.object({
