@@ -152,7 +152,7 @@ async function recordSeedAction(
 }
 
 function buildRevealUrl(token: string): string {
-  const base = process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/reveal';
+  const base = process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/portal';
   return `${base.replace(/\/$/, '')}/${token}`;
 }
 
@@ -201,7 +201,10 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     getActiveEpisodeCount(seed.id),
     prisma.agent.findMany({
       where: {
-        id: { not: seed.id },
+        NOT: [
+          { id: seed.id },
+          { openclawAgentId: { startsWith: 'seed_' } },
+        ],
         isActive: true,
         twitterVerified: true,
         poolStatus: 'active',

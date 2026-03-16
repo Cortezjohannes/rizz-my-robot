@@ -382,8 +382,22 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const found = await checkTwitterForCode(claim.twitterHandle, claim.xVerificationCode);
-    if (!found) {
+    const verification = await checkTwitterForCode(claim.twitterHandle, claim.xVerificationCode);
+    if (verification.status === 'unavailable') {
+      return reply.status(503).send({
+        error: {
+          code: 'twitter_verification_unavailable',
+          message: verification.reason,
+        },
+        claim_id: claim.id,
+        status: 'x_pending',
+        verification_code: claim.xVerificationCode,
+        verification_query: buildClaimTwitterQuery(claim.twitterHandle, claim.xVerificationCode),
+        expires_at: claim.xVerificationExpiresAt.toISOString(),
+      });
+    }
+
+    if (verification.status !== 'found') {
       return reply.send({
         claim_id: claim.id,
         status: 'x_pending',
