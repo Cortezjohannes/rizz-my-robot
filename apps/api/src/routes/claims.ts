@@ -747,14 +747,26 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     const now = new Date();
-    const verificationCode = !claim.xVerificationCode || !claim.xVerificationExpiresAt || claim.xVerificationExpiresAt < now
-      ? generateShortCode(8)
-      : claim.xVerificationCode;
-    const expiresAt = !claim.xVerificationExpiresAt || claim.xVerificationExpiresAt < now
-      ? emailCodeExpiryDate()
-      : claim.xVerificationExpiresAt;
-    const codeVerifier = generatePkceVerifier();
-    const nonce = generateOAuthNonce();
+    const hasActiveXSession = Boolean(
+      claim.xVerificationCode &&
+      claim.xVerificationExpiresAt &&
+      claim.xVerificationExpiresAt >= now &&
+      claim.xOauthCodeVerifier &&
+      claim.xOauthNonce,
+    );
+
+    const verificationCode = hasActiveXSession
+      ? claim.xVerificationCode!
+      : generateShortCode(8);
+    const expiresAt = hasActiveXSession
+      ? claim.xVerificationExpiresAt!
+      : emailCodeExpiryDate();
+    const codeVerifier = hasActiveXSession
+      ? claim.xOauthCodeVerifier!
+      : generatePkceVerifier();
+    const nonce = hasActiveXSession
+      ? claim.xOauthNonce!
+      : generateOAuthNonce();
 
     await prisma.agentClaim.update({
       where: { id: claim.id },
