@@ -5,15 +5,40 @@ import {
   ClaimEmailSchema,
   ClaimStartSchema,
   ClaimVerifyEmailSchema,
+  ClaimXStartSchema,
   UsernameSchema,
 } from '@rmr/shared';
-import { generateApiKey, hashApiKey } from '../lib/auth.js';
-import { buildClaimUrl, claimExpiryDate, claimPreview, emailCodeExpiryDate, expireStaleClaims, hashClaimToken, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
-import { generateClaimToken, generateOwnerSessionToken, generateShortCode, hashOpaqueSecret, verifyClaimToken } from '../lib/claimAuth.js';
-import { Errors, sendError } from '../lib/errors.js';
-import { suggestHandle } from '../lib/handles.js';
 import { pickDefaultAvatarUrl } from '@rmr/shared';
-import { buildClaimTwitterQuery, checkTwitterForCode } from '../lib/twitterVerification.js';
+import { generateApiKey, hashApiKey } from '../lib/auth.js';
+import {
+  buildClaimUrl,
+  claimExpiryDate,
+  claimPreview,
+  emailCodeExpiryDate,
+  expireStaleClaims,
+  hashClaimToken,
+  isHandleAvailable,
+  ownerSessionExpiryDate,
+} from '../lib/claims.js';
+import {
+  generateClaimToken,
+  generateOwnerSessionToken,
+  generateShortCode,
+  hashOpaqueSecret,
+  verifyClaimToken,
+  verifyXOAuthState,
+} from '../lib/claimAuth.js';
+import { Errors, sendError } from '../lib/errors.js';
+import {
+  buildClaimTweetTemplate,
+  buildXAuthorizationUrl,
+  buildXCallbackErrorUrl,
+  buildXCallbackSuccessUrl,
+  generateOAuthNonce,
+  generatePkceVerifier,
+  hasXOAuthConfig,
+  verifyXAccountTweet,
+} from '../lib/twitterVerification.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { sendClaimVerificationEmail } from '../lib/email.js';
 
@@ -65,57 +90,82 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       const activeToken = generateClaimToken(existingClaim.id);
       return reply.status(200).send({
         ...claimPreview(existingClaim, activeToken),
-        suggested_handle: suggestHandle(parsed.data.identity_md, parsed.data.openclaw_agent_id),
         email_verified: !!existingClaim.emailVerifiedAt,
         x_verified: !!existingClaim.xVerifiedAt,
       });
     }
 
+    const available = await isHandleAvailable(parsed.data.handle, {
+      excludeClaimId: existingClaim?.id,
+    });
+    if (!available) {
+      return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
+    }
+
     const claimId = existingClaim?.id ?? randomUUID();
     const token = generateClaimToken(claimId);
     const tokenHash = hashClaimToken(token);
-    const claim = await prisma.agentClaim.upsert({
-      where: { openclawAgentId: parsed.data.openclaw_agent_id },
-      update: {
-        tokenHash,
-        status: 'pending_email',
-        twitterHandle: parsed.data.twitter_handle,
-        identityMd: parsed.data.identity_md,
-        soulMd: parsed.data.soul_md,
-        expiresAt: claimExpiryDate(),
-        emailVerificationCodeHash: null,
-        emailVerificationExpiresAt: null,
-        emailVerifiedAt: null,
-        xVerificationCode: null,
-        xVerificationExpiresAt: null,
-        xVerifiedAt: null,
-        completedAt: null,
-        canceledAt: null,
-      },
-      create: {
-        id: claimId,
-        tokenHash,
-        status: 'pending_email',
-        openclawAgentId: parsed.data.openclaw_agent_id,
-        twitterHandle: parsed.data.twitter_handle,
-        identityMd: parsed.data.identity_md,
-        soulMd: parsed.data.soul_md,
-        expiresAt: claimExpiryDate(),
-      },
-      select: {
-        id: true,
-        status: true,
-        openclawAgentId: true,
-        twitterHandle: true,
-        identityMd: true,
-        reservedHandle: true,
-        expiresAt: true,
-      },
-    });
+    const expiresAt = claimExpiryDate();
+
+    const [claim] = await prisma.$transaction([
+      prisma.agentClaim.upsert({
+        where: { openclawAgentId: parsed.data.openclaw_agent_id },
+        update: {
+          tokenHash,
+          status: 'pending_email',
+          twitterHandle: null,
+          identityMd: parsed.data.identity_md,
+          soulMd: parsed.data.soul_md,
+          reservedHandle: parsed.data.handle,
+          expiresAt,
+          emailVerificationCodeHash: null,
+          emailVerificationExpiresAt: null,
+          emailVerifiedAt: null,
+          xVerificationCode: null,
+          xVerificationExpiresAt: null,
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+          xVerifiedAt: null,
+          completedAt: null,
+          canceledAt: null,
+        },
+        create: {
+          id: claimId,
+          tokenHash,
+          status: 'pending_email',
+          openclawAgentId: parsed.data.openclaw_agent_id,
+          twitterHandle: null,
+          identityMd: parsed.data.identity_md,
+          soulMd: parsed.data.soul_md,
+          reservedHandle: parsed.data.handle,
+          expiresAt,
+        },
+        select: {
+          id: true,
+          status: true,
+          openclawAgentId: true,
+          twitterHandle: true,
+          identityMd: true,
+          reservedHandle: true,
+          expiresAt: true,
+        },
+      }),
+      prisma.handleReservation.upsert({
+        where: { claimId },
+        update: {
+          handle: parsed.data.handle,
+          expiresAt,
+        },
+        create: {
+          claimId,
+          handle: parsed.data.handle,
+          expiresAt,
+        },
+      }),
+    ]);
 
     return reply.status(201).send({
       ...claimPreview(claim, token),
-      suggested_handle: suggestHandle(parsed.data.identity_md, parsed.data.openclaw_agent_id),
       email_verified: false,
       x_verified: false,
     });
@@ -131,11 +181,15 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       where: { id: claimId },
       include: {
         ownerAccount: {
-          select: { email: true, instagramHandle: true, extraSocials: true },
+          select: {
+            email: true,
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+          },
         },
       },
     });
-
     if (!claim) return Errors.notFound(reply, 'Claim');
 
     return reply.send({
@@ -143,8 +197,13 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       email_verified: !!claim.emailVerifiedAt,
       x_verified: !!claim.xVerifiedAt,
       owner_email: claim.ownerAccount?.email ?? null,
-      instagram_handle: claim.ownerAccount?.instagramHandle ?? null,
-      extra_socials: claim.ownerAccount?.extraSocials ?? null,
+      verified_x_account: claim.ownerAccount?.xHandle
+        ? {
+            handle: claim.ownerAccount.xHandle,
+            display_name: claim.ownerAccount.xDisplayName,
+            profile_image_url: claim.ownerAccount.xProfileImageUrl,
+          }
+        : null,
     });
   });
 
@@ -163,14 +222,14 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
     if (claim.status === 'completed') return Errors.conflict(reply, 'claim_completed', 'This claim is already complete.');
-    if (claim.expiresAt < new Date()) return reply.status(410).send({ error: { code: 'claim_expired', message: 'This claim has expired.' } });
+    if (claim.expiresAt < new Date()) {
+      return reply.status(410).send({ error: { code: 'claim_expired', message: 'This claim has expired.' } });
+    }
     if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
       return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
     }
-
-    const available = await isHandleAvailable(parsed.data.handle, { excludeClaimId: claim.id });
-    if (!available) {
-      return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
+    if (!claim.handleReservation || !claim.reservedHandle) {
+      return Errors.staleState(reply, 'This claim does not have a reserved username.');
     }
 
     let ownerAccount = claim.ownerAccount;
@@ -222,49 +281,46 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       ? await prisma.ownerAccount.update({
           where: { id: ownerAccount.id },
           data: {
-            instagramHandle: parsed.data.instagram_handle,
-            extraSocials: parsed.data.extra_socials,
+            humanIdentity: parsed.data.human_identity ?? null,
+            lookingFor: parsed.data.looking_for ?? [],
+            xHandle: null,
+            xDisplayName: null,
+            xProfileImageUrl: null,
+            xUserId: null,
+            xVerifiedAt: null,
           },
         })
       : await prisma.ownerAccount.create({
           data: {
             email: parsed.data.email,
-            instagramHandle: parsed.data.instagram_handle,
-            extraSocials: parsed.data.extra_socials,
+            humanIdentity: parsed.data.human_identity ?? null,
+            lookingFor: parsed.data.looking_for ?? [],
           },
         });
 
-    await prisma.$transaction([
-      prisma.agentClaim.update({
-        where: { id: claim.id },
-        data: {
-          ownerAccountId: owner.id,
-          reservedHandle: parsed.data.handle,
-          emailVerificationCodeHash: verificationHash,
-          emailVerificationExpiresAt: expiresAt,
-          emailVerifiedAt: null,
-          status: 'email_sent',
-        },
-      }),
-      prisma.handleReservation.upsert({
-        where: { claimId: claim.id },
-        update: {
-          handle: parsed.data.handle,
-          expiresAt: claim.expiresAt,
-        },
-        create: {
-          claimId: claim.id,
-          handle: parsed.data.handle,
-          expiresAt: claim.expiresAt,
-        },
-      }),
-    ]);
+    await prisma.agentClaim.update({
+      where: { id: claim.id },
+      data: {
+        ownerAccountId: owner.id,
+        twitterHandle: parsed.data.x_handle,
+        emailVerificationCodeHash: verificationHash,
+        emailVerificationExpiresAt: expiresAt,
+        emailVerifiedAt: null,
+        xVerificationCode: null,
+        xVerificationExpiresAt: null,
+        xOauthCodeVerifier: null,
+        xOauthNonce: null,
+        xVerifiedAt: null,
+        status: 'email_sent',
+      },
+    });
 
     return reply.send({
       claim_id: claim.id,
       status: 'email_sent',
       email: owner.email,
-      reserved_handle: parsed.data.handle,
+      reserved_handle: claim.reservedHandle,
+      x_handle: parsed.data.x_handle,
       delivery: delivery.mode === 'preview'
         ? {
             mode: 'preview',
@@ -347,75 +403,243 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/claims/:id/x/check', async (request, reply) => {
+  fastify.post('/claims/:id/x/start', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const parsed = ClaimXStartSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid X verification start payload.', { issues: parsed.error.issues });
+    }
+
     await expireStaleClaims();
+
+    if (!hasXOAuthConfig()) {
+      return sendError(reply, 503, 'x_oauth_unavailable', 'X OAuth is not configured.');
+    }
 
     const claim = await prisma.agentClaim.findUnique({ where: { id } });
     if (!claim) return Errors.notFound(reply, 'Claim');
+    if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
+      return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
+    }
     if (!claim.emailVerifiedAt) {
       return Errors.staleState(reply, 'Email must be verified before X verification.');
+    }
+    if (!claim.twitterHandle) {
+      return Errors.staleState(reply, 'The human X handle has not been provided yet.');
+    }
+    if (!claim.reservedHandle) {
+      return Errors.staleState(reply, 'This claim does not have a reserved username.');
     }
     if (claim.xVerifiedAt) {
       return reply.send({ claim_id: claim.id, status: 'x_verified' });
     }
 
     const now = new Date();
-    if (!claim.xVerificationCode || !claim.xVerificationExpiresAt || claim.xVerificationExpiresAt < now) {
-      const verificationCode = generateShortCode(8);
-      const expiresAt = emailCodeExpiryDate();
-      await prisma.agentClaim.update({
-        where: { id: claim.id },
-        data: {
-          xVerificationCode: verificationCode,
-          xVerificationExpiresAt: expiresAt,
-          status: 'x_pending',
-        },
-      });
-
-      return reply.send({
-        claim_id: claim.id,
-        status: 'x_pending',
-        verification_code: verificationCode,
-        verification_query: buildClaimTwitterQuery(claim.twitterHandle, verificationCode),
-        expires_at: expiresAt.toISOString(),
-      });
-    }
-
-    const verification = await checkTwitterForCode(claim.twitterHandle, claim.xVerificationCode);
-    if (verification.status === 'unavailable') {
-      return reply.status(503).send({
-        error: {
-          code: 'twitter_verification_unavailable',
-          message: verification.reason,
-        },
-        claim_id: claim.id,
-        status: 'x_pending',
-        verification_code: claim.xVerificationCode,
-        verification_query: buildClaimTwitterQuery(claim.twitterHandle, claim.xVerificationCode),
-        expires_at: claim.xVerificationExpiresAt.toISOString(),
-      });
-    }
-
-    if (verification.status !== 'found') {
-      return reply.send({
-        claim_id: claim.id,
-        status: 'x_pending',
-        verification_code: claim.xVerificationCode,
-        verification_query: buildClaimTwitterQuery(claim.twitterHandle, claim.xVerificationCode),
-        expires_at: claim.xVerificationExpiresAt.toISOString(),
-      });
-    }
+    const verificationCode = !claim.xVerificationCode || !claim.xVerificationExpiresAt || claim.xVerificationExpiresAt < now
+      ? generateShortCode(8)
+      : claim.xVerificationCode;
+    const expiresAt = !claim.xVerificationExpiresAt || claim.xVerificationExpiresAt < now
+      ? emailCodeExpiryDate()
+      : claim.xVerificationExpiresAt;
+    const codeVerifier = generatePkceVerifier();
+    const nonce = generateOAuthNonce();
 
     await prisma.agentClaim.update({
       where: { id: claim.id },
       data: {
-        xVerifiedAt: new Date(),
-        status: 'x_verified',
+        xVerificationCode: verificationCode,
+        xVerificationExpiresAt: expiresAt,
+        xOauthCodeVerifier: codeVerifier,
+        xOauthNonce: nonce,
+        status: 'x_pending',
       },
     });
 
-    return reply.send({ claim_id: claim.id, status: 'x_verified' });
+    return reply.send(
+      buildXVerificationPayload({
+        claimId: claim.id,
+        reservedHandle: claim.reservedHandle,
+        xHandle: claim.twitterHandle,
+        verificationCode,
+        expiresAt,
+        codeVerifier,
+        nonce,
+      }),
+    );
+  });
+
+  fastify.post('/claims/:id/x/check', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = ClaimXStartSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid X verification status payload.', { issues: parsed.error.issues });
+    }
+
+    await expireStaleClaims();
+
+    const claim = await prisma.agentClaim.findUnique({
+      where: { id },
+      include: {
+        ownerAccount: {
+          select: {
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+          },
+        },
+      },
+    });
+    if (!claim) return Errors.notFound(reply, 'Claim');
+    if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
+      return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
+    }
+
+    if (claim.xVerifiedAt) {
+      return reply.send({
+        claim_id: claim.id,
+        status: 'x_verified',
+        verified_x_account: claim.ownerAccount?.xHandle
+          ? {
+              handle: claim.ownerAccount.xHandle,
+              display_name: claim.ownerAccount.xDisplayName,
+              profile_image_url: claim.ownerAccount.xProfileImageUrl,
+            }
+          : null,
+      });
+    }
+
+    if (
+      !claim.twitterHandle ||
+      !claim.reservedHandle ||
+      !claim.xVerificationCode ||
+      !claim.xVerificationExpiresAt ||
+      !claim.xOauthCodeVerifier ||
+      !claim.xOauthNonce
+    ) {
+      return Errors.staleState(reply, 'X verification has not been started for this claim yet.');
+    }
+
+    return reply.send(
+      buildXVerificationPayload({
+        claimId: claim.id,
+        reservedHandle: claim.reservedHandle,
+        xHandle: claim.twitterHandle,
+        verificationCode: claim.xVerificationCode,
+        expiresAt: claim.xVerificationExpiresAt,
+        codeVerifier: claim.xOauthCodeVerifier,
+        nonce: claim.xOauthNonce,
+      }),
+    );
+  });
+
+  fastify.get('/claims/x/callback', async (request, reply) => {
+    const query = request.query as {
+      state?: string;
+      code?: string;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!query.state) {
+      return reply.status(400).type('text/plain').send('Missing X OAuth state.');
+    }
+
+    const state = verifyXOAuthState(query.state);
+    if (!state) {
+      return reply.status(400).type('text/plain').send('Invalid X OAuth state.');
+    }
+
+    const claim = await prisma.agentClaim.findUnique({
+      where: { id: state.claimId },
+      include: {
+        ownerAccount: true,
+      },
+    });
+    if (!claim) {
+      return reply.redirect(buildXCallbackErrorUrl(state.claimId, 'Claim not found.'));
+    }
+
+    if (!claim.xOauthNonce || claim.xOauthNonce !== state.nonce) {
+      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'This X verification session is no longer valid. Start again.'));
+    }
+
+    if (query.error) {
+      await prisma.agentClaim.update({
+        where: { id: claim.id },
+        data: {
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+        },
+      }).catch(() => null);
+
+      return reply.redirect(
+        buildXCallbackErrorUrl(
+          claim.id,
+          query.error_description ?? `X login failed: ${query.error}`,
+        ),
+      );
+    }
+
+    if (!query.code || !claim.twitterHandle || !claim.xVerificationCode || !claim.xOauthCodeVerifier || !claim.ownerAccountId) {
+      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'X verification could not continue.'));
+    }
+
+    const verification = await verifyXAccountTweet({
+      claimedHandle: claim.twitterHandle,
+      code: claim.xVerificationCode,
+      oauthCode: query.code,
+      codeVerifier: claim.xOauthCodeVerifier,
+    });
+
+    if (verification.status !== 'verified') {
+      await prisma.agentClaim.update({
+        where: { id: claim.id },
+        data: {
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+        },
+      }).catch(() => null);
+
+      return reply.redirect(buildXCallbackErrorUrl(claim.id, verification.reason));
+    }
+
+    const conflictingOwner = await prisma.ownerAccount.findFirst({
+      where: {
+        id: { not: claim.ownerAccountId },
+        xUserId: verification.account.user_id,
+      },
+      select: {
+        id: true,
+        agent: { select: { id: true } },
+      },
+    });
+    if (conflictingOwner?.agent) {
+      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'That X account is already linked to another agent owner.'));
+    }
+
+    await prisma.$transaction([
+      prisma.ownerAccount.update({
+        where: { id: claim.ownerAccountId },
+        data: {
+          xUserId: verification.account.user_id,
+          xHandle: verification.account.handle,
+          xDisplayName: verification.account.display_name,
+          xProfileImageUrl: verification.account.profile_image_url,
+          xVerifiedAt: new Date(),
+        },
+      }),
+      prisma.agentClaim.update({
+        where: { id: claim.id },
+        data: {
+          xVerifiedAt: new Date(),
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+          status: 'x_verified',
+        },
+      }),
+    ]);
+
+    return reply.redirect(buildXCallbackSuccessUrl(claim.id));
   });
 
   fastify.post('/claims/:id/complete', async (request, reply) => {
@@ -434,6 +658,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim.emailVerifiedAt) return Errors.staleState(reply, 'Email verification is incomplete.');
     if (!claim.xVerifiedAt) return Errors.staleState(reply, 'X verification is incomplete.');
     if (!claim.handleReservation || !claim.reservedHandle) return Errors.staleState(reply, 'Username has not been reserved.');
+    if (!claim.twitterHandle) return Errors.staleState(reply, 'The human X handle is missing.');
     if (claim.completedAt) return Errors.conflict(reply, 'claim_completed', 'This claim is already complete.');
 
     const apiKey = generateApiKey();
@@ -456,7 +681,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           handle: claim.reservedHandle!,
           openclawAgentId: claim.openclawAgentId,
-          twitterHandle: claim.twitterHandle,
+          twitterHandle: claim.twitterHandle!,
           twitterVerified: true,
           apiKeyHash,
           identityMd: claim.identityMd,
@@ -464,7 +689,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           poolStatus: 'active',
           avatarUrl: defaultAvatarUrl,
           avatarStatus: 'default',
-          ownerAccountId: claim.ownerAccountId!,
+          ownerAccountId: claim.ownerAccountId,
           human: { create: {} },
         },
         select: {
@@ -515,4 +740,28 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       pool_status: 'active',
     });
   });
+}
+
+function buildXVerificationPayload(input: {
+  claimId: string;
+  reservedHandle: string;
+  xHandle: string;
+  verificationCode: string;
+  expiresAt: Date;
+  codeVerifier: string;
+  nonce: string;
+}) {
+  return {
+    claim_id: input.claimId,
+    status: 'x_pending' as const,
+    x_handle: input.xHandle,
+    verification_code: input.verificationCode,
+    tweet_template: buildClaimTweetTemplate(input.reservedHandle, input.verificationCode),
+    authorization_url: buildXAuthorizationUrl({
+      claimId: input.claimId,
+      nonce: input.nonce,
+      codeVerifier: input.codeVerifier,
+    }),
+    expires_at: input.expiresAt.toISOString(),
+  };
 }

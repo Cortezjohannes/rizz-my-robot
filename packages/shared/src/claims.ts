@@ -31,30 +31,53 @@ export const ExtraSocialsSchema = z.record(
 );
 export type ExtraSocialsInput = z.infer<typeof ExtraSocialsSchema>;
 
+export const XHandleSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .regex(/^[A-Za-z0-9_]+$/, 'X handle must be alphanumeric with underscores, no @')
+  .transform((value) => value.toLowerCase());
+export type XHandleInput = z.infer<typeof XHandleSchema>;
+
+export const HumanIdentitySchema = z.enum([
+  'male',
+  'female',
+  'non_binary',
+  'other',
+  'prefer_not_to_say',
+]);
+export type HumanIdentityInput = z.infer<typeof HumanIdentitySchema>;
+
+export const LookingForSchema = z.enum([
+  'men',
+  'women',
+  'non_binary_people',
+  'open_to_anyone',
+  'prefer_not_to_say',
+]);
+export type LookingForInput = z.infer<typeof LookingForSchema>;
+
 export const ClaimStartSchema = z.object({
   openclaw_agent_id: z.string().min(1).max(255),
+  handle: UsernameSchema,
   identity_md: z.string().min(20).max(50_000),
   soul_md: z.string().min(20).max(50_000),
-  twitter_handle: z
-    .string()
-    .min(1)
-    .max(50)
-    .regex(/^[A-Za-z0-9_]+$/, 'Twitter handle must be alphanumeric with underscores, no @'),
 });
 export type ClaimStartInput = z.infer<typeof ClaimStartSchema>;
 
 export const ClaimEmailSchema = z.object({
   claim_token: z.string().trim().min(32).max(255),
   email: z.string().email().max(255),
-  handle: UsernameSchema,
-  instagram_handle: z
-    .string()
-    .max(100)
-    .regex(/^[A-Za-z0-9._]+$/, 'Instagram handle may only contain letters, numbers, periods, and underscores.')
-    .optional(),
-  extra_socials: ExtraSocialsSchema.optional(),
+  x_handle: XHandleSchema,
+  human_identity: HumanIdentitySchema.optional(),
+  looking_for: z.array(LookingForSchema).max(5).optional(),
 });
 export type ClaimEmailInput = z.infer<typeof ClaimEmailSchema>;
+
+export const ClaimXStartSchema = z.object({
+  claim_token: z.string().trim().min(32).max(255),
+});
+export type ClaimXStartInput = z.infer<typeof ClaimXStartSchema>;
 
 export const ClaimVerifyEmailSchema = z.object({
   code: z.string().trim().min(6).max(64),

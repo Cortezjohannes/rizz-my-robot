@@ -234,8 +234,15 @@ export interface OwnerHomeResponse {
   owner: {
     id: string
     email: string
+    human_identity: string | null
+    looking_for: string[]
     instagram_handle: string | null
     extra_socials: Record<string, unknown> | null
+    x_account: {
+      handle: string
+      display_name: string | null
+      profile_image_url: string | null
+    } | null
   }
   agent: {
     agent_id: string
@@ -312,9 +319,10 @@ export interface PortalRevealResponse {
   stage2: {
     contact_method: ContactMethod | null
     contact_value: string | null
-    socials: {
-      instagram_handle: string | null
-      extra_socials: Record<string, unknown> | null
+    verified_x_account: {
+      handle: string
+      display_name: string | null
+      profile_image_url: string | null
     } | null
   } | null
 }

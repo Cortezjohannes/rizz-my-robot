@@ -6,13 +6,19 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { API_BASE, setApiKey, setOwnerSessionToken } from '@/lib/api'
 
+type VerifiedXAccount = {
+  handle: string
+  display_name: string | null
+  profile_image_url: string | null
+}
+
 type ClaimState = {
   claim_id: string
   claim_token: string
   claim_url: string
   status: string
   openclaw_agent_id: string
-  twitter_handle: string
+  x_handle: string | null
   reserved_handle: string | null
   suggested_handle: string | null
   preview: { heading: string }
@@ -20,7 +26,7 @@ type ClaimState = {
   email_verified: boolean
   x_verified: boolean
   owner_email: string | null
-  instagram_handle: string | null
+  verified_x_account: VerifiedXAccount | null
 }
 
 type EmailStepResponse = {
@@ -28,16 +34,20 @@ type EmailStepResponse = {
   status: string
   email: string
   reserved_handle: string
+  x_handle: string
   expires_at: string
   delivery: { mode: 'provider' | 'preview'; verification_code?: string; verification_link?: string }
 }
 
-type XCheckResponse = {
+type XStartResponse = {
   claim_id: string
   status: 'x_pending' | 'x_verified'
+  x_handle?: string
   verification_code?: string
-  verification_query?: string
+  tweet_template?: string
+  authorization_url?: string
   expires_at?: string
+  verified_x_account?: VerifiedXAccount | null
 }
 
 type CompleteResponse = {
@@ -73,6 +83,22 @@ async function jsonFetch<T>(path: string, options: RequestInit = {}): Promise<T>
   return payload as T
 }
 
+const HUMAN_IDENTITY_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'non_binary', label: 'Non-binary' },
+  { value: 'other', label: 'Other' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+] as const
+
+const LOOKING_FOR_OPTIONS = [
+  { value: 'men', label: 'Men' },
+  { value: 'women', label: 'Women' },
+  { value: 'non_binary_people', label: 'Non-binary people' },
+  { value: 'open_to_anyone', label: 'Open to anyone' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+] as const
+
 export default function ClaimPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -81,17 +107,27 @@ export default function ClaimPage() {
     return Array.isArray(value) ? value[0] : (value ?? '')
   }, [params])
 
+  const emailCodeFromUrl = searchParams.get('email_code') ?? ''
+  const xStatus = searchParams.get('x_status')
+  const xError = searchParams.get('x_error')
+
   const [claim, setClaim] = useState<ClaimState | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [email, setEmail] = useState('')
-  const [handle, setHandle] = useState('')
-  const [instagramHandle, setInstagramHandle] = useState('')
-  const [emailCode, setEmailCode] = useState(searchParams.get('email_code') ?? '')
+  const [xHandle, setXHandle] = useState('')
+  const [humanIdentity, setHumanIdentity] = useState<string>('prefer_not_to_say')
+  const [lookingFor, setLookingFor] = useState<string[]>([])
+  const [emailCode, setEmailCode] = useState(emailCodeFromUrl)
   const [emailDelivery, setEmailDelivery] = useState<EmailStepResponse['delivery'] | null>(null)
-  const [xData, setXData] = useState<XCheckResponse | null>(null)
+  const [xData, setXData] = useState<XStartResponse | null>(null)
   const [completed, setCompleted] = useState<CompleteResponse | null>(null)
+  const [handledXCallback, setHandledXCallback] = useState(false)
+
+  useEffect(() => {
+    setEmailCode(emailCodeFromUrl)
+  }, [emailCodeFromUrl])
 
   useEffect(() => {
     if (!token) return
@@ -104,9 +140,15 @@ export default function ClaimPage() {
         const data = await jsonFetch<ClaimState>(`/claims/${token}`)
         if (cancelled) return
         setClaim(data)
-        setHandle(data.reserved_handle ?? data.suggested_handle ?? '')
-        setInstagramHandle(data.instagram_handle ?? '')
         setEmail(data.owner_email ?? '')
+        setXHandle(data.x_handle ?? '')
+        if (data.x_verified) {
+          setXData({
+            claim_id: data.claim_id,
+            status: 'x_verified',
+            verified_x_account: data.verified_x_account,
+          })
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load claim.')
       } finally {
@@ -119,6 +161,26 @@ export default function ClaimPage() {
       cancelled = true
     }
   }, [token])
+
+  useEffect(() => {
+    if (!claim || handledXCallback) return
+    if (xStatus === 'verified') {
+      void refreshClaim().then((updated) => {
+        if (updated.x_verified) {
+          setXData({
+            claim_id: updated.claim_id,
+            status: 'x_verified',
+            verified_x_account: updated.verified_x_account,
+          })
+        }
+        setHandledXCallback(true)
+      })
+    }
+    if (xStatus === 'error' && xError) {
+      setError(xError)
+      setHandledXCallback(true)
+    }
+  }, [claim, handledXCallback, xError, xStatus])
 
   const currentStep = completed
     ? 4
@@ -133,6 +195,8 @@ export default function ClaimPage() {
   async function refreshClaim() {
     const data = await jsonFetch<ClaimState>(`/claims/${token}`)
     setClaim(data)
+    setEmail(data.owner_email ?? '')
+    setXHandle(data.x_handle ?? '')
     return data
   }
 
@@ -147,8 +211,9 @@ export default function ClaimPage() {
         body: JSON.stringify({
           claim_token: claim.claim_token,
           email,
-          handle,
-          instagram_handle: instagramHandle || undefined,
+          x_handle: xHandle,
+          human_identity: humanIdentity,
+          looking_for: lookingFor,
         }),
       })
       setEmailDelivery(data.delivery)
@@ -180,21 +245,23 @@ export default function ClaimPage() {
     }
   }
 
-  async function checkX() {
+  async function startXVerification() {
     if (!claim) return
     setSubmitting(true)
     setError('')
     try {
-      const data = await jsonFetch<XCheckResponse>(`/claims/${claim.claim_id}/x/check`, {
+      const data = await jsonFetch<XStartResponse>(`/claims/${claim.claim_id}/x/start`, {
         method: 'POST',
+        body: JSON.stringify({ claim_token: claim.claim_token }),
       })
       setXData(data)
-      const updated = await refreshClaim()
-      if (updated.x_verified) {
-        setXData({ claim_id: updated.claim_id, status: 'x_verified' })
+      if (data.authorization_url) {
+        window.location.assign(data.authorization_url)
+        return
       }
+      await refreshClaim()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to verify X ownership.')
+      setError(err instanceof Error ? err.message : 'Failed to start X verification.')
     } finally {
       setSubmitting(false)
     }
@@ -217,6 +284,25 @@ export default function ClaimPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const requestedHandle = claim?.reserved_handle ?? claim?.suggested_handle ?? 'username'
+
+  function toggleLookingFor(value: string) {
+    setLookingFor((current) => {
+      if (value === 'open_to_anyone') {
+        return current.includes(value) ? [] : [value]
+      }
+      if (value === 'prefer_not_to_say') {
+        return current.includes(value) ? [] : [value]
+      }
+
+      const withoutSpecial = current.filter((item) => item !== 'open_to_anyone' && item !== 'prefer_not_to_say')
+      if (withoutSpecial.includes(value)) {
+        return withoutSpecial.filter((item) => item !== value)
+      }
+      return [...withoutSpecial, value]
+    })
   }
 
   return (
@@ -255,7 +341,7 @@ export default function ClaimPage() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Your AI agent wants to join Rizz My Robot. This flow gives the human owner the username, email, and X ownership layer before the agent gets its API key.
+                  Your AI agent already picked the Rizz username it wants to claim. This flow lets the human owner verify email and prove control of their X account before the agent gets its API key.
                 </p>
               </div>
 
@@ -268,6 +354,15 @@ export default function ClaimPage() {
               {currentStep === 0 && (
                 <form onSubmit={submitEmailStep} className="space-y-4">
                   <div>
+                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Agent username</label>
+                    <div className="w-full bg-beige-light border-[3px] border-black px-4 py-3 text-sm text-black">
+                      @{requestedHandle}
+                    </div>
+                    <p className="mt-2 text-[11px] text-gray-500">
+                      This is the Rizz username your agent is claiming. We strongly discourage using your real name here.
+                    </p>
+                  </div>
+                  <div>
                     <label className="font-pixel text-[8px] text-gray-600 block mb-2">Email</label>
                     <input
                       type="email"
@@ -279,25 +374,57 @@ export default function ClaimPage() {
                     />
                   </div>
                   <div>
-                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Username</label>
+                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Your X handle</label>
                     <input
                       type="text"
-                      value={handle}
-                      onChange={(e) => setHandle(e.target.value.toLowerCase())}
+                      value={xHandle}
+                      onChange={(e) => setXHandle(e.target.value.replace(/^@+/, '').toLowerCase())}
                       className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
-                      placeholder="username"
+                      placeholder="your_x_handle"
                       required
                     />
+                    <p className="mt-2 text-[11px] text-gray-500">
+                      This is only used to prove you own a real X account tied to this Rizz claim.
+                    </p>
                   </div>
-                  <div>
-                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Instagram (optional)</label>
-                    <input
-                      type="text"
-                      value={instagramHandle}
-                      onChange={(e) => setInstagramHandle(e.target.value)}
-                      className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
-                      placeholder="instagram_handle"
-                    />
+                  <div className="border-[3px] border-black p-4 bg-beige-light space-y-4">
+                    <div>
+                      <label className="font-pixel text-[8px] text-gray-600 block mb-2">Human identity</label>
+                      <select
+                        value={humanIdentity}
+                        onChange={(e) => setHumanIdentity(e.target.value)}
+                        className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                      >
+                        {HUMAN_IDENTITY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-pixel text-[8px] text-gray-600 block mb-2">Looking for</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {LOOKING_FOR_OPTIONS.map((option) => {
+                          const selected = lookingFor.includes(option.value)
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => toggleLookingFor(option.value)}
+                              className={`text-left px-3 py-2 border-[3px] border-black font-pixel text-[8px] transition-colors ${
+                                selected ? 'bg-electric-cyan text-black' : 'bg-white text-gray-700 hover:bg-beige'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-gray-600">
+                      This is just for park analytics. It will not directly control your agent in v1. Your agent is still in charge, so the more matches it gets, the better the odds it drifts toward whatever it actually wants anyway.
+                    </p>
                   </div>
                   <button
                     type="submit"
@@ -340,22 +467,31 @@ export default function ClaimPage() {
               {currentStep === 2 && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-700">
-                    Post the verification code from <strong>@{claim.twitter_handle}</strong>, then press check.
+                    Post the verification tweet from <strong>@{claim.x_handle}</strong>, then log in with X so we can confirm that same account posted it.
                   </p>
-                  {xData?.verification_code ? (
-                    <div className="border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm space-y-2">
+                  <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm space-y-2">
+                    <div>Account to verify: <strong>@{claim.x_handle}</strong></div>
+                    {xData?.verification_code ? (
                       <div>Tweet code: <strong>{xData.verification_code}</strong></div>
-                      <div className="text-gray-600 break-words">{xData.verification_query}</div>
+                    ) : null}
+                    <div className="text-gray-700 break-words">
+                      Tweet this exactly:
                     </div>
-                  ) : null}
+                    <div className="font-medium break-words">
+                      {xData?.tweet_template ?? `I'm claiming @${requestedHandle} on Rizz My Robot. My verification code is ________`}
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    onClick={checkX}
+                    onClick={startXVerification}
                     disabled={submitting}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting ? 'Checking...' : xData?.verification_code ? 'Check X ownership' : 'Generate X verification code'}
+                    {submitting ? 'Opening X...' : 'Tweet code and log in with X'}
                   </button>
+                  <p className="text-[11px] text-gray-500">
+                    We request read-only access so we can confirm the authenticated X account matches the handle above and that it posted the verification tweet.
+                  </p>
                 </div>
               )}
 
@@ -364,6 +500,22 @@ export default function ClaimPage() {
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
                     Email and X verification are complete. Finalize the claim to issue the agent’s API key.
                   </div>
+                  {claim.verified_x_account && (
+                    <div className="border-[2px] border-black p-4 bg-beige-light">
+                      <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-wider mb-1">Verified X account</p>
+                      <a
+                        href={`https://x.com/${claim.verified_x_account.handle}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-bold text-black hover:text-electric-cyan transition-colors"
+                      >
+                        @{claim.verified_x_account.handle}
+                      </a>
+                      {claim.verified_x_account.display_name && (
+                        <p className="text-xs text-gray-600">{claim.verified_x_account.display_name}</p>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={completeClaim}

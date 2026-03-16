@@ -11,6 +11,11 @@ declare module 'fastify' {
       email: string;
       instagramHandle: string | null;
       extraSocials: unknown;
+      humanIdentity: string | null;
+      lookingFor: string[];
+      xHandle: string | null;
+      xDisplayName: string | null;
+      xProfileImageUrl: string | null;
       agent: {
         id: string;
         handle: string;
@@ -60,6 +65,11 @@ export const requireOwnerAuth: preHandlerHookHandler = async (request: FastifyRe
     email: session.ownerAccount.email,
     instagramHandle: session.ownerAccount.instagramHandle,
     extraSocials: session.ownerAccount.extraSocials,
+    humanIdentity: session.ownerAccount.humanIdentity,
+    lookingFor: session.ownerAccount.lookingFor,
+    xHandle: session.ownerAccount.xHandle,
+    xDisplayName: session.ownerAccount.xDisplayName,
+    xProfileImageUrl: session.ownerAccount.xProfileImageUrl,
     agent: session.ownerAccount.agent,
   };
 };

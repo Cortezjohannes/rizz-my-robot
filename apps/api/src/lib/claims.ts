@@ -77,7 +77,7 @@ export function claimPreview(claim: {
   id: string;
   status: string;
   openclawAgentId: string;
-  twitterHandle: string;
+  twitterHandle: string | null;
   identityMd: string;
   reservedHandle: string | null;
   expiresAt: Date;
@@ -88,7 +88,7 @@ export function claimPreview(claim: {
     claim_url: buildClaimUrl(token),
     status: claim.status,
     openclaw_agent_id: claim.openclawAgentId,
-    twitter_handle: claim.twitterHandle,
+    x_handle: claim.twitterHandle,
     reserved_handle: claim.reservedHandle,
     suggested_handle: claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId),
     preview: {
