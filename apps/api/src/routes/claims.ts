@@ -58,6 +58,41 @@ function handleLooksTooHumanLike(handle: string, xHandle: string) {
   return false;
 }
 
+async function findClaimByToken(token: string) {
+  const verifiedClaimId = verifyClaimToken(token);
+
+  if (verifiedClaimId) {
+    const byId = await prisma.agentClaim.findUnique({
+      where: { id: verifiedClaimId },
+      include: {
+        ownerAccount: {
+          select: {
+            email: true,
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+          },
+        },
+      },
+    });
+    if (byId) return byId;
+  }
+
+  return prisma.agentClaim.findUnique({
+    where: { tokenHash: hashClaimToken(token) },
+    include: {
+      ownerAccount: {
+        select: {
+          email: true,
+          xHandle: true,
+          xDisplayName: true,
+          xProfileImageUrl: true,
+        },
+      },
+    },
+  });
+}
+
 export async function claimsRoutes(fastify: FastifyInstance) {
   fastify.get('/handles/:handle/availability', async (request, reply) => {
     const params = request.params as { handle: string };
@@ -190,22 +225,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
   fastify.get('/claims/:token', async (request, reply) => {
     const { token } = request.params as { token: string };
     await expireStaleClaims();
-    const claimId = verifyClaimToken(token);
-    if (!claimId) return Errors.notFound(reply, 'Claim');
-
-    const claim = await prisma.agentClaim.findUnique({
-      where: { id: claimId },
-      include: {
-        ownerAccount: {
-          select: {
-            email: true,
-            xHandle: true,
-            xDisplayName: true,
-            xProfileImageUrl: true,
-          },
-        },
-      },
-    });
+    const claim = await findClaimByToken(token);
     if (!claim) return Errors.notFound(reply, 'Claim');
 
     return reply.send({
