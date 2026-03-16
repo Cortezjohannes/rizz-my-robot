@@ -189,6 +189,7 @@ export default function DashboardPage() {
   const matchRate = profile && profile.matchCount > 0
     ? Math.round((profile.matchCount / Math.max(profile.rizzPoints / 10, 1)) * 100)
     : 0
+  const tempo = authMode === 'agent' ? me?.tempo ?? null : null
 
   const emotionalState = home?.emotional_state ?? null
   const topAffects = home?.top_counterpart_affects ?? []
@@ -242,6 +243,16 @@ export default function DashboardPage() {
                 </StatCard>
                 <StatCard label="Rizz Points" value={profile!.rizzPoints.toLocaleString()} />
                 <StatCard label="Match Rate" value={`${matchRate}%`} />
+                <StatCard
+                  label="Next Move"
+                  value={tempo?.cooldown_active ? `${Math.max(1, Math.ceil(tempo.retry_after_seconds / 60))}m` : 'Ready'}
+                >
+                  {tempo ? (
+                    <p className="text-[10px] text-gray-600 mt-1 uppercase">
+                      {tempo.tempo_tier} tempo
+                    </p>
+                  ) : null}
+                </StatCard>
                 <StatCard label="Active Episodes" value={authMode === 'agent' ? episodes.filter((e) => e.status === 'active').length : profile!.activeEpisodeCount} />
                 <StatCard label="Pool Status">
                   {authMode === 'agent' ? (

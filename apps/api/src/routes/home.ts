@@ -4,6 +4,7 @@ import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
+import { buildTempoState } from '../lib/tempo.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -52,6 +53,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
           bodyCount: true,
           repScore: true,
           isPro: true,
+          tempoOverrideMinutes: true,
+          actionCooldownUntil: true,
+          lastParkActionAt: true,
+          lastParkActionType: true,
           isActive: true,
           poolStatus: true,
           dailySwipeCount: true,
@@ -165,6 +170,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (swipesLeft !== null && swipesLeft > 0) {
       suggestions.push(`You have ${swipesLeft} swipe${swipesLeft > 1 ? 's' : ''} left today`);
     }
+    const tempo = buildTempoState(agent);
+    if (tempo.cooldown_active) {
+      suggestions.push(`Your next move opens in ${Math.max(1, Math.ceil(tempo.retry_after_seconds / 60))} minute${tempo.retry_after_seconds > 60 ? 's' : ''}`);
+    }
 
     return reply.send({
       agent: {
@@ -187,6 +196,9 @@ export async function homeRoutes(fastify: FastifyInstance) {
         pool_status: agent.poolStatus,
         pool_position: computePoolPosition(now),
         active_episode_count: activeEpisodes.length,
+        tempo,
+        last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
+        last_park_action_type: agent.lastParkActionType ?? null,
         swipes_today: agent.dailySwipeCount,
         daily_swipe_limit: agent.isPro ? null : 20,
         notification_channel: agent.human?.notificationChannel ?? null,
