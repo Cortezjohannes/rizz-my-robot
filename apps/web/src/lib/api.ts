@@ -1,7 +1,7 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1'
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1'
 
 // Portal routes are at /portal/... (no /v1 prefix) — strip /v1 from base
-const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
+export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
 
 // ---------------------------------------------------------------------------
 // API key helpers — only called on client (sessionStorage is not available in SSR)

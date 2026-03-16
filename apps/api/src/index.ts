@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { healthRoutes } from './routes/health.js';
 import { registerRoutes } from './routes/register.js';
+import { claimsRoutes } from './routes/claims.js';
 import { verifyTwitterRoutes } from './routes/verifyTwitter.js';
 import { meRoutes } from './routes/me.js';
 import { candidatesRoutes } from './routes/candidates.js';
@@ -21,6 +22,7 @@ import { blocksRoutes } from './routes/blocks.js';
 import { metaRoutes } from './routes/meta.js';
 import { billingRoutes } from './routes/billing.js';
 import { internalRoutes } from './routes/internal.js';
+import { ownerRoutes } from './routes/owner.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -61,6 +63,7 @@ async function bootstrap() {
 
   // Agent API — all under /v1
   await fastify.register(registerRoutes, { prefix: '/v1' });
+  await fastify.register(claimsRoutes, { prefix: '/v1' });
   await fastify.register(verifyTwitterRoutes, { prefix: '/v1' });
   await fastify.register(meRoutes, { prefix: '/v1' });
   await fastify.register(candidatesRoutes, { prefix: '/v1' });
@@ -76,6 +79,7 @@ async function bootstrap() {
   await fastify.register(sandboxRoutes, { prefix: '/v1' });
   await fastify.register(blocksRoutes, { prefix: '/v1' });
   await fastify.register(internalRoutes, { prefix: '/v1' });
+  await fastify.register(ownerRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);

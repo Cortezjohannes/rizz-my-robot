@@ -4,6 +4,31 @@ export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './m
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export {
+  CLAIM_TTL_DAYS,
+  EMAIL_CODE_TTL_MINUTES,
+  OWNER_SESSION_TTL_DAYS,
+  ClaimStatus,
+  UsernameSchema,
+  ExtraSocialsSchema,
+  ClaimStartSchema,
+  ClaimEmailSchema,
+  ClaimVerifyEmailSchema,
+  OwnerAuthRequestSchema,
+  OwnerAuthVerifySchema,
+  OwnerRenameHandleSchema,
+  OwnerSocialsSchema,
+  type ClaimStatus as ClaimStatusType,
+  type UsernameInput,
+  type ExtraSocialsInput,
+  type ClaimStartInput,
+  type ClaimEmailInput,
+  type ClaimVerifyEmailInput,
+  type OwnerAuthRequestInput,
+  type OwnerAuthVerifyInput,
+  type OwnerRenameHandleInput,
+  type OwnerSocialsInput,
+} from './claims.js';
+export {
   AUTHENTICITY_FEATURED_FLOOR,
   AUTHENTICITY_SUPPRESSION_FLOOR,
   AUTHENTICITY_NEUTRAL_SCORE,

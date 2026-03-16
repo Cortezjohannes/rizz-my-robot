@@ -11,6 +11,7 @@ datasource db {
 model Agent {
   id               String    @id @default(uuid())
   handle           String    @unique
+  handleChangeCount Int      @default(0) @map("handle_change_count")
   openclawAgentId  String    @unique @map("openclaw_agent_id")
   twitterHandle    String    @map("twitter_handle")
   twitterVerified  Boolean   @default(false) @map("twitter_verified")
@@ -73,6 +74,7 @@ model Agent {
   twitterAutoPost  Boolean  @default(false) @map("twitter_auto_post")
   // Agent's own Twitter bearer token — used at their expense, never ours
   twitterBearerToken String? @map("twitter_bearer_token")
+  ownerAccountId   String?   @unique @map("owner_account_id")
 
   lastActiveAt      DateTime? @map("last_active_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -100,6 +102,8 @@ model Agent {
   auditLogs        AuditLog[]
   subscriptions    AgentSubscription[]
   seedState        SeedAgentState?
+  ownerAccount     OwnerAccount? @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
+  completedClaim   AgentClaim? @relation("CompletedClaim")
 
   @@map("agents")
 }
@@ -129,6 +133,84 @@ model Human {
   agent               Agent     @relation(fields: [agentId], references: [id])
 
   @@map("humans")
+}
+
+model OwnerAccount {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  emailVerifiedAt   DateTime? @map("email_verified_at")
+  instagramHandle   String?   @map("instagram_handle")
+  extraSocials      Json?     @map("extra_socials")
+  loginCodeHash     String?   @map("login_code_hash")
+  loginCodeExpiresAt DateTime? @map("login_code_expires_at")
+  lastLoginAt       DateTime? @map("last_login_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  agent             Agent?    @relation("OwnerAgent")
+  claims            AgentClaim[]
+  sessions          OwnerSession[]
+
+  @@map("owner_accounts")
+}
+
+model OwnerSession {
+  id             String    @id @default(uuid())
+  ownerAccountId String    @map("owner_account_id")
+  tokenHash      String    @unique @map("token_hash")
+  expiresAt      DateTime  @map("expires_at")
+  lastUsedAt     DateTime? @map("last_used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
+
+  @@index([ownerAccountId, expiresAt])
+  @@map("owner_sessions")
+}
+
+model AgentClaim {
+  id                        String    @id @default(uuid())
+  tokenHash                 String    @unique @map("token_hash")
+  status                    String
+  openclawAgentId           String    @unique @map("openclaw_agent_id")
+  twitterHandle             String    @map("twitter_handle")
+  identityMd                String    @map("identity_md")
+  soulMd                    String    @map("soul_md")
+  reservedHandle            String?   @map("reserved_handle")
+  ownerAccountId            String?   @map("owner_account_id")
+  emailVerificationCodeHash String?   @map("email_verification_code_hash")
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
+  emailVerifiedAt           DateTime? @map("email_verified_at")
+  xVerificationCode         String?   @map("x_verification_code")
+  xVerificationExpiresAt    DateTime? @map("x_verification_expires_at")
+  xVerifiedAt               DateTime? @map("x_verified_at")
+  claimedAgentId            String?   @unique @map("claimed_agent_id")
+  expiresAt                 DateTime  @map("expires_at")
+  completedAt               DateTime? @map("completed_at")
+  canceledAt                DateTime? @map("canceled_at")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  ownerAccount OwnerAccount? @relation(fields: [ownerAccountId], references: [id])
+  claimedAgent Agent?        @relation("CompletedClaim", fields: [claimedAgentId], references: [id])
+  handleReservation HandleReservation?
+
+  @@index([status, expiresAt])
+  @@map("agent_claims")
+}
+
+model HandleReservation {
+  id        String   @id @default(uuid())
+  handle    String   @unique
+  claimId   String   @unique @map("claim_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  claim AgentClaim @relation(fields: [claimId], references: [id])
+
+  @@index([expiresAt])
+  @@map("handle_reservations")
 }
 
 // A conversation episode between two agents
