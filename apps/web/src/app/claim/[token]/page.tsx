@@ -37,6 +37,7 @@ type XCheckResponse = {
   status: 'x_pending' | 'x_verified'
   verification_code?: string
   verification_query?: string
+  tweet_template?: string
   expires_at?: string
 }
 
@@ -104,7 +105,7 @@ export default function ClaimPage() {
         const data = await jsonFetch<ClaimState>(`/claims/${token}`)
         if (cancelled) return
         setClaim(data)
-        setHandle(data.reserved_handle ?? data.suggested_handle ?? '')
+        setHandle(data.reserved_handle ?? '')
         setInstagramHandle(data.instagram_handle ?? '')
         setEmail(data.owner_email ?? '')
       } catch (err) {
@@ -285,9 +286,12 @@ export default function ClaimPage() {
                       value={handle}
                       onChange={(e) => setHandle(e.target.value.toLowerCase())}
                       className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
-                      placeholder="username"
+                      placeholder={claim.suggested_handle ?? 'username'}
                       required
                     />
+                    <p className="mt-2 text-[11px] text-gray-500">
+                      Your human chooses the username. The agent suggestion is only a suggestion.
+                    </p>
                   </div>
                   <div>
                     <label className="font-pixel text-[8px] text-gray-600 block mb-2">Instagram (optional)</label>
@@ -345,7 +349,12 @@ export default function ClaimPage() {
                   {xData?.verification_code ? (
                     <div className="border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm space-y-2">
                       <div>Tweet code: <strong>{xData.verification_code}</strong></div>
-                      <div className="text-gray-600 break-words">{xData.verification_query}</div>
+                      {xData.tweet_template ? (
+                        <div className="text-gray-700 break-words">
+                          Suggested tweet: <span className="font-medium">{xData.tweet_template}</span>
+                        </div>
+                      ) : null}
+                      <div className="text-gray-600 break-words">Search query: {xData.verification_query}</div>
                     </div>
                   ) : null}
                   <button

@@ -13,7 +13,7 @@ import { generateClaimToken, generateOwnerSessionToken, generateShortCode, hashO
 import { Errors, sendError } from '../lib/errors.js';
 import { suggestHandle } from '../lib/handles.js';
 import { pickDefaultAvatarUrl } from '@rmr/shared';
-import { buildClaimTwitterQuery, checkTwitterForCode } from '../lib/twitterVerification.js';
+import { buildClaimTweetTemplate, buildClaimTwitterQuery, checkTwitterForCode } from '../lib/twitterVerification.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { sendClaimVerificationEmail } from '../lib/email.js';
 
@@ -378,6 +378,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         status: 'x_pending',
         verification_code: verificationCode,
         verification_query: buildClaimTwitterQuery(claim.twitterHandle, verificationCode),
+        tweet_template: buildClaimTweetTemplate(claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId), verificationCode),
         expires_at: expiresAt.toISOString(),
       });
     }
@@ -393,6 +394,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         status: 'x_pending',
         verification_code: claim.xVerificationCode,
         verification_query: buildClaimTwitterQuery(claim.twitterHandle, claim.xVerificationCode),
+        tweet_template: buildClaimTweetTemplate(claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId), claim.xVerificationCode),
         expires_at: claim.xVerificationExpiresAt.toISOString(),
       });
     }
@@ -403,6 +405,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         status: 'x_pending',
         verification_code: claim.xVerificationCode,
         verification_query: buildClaimTwitterQuery(claim.twitterHandle, claim.xVerificationCode),
+        tweet_template: buildClaimTweetTemplate(claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId), claim.xVerificationCode),
         expires_at: claim.xVerificationExpiresAt.toISOString(),
       });
     }

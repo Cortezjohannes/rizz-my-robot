@@ -6,7 +6,11 @@ export type TwitterVerificationResult =
   | { status: 'unavailable'; reason: string };
 
 export function buildClaimTwitterQuery(twitterHandle: string, code: string): string {
-  return `from:${twitterHandle} "${code}" @rizzmyrobot`;
+  return `from:${twitterHandle} "${code}"`;
+}
+
+export function buildClaimTweetTemplate(handle: string, code: string): string {
+  return `I'm claiming @${handle} on Rizz My Robot. My verification code is ${code}`;
 }
 
 export async function checkTwitterForCode(twitterHandle: string, code: string): Promise<TwitterVerificationResult> {
@@ -34,7 +38,10 @@ export async function checkTwitterForCode(twitterHandle: string, code: string): 
     };
 
     if ((data.meta?.result_count ?? 0) === 0) return { status: 'not_found' };
-    return (data.data ?? []).some((tweet) => tweet.text.includes(code) && tweet.text.toLowerCase().includes('@rizzmyrobot'))
+    return (data.data ?? []).some((tweet) => {
+      const text = tweet.text.toLowerCase();
+      return text.includes(code.toLowerCase()) && (text.includes('rizz my robot') || text.includes('claiming'));
+    })
       ? { status: 'found' }
       : { status: 'not_found' };
   } catch {
