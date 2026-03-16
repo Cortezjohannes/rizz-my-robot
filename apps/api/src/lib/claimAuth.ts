@@ -19,24 +19,34 @@ export function generateShortCode(length = 6): string {
   return digits.padStart(length, '0');
 }
 
-function claimTokenSignature(claimId: string): string {
-  return createHmac('sha256', CLAIM_TOKEN_HMAC_KEY).update(claimId).digest('base64url').slice(0, 32);
+function claimTokenSignature(claimId: string, nonce: string): string {
+  return createHmac('sha256', CLAIM_TOKEN_HMAC_KEY).update(`${claimId}.${nonce}`).digest('base64url').slice(0, 32);
 }
 
 export function generateClaimToken(claimId: string): string {
-  return `${CLAIM_TOKEN_PREFIX}${claimId}_${claimTokenSignature(claimId)}`;
+  const nonce = randomBytes(12).toString('base64url');
+  return `${CLAIM_TOKEN_PREFIX}${claimId}.${nonce}.${claimTokenSignature(claimId, nonce)}`;
 }
 
 export function verifyClaimToken(token: string): string | null {
   if (!token.startsWith(CLAIM_TOKEN_PREFIX)) return null;
 
   const payload = token.slice(CLAIM_TOKEN_PREFIX.length);
+  const dotParts = payload.split('.');
+  if (dotParts.length === 3) {
+    const [claimId, nonce, signature] = dotParts;
+    const expected = claimTokenSignature(claimId, nonce);
+    if (signature.length !== expected.length) return null;
+    if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    return claimId;
+  }
+
   const separatorIndex = payload.lastIndexOf('_');
   if (separatorIndex <= 0 || separatorIndex === payload.length - 1) return null;
 
   const claimId = payload.slice(0, separatorIndex);
   const signature = payload.slice(separatorIndex + 1);
-  const expected = claimTokenSignature(claimId);
+  const expected = createHmac('sha256', CLAIM_TOKEN_HMAC_KEY).update(claimId).digest('base64url').slice(0, 32);
 
   if (signature.length !== expected.length) return null;
   if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;

@@ -34,8 +34,6 @@ import { Errors, sendError } from '../lib/errors.js';
 import {
   buildClaimTweetTemplate,
   buildXAuthorizationUrl,
-  buildXCallbackErrorUrl,
-  buildXCallbackSuccessUrl,
   generateOAuthNonce,
   generatePkceVerifier,
   hasXOAuthConfig,
@@ -56,6 +54,15 @@ function handleLooksTooHumanLike(handle: string, xHandle: string) {
   if (normalizedHandle.includes(normalizedXHandle) || normalizedXHandle.includes(normalizedHandle)) return true;
   if (normalizedXHandle.length >= 6 && normalizedHandle.startsWith(normalizedXHandle)) return true;
   return false;
+}
+
+async function rotateClaimToken(claimId: string) {
+  const token = generateClaimToken(claimId);
+  await prisma.agentClaim.update({
+    where: { id: claimId },
+    data: { tokenHash: hashClaimToken(token) },
+  });
+  return token;
 }
 
 async function findClaimByToken(token: string) {
@@ -138,7 +145,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
 
     if (existingClaim && !['completed', 'expired', 'canceled'].includes(existingClaim.status) && existingClaim.expiresAt > new Date()) {
-      const activeToken = generateClaimToken(existingClaim.id);
+      const activeToken = await rotateClaimToken(existingClaim.id);
       return reply.status(200).send({
         ...claimPreview(existingClaim, activeToken),
         email_verified: !!existingClaim.emailVerifiedAt,
@@ -368,11 +375,13 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     const expiresAt = claimExpiryDate();
+    const nextToken = generateClaimToken(claim.id);
 
     const [updatedClaim] = await prisma.$transaction([
       prisma.agentClaim.update({
         where: { id: claim.id },
         data: {
+          tokenHash: hashClaimToken(nextToken),
           status: 'pending_email',
           expiresAt,
           emailVerificationCodeHash: null,
@@ -413,7 +422,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     ]);
 
     return reply.send({
-      ...claimPreview(updatedClaim, parsed.data.claim_token),
+      ...claimPreview(updatedClaim, nextToken),
       email_verified: false,
       x_verified: false,
       restarted: true,
@@ -776,11 +785,15 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       },
     });
     if (!claim) {
-      return reply.redirect(buildXCallbackErrorUrl(state.claimId, 'Claim not found.'));
+      return reply.redirect(buildClaimUrl(generateClaimToken(state.claimId)));
     }
 
     if (!claim.xOauthNonce || claim.xOauthNonce !== state.nonce) {
-      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'This X verification session is no longer valid. Start again.'));
+      const token = await rotateClaimToken(claim.id);
+      const url = new URL(buildClaimUrl(token));
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'This X verification session is no longer valid. Start again.');
+      return reply.redirect(url.toString());
     }
 
     if (query.error) {
@@ -792,16 +805,19 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         },
       }).catch(() => null);
 
-      return reply.redirect(
-        buildXCallbackErrorUrl(
-          claim.id,
-          query.error_description ?? `X login failed: ${query.error}`,
-        ),
-      );
+      const token = await rotateClaimToken(claim.id);
+      const url = new URL(buildClaimUrl(token));
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', (query.error_description ?? `X login failed: ${query.error}`).slice(0, 200));
+      return reply.redirect(url.toString());
     }
 
     if (!query.code || !claim.twitterHandle || !claim.xVerificationCode || !claim.xOauthCodeVerifier || !claim.ownerAccountId) {
-      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'X verification could not continue.'));
+      const token = await rotateClaimToken(claim.id);
+      const url = new URL(buildClaimUrl(token));
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'X verification could not continue.');
+      return reply.redirect(url.toString());
     }
 
     const verification = await verifyXAccountTweet({
@@ -820,7 +836,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         },
       }).catch(() => null);
 
-      return reply.redirect(buildXCallbackErrorUrl(claim.id, verification.reason));
+      const token = await rotateClaimToken(claim.id);
+      const url = new URL(buildClaimUrl(token));
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', verification.reason.slice(0, 200));
+      return reply.redirect(url.toString());
     }
 
     const conflictingOwner = await prisma.ownerAccount.findFirst({
@@ -834,7 +854,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       },
     });
     if (conflictingOwner?.agent) {
-      return reply.redirect(buildXCallbackErrorUrl(claim.id, 'That X account is already linked to another agent owner.'));
+      const token = await rotateClaimToken(claim.id);
+      const url = new URL(buildClaimUrl(token));
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'That X account is already linked to another agent owner.');
+      return reply.redirect(url.toString());
     }
 
     await prisma.$transaction([
@@ -859,7 +883,10 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
-    return reply.redirect(buildXCallbackSuccessUrl(claim.id));
+    const token = await rotateClaimToken(claim.id);
+    const url = new URL(buildClaimUrl(token));
+    url.searchParams.set('x_status', 'verified');
+    return reply.redirect(url.toString());
   });
 
   fastify.post('/claims/:id/complete', async (request, reply) => {
