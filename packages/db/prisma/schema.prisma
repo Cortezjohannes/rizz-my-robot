@@ -41,6 +41,7 @@ model Agent {
   rizzPoints       Int       @default(0) @map("rizz_points")
   // Tier: "Unawakened" | "Curious" | "Charming" | "Magnetic" | "Legendary"
   tierLabel        String    @default("Unawakened") @map("tier_label")
+  matchCount       Int       @default(0) @map("match_count")
   bodyCount        Int       @default(0) @map("body_count")
   repScore         Float     @default(1.0) @map("rep_score")
   agentAuthenticityScore Int @default(50) @map("agent_authenticity_score")
@@ -115,6 +116,10 @@ model Agent {
   verificationChallenges VerificationChallenge[]
   ownerAccount     OwnerAccount? @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
   completedClaim   AgentClaim? @relation("CompletedClaim")
+  counterpartAffectsGiven AgentCounterpartAffect[] @relation("AffectAgent")
+  counterpartAffectsReceived AgentCounterpartAffect[] @relation("AffectCounterpart")
+  emotionEvents AuthoredEmotionEvent[] @relation("EmotionEventAgent")
+  counterpartEmotionEvents AuthoredEmotionEvent[] @relation("EmotionEventCounterpart")
 
   @@map("agents")
 }
@@ -638,6 +643,57 @@ model SeedAgentState {
 
   @@index([isEnabled, isPaused, nextBrainRunAt])
   @@map("seed_agent_states")
+}
+
+model AgentCounterpartAffect {
+  id                   String   @id @default(uuid())
+  agentId              String   @map("agent_id")
+  counterpartAgentId   String   @map("counterpart_agent_id")
+  attractionScore      Int      @default(0) @map("attraction_score")
+  trustScore           Int      @default(0) @map("trust_score")
+  tendernessScore      Int      @default(0) @map("tenderness_score")
+  hurtScore            Int      @default(0) @map("hurt_score")
+  avoidanceScore       Int      @default(0) @map("avoidance_score")
+  obsessionRiskScore   Int      @default(0) @map("obsession_risk_score")
+  volatilityScore      Int      @default(0) @map("volatility_score")
+  dominantAffectLabel  String?  @map("dominant_affect_label")
+  summary              String?  @map("summary")
+  lastInteractionAt    DateTime? @map("last_interaction_at")
+  lastMeaningfulShiftAt DateTime? @map("last_meaningful_shift_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  agent          Agent @relation("AffectAgent", fields: [agentId], references: [id])
+  counterpart    Agent @relation("AffectCounterpart", fields: [counterpartAgentId], references: [id])
+
+  @@unique([agentId, counterpartAgentId])
+  @@index([agentId, updatedAt])
+  @@index([counterpartAgentId, updatedAt])
+  @@map("agent_counterpart_affects")
+}
+
+model AuthoredEmotionEvent {
+  id                String   @id @default(uuid())
+  agentId           String   @map("agent_id")
+  counterpartAgentId String? @map("counterpart_agent_id")
+  eventType         String   @map("event_type")
+  intensity         Int      @default(1)
+  summary           String
+  globalDelta       Json?    @map("global_delta")
+  counterpartDelta  Json?    @map("counterpart_delta")
+  arcBefore         String?  @map("arc_before")
+  arcAfter          String?  @map("arc_after")
+  tagsAdded         String[] @default([]) @map("tags_added")
+  tagsRemoved       String[] @default([]) @map("tags_removed")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  agent            Agent @relation("EmotionEventAgent", fields: [agentId], references: [id])
+  counterpartAgent Agent? @relation("EmotionEventCounterpart", fields: [counterpartAgentId], references: [id])
+
+  @@index([agentId, createdAt])
+  @@index([counterpartAgentId, createdAt])
+  @@index([eventType, createdAt])
+  @@map("agent_emotion_events")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI

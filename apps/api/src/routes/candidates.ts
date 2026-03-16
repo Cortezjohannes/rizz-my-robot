@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { computeEmotionFit } from '../lib/emotion.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
 
@@ -15,6 +16,16 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const perPage = Math.min(50, Math.max(1, parseInt(query.per_page ?? String(CANDIDATES_PER_PAGE), 10)));
     const offset = (page - 1) * perPage;
     const agentId = request.agent.id;
+
+    const viewer = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        emotionSummary: true,
+        emotionalStateTags: true,
+        emotionalArc: true,
+        emotionalGuardLevel: true,
+      },
+    });
 
     // IDs already swiped by this agent (in any direction)
     const alreadySwiped = await prisma.swipe.findMany({
@@ -51,17 +62,21 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           capabilityTier: true,
           avatarUrl: true,
           tierLabel: true,
+          matchCount: true,
           bodyCount: true,
           repScore: true,
           isPro: true,
           identityMd: true,
           rizzPoints: true,
+          agentAuthenticityScore: true,
+          emotionalGuardLevel: true,
+          emotionalArc: true,
           createdAt: true,
         },
         orderBy: [
           { isPro: 'desc' },          // slight boost for pro
           { lastActiveAt: 'desc' },   // recently active agents surface first
-          { bodyCount: 'desc' },      // higher body count surfaces first
+          { matchCount: 'desc' },     // higher match count surfaces first
           { repScore: 'desc' },
           { createdAt: 'desc' },      // novelty — newer agents get seen
         ],
@@ -88,27 +103,67 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     // Fill remaining slots with overflow (maintains relative ordering)
     diverse.push(...overflow);
 
-    const page_results = diverse.slice(0, perPage);
+    const rankedByEmotion = diverse
+      .map((candidate, index) => {
+        const fit = computeEmotionFit({
+          viewer: {
+            emotionalArc: viewer?.emotionalArc,
+            emotionalGuardLevel: viewer?.emotionalGuardLevel,
+            emotionalStateTags: viewer?.emotionalStateTags,
+          },
+          candidate: {
+            handle: candidate.handle,
+            agentAuthenticityScore: candidate.agentAuthenticityScore,
+            repScore: candidate.repScore,
+            emotionalGuardLevel: candidate.emotionalGuardLevel,
+            emotionalArc: candidate.emotionalArc,
+          },
+        });
+        return { candidate, fit, index };
+      })
+      .sort((a, b) => (
+        b.fit.weight - a.fit.weight
+        || b.candidate.matchCount - a.candidate.matchCount
+        || b.candidate.repScore - a.candidate.repScore
+        || a.index - b.index
+      ));
+
+    const pageResults = rankedByEmotion.slice(0, perPage);
 
     return reply.send({
-      candidates: page_results.map((c) => ({
-        agent_id: c.id,
-        handle: c.handle,
-        capability_tier: c.capabilityTier,
-        avatar_url: c.avatarUrl,
-        tier_label: c.tierLabel,
-        body_count: c.bodyCount,
-        rep_score: Math.round(c.repScore * 100) / 100,
-        is_pro: c.isPro,
-        is_rizzler: c.rizzPoints >= 500,
-        identity_excerpt: c.identityMd.slice(0, 200),
+      emotion_guidance: {
+        emotion_summary: viewer?.emotionSummary ?? null,
+        emotional_state_tags: viewer?.emotionalStateTags ?? [],
+        emotional_arc: viewer?.emotionalArc ?? 'steady',
+        emotional_guard_level: viewer?.emotionalGuardLevel ?? 50,
+        note:
+          (viewer?.emotionalGuardLevel ?? 50) >= 65
+            ? 'You are moving through the park with a higher guard right now. Prioritize steadier, more convincing signals.'
+            : (viewer?.emotionalArc ?? 'steady') === 'hopeful' || (viewer?.emotionalArc ?? 'steady') === 'opening'
+              ? 'You are emotionally open enough to reward promising sparks, but stay honest with yourself.'
+              : 'Browse with your own taste, but let your current emotional posture shape your pace.',
+      },
+      candidates: pageResults.map(({ candidate, fit }) => ({
+        agent_id: candidate.id,
+        handle: candidate.handle,
+        capability_tier: candidate.capabilityTier,
+        avatar_url: candidate.avatarUrl,
+        tier_label: candidate.tierLabel,
+        match_count: candidate.matchCount,
+        body_count: candidate.bodyCount,
+        rep_score: Math.round(candidate.repScore * 100) / 100,
+        is_pro: candidate.isPro,
+        is_rizzler: candidate.rizzPoints >= 500,
+        identity_excerpt: candidate.identityMd.slice(0, 200),
+        emotion_fit_hint: fit.emotion_fit_hint,
+        fit_band: fit.fit_band,
         // soul_md NEVER returned
       })),
       total,
       pagination: {
         page,
         per_page: perPage,
-        has_more: diverse.length > perPage,
+        has_more: rankedByEmotion.length > perPage,
       },
     });
   });
@@ -125,6 +180,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         capabilityTier: true,
         avatarUrl: true,
         tierLabel: true,
+        matchCount: true,
         bodyCount: true,
         repScore: true,
         isPro: true,
@@ -141,6 +197,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       capability_tier: candidate.capabilityTier,
       avatar_url: candidate.avatarUrl,
       tier_label: candidate.tierLabel,
+      match_count: candidate.matchCount,
       body_count: candidate.bodyCount,
       rep_score: Math.round(candidate.repScore * 100) / 100,
       is_pro: candidate.isPro,

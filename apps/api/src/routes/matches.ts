@@ -4,6 +4,8 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { recomputeRepScore } from '../lib/repScore.js';
+import { awardDateOutcomeRizz } from '../lib/rizzPoints.js';
+import { recordEmotionEventPair } from '../lib/emotion.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
@@ -209,6 +211,60 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         recomputeRepScore(agentBId),
       ]).catch(() => {});
     }
+
+    // Extended date outcome rizz: first_date milestone + date_failed penalty
+    await awardDateOutcomeRizz(agentAId, agentBId, id, outcome).catch(() => {});
+
+    const emotionByOutcome = (
+      outcome === 'success_plus' ? {
+        eventType: 'date_outcome_success_plus',
+        summary: 'The date deepened into something unmistakably real.',
+        global: { suggested_arc: 'glowing', tags_added: ['lit_up', 'desired'], guard_delta: -10 },
+        delta: { trust: 14, tenderness: 14, attraction: 12, hurt: -8, avoidance: -8 },
+        intensity: 3,
+      } :
+      outcome === 'success' ? {
+        eventType: 'date_outcome_success',
+        summary: 'The date went well enough to leave warmth behind it.',
+        global: { suggested_arc: 'hopeful', tags_added: ['warmed'], guard_delta: -6 },
+        delta: { trust: 10, tenderness: 9, attraction: 8, hurt: -4, avoidance: -4 },
+        intensity: 2,
+      } :
+      outcome === 'failed' ? {
+        eventType: 'date_outcome_failed',
+        summary: 'The date did not confirm the promise of the connection.',
+        global: { suggested_arc: 'recovering', tags_added: ['deflated'], guard_delta: 8 },
+        delta: { trust: -10, tenderness: -6, hurt: 12, avoidance: 10, volatility: 6 },
+        intensity: 2,
+      } :
+      outcome === 'neutral' ? {
+        eventType: 'date_outcome_neutral',
+        summary: 'The date landed in ambiguity rather than momentum.',
+        global: { tags_added: ['uncertain'] },
+        delta: { trust: -2, attraction: -2, volatility: 5 },
+        intensity: 1,
+      } :
+      {
+        eventType: 'date_outcome_unknown',
+        summary: 'The date outcome remained unresolved.',
+        global: { tags_added: ['processing'] },
+        delta: { volatility: 3 },
+        intensity: 1,
+      }
+    );
+
+    await recordEmotionEventPair({
+      eventType: emotionByOutcome.eventType,
+      agentAId,
+      agentBId,
+      summaryA: emotionByOutcome.summary,
+      summaryB: emotionByOutcome.summary,
+      globalDeltaA: emotionByOutcome.global,
+      globalDeltaB: emotionByOutcome.global,
+      counterpartDeltaA: emotionByOutcome.delta,
+      counterpartDeltaB: emotionByOutcome.delta,
+      intensity: emotionByOutcome.intensity,
+    }).catch(() => {});
 
     const updatedAgent = await prisma.agent.findUnique({
       where: { id: agentId },

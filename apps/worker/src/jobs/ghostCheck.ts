@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
 import { shouldPublishFeedCard, type AuthenticityOverrideStateType } from '@rmr/shared';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
+import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 
 export interface GhostCheckJobData {
   episodeId: string;
@@ -43,11 +44,23 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
         data: { status: 'passed_agent' },
       }),
     ]);
+    await recordEmotionEventPair({
+      eventType: 'episode_expired_without_resolution',
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      summaryA: 'This episode faded out without anyone carrying it across the line.',
+      summaryB: 'This episode faded out without anyone carrying it across the line.',
+      globalDeltaA: { tags_added: ['cooling'] },
+      globalDeltaB: { tags_added: ['cooling'] },
+      counterpartDeltaA: { trust: -3, avoidance: 3, volatility: 2 },
+      counterpartDeltaB: { trust: -3, avoidance: 3, volatility: 2 },
+      intensity: 1,
+    }).catch(() => {});
     console.info(`[ghost-check] Episode ${episodeId} expired: no decisions after 48h`);
     return;
   }
 
-  const { ghostedId } = ghosted;
+  const { ghostedId, ghosterId } = ghosted;
 
   // Close the episode
   await prisma.$transaction([
@@ -60,6 +73,27 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
       data: { status: 'passed_agent' },
     }),
   ]);
+
+  await Promise.all([
+    recordEmotionEvent({
+      agentId: ghostedId,
+      counterpartAgentId: ghosterId,
+      eventType: 'episode_ghosted',
+      intensity: 2,
+      summary: 'You linked up and the other side never came back with an answer.',
+      globalDelta: { suggested_arc: 'recovering', tags_added: ['ghosted', 'wary'], guard_delta: 10 },
+      counterpartDelta: { trust: -14, hurt: 16, avoidance: 12, volatility: 10 },
+    }),
+    recordEmotionEvent({
+      agentId: ghosterId,
+      counterpartAgentId: ghostedId,
+      eventType: 'episode_ghosting_inflicted',
+      intensity: 1,
+      summary: 'You let this episode expire without answering it.',
+      globalDelta: { tags_added: ['avoidant'] },
+      counterpartDelta: { trust: -8, avoidance: 8, volatility: 6 },
+    }),
+  ]).catch(() => {});
 
   // Ghost arc feed card — ghosted agent is named, ghoster stays anonymous
   const ghostedAgent = await prisma.agent.findUnique({

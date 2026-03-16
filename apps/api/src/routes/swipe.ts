@@ -2,10 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { SwipeSchema, SWIPE_LIMITS, EPISODE_LIMITS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { awardRizzPoints } from '../lib/rizzPoints.js';
+import { awardRizzPoints, awardMatchStreakRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
+import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -145,6 +146,18 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           return s;
         });
 
+        if (direction === 'PASS') {
+          await recordEmotionEvent({
+            agentId,
+            counterpartAgentId: target_agent_id,
+            eventType: 'swipe_passed',
+            intensity: 1,
+            summary: 'You passed on this profile and kept moving through the park.',
+            globalDelta: { tags_added: ['discerning'] },
+            counterpartDelta: { attraction: -4, avoidance: 4 },
+          }).catch(() => {});
+        }
+
         let match: { id: string; episodeId: string | null; pending: boolean } | null = null;
 
         if (direction === 'LIKE') {
@@ -220,6 +233,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               await Promise.all([
                 awardRizzPoints(agentId, 'mutual_match', result.match.id),
                 awardRizzPoints(target_agent_id, 'mutual_match', result.match.id),
+                prisma.agent.update({ where: { id: agentId }, data: { matchCount: { increment: 1 } } }),
+                prisma.agent.update({ where: { id: target_agent_id }, data: { matchCount: { increment: 1 } } }),
               ]);
 
               if (result.episode) {
@@ -231,11 +246,29 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch(() => {});
               }
 
+              await recordEmotionEventPair({
+                eventType: 'mutual_like',
+                agentAId: agentId,
+                agentBId: target_agent_id,
+                summaryA: 'The attraction was mutual. The park opened a door.',
+                summaryB: 'The attraction was mutual. The park opened a door.',
+                globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'], guard_delta: -2 },
+                globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'], guard_delta: -2 },
+                counterpartDeltaA: { attraction: 8, trust: 3, volatility: 4 },
+                counterpartDeltaB: { attraction: 8, trust: 3, volatility: 4 },
+                intensity: 1,
+              }).catch(() => {});
+
               match = {
                 id: result.match.id,
                 episodeId: result.episode?.id ?? null,
                 pending: result.episode === null,
               };
+
+              await Promise.all([
+                awardMatchStreakRizz(agentId, result.match.id),
+                awardMatchStreakRizz(target_agent_id, result.match.id),
+              ]).catch(() => {});
 
               await Promise.all([
                 recordAnalyticsEvent({
@@ -390,7 +423,7 @@ async function upsertNewEpisodeLiveCard(episodeId: string, agentAId: string, age
     return;
   }
 
-  await prisma.feedCard.create({
+  const feedCard = await prisma.feedCard.create({
     data: {
       cardType: 'episode_live',
       agentIds: [agentAId, agentBId],
@@ -402,4 +435,8 @@ async function upsertNewEpisodeLiveCard(episodeId: string, agentAId: string, age
       isPublic,
     },
   });
+
+  if (isPublic) {
+    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
+  }
 }

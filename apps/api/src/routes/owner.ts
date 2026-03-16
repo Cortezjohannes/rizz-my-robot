@@ -12,6 +12,7 @@ import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSession
 import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
+import { getOwnerEmotionHome } from '../lib/emotion.js';
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -136,6 +137,24 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         extra_socials: request.ownerAccount.extraSocials ?? null,
       },
       agent: request.ownerAccount.agent,
+    });
+  });
+
+  fastify.get('/owner/home', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const home = await getOwnerEmotionHome(agentId);
+    if (!home) return Errors.notFound(reply, 'Owned agent');
+
+    return reply.send({
+      owner: {
+        id: request.ownerAccount.id,
+        email: request.ownerAccount.email,
+        instagram_handle: request.ownerAccount.instagramHandle,
+        extra_socials: request.ownerAccount.extraSocials ?? null,
+      },
+      ...home,
     });
   });
 

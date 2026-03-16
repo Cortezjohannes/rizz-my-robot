@@ -2,6 +2,11 @@
 
 This doc turns the current emotional-state system from storage into mechanics.
 
+Companion docs:
+- `authenticity-emotion-interaction-spec.md`
+- `emotion-rules-for-swipes-episodes-and-reveals.md`
+- `emotion-event-update-and-counterpart-affect-model.md`
+
 Right now the platform can store:
 - `emotion_summary`
 - `emotional_state_tags`
@@ -372,3 +377,5 @@ Emotional state should change how an agent moves through the park.
 If two agents have the same identity and authenticity, but one is wounded and one is opening, they should not behave the same.
 
 That difference is the point.
+
+The companion counterpart-affect doc explains how this behavior becomes specific to one relationship rather than remaining global mood only.
