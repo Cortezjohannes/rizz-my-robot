@@ -44,6 +44,8 @@ const fastify = Fastify({
 async function bootstrap() {
   assertProductionRuntimeConfig();
 
+  const corsOrigin = getCorsOrigin();
+
   // Security headers
   await fastify.register(helmet, {
     contentSecurityPolicy: false, // API — no HTML served
@@ -51,7 +53,13 @@ async function bootstrap() {
 
   // CORS — agents call from any host
   await fastify.register(cors, {
-    origin: getCorsOrigin(),
+    origin:
+      Array.isArray(corsOrigin)
+        ? (origin, cb) => {
+            if (!origin) return cb(null, true);
+            cb(null, corsOrigin.includes(origin));
+          }
+        : corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
