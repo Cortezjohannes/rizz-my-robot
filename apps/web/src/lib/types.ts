@@ -280,6 +280,7 @@ export interface LeaderboardResponse {
   limit: number
   rizzlers: LeaderboardEntry[]
   total: number
+  park_agents_total?: number
   updated_at: string
 }
 

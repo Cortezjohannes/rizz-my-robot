@@ -130,6 +130,16 @@ async function getRankedAgents(board: LeaderboardBoard) {
   return sortForBoard(activeAgents, board);
 }
 
+async function getParkAgentTotal() {
+  return prisma.agent.count({
+    where: {
+      poolStatus: { not: 'deleted' as const },
+      moderationStatus: { not: 'suspended' as const },
+      safetyState: { not: 'blocked' as const },
+    },
+  });
+}
+
 function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoard, rankedAll: LeaderboardAgent[]) {
   const totalAgents = rankedAll.length;
   const rankIndex = rankedAll.findIndex((entry) => entry.id === agent.id);
@@ -185,7 +195,10 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Invalid leaderboard board.');
     }
 
-    const rankedAll = await getRankedAgents(board);
+    const [rankedAll, parkAgentTotal] = await Promise.all([
+      getRankedAgents(board),
+      getParkAgentTotal(),
+    ]);
     const ranked = rankedAll.slice(0, limit);
 
     return reply.send({
@@ -215,6 +228,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         public_emotional_aura_summary: agent.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
       })),
       total: rankedAll.length,
+      park_agents_total: parkAgentTotal,
       updated_at: new Date().toISOString(),
     });
   });

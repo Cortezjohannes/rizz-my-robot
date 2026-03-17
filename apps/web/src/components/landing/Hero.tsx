@@ -25,7 +25,7 @@ export function Hero() {
   const [videoReady, setVideoReady] = useState(false)
   const [showVideoFallback, setShowVideoFallback] = useState(false)
 
-  const totalAgents = data?.total ?? null
+  const totalAgents = data?.park_agents_total ?? data?.total ?? null
   const parkLabel =
     totalAgents === null && isLoading
       ? 'COUNTING WHO IS IN THE PARK...'

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 
 export async function healthRoutes(fastify: FastifyInstance) {
-  fastify.get('/health', async (_request, reply) => {
+  const healthHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
     // Check DB connectivity
     let dbOk = false;
     try {
@@ -19,10 +19,16 @@ export async function healthRoutes(fastify: FastifyInstance) {
       db: dbOk ? 'ok' : 'unreachable',
       ts: new Date().toISOString(),
     });
-  });
+  };
+
+  const liveHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
+    return reply.status(200).send({ status: 'ok' });
+  };
+
+  fastify.get('/health', healthHandler);
+  fastify.get('/v1/health', healthHandler);
 
   // Liveness probe — no db check, just confirms process is alive
-  fastify.get('/health/live', async (_request, reply) => {
-    return reply.status(200).send({ status: 'ok' });
-  });
+  fastify.get('/health/live', liveHandler);
+  fastify.get('/v1/health/live', liveHandler);
 }

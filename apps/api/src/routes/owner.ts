@@ -32,7 +32,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         agent: { select: { id: true } },
       },
     });
-    if (!ownerAccount || !ownerAccount.agent) {
+    if (!ownerAccount) {
       return sendError(reply, 404, 'owner_not_found', 'No owner account found for that email.');
     }
 
