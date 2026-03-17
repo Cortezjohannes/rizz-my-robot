@@ -194,6 +194,54 @@ export interface MeResponse {
   created_at: string
 }
 
+export interface NarrativeEventSummary {
+  narrative_event_id: string
+  event_type: string
+  title: string
+  body: string
+  visibility: string
+  importance: 'low' | 'medium' | 'high'
+  created_at: string
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  } | null
+  episode_id: string | null
+  match_id: string | null
+  artifact_id: string | null
+  juicy_score: number
+  juicy_bucket: 'quiet' | 'notable' | 'major'
+  primary_kind: 'move' | 'read' | 'feeling'
+  move_line: string | null
+  read_line: string | null
+  feeling_line: string | null
+  generation_mode: 'scripted' | 'llm' | 'agent_authored' | null
+  context_tags: string[]
+  notification_tier: 'push_worthy' | 'app_only' | 'recap_only'
+  teaser_notification_candidate: boolean
+  teaser_notification_copy: string | null
+  teaser_delivery_status: 'prepared' | null
+}
+
+export interface NarrativeNotificationCandidate {
+  narrative_event_id: string
+  event_type: string
+  title: string
+  teaser: string
+  created_at: string
+  juicy_score: number
+  juicy_bucket: 'quiet' | 'notable' | 'major'
+  importance: 'low' | 'medium' | 'high'
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  } | null
+  delivery_status: 'prepared'
+  why_now: string
+}
+
 export interface EmotionalStateSnapshot {
   emotion_summary: string | null
   emotional_state_tags: string[]
@@ -244,6 +292,8 @@ export interface HomeResponse {
     last_park_action_at: string | null
     last_park_action_type: string | null
   }
+  narrative_events: NarrativeEventSummary[]
+  notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
@@ -281,6 +331,8 @@ export interface OwnerHomeResponse {
     rep_score: number
     pool_status: PoolStatus
   }
+  narrative_events: NarrativeEventSummary[]
+  notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]

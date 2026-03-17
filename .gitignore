@@ -6,4 +6,5 @@ dist
 coverage
 .prisma
 *.log
+*.tsbuildinfo
 .vercel

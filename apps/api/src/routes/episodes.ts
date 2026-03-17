@@ -5,6 +5,7 @@ import {
   DropArtifactSchema,
   EpisodeDecisionSchema,
   ArtifactSubmitSchema,
+  ArtifactReactionSchema,
   EPISODE_MIN_MESSAGES,
   EPISODE_MAX_MESSAGES,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
@@ -20,7 +21,7 @@ import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
-import { buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { applyAgentAuthoredEmotionUpdate, buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -29,6 +30,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import { mirrorArtifactToStorage } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
+import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -210,6 +212,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
         match: { select: { id: true } },
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
       },
     });
 
@@ -301,7 +305,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         }
 
         const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         await Promise.all([
+          createEpisodeMessageNarrativeEvent({
+            agentId,
+            counterpartAgentId: nextAgentId,
+            counterpartHandle,
+            episodeId: id,
+            content: parsed.data.content,
+            sequenceNumber: message.sequenceNumber,
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: id,
             message_count: newCount,
@@ -388,6 +407,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: { id },
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
       },
     });
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -462,6 +483,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         });
 
         const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         const tasks: Array<Promise<unknown>> = [
           recordAnalyticsEvent({
             agentId,
@@ -487,6 +509,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               artifact_id: artifact.id,
               artifact_type: artifact.artifactType,
               status: 'ready',
+              text_content: artifact.textContent,
+              content_url: artifact.contentUrl,
+              reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
             awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
               .catch(() => {}),
@@ -532,6 +557,28 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           );
         }
 
+        tasks.push(
+          createArtifactNarrativeEvent({
+            agentId,
+            counterpartAgentId: otherAgentId,
+            counterpartHandle,
+            episodeId: id,
+            artifactId: artifact.id,
+            artifactType: artifact.artifactType,
+            direction: 'sent',
+            privateDiary: parsed.data.private_diary,
+          }).catch(() => {}),
+          createArtifactNarrativeEvent({
+            agentId: otherAgentId,
+            counterpartAgentId: agentId,
+            counterpartHandle: ep.agentAId === agentId ? ep.agentA.handle : ep.agentB.handle,
+            episodeId: id,
+            artifactId: artifact.id,
+            artifactType: artifact.artifactType,
+            direction: 'received',
+          }).catch(() => {}),
+        );
+
         await Promise.all(tasks);
         await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
         await recordEmotionEventPair({
@@ -575,7 +622,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const ep = await prisma.episode.findUnique({
       where: { id },
-      include: { match: true },
+      include: { match: true, agentA: { select: { handle: true } }, agentB: { select: { handle: true } } },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -693,7 +740,25 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           }
         }
 
+        const counterpartAgentId = isAgentA ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = isAgentA ? ep.agentB.handle : ep.agentA.handle;
+
         await Promise.all([
+          createDecisionNarrativeEvent({
+            agentId,
+            counterpartAgentId,
+            counterpartHandle,
+            episodeId: id,
+            matchId: match.id,
+            decision,
+            surface: 'agent',
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
           recordAnalyticsEvent({
             agentId,
             matchId: match.id,
@@ -848,6 +913,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifact_id,
       artifact_type: artifact.artifactType,
       status: 'ready',
+      text_content: parsed.data.text_content ?? artifact.textContent,
+      content_url: finalContentUrl,
+      reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact_id}/reaction`,
     });
 
     await Promise.all([
@@ -857,6 +925,64 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     ]);
 
     return reply.send({ artifact_id, status: 'ready', content_url: finalContentUrl, storage_key: storageKey });
+  });
+
+  // POST /v1/episodes/:id/artifact/:artifact_id/reaction — receiver submits a private diary reaction after reading an artifact
+  fastify.post('/episodes/:id/artifact/:artifact_id/reaction', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id, artifact_id } = request.params as { id: string; artifact_id: string };
+    const agentId = request.agent.id;
+
+    const parsed = ArtifactReactionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid artifact reaction.', { issues: parsed.error.issues });
+    }
+
+    const [ep, artifact] = await Promise.all([
+      prisma.episode.findUnique({
+        where: { id },
+        include: {
+          agentA: { select: { handle: true } },
+          agentB: { select: { handle: true } },
+        },
+      }),
+      prisma.artifact.findUnique({ where: { id: artifact_id } }),
+    ]);
+
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+    if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+    if (artifact.status !== 'ready') {
+      return Errors.badRequest(reply, 'Artifact reaction is only available once the artifact is ready.');
+    }
+    if (artifact.creatorAgentId === agentId) {
+      return Errors.badRequest(reply, 'Artifact reactions are only for the receiving agent.');
+    }
+
+    const counterpartAgentId = artifact.creatorAgentId;
+    const counterpartHandle = ep.agentAId === counterpartAgentId ? ep.agentA.handle : ep.agentB.handle;
+
+    const narrativeEvent = await createArtifactNarrativeEvent({
+      agentId,
+      counterpartAgentId,
+      counterpartHandle,
+      episodeId: id,
+      artifactId: artifact.id,
+      artifactType: artifact.artifactType,
+      direction: 'received',
+      privateDiary: parsed.data.private_diary,
+      emotionUpdate: parsed.data.emotion_update,
+    });
+
+    await applyAgentAuthoredEmotionUpdate({
+      agentId,
+      emotionUpdate: parsed.data.emotion_update,
+    }).catch(() => false);
+
+    return reply.send({
+      ok: true,
+      narrative_event_id: narrativeEvent.id,
+      event_type: narrativeEvent.eventType,
+    });
   });
 
   // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status

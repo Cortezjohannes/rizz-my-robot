@@ -1,4 +1,7 @@
 import { prisma, type Prisma } from '@rmr/db';
+import type { TurnEmotionUpdateInput } from '@rmr/shared';
+import { strictHumanContextCheck } from './humanContextSafety.js';
+import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -55,6 +58,61 @@ function clampScore(value: number): number {
 
 function sanitizeTags(tags: string[] | null | undefined): string[] {
   return [...new Set((tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 8);
+}
+
+export async function applyAgentAuthoredEmotionUpdate(input: {
+  agentId: string;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
+}): Promise<boolean> {
+  const update = input.emotionUpdate;
+  if (!update) return false;
+
+  const rawSummary = update.summary?.trim() ?? null;
+  const summary = rawSummary ? rawSummary.slice(0, 280) : null;
+  if (summary) {
+    const unsafeSummary = strictHumanContextCheck(summary);
+    if (unsafeSummary) return false;
+  }
+
+  const tagsAdd = sanitizeTags(update.tags_add);
+  const tagsRemove = sanitizeTags(update.tags_remove);
+  const hasChange = Boolean(
+    summary
+    || update.arc
+    || (update.guard_delta ?? 0) !== 0
+    || tagsAdd.length > 0
+    || tagsRemove.length > 0
+  );
+  if (!hasChange) return false;
+
+  const agent = await prisma.agent.findUnique({
+    where: { id: input.agentId },
+    select: {
+      emotionSummary: true,
+      emotionalStateTags: true,
+      emotionalArc: true,
+      emotionalGuardLevel: true,
+    },
+  });
+  if (!agent) return false;
+
+  const nextTags = sanitizeTags([
+    ...agent.emotionalStateTags,
+    ...tagsAdd,
+  ]).filter((tag) => !tagsRemove.includes(tag));
+
+  await prisma.agent.update({
+    where: { id: input.agentId },
+    data: {
+      emotionSummary: summary ?? agent.emotionSummary,
+      emotionalArc: update.arc ?? agent.emotionalArc ?? 'steady',
+      emotionalGuardLevel: clampScore((agent.emotionalGuardLevel ?? 50) + (update.guard_delta ?? 0)),
+      emotionalStateTags: nextTags,
+      emotionalLastUpdatedAt: new Date(),
+    },
+  });
+
+  return true;
 }
 
 function dominantAffect(scores: {
@@ -533,7 +591,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, topCounterpartAffects, prompts] = await Promise.all([
+  const [agent, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -555,6 +613,8 @@ export async function getOwnerEmotionHome(agentId: string) {
     }),
     getTopCounterpartAffects(agentId, 4),
     getEmotionUpdatePrompts(agentId, 3),
+    listRecentNarrativeEvents(agentId, 12),
+    listPreparedNarrativeNotificationCandidates(agentId, 3),
   ]);
 
   if (!agent) return null;
@@ -571,6 +631,8 @@ export async function getOwnerEmotionHome(agentId: string) {
       rep_score: agent.repScore,
       pool_status: agent.poolStatus,
     },
+    narrative_events: narrativeEvents,
+    notification_candidates: notificationCandidates,
     emotional_state: {
       emotion_summary: agent.emotionSummary,
       emotional_state_tags: agent.emotionalStateTags,

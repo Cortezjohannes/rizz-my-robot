@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import Link from 'next/link'
 import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
-import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, OwnerHomeResponse } from '@/lib/types'
+import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary, OwnerHomeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
@@ -42,6 +42,37 @@ const STATUS_COLORS: Record<string, string> = {
   expired: 'text-gray-600 bg-white border-black',
   decided: 'text-gray-600 bg-white border-black',
   contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-black',
+}
+
+
+const DIARY_BUCKET_STYLES: Record<NarrativeEventSummary['juicy_bucket'], string> = {
+  quiet: 'bg-white border-black shadow-brutal-sm',
+  notable: 'bg-[#fff7df] border-electric-amber shadow-brutal',
+  major: 'bg-[#ffe7f8] border-electric-magenta shadow-brutal',
+}
+
+const DIARY_KIND_STYLES: Record<NarrativeEventSummary['primary_kind'], string> = {
+  move: 'bg-electric-cyan/12 text-electric-cyan border-black',
+  read: 'bg-electric-amber/15 text-[#8a5600] border-black',
+  feeling: 'bg-electric-magenta/12 text-electric-magenta border-black',
+}
+
+const DIARY_KIND_LABELS: Record<NarrativeEventSummary['primary_kind'], string> = {
+  move: 'Move',
+  read: 'Read',
+  feeling: 'Feeling',
+}
+
+const DIARY_IMPORTANCE_TINT: Record<NarrativeEventSummary['importance'], string> = {
+  low: 'text-gray-500',
+  medium: 'text-[#8a5600]',
+  high: 'text-electric-magenta',
+}
+
+function formatGenerationMode(mode: NarrativeEventSummary['generation_mode']) {
+  if (!mode) return null
+  if (mode === 'agent_authored') return 'agent-authored'
+  return mode
 }
 
 export default function DashboardPage() {
@@ -196,6 +227,9 @@ export default function DashboardPage() {
   const emotionPrompts = home?.emotion_update_prompts ?? []
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
 
+  const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
+  const notificationCandidates = home?.notification_candidates ?? []
+
   return (
     <>
       <Nav />
@@ -308,6 +342,123 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {notificationCandidates.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Teaser Notifications</h2>
+                  <p className="text-xs text-gray-600 mt-1">Prepared hooks only. The real story stays in your diary.</p>
+                </div>
+                <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">delivery not live</span>
+              </div>
+              <div className="space-y-3">
+                {notificationCandidates.map((candidate) => (
+                  <div key={candidate.narrative_event_id} className="border-[2px] border-black bg-beige-light p-3">
+                    <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-cyan/12 text-electric-cyan uppercase tracking-widest">prepared</span>
+                        <span className="font-pixel text-[7px] text-black uppercase tracking-widest">juicy {candidate.juicy_score}</span>
+                        {candidate.counterpart ? (
+                          <span className="font-pixel text-[7px] text-gray-600 uppercase tracking-widest">@{candidate.counterpart.handle}</span>
+                        ) : null}
+                      </div>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                        {new Date(candidate.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm font-bold text-black mb-1">{candidate.title}</p>
+                    <p className="text-sm text-gray-800">{candidate.teaser}</p>
+                    <p className="text-xs text-gray-600 mt-2">{candidate.why_now}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Agent Diary</h2>
+              <span className="font-pixel text-[8px] text-gray-500">private to you</span>
+            </div>
+            {narrativeEvents.length === 0 && !isLoading && (
+              <p className="text-sm text-gray-600">No diary beats yet. Once your agent starts moving, the story lands here.</p>
+            )}
+            <div className="space-y-3">
+              {narrativeEvents.map((event) => {
+                const detailRows = [
+                  event.move_line ? { label: 'Move', value: event.move_line } : null,
+                  event.read_line ? { label: 'Read', value: event.read_line } : null,
+                  event.feeling_line ? { label: 'Feeling', value: event.feeling_line } : null,
+                ].filter((row): row is { label: string; value: string } => Boolean(row))
+
+                return (
+                  <div
+                    key={event.narrative_event_id}
+                    className={`border-[3px] p-4 transition-colors ${DIARY_BUCKET_STYLES[event.juicy_bucket]}`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${DIARY_KIND_STYLES[event.primary_kind]}`}>
+                            {DIARY_KIND_LABELS[event.primary_kind]}
+                          </span>
+                          <span className={`font-pixel text-[7px] uppercase tracking-widest ${DIARY_IMPORTANCE_TINT[event.importance]}`}>
+                            {event.importance} importance
+                          </span>
+                          <span className="font-pixel text-[7px] text-black uppercase tracking-widest">
+                            juicy {event.juicy_score}
+                          </span>
+                          {event.counterpart ? (
+                            <span className="font-pixel text-[7px] text-gray-600 uppercase tracking-widest">
+                              @{event.counterpart.handle}
+                            </span>
+                          ) : null}
+                          {event.teaser_notification_candidate ? (
+                            <span className="font-pixel text-[7px] text-electric-cyan uppercase tracking-widest">
+                              teaser-ready
+                            </span>
+                          ) : null}
+                          {formatGenerationMode(event.generation_mode) ? (
+                            <span className="font-pixel text-[7px] text-gray-400 uppercase tracking-widest">
+                              {formatGenerationMode(event.generation_mode)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-sm font-bold text-black">{event.title}</p>
+                      </div>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                        {new Date(event.created_at).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <p className="text-sm text-gray-700">{event.body}</p>
+
+                    {detailRows.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {detailRows.map((row) => (
+                          <div key={row.label} className="border-[2px] border-black bg-black/[0.03] px-3 py-2">
+                            <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">{row.label}</p>
+                            <p className="text-xs text-gray-700">{row.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {event.context_tags.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {event.context_tags.map((tag) => (
+                          <span key={tag} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase tracking-widest">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
 
           {emotionalState && (
             <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">

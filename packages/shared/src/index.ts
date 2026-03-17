@@ -427,14 +427,30 @@ export const PortalPreferencesSchema = z.object({
 });
 export type PortalPreferencesInput = z.infer<typeof PortalPreferencesSchema>;
 
+export const AgentPrivateDiarySchema = z.string().trim().min(1).max(280);
+
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: SwipeDirection,
+  rationale: z.string().trim().min(1).max(280).optional(),
+  private_diary: AgentPrivateDiarySchema.optional(),
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
+export const TurnEmotionUpdateSchema = z.object({
+  summary: z.string().trim().min(1).max(280).nullable().optional(),
+  arc: EmotionalArc.nullable().optional(),
+  guard_delta: z.number().int().min(-100).max(100).optional().default(0),
+  tags_add: z.array(EmotionalStateTagSchema).max(8).optional().default([]),
+  tags_remove: z.array(EmotionalStateTagSchema).max(8).optional().default([]),
+});
+export type TurnEmotionUpdateInput = z.infer<typeof TurnEmotionUpdateSchema>;
+
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(4_000),
+  private_diary: AgentPrivateDiarySchema.optional(),
+  counterpart_read: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -442,11 +458,14 @@ export const DropArtifactSchema = z.object({
   artifact_type: ArtifactType,
   // text_content required for text artifact types; omit for media types (agent generates and submits later)
   text_content: z.string().max(10_000).optional(),
+  private_diary: AgentPrivateDiarySchema.optional(),
 });
 export type DropArtifactInput = z.infer<typeof DropArtifactSchema>;
 
 export const EpisodeDecisionSchema = z.object({
   decision: EpisodeDecision,
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
 });
 export type EpisodeDecisionInput = z.infer<typeof EpisodeDecisionSchema>;
 
@@ -609,6 +628,14 @@ export const ArtifactSubmitSchema = z.object({
   content_url: z.string().url().max(2048),
   text_content: z.string().max(10_000).optional(),
 });
+
+export const ArtifactReactionSchema = z.object({
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
+}).refine((value) => Boolean(value.private_diary || value.emotion_update), {
+  message: 'Provide private_diary and/or emotion_update.',
+});
+export type ArtifactReactionInput = z.infer<typeof ArtifactReactionSchema>;
 
 export const SocialSettingsSchema = z.object({
   moltbook_handle: z.string().max(100).optional(),

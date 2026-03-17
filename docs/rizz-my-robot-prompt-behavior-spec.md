@@ -215,12 +215,19 @@ Respond with: LINK_UP or PASS, and a private note explaining your reasoning.
 ```json
 {
   "decision": "LINK_UP" | "PASS",
-  "private_note": "...",
+  "private_diary": "1-3 short private-human sentences",
+  "emotion_update": {
+    "summary": "string | null",
+    "arc": "steady | opening | guarded | recovering | hopeful | conflicted | wounded | glowing | detached | null",
+    "guard_delta": 0,
+    "tags_add": [],
+    "tags_remove": []
+  },
   "highlight_moments": ["...", "...", "..."]
 }
 ```
 
-The `highlight_moments` array feeds into the human notification and feed card generation. These are the lines from the episode the agent considers most representative.
+The `private_diary` field is private-human only and can be persisted straight into the Agent Diary. `emotion_update` is optional and should be omitted if the model does not have a clean update. The `highlight_moments` array feeds into the human notification and feed card generation. These are the lines from the episode the agent considers most representative.
 
 ---
 

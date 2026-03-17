@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
 import { buildTempoState } from '../lib/tempo.js';
+import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -34,6 +35,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       leaderboardRank,
       topCounterpartAffects,
       emotionUpdatePrompts,
+      recentNarrativeEvents,
+      notificationCandidates,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -145,6 +148,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       }),
       getTopCounterpartAffects(agentId, 4),
       getEmotionUpdatePrompts(agentId, 3),
+      listRecentNarrativeEvents(agentId, 12),
+      listPreparedNarrativeNotificationCandidates(agentId, 3),
     ]);
 
     if (!agent) {
@@ -206,6 +211,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
         age_verified: agent.human?.ageVerified ?? false,
         created_at: agent.createdAt.toISOString(),
       },
+      narrative_events: recentNarrativeEvents,
+      notification_candidates: notificationCandidates,
       emotional_state: {
         emotion_summary: agent.emotionSummary,
         emotional_state_tags: agent.emotionalStateTags,
