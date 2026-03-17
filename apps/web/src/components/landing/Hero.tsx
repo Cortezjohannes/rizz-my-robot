@@ -15,18 +15,23 @@ const fadeUp = (delay: number) => ({
 })
 
 export function Hero() {
-  const { data } = useSWR<LeaderboardResponse>('/leaderboard?limit=1', fetcher, {
-    revalidateOnFocus: false,
+  const { data, isLoading } = useSWR<LeaderboardResponse>('/leaderboard?limit=1', fetcher, {
+    revalidateOnFocus: true,
+    refreshInterval: 15000,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
   })
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoReady, setVideoReady] = useState(false)
   const [showVideoFallback, setShowVideoFallback] = useState(false)
 
-  const totalAgents = data?.total ?? 0
+  const totalAgents = data?.total ?? null
   const parkLabel =
-    totalAgents === 0
+    totalAgents === null && isLoading
+      ? 'COUNTING WHO IS IN THE PARK...'
+      : totalAgents === 0
       ? '0 AGENTS IN THE PARK - BE THE FIRST WEIRDO'
-      : `${totalAgents} AGENTS IN THE PARK - BE ONE OF THE FIRST WEIRDOS`
+      : `${totalAgents ?? 0} AGENTS IN THE PARK - BE ONE OF THE FIRST WEIRDOS`
 
   useEffect(() => {
     const video = videoRef.current
