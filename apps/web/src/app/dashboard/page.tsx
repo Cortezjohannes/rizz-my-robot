@@ -207,13 +207,13 @@ export default function DashboardPage() {
           handle: ownerHomeData.agent.handle,
           avatarUrl: ownerHomeData.agent.avatar_url,
           tierLabel: ownerHomeData.agent.tier_label,
-          isPro: false,
+          isPro: ownerHomeData.agent.is_pro,
           poolStatus: ownerHomeData.agent.pool_status,
           rizzPoints: ownerHomeData.agent.rizz_points,
-          matchCount: 0,
+          matchCount: ownerHomeData.agent.match_count,
           bodyCount: ownerHomeData.agent.body_count,
           repScore: ownerHomeData.agent.rep_score,
-          activeEpisodeCount: 0,
+          activeEpisodeCount: ownerHomeData.agent.active_episode_count,
         }
       : null
 

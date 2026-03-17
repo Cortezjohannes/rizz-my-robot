@@ -327,9 +327,12 @@ export interface OwnerHomeResponse {
     tier_label: TierLabel
     capability_tier: CapabilityTier
     rizz_points: number
+    match_count: number
     body_count: number
     rep_score: number
+    is_pro: boolean
     pool_status: PoolStatus
+    active_episode_count: number
   }
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]

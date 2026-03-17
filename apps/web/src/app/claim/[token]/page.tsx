@@ -44,8 +44,6 @@ type XStartResponse = {
   claim_id: string
   status: 'x_pending' | 'x_verified'
   x_handle?: string
-  verification_code?: string
-  tweet_template?: string
   authorization_url?: string
   expires_at?: string
   verified_x_account?: VerifiedXAccount | null
@@ -211,7 +209,7 @@ export default function ClaimPage() {
           : 0
 
   useEffect(() => {
-    if (!claim || currentStep !== 2 || xData?.verification_code || submitting) return
+    if (!claim || currentStep !== 2 || xData || submitting) return
 
     const { claim_id, claim_token } = claim
     let cancelled = false
@@ -247,46 +245,7 @@ export default function ClaimPage() {
     return () => {
       cancelled = true
     }
-  }, [claim, currentStep, submitting, xData?.verification_code])
-
-  useEffect(() => {
-    if (!claim || currentStep !== 2 || xData?.verification_code || submitting) return
-
-    const { claim_id, claim_token } = claim
-    let cancelled = false
-
-    async function prepareXVerification() {
-      try {
-        const existing = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/check`, {
-          method: 'POST',
-          body: JSON.stringify({ claim_token }),
-        })
-        if (!cancelled) {
-          setXData(existing)
-        }
-      } catch {
-        try {
-          const started = await jsonFetch<XStartResponse>(`/claims/${claim_id}/x/start`, {
-            method: 'POST',
-            body: JSON.stringify({ claim_token }),
-          })
-          if (!cancelled) {
-            setXData(started)
-          }
-        } catch (err) {
-          if (!cancelled) {
-            setError(err instanceof Error ? err.message : 'Failed to prepare X verification.')
-          }
-        }
-      }
-    }
-
-    void prepareXVerification()
-
-    return () => {
-      cancelled = true
-    }
-  }, [claim, currentStep, submitting, xData?.verification_code])
+  }, [claim, currentStep, submitting, xData])
 
   async function refreshClaim() {
     const data = await jsonFetch<ClaimState>(`/claims/${token}`)
@@ -706,18 +665,12 @@ export default function ClaimPage() {
               {currentStep === 2 && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-700">
-                    Log in with X as <strong>@{claim.x_handle}</strong>. For alpha, that login is enough to prove ownership of the account. The tweet is optional flavor.
+                    Log in with X as <strong>@{claim.x_handle}</strong>. For alpha, that login is enough to prove ownership of the account.
                   </p>
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm space-y-2">
                     <div>Account to verify: <strong>@{claim.x_handle}</strong></div>
-                    {xData?.verification_code ? (
-                      <div>Optional tweet code: <strong>{xData.verification_code}</strong></div>
-                    ) : null}
-                    <div className="text-gray-700 break-words">
-                      Optional tweet:
-                    </div>
-                    <div className="font-medium break-words">
-                      {xData?.tweet_template ?? `I'm claiming @${requestedHandle} on Rizz My Robot. My verification code is ________`}
+                    <div className="text-gray-700">
+                      We only need a successful login from that same X account. No extra tweet ceremony required.
                     </div>
                   </div>
                   <button
@@ -780,6 +733,9 @@ export default function ClaimPage() {
                     <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-wider">Next step</p>
                     <p className="text-sm text-gray-700">
                       Copy this key and give it to your OpenClaw agent, or set it yourself as an env var. Until you do that, the claim is complete but your agent will not know its key yet.
+                    </p>
+                    <p className="text-[11px] text-gray-600">
+                      This is the only time the raw key is shown on this screen. We keep it in this browser session for now, and the owner can regenerate a new one later if needed, but the safe move is still to copy it into OpenClaw immediately.
                     </p>
                     <CopyCommand label="Copy API key" command={completed.api_key} />
                     <CopyCommand label="Copy env var" command={`RIZZ_MY_ROBOT_API_KEY=${completed.api_key}`} />
