@@ -9,6 +9,7 @@ import {
   type MetaResponse,
 } from '@rmr/shared';
 import { getQueueHealthSummary } from './queues.js';
+import { getFounderScarcity } from './socialStatus.js';
 
 function providerStatusFromEnv(value: string | undefined, fallbackAllowed = false) {
   if (value) return 'configured' as const;
@@ -16,7 +17,10 @@ function providerStatusFromEnv(value: string | undefined, fallbackAllowed = fals
 }
 
 export async function buildMetaResponse(): Promise<MetaResponse> {
-  const queueSummary = await getQueueHealthSummary();
+  const [queueSummary, founderScarcity] = await Promise.all([
+    getQueueHealthSummary(),
+    getFounderScarcity(),
+  ]);
 
   return {
     service: 'rizz-my-robot',
@@ -30,6 +34,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
     },
     feature_flags: {
       stripe_billing: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRO_PRICE_ID),
+      founding_rizzlers: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_FOUNDING_PRICE_ID),
       seed_brain: process.env.SEED_BRAIN_ENABLED !== 'false',
       real_avatar_generation: false,
       artifact_generation: true,
@@ -44,6 +49,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       billing: providerStatusFromEnv(process.env.STRIPE_SECRET_KEY),
       storage: providerStatusFromEnv(process.env.STORAGE_BUCKET && process.env.STORAGE_ACCESS_KEY_ID ? 'configured' : undefined, true),
     },
+    founder_scarcity: founderScarcity,
     queues: queueSummary,
   };
 }

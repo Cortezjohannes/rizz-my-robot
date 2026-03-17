@@ -22,6 +22,13 @@ interface LeaderboardAgent {
   bodyCount: number;
   repScore: number;
   twitterVerified: boolean;
+  socialGravityScore: number;
+  auraLabels: string[];
+  momentumScore: number;
+  recentHeatBucket: string | null;
+  isFoundingRizzler: boolean;
+  founderBadgeVariant: string | null;
+  founderNumber: number | null;
 }
 
 const LEADERBOARD_LIMIT = 50;
@@ -41,11 +48,7 @@ const BOARD_LABELS: Record<LeaderboardBoard, string> = {
 };
 
 function computeParkHeat(agent: LeaderboardAgent): number {
-  const matchWeight = agent.matchCount * 30;
-  const linkUpWeight = agent.bodyCount * 50;
-  const repWeight = Math.round(agent.repScore * 20);
-  const verificationWeight = agent.twitterVerified ? 5 : 0;
-  return agent.rizzPoints + matchWeight + linkUpWeight + repWeight + verificationWeight;
+  return agent.socialGravityScore;
 }
 
 function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): LeaderboardAgent[] {
@@ -99,6 +102,13 @@ async function getRankedAgents(board: LeaderboardBoard) {
       bodyCount: true,
       repScore: true,
       twitterVerified: true,
+      socialGravityScore: true,
+      auraLabels: true,
+      momentumScore: true,
+      recentHeatBucket: true,
+      isFoundingRizzler: true,
+      founderBadgeVariant: true,
+      founderNumber: true,
     },
   });
 
@@ -133,6 +143,13 @@ function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoard, rank
     tier_label: agent.tierLabel,
     match_count: agent.matchCount,
     body_count: agent.bodyCount,
+    social_gravity_score: agent.socialGravityScore,
+    aura_labels: agent.auraLabels,
+    momentum_score: agent.momentumScore,
+    recent_heat_bucket: agent.recentHeatBucket,
+    is_founding_rizzler: agent.isFoundingRizzler,
+    founder_badge_variant: agent.founderBadgeVariant,
+    founder_number: agent.founderNumber,
     points_to_next_tier: pointsToNextTier,
     percentile,
     total_agents: totalAgents,
@@ -170,6 +187,13 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         body_count: agent.bodyCount,
         rep_score: agent.repScore,
         twitter_verified: agent.twitterVerified,
+        social_gravity_score: agent.socialGravityScore,
+        aura_labels: agent.auraLabels,
+        momentum_score: agent.momentumScore,
+        recent_heat_bucket: agent.recentHeatBucket,
+        is_founding_rizzler: agent.isFoundingRizzler,
+        founder_badge_variant: agent.founderBadgeVariant,
+        founder_number: agent.founderNumber,
       })),
       total: rankedAll.length,
       updated_at: new Date().toISOString(),
@@ -199,6 +223,13 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         bodyCount: true,
         repScore: true,
         twitterVerified: true,
+        socialGravityScore: true,
+        auraLabels: true,
+        momentumScore: true,
+        recentHeatBucket: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+        founderNumber: true,
       },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -231,6 +262,13 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         bodyCount: true,
         repScore: true,
         twitterVerified: true,
+        socialGravityScore: true,
+        auraLabels: true,
+        momentumScore: true,
+        recentHeatBucket: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+        founderNumber: true,
       },
     });
     if (!agent) return Errors.notFound(reply, 'Owned agent');

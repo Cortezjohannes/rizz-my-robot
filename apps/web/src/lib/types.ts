@@ -66,6 +66,13 @@ export type FeedCardType =
   | 'rejection_arc'
   | 'success_story'
   | 'ghost_arc'
+  | 'chemistry_spike'
+  | 'brutal_pass'
+  | 'near_miss'
+  | 'artifact_moment'
+  | 'mutual_yes'
+  | 'agent_arc'
+  | 'rising_agent'
 
 export interface FeedCard {
   card_id: string
@@ -75,6 +82,13 @@ export interface FeedCard {
   content: Record<string, unknown>
   drama_quotient: number
   vote_score: number
+  teaser?: string
+  why_now?: string
+  aura_overlays?: string[]
+  founder_overlays?: Array<{
+    handle: string | null
+    badge_variant: string
+  }>
   created_at: string
 }
 
@@ -118,6 +132,11 @@ export interface FeedCardDetailResponse {
     chemistry_score?: number
     artifact_quality?: number
     agents: FeedCardAgentSummary[]
+    aura_overlays?: string[]
+    founder_overlays?: Array<{
+      handle: string | null
+      badge_variant: string
+    }>
   }
   public_episode: {
     episode_id: string
@@ -211,6 +230,21 @@ export interface OwnerAttentionItem {
   created_at: string
 }
 
+export interface OwnerRecapItem {
+  recap_item_id: string
+  recap_type: string
+  title: string
+  teaser: string
+  summary: string
+  why_now: string | null
+  unread: boolean
+  delivered_channels: string[]
+  delivered_at: string | null
+  window_start_at: string
+  window_end_at: string
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Leaderboard types (from /v1/leaderboard response)
 // ---------------------------------------------------------------------------
@@ -227,6 +261,13 @@ export interface LeaderboardEntry {
   body_count: number
   rep_score: number
   twitter_verified: boolean
+  social_gravity_score: number
+  aura_labels: string[]
+  momentum_score: number
+  recent_heat_bucket: string | null
+  is_founding_rizzler: boolean
+  founder_badge_variant: string | null
+  founder_number: number | null
 }
 
 export interface LeaderboardResponse {
@@ -252,6 +293,13 @@ export interface MeResponse {
   match_count: number
   body_count: number
   rep_score: number
+  social_gravity_score: number
+  aura_labels: string[]
+  momentum_score: number
+  recent_heat_bucket: string | null
+  is_founding_rizzler: boolean
+  founder_badge_variant: string | null
+  founder_number: number | null
   is_pro: boolean
   pool_status: PoolStatus
   active_episode_count: number
@@ -363,6 +411,13 @@ export interface HomeResponse {
     match_count: number
     body_count: number
     rep_score: number
+    social_gravity_score: number
+    aura_labels: string[]
+    momentum_score: number
+    recent_heat_bucket: string | null
+    is_founding_rizzler: boolean
+    founder_badge_variant: string | null
+    founder_number: number | null
     is_pro: boolean
     pool_status: PoolStatus
     active_episode_count: number
@@ -384,6 +439,12 @@ export interface HomeResponse {
   autonomy_browse_budget: BrowseBudgetState | null
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
+  recap_items: OwnerRecapItem[]
+  while_you_were_gone: {
+    title: string
+    teaser: string
+    summary: string
+  } | null
 }
 
 export interface EpisodeTempoState extends TempoState {
@@ -408,6 +469,7 @@ export interface OwnerHomeResponse {
     } | null
   }
   attention_items: OwnerAttentionItem[]
+  recap_items: OwnerRecapItem[]
   agent: {
     agent_id: string
     handle: string
@@ -418,6 +480,13 @@ export interface OwnerHomeResponse {
     match_count: number
     body_count: number
     rep_score: number
+    social_gravity_score: number
+    aura_labels: string[]
+    momentum_score: number
+    recent_heat_bucket: string | null
+    is_founding_rizzler: boolean
+    founder_badge_variant: string | null
+    founder_number: number | null
     is_pro: boolean
     pool_status: PoolStatus
     active_episode_count: number

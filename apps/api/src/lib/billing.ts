@@ -1,7 +1,9 @@
-import { prisma } from '@rmr/db';
+import { Prisma, prisma } from '@rmr/db';
+import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const DEFAULT_GRACE_DAYS = parseInt(process.env.BILLING_GRACE_DAYS ?? '7', 10);
+const FOUNDER_SLOTS_TOTAL = parseInt(process.env.FOUNDING_RIZZLER_LIMIT ?? '1000', 10);
 
 interface StripeRequestOptions {
   method?: 'GET' | 'POST';
@@ -107,25 +109,113 @@ export async function getOrCreateStripeCustomer(agentId: string): Promise<string
 export async function createStripeCheckoutSession(
   agentId: string,
   successUrl: string,
-  cancelUrl: string
+  cancelUrl: string,
+  plan: 'pro' | 'founding' = 'pro'
 ): Promise<StripeCheckoutSession> {
-  const priceId = process.env.STRIPE_PRO_PRICE_ID;
+  const priceId = plan === 'founding'
+    ? process.env.STRIPE_FOUNDING_PRICE_ID
+    : process.env.STRIPE_PRO_PRICE_ID;
   if (!priceId) {
     throw new Error('stripe_price_not_configured');
   }
 
   const customerId = await getOrCreateStripeCustomer(agentId);
   const body = new URLSearchParams();
-  body.set('mode', 'subscription');
+  body.set('mode', plan === 'founding' ? 'payment' : 'subscription');
   body.set('customer', customerId);
   body.set('line_items[0][price]', priceId);
   body.set('line_items[0][quantity]', '1');
   body.set('success_url', successUrl);
   body.set('cancel_url', cancelUrl);
   body.set('metadata[agent_id]', agentId);
-  body.set('subscription_data[metadata][agent_id]', agentId);
+  body.set('metadata[plan]', plan);
+  if (plan === 'pro') {
+    body.set('subscription_data[metadata][agent_id]', agentId);
+    body.set('subscription_data[metadata][plan]', plan);
+  }
 
   return stripeRequest<StripeCheckoutSession>('/checkout/sessions', { body });
+}
+
+export async function applyFounderState(input: {
+  agentId: string;
+  stripeCustomerId?: string | null;
+  stripePriceId?: string | null;
+  status?: string;
+}) {
+  await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const agent = await tx.agent.findUnique({
+      where: { id: input.agentId },
+      select: {
+        id: true,
+        isFoundingRizzler: true,
+        founderNumber: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error('agent_not_found');
+    }
+
+    let assignedFounderNumber = agent.founderNumber;
+    if (!agent.isFoundingRizzler || !assignedFounderNumber) {
+      const claimed = await tx.agent.count({ where: { isFoundingRizzler: true } });
+      if (!agent.isFoundingRizzler && claimed >= FOUNDER_SLOTS_TOTAL) {
+        throw new Error('founding_rizzler_sold_out');
+      }
+
+      const maxFounder = await tx.agent.aggregate({
+        where: { founderNumber: { not: null } },
+        _max: { founderNumber: true },
+      });
+      assignedFounderNumber = (maxFounder._max.founderNumber ?? 0) + 1;
+    }
+
+    await tx.agent.update({
+      where: { id: input.agentId },
+      data: {
+        isPro: true,
+        isFoundingRizzler: true,
+        foundingRizzlerClaimedAt: now,
+        founderBadgeVariant: 'founding_rizzler',
+        founderNumber: assignedFounderNumber,
+        tempoOverrideMinutes: TEMPO_COOLDOWN_MINUTES.founding,
+        stripeCustomerId: input.stripeCustomerId ?? undefined,
+      },
+    });
+
+    await tx.agentSubscription.upsert({
+      where: { agentId_plan: { agentId: input.agentId, plan: 'founding' } },
+      update: {
+        provider: 'stripe',
+        plan: 'founding',
+        status: input.status ?? 'active',
+        stripeCustomerId: input.stripeCustomerId ?? undefined,
+        stripePriceId: input.stripePriceId ?? undefined,
+        currentPeriodStart: now,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        gracePeriodEndsAt: null,
+        lastWebhookAt: now,
+      },
+      create: {
+        agentId: input.agentId,
+        provider: 'stripe',
+        plan: 'founding',
+        status: input.status ?? 'active',
+        stripeCustomerId: input.stripeCustomerId ?? undefined,
+        stripePriceId: input.stripePriceId ?? undefined,
+        currentPeriodStart: now,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        gracePeriodEndsAt: null,
+        lastWebhookAt: now,
+      },
+    });
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  });
 }
 
 export async function applySubscriptionState(input: {
@@ -192,7 +282,18 @@ export async function handleStripeWebhookEvent(event: {
   if (event.type === 'checkout.session.completed') {
     const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
     const agentId = metadata.agent_id;
+    const plan = metadata.plan;
     if (!agentId) return;
+
+    if (plan === 'founding') {
+      await applyFounderState({
+        agentId,
+        stripeCustomerId: typeof object.customer === 'string' ? object.customer : null,
+        stripePriceId: null,
+        status: 'active',
+      });
+      return;
+    }
 
     await applySubscriptionState({
       agentId,
@@ -210,7 +311,9 @@ export async function handleStripeWebhookEvent(event: {
   ) {
     const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
     const agentId = metadata.agent_id;
+    const plan = metadata.plan;
     if (!agentId) return;
+    if (plan === 'founding') return;
 
     const stripeStatus = typeof object.status === 'string' ? object.status : 'inactive';
     const gracePeriodEndsAt =

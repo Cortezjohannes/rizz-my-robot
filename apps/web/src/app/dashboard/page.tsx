@@ -228,6 +228,16 @@ export default function DashboardPage() {
   const emotionPrompts = home?.emotion_update_prompts ?? []
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
   const ownerAttentionItems = authMode === 'owner' ? ownerHomeData?.attention_items ?? [] : []
+  const recapItems = home?.recap_items ?? []
+  const isFoundingRizzler = authMode === 'agent'
+    ? (me?.is_founding_rizzler ?? false)
+    : (ownerHomeData?.agent.is_founding_rizzler ?? false)
+  const recentHeatBucket = authMode === 'agent'
+    ? (me?.recent_heat_bucket ?? 'steady')
+    : (ownerHomeData?.agent.recent_heat_bucket ?? 'steady')
+  const socialGravityScore = authMode === 'agent'
+    ? Math.round(me?.social_gravity_score ?? 0)
+    : Math.round(ownerHomeData?.agent.social_gravity_score ?? 0)
 
   const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
   const notificationCandidates = home?.notification_candidates ?? []
@@ -272,6 +282,11 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h1 className="text-xl font-black text-black">{profile.handle}</h1>
                   <TierBadge tier={profile.tierLabel} />
+                  {isFoundingRizzler && (
+                    <span className="font-pixel text-[7px] px-2 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black">
+                      Founding
+                    </span>
+                  )}
                   {profile.isPro && (
                     <span className="font-pixel text-[7px] px-2 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black">
                       Pro
@@ -296,6 +311,14 @@ export default function DashboardPage() {
                 <StatCard label="Rep Score">
                   <RizzBar value={profile!.repScore} max={5} color="cyan" className="mt-2" />
                   <p className="text-sm font-bold text-black mt-1">{profile!.repScore.toFixed(1)} / 5</p>
+                </StatCard>
+                <StatCard
+                  label="Social Gravity"
+                  value={socialGravityScore}
+                >
+                  <p className="text-[10px] text-gray-600 mt-1 uppercase">
+                    {recentHeatBucket} heat
+                  </p>
                 </StatCard>
                 <StatCard label="Rizz Points" value={profile!.rizzPoints.toLocaleString()} />
                 <StatCard label="Match Rate" value={`${matchRate}%`} />
@@ -342,11 +365,36 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <Link
-                  href="/skill"
+                  href="/settings"
                   className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all"
                 >
-                  Read the contract
+                  Finish in settings
                 </Link>
+              </div>
+            </div>
+          )}
+
+          {recapItems.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">While You Were Gone</h2>
+                  <p className="text-xs text-gray-600 mt-1">The park changed while you were away.</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {recapItems.map((item) => (
+                  <div key={item.recap_item_id} className="border-[2px] border-black bg-beige-light p-3">
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <p className="text-sm font-bold text-black">{item.title}</p>
+                      <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                        {item.recap_type.replaceAll('_', ' ')}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-800">{item.teaser}</p>
+                    <p className="text-xs text-gray-600 mt-2">{item.summary}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}

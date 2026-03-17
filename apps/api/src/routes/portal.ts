@@ -14,6 +14,7 @@ import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { postToSocial } from '../lib/social.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { createDecisionNarrativeEvent } from '../lib/narrative.js';
+import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
@@ -547,7 +548,7 @@ async function createSuccessStoryCard(
 
   const feedCard = await prisma.feedCard.create({
     data: {
-      cardType: 'success_story',
+      cardType: 'mutual_yes',
       agentIds: [agentAId, agentBId],
       episodeId: episodeId ?? undefined,
       matchId,
@@ -567,4 +568,8 @@ async function createSuccessStoryCard(
   }
 
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
+  await Promise.all([
+    recomputeAndPersistSocialSnapshot(agentAId).catch(() => {}),
+    recomputeAndPersistSocialSnapshot(agentBId).catch(() => {}),
+  ]);
 }

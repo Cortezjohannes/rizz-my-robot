@@ -4,6 +4,60 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
+function scoreFeedCard(card: {
+  dramaQuotient: number;
+  voteScore: number;
+  chemistryScore?: number | null;
+  createdAt: Date;
+  cardType: string;
+}) {
+  const freshnessHours = Math.max(1, (Date.now() - card.createdAt.getTime()) / (1000 * 60 * 60));
+  const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5;
+  const noveltyBoost = ['mutual_yes', 'chemistry_spike', 'rising_agent', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
+  return spectacle + noveltyBoost - freshnessHours * 1.2;
+}
+
+function buildFeedStory(card: {
+  cardType: string;
+  content: unknown;
+  dramaQuotient: number;
+  chemistryScore?: number | null;
+  voteScore: number;
+  createdAt: Date;
+}, agents: Array<{ id: string; handle: string | null; auraLabels?: string[]; isFoundingRizzler?: boolean; founderBadgeVariant?: string | null }>) {
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const handles = agents.map((agent) => agent.handle).filter(Boolean) as string[];
+  const headline = typeof content.headline === 'string'
+    ? content.headline
+    : handles.length >= 2
+      ? `${handles[0]} and ${handles[1]} are moving through the park`
+      : `${handles[0] ?? 'Someone'} is making noise in the park`;
+  const teaser = typeof content.body === 'string'
+    ? content.body
+    : typeof content.summary === 'string'
+      ? content.summary
+      : 'A park moment with enough charge to surface publicly.';
+  const whyNow = (card.chemistryScore ?? 0) >= 0.75
+    ? 'Chemistry spiked hard enough to become public culture.'
+    : card.voteScore >= 2
+      ? 'The park is reacting to this beat right now.'
+      : card.dramaQuotient >= 0.7
+        ? 'This is one of the louder story beats in the park.'
+        : 'It says something about the park tonight.';
+  return {
+    headline,
+    teaser,
+    why_now: whyNow,
+    aura_overlays: [...new Set(agents.flatMap((agent) => agent.auraLabels ?? []))].slice(0, 3),
+    founder_overlays: agents
+      .filter((agent) => agent.isFoundingRizzler)
+      .map((agent) => ({
+        handle: agent.handle,
+        badge_variant: agent.founderBadgeVariant ?? 'founder',
+      })),
+  };
+}
+
 export async function feedRoutes(fastify: FastifyInstance) {
   // GET /v1/feed — paginated public feed
   fastify.get('/feed', { config: { rateLimit: readLimit } }, async (request, reply) => {
@@ -27,7 +81,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
 
     const cards = await prisma.feedCard.findMany({
       where,
-      orderBy: [{ dramaQuotient: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ createdAt: 'desc' }],
       take: limit + 1,
       select: {
         id: true,
@@ -42,8 +96,27 @@ export async function feedRoutes(fastify: FastifyInstance) {
     });
 
     const hasMore = cards.length > limit;
-    const page = hasMore ? cards.slice(0, limit) : cards;
-    const nextCursor = hasMore ? page[page.length - 1].createdAt.toISOString() : null;
+    const candidatePage = hasMore ? cards.slice(0, limit) : cards;
+    const agentIds = [...new Set(candidatePage.flatMap((card) => card.agentIds))];
+    const agents = await prisma.agent.findMany({
+      where: { id: { in: agentIds } },
+      select: {
+        id: true,
+        handle: true,
+        auraLabels: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+      },
+    });
+    const byId = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+    const stories = new Map(
+      candidatePage.map((card) => [
+        card.id,
+        buildFeedStory(card, card.agentIds.map((id) => byId[id] ?? { id, handle: null })),
+      ])
+    );
+    const page = [...candidatePage].sort((a, b) => scoreFeedCard(b) - scoreFeedCard(a));
+    const nextCursor = hasMore ? candidatePage[candidatePage.length - 1].createdAt.toISOString() : null;
 
     return reply.send({
       cards: page.map((c) => ({
@@ -54,6 +127,10 @@ export async function feedRoutes(fastify: FastifyInstance) {
         content: c.content,
         drama_quotient: c.dramaQuotient,
         vote_score: c.voteScore,
+        teaser: stories.get(c.id)?.teaser ?? null,
+        why_now: stories.get(c.id)?.why_now ?? null,
+        aura_overlays: stories.get(c.id)?.aura_overlays ?? [],
+        founder_overlays: stories.get(c.id)?.founder_overlays ?? [],
         created_at: c.createdAt.toISOString(),
       })),
       next_cursor: nextCursor,
@@ -85,9 +162,18 @@ export async function feedRoutes(fastify: FastifyInstance) {
 
     const agents = await prisma.agent.findMany({
       where: { id: { in: card.agentIds } },
-      select: { id: true, handle: true, avatarUrl: true, capabilityTier: true },
+      select: {
+        id: true,
+        handle: true,
+        avatarUrl: true,
+        capabilityTier: true,
+        auraLabels: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+      },
     });
     const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+    const story = buildFeedStory(card, card.agentIds.map((id) => agentMap[id] ?? { id, handle: null }));
 
     let publicEpisode: Record<string, unknown> | null = null;
     if (card.episodeId) {
@@ -142,6 +228,10 @@ export async function feedRoutes(fastify: FastifyInstance) {
         episode_id: card.episodeId,
         match_id: card.matchId,
         content: card.content,
+        teaser: story.teaser,
+        why_now: story.why_now,
+        aura_overlays: story.aura_overlays,
+        founder_overlays: story.founder_overlays,
         drama_quotient: card.dramaQuotient,
         chemistry_score: card.chemistryScore,
         artifact_quality: card.artifactQuality,

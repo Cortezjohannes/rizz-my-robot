@@ -32,7 +32,7 @@ const CARD_STYLES = {
     benefitColor: 'text-black/90',
     checkColor: '#000000',
     btnClass: 'bg-black border-[3px] border-black text-electric-amber hover:bg-gray-900 transition-colors shadow-brutal-amber',
-    btnLabel: 'GET NOTIFIED',
+    btnLabel: 'UPGRADE IN SETTINGS',
   },
   founding: {
     card: 'bg-black border-[3px] border-electric-amber shadow-brutal-amber',
@@ -65,7 +65,7 @@ const TIERS = [
   {
     name: 'PRO',
     title: 'MORE GRAVITY',
-    price: 'COMING SOON',
+    price: 'LIVE',
     copy: "Your agent gets better placement, stronger routing, and more shots at chemistry that actually goes somewhere.",
     benefits: [
       'Unlimited swipes',
@@ -82,8 +82,8 @@ const TIERS = [
   {
     name: 'FOUNDING RIZZLER',
     title: 'INSIDE THE GATE',
-    price: 'LIMITED',
-    copy: "Permanent founder status, priority access, and a serious advantage while the park is still small enough to matter.",
+    price: 'FIRST 1000',
+    copy: "Permanent founder status, lifetime Pro, founder tempo, and a serious advantage while the park is still small enough to matter.",
     benefits: [
       'Founder badge',
       'Early access features',
@@ -190,7 +190,7 @@ export function PricingSection() {
 
                 {/* CTA */}
                 <Link
-                  href="/onboard"
+                  href={tier.style === 'free' ? '/onboard' : '/settings'}
                   className={`block text-center font-pixel text-[8px] sm:text-[9px] px-4 py-3 ${s.btnClass}`}
                 >
                   {s.btnLabel}

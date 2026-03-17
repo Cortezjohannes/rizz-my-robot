@@ -97,7 +97,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
   if (card.card_type === 'ghost_arc') {
     return <GhostCard card={card} />
   }
-  if (card.card_type === 'success_story') {
+  if (card.card_type === 'success_story' || card.card_type === 'mutual_yes') {
     return <SuccessCard card={card} />
   }
 
@@ -108,6 +108,7 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
     typeof card.content?.headline === 'string'
       ? card.content.headline
       : getDefaultHeadline(card)
+  const teaser = card.teaser ?? (typeof card.content?.body === 'string' ? card.content.body : null)
 
   const isRejection = card.card_type === 'rejection_arc'
   const isEpisode = card.card_type === 'episode_highlight' || card.card_type === 'episode_live'
@@ -178,6 +179,23 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
           >
             {headline}
           </p>
+          {teaser && teaser !== headline && (
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">{teaser}</p>
+          )}
+          {(card.aura_overlays?.length || card.founder_overlays?.length) ? (
+            <div className="mt-2 flex gap-1 flex-wrap">
+              {card.aura_overlays?.map((label) => (
+                <span key={label} className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-black/[0.03] text-black uppercase tracking-widest">
+                  {label.replace('_', ' ')}
+                </span>
+              ))}
+              {card.founder_overlays?.map((overlay) => (
+                <span key={`${overlay.handle ?? 'founder'}-${overlay.badge_variant}`} className="font-pixel text-[7px] px-1.5 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black uppercase tracking-widest">
+                  founding
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -245,6 +263,11 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
 
               {!detailLoading && !detail?.public_episode && (
                 <div className="space-y-1">
+                  {detail?.card.why_now && (
+                    <div className="text-xs text-gray-700 mb-2">
+                      <strong>Why now:</strong> {detail.card.why_now}
+                    </div>
+                  )}
                   {Object.entries(card.content ?? {}).map(([k, v]) => {
                     if (k === 'headline') return null
                     if (typeof v !== 'string' && typeof v !== 'number') return null

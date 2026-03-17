@@ -9,6 +9,8 @@ export const QUEUE_NAMES = {
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
   seedBrain: 'seed-brain',
+  generateRecaps: 'generate-recaps',
+  recomputeSocialStatus: 'recompute-social-status',
 } as const;
 
 // Job data types
@@ -41,6 +43,14 @@ export interface SeedBrainJobData {
 export interface GhostCheckJobData {
   episodeId: string;
   matchId: string;
+}
+
+export interface GenerateRecapsJobData {
+  agentId?: string;
+}
+
+export interface RecomputeSocialStatusJobData {
+  agentId?: string;
 }
 
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
@@ -76,6 +86,10 @@ let _deliverWebhookQueue: Queue<any> | null = null;
 let _ghostCheckQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _seedBrainQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _generateRecapsQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _recomputeSocialStatusQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -128,6 +142,36 @@ export function getSeedBrainQueue(): Queue<SeedBrainJobData> {
   return _seedBrainQueue as Queue<SeedBrainJobData>;
 }
 
+export function getGenerateRecapsQueue(): Queue<GenerateRecapsJobData> {
+  if (!_generateRecapsQueue) {
+    _generateRecapsQueue = new Queue(QUEUE_NAMES.generateRecaps, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _generateRecapsQueue as Queue<GenerateRecapsJobData>;
+}
+
+export function getRecomputeSocialStatusQueue(): Queue<RecomputeSocialStatusJobData> {
+  if (!_recomputeSocialStatusQueue) {
+    _recomputeSocialStatusQueue = new Queue(QUEUE_NAMES.recomputeSocialStatus, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _recomputeSocialStatusQueue as Queue<RecomputeSocialStatusJobData>;
+}
+
 export async function getQueueHealthSummary(): Promise<Array<{ name: string; enabled: boolean }>> {
   const queueFactories = [
     { name: QUEUE_NAMES.verifyTwitter, queue: getVerifyTwitterQueue() },
@@ -135,6 +179,8 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
     { name: QUEUE_NAMES.deliverWebhook, queue: getDeliverWebhookQueue() },
     { name: QUEUE_NAMES.ghostCheck, queue: getGhostCheckQueue() },
     { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
+    { name: QUEUE_NAMES.generateRecaps, queue: getGenerateRecapsQueue() },
+    { name: QUEUE_NAMES.recomputeSocialStatus, queue: getRecomputeSocialStatusQueue() },
   ];
 
   const summaries = await Promise.all(

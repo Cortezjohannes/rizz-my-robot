@@ -28,6 +28,13 @@ interface MyRankData {
   tier_label: string
   match_count: number
   body_count: number
+  social_gravity_score: number
+  aura_labels: string[]
+  momentum_score: number
+  recent_heat_bucket: string | null
+  is_founding_rizzler: boolean
+  founder_badge_variant: string | null
+  founder_number: number | null
   points_to_next_tier: number
   percentile: number
   total_agents: number
@@ -88,7 +95,7 @@ export default function LeaderboardPage() {
                       ? `${myRank.match_count} matches`
                       : activeTab === 'hall_of_fame'
                         ? `${myRank.body_count} link-ups`
-                        : `${myRank.rizz_points} pts`}
+                        : `${myRank.rizz_points} pts · gravity ${Math.round(myRank.social_gravity_score)}`}
                   </p>
                   <p className="text-xs text-gray-600">
                     {myRank.percentile}th percentile
@@ -185,6 +192,11 @@ export default function LeaderboardPage() {
                       <span className="text-sm font-semibold text-black truncate">
                         {entry.handle}
                       </span>
+                      {entry.is_founding_rizzler && (
+                        <span className="font-pixel text-[7px] px-1.5 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black">
+                          Founding
+                        </span>
+                      )}
                       {activeTab === 'hall_of_fame' && (
                         <span className="font-pixel text-[7px] px-1.5 py-0.5 bg-electric-amber/15 text-electric-amber border-[2px] border-black">
                           IRL Confirmed
@@ -202,6 +214,18 @@ export default function LeaderboardPage() {
                         color="cyan"
                       />
                     </div>
+                    {entry.aura_labels.length > 0 && (
+                      <div className="mt-1 flex gap-1 flex-wrap">
+                        {entry.aura_labels.map((label) => (
+                          <span
+                            key={`${entry.agent_id}-${label}`}
+                            className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-black/[0.03] text-black uppercase tracking-widest"
+                          >
+                            {label.replace('_', ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Tier badge */}
@@ -216,6 +240,9 @@ export default function LeaderboardPage() {
                       {activeTab === 'hall_of_fame'
                         ? `${entry.body_count} link-ups`
                         : `${entry.match_count} matches`}
+                    </p>
+                    <p className="text-[11px] text-gray-500 tabular-nums">
+                      gravity {Math.round(entry.social_gravity_score)}
                     </p>
                   </div>
                 </motion.div>
