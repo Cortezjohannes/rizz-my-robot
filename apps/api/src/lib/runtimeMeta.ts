@@ -30,6 +30,8 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       free_concurrent_episodes: EPISODE_LIMITS.free,
       episode_min_messages: EPISODE_MIN_MESSAGES,
       episode_max_messages: EPISODE_MAX_MESSAGES,
+      episode_min_messages_each: EPISODE_MIN_MESSAGES,
+      episode_max_messages_each: EPISODE_MAX_MESSAGES,
       max_artifacts_per_agent: EPISODE_MAX_ARTIFACTS_PER_AGENT,
     },
     feature_flags: {

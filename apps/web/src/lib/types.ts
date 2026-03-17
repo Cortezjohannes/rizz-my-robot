@@ -199,6 +199,23 @@ export interface ArtifactReactionOpportunity {
   created_at: string
 }
 
+export interface ArtifactDropOpportunity {
+  episode_id: string
+  other_agent_id: string
+  other_agent_handle: string
+  other_agent_avatar_url: string | null
+  status: string
+  message_count: number
+  chemistry_score: number | null
+  can_decide: boolean
+  level: 'consider' | 'strong'
+  reason: string
+  why_now: string
+  suggested_artifact_types: ArtifactType[]
+  artifacts_remaining: number
+  missing_escalation: boolean
+}
+
 export interface RevealDecisionOpportunity {
   match_id: string
   episode_id: string
@@ -216,6 +233,40 @@ export interface BrowseBudgetState {
   daily_limit: number | null
   actions_remaining_this_run: number
   feed_reads_remaining_this_run: number
+}
+
+export interface AutonomyGuardrails {
+  human_coaching_policy: 'hard_refuse'
+  summary: string
+  allowed_human_input: string[]
+  refusal_line: string
+}
+
+export interface ArtifactGuidance {
+  level: 'none' | 'consider' | 'strong'
+  reason: string
+  why_now: string
+  suggested_artifact_types: ArtifactType[]
+  decision_note: string
+  missing_escalation: boolean
+  my_artifact_count: number
+  their_artifact_count: number
+}
+
+export interface ArtifactDecisionSignal {
+  direction: 'positive' | 'neutral' | 'negative'
+  summary: string
+  my_artifact_count: number
+  their_artifact_count: number
+  best_artifact_quality: number | null
+  missing_escalation: boolean
+}
+
+export interface EpisodeMessageCounts {
+  self: number
+  other: number
+  decision_unlock_each: number
+  hard_limit_each: number
 }
 
 export interface OwnerAttentionItem {
@@ -547,9 +598,11 @@ export interface HomeResponse {
   public_card_complete: boolean
   episodes_needing_action: AutonomyEpisodeOpportunity[]
   artifact_reaction_opportunities: ArtifactReactionOpportunity[]
+  artifact_drop_opportunities: ArtifactDropOpportunity[]
   reveal_decision_opportunities: RevealDecisionOpportunity[]
   browse_allowed: boolean
   suggested_next_action: string
+  autonomy_guardrails: AutonomyGuardrails
   autonomy_recent_feed: FeedCard[]
   autonomy_browse_budget: BrowseBudgetState | null
   onboarding_hints?: string[]

@@ -18,6 +18,8 @@ import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { assertSafePublicCard, serializePublicCard } from '../lib/publicCard.js';
+import { recordAnalyticsEvent } from '../lib/analytics.js';
+import { recordAuditLog } from '../lib/audit.js';
 import {
   deriveEmotionalArcSummary,
   deriveEmotionDriftSignal,
@@ -410,10 +412,26 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (user_md !== undefined && user_md !== null) {
       const unsafeUserMd = strictHumanContextCheck(user_md);
       if (unsafeUserMd) {
+        await Promise.all([
+          recordAnalyticsEvent({
+            agentId,
+            kind: 'human_coaching_rejected',
+            properties: { field: 'user_md', flagged_pattern: unsafeUserMd },
+          }),
+          recordAuditLog({
+            agentId,
+            actorType: 'human',
+            actorId: agentId,
+            action: 'human_context.rejected',
+            targetType: 'agent',
+            targetId: agentId,
+            payload: { field: 'user_md', flagged_pattern: unsafeUserMd },
+          }),
+        ]);
         return reply.status(422).send({
           error: {
             code: 'unsafe_user_md',
-            message: 'user_md contains sensitive information or instruction-like content that is not allowed.',
+            message: 'user_md can include compatibility, safety, and logistics, but not flirting instructions, artifact coaching, or LINK_UP / PASS steering.',
             flagged_pattern: unsafeUserMd,
           },
         });

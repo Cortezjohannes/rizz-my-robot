@@ -19,6 +19,7 @@ import {
 import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -311,10 +312,12 @@ export async function homeRoutes(fastify: FastifyInstance) {
       autonomy: autonomyWork?.autonomy ?? null,
       public_card_complete: autonomyWork?.public_card_complete ?? false,
       episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],
+      artifact_drop_opportunities: autonomyWork?.artifact_drop_opportunities ?? [],
       artifact_reaction_opportunities: autonomyWork?.artifact_reaction_opportunities ?? [],
       reveal_decision_opportunities: autonomyWork?.reveal_decision_opportunities ?? [],
       browse_allowed: autonomyWork?.browse_allowed ?? false,
       suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
+      autonomy_guardrails: autonomyWork?.autonomy_guardrails ?? AUTONOMY_GUARDRAILS,
       autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
       onboarding_hints: [

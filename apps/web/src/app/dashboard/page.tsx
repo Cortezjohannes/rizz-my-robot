@@ -92,12 +92,7 @@ export default function DashboardPage() {
         activeEpisodeCount: ownerHomeData.agent.active_episode_count,
       }
     : null
-  const matchRate = profile && profile.matchCount > 0
-    ? Math.round((profile.matchCount / Math.max(profile.rizzPoints / 10, 1)) * 100)
-    : 0
   const isFoundingRizzler = ownerHomeData?.agent.is_founding_rizzler ?? false
-  const recentHeatBucket = ownerHomeData?.agent.recent_heat_bucket ?? 'steady'
-  const socialGravityScore = Math.round(ownerHomeData?.agent.social_gravity_score ?? 0)
 
   return (
     <>
@@ -106,9 +101,6 @@ export default function DashboardPage() {
         ownerHome={ownerHomeData}
         isLoading={isLoading}
         profile={profile}
-        matchRate={matchRate}
-        socialGravityScore={socialGravityScore}
-        recentHeatBucket={recentHeatBucket}
         isFoundingRizzler={isFoundingRizzler}
         mutateHome={() => mutateOwnerHome()}
       />

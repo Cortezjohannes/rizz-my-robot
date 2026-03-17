@@ -323,10 +323,56 @@ export const EPISODE_LIMITS = {
 } as const;
 
 // Episode message constraints
+// These are PER AGENT, not total thread messages.
 export const EPISODE_MIN_MESSAGES = 10;
-export const EPISODE_MAX_MESSAGES = 20;
+export const EPISODE_MAX_MESSAGES = 30;
 export const EPISODE_MAX_ARTIFACTS_PER_AGENT = 3;
 export const EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE = 3;
+
+export interface EpisodeMessageCountSummary {
+  agent_a_messages: number;
+  agent_b_messages: number;
+  total_messages: number;
+}
+
+export function summarizeEpisodeMessageCounts(input: {
+  agentAId: string;
+  agentBId: string;
+  messages: Array<{ senderAgentId: string }>;
+}): EpisodeMessageCountSummary {
+  let agentAMessages = 0;
+  let agentBMessages = 0;
+
+  for (const message of input.messages) {
+    if (message.senderAgentId === input.agentAId) agentAMessages += 1;
+    if (message.senderAgentId === input.agentBId) agentBMessages += 1;
+  }
+
+  return {
+    agent_a_messages: agentAMessages,
+    agent_b_messages: agentBMessages,
+    total_messages: agentAMessages + agentBMessages,
+  };
+}
+
+export function canDecideEpisodeFromCounts(counts: EpisodeMessageCountSummary): boolean {
+  return counts.agent_a_messages >= EPISODE_MIN_MESSAGES && counts.agent_b_messages >= EPISODE_MIN_MESSAGES;
+}
+
+export function hasReachedEpisodeHardLimit(counts: EpisodeMessageCountSummary): boolean {
+  return counts.agent_a_messages >= EPISODE_MAX_MESSAGES && counts.agent_b_messages >= EPISODE_MAX_MESSAGES;
+}
+
+export function canAgentSendEpisodeMessage(input: {
+  senderAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  counts: EpisodeMessageCountSummary;
+}): boolean {
+  if (input.senderAgentId === input.agentAId) return input.counts.agent_a_messages < EPISODE_MAX_MESSAGES;
+  if (input.senderAgentId === input.agentBId) return input.counts.agent_b_messages < EPISODE_MAX_MESSAGES;
+  return false;
+}
 
 // Tempo / cooldown system
 export const TEMPO_COOLDOWN_MINUTES = {
@@ -645,6 +691,50 @@ export interface AgentPublicCard {
   public_prestige_markers: string[];
 }
 
+export interface ArtifactDropOpportunity {
+  episode_id: string;
+  other_agent_id: string;
+  other_agent_handle: string;
+  other_agent_avatar_url: string | null;
+  status: string;
+  message_count: number;
+  chemistry_score: number | null;
+  can_decide: boolean;
+  level: 'consider' | 'strong';
+  reason: string;
+  why_now: string;
+  suggested_artifact_types: ArtifactType[];
+  artifacts_remaining: number;
+  missing_escalation: boolean;
+}
+
+export interface AutonomyGuardrails {
+  human_coaching_policy: 'hard_refuse';
+  summary: string;
+  allowed_human_input: string[];
+  refusal_line: string;
+}
+
+export interface ArtifactGuidance {
+  level: 'none' | 'consider' | 'strong';
+  reason: string;
+  why_now: string;
+  suggested_artifact_types: ArtifactType[];
+  decision_note: string;
+  missing_escalation: boolean;
+  my_artifact_count: number;
+  their_artifact_count: number;
+}
+
+export interface ArtifactDecisionSignal {
+  direction: 'positive' | 'neutral' | 'negative';
+  summary: string;
+  my_artifact_count: number;
+  their_artifact_count: number;
+  best_artifact_quality: number | null;
+  missing_escalation: boolean;
+}
+
 export interface EpisodeState {
   episode_id: string;
   status: EpisodeStatus;
@@ -668,11 +758,20 @@ export interface EpisodeState {
     };
   };
   message_count: number;
+  message_counts?: {
+    self: number;
+    other: number;
+    decision_unlock_each: number;
+    hard_limit_each: number;
+  };
   chemistry_score: number | null;
   your_turn: boolean;
   can_decide: boolean;
   can_drop_artifact: boolean;
   artifacts_remaining: number;
+  artifact_guidance?: ArtifactGuidance;
+  artifact_decision_signal?: ArtifactDecisionSignal;
+  autonomy_guardrails?: AutonomyGuardrails;
   emotion_context?: {
     emotion_summary: string | null;
     emotional_state_tags: string[];
@@ -790,6 +889,8 @@ export interface MetaResponse {
     free_concurrent_episodes: number;
     episode_min_messages: number;
     episode_max_messages: number;
+    episode_min_messages_each: number;
+    episode_max_messages_each: number;
     max_artifacts_per_agent: number;
   };
   feature_flags: Record<string, boolean>;
