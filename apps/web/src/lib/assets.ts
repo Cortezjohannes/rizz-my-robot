@@ -34,5 +34,13 @@ export const assets = {
     iconStickers: '/landing-assets/06-micro/2026-03-15-01-46-icon-sticker-accent-sheet-v1.png',
     emptyStates: '/landing-assets/06-micro/2026-03-15-01-59-empty-state-illustration-sheet-v1.png',
     brandBadges: '/landing-assets/06-micro/2026-03-15-02-16-brand-badge-companion-sheet-v1.png',
+    dogSolo: '/assets/micro-dog-solo.png',
+    benchScene: '/assets/micro-bench-scene.png',
+  },
+  icons: {
+    chat: '/assets/icon-chat.png',
+    mechheart: '/assets/icon-mechheart.png',
+    sparkle: '/assets/icon-sparkle.png',
+    checkmark: '/assets/icon-checkmark.png',
   },
 } as const

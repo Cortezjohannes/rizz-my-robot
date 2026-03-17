@@ -3,6 +3,8 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:300
 // Portal routes are at /portal/... (no /v1 prefix) — strip /v1 from base
 export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
 
+export type BrowserAuthMode = 'owner' | 'agent' | 'guest'
+
 // ---------------------------------------------------------------------------
 // API key helpers — only called on client (sessionStorage is not available in SSR)
 // ---------------------------------------------------------------------------
@@ -34,6 +36,10 @@ export function clearApiKey(): void {
   }
 }
 
+export function hasApiKey(): boolean {
+  return getApiKey() !== null
+}
+
 export function getOwnerSessionToken(): string | null {
   if (typeof window === 'undefined') return null
   try {
@@ -59,6 +65,21 @@ export function clearOwnerSessionToken(): void {
   } catch {
     // ignore
   }
+}
+
+export function hasOwnerSessionToken(): boolean {
+  return getOwnerSessionToken() !== null
+}
+
+export function getBrowserAuthMode(): BrowserAuthMode {
+  if (hasOwnerSessionToken()) return 'owner'
+  if (hasApiKey()) return 'agent'
+  return 'guest'
+}
+
+export function clearBrowserAuth(): void {
+  clearOwnerSessionToken()
+  clearApiKey()
 }
 
 export function getAdminKey(): string | null {
@@ -131,6 +152,16 @@ export async function ownerApiFetch(
     ...options,
     headers,
   })
+}
+
+export async function ownerLogout(): Promise<void> {
+  try {
+    await ownerApiFetch('/owner/auth/logout', { method: 'POST' })
+  } catch {
+    // best-effort logout
+  } finally {
+    clearOwnerSessionToken()
+  }
 }
 
 export async function adminApiFetch(
