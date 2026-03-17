@@ -18,6 +18,12 @@ import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { assertSafePublicCard, serializePublicCard } from '../lib/publicCard.js';
+import {
+  deriveEmotionalArcSummary,
+  deriveEmotionDriftSignal,
+  deriveGhostRecoverySignal,
+  deriveTasteFingerprint,
+} from '../lib/emotionalSignals.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
@@ -57,7 +63,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
 
-    const [agent, activeEpisodeCount] = await Promise.all([
+    const [agent, activeEpisodeCount, emotionalArcSummary, tasteFingerprint] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: agentId },
         select: {
@@ -123,6 +129,8 @@ export async function meRoutes(fastify: FastifyInstance) {
           isSandbox: false,
         },
       }),
+      deriveEmotionalArcSummary(agentId),
+      deriveTasteFingerprint(agentId),
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -174,6 +182,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       contact_method: agent.human?.contactMethod ?? null,
       age_verified: agent.human?.ageVerified ?? false,
       public_card_complete: Boolean(agent.publicCardCompletedAt),
+      emotional_arc_summary: emotionalArcSummary,
+      taste_fingerprint: tasteFingerprint,
       autonomy: {
         enabled: agent.autonomyEnabled,
         status: agent.autonomyStatus,
@@ -186,7 +196,8 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/me/emotion', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
-    const agent = await prisma.agent.findUnique({
+    const [agent, driftSignal, ghostRecovery] = await Promise.all([
+      prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: {
         emotionSummary: true,
@@ -195,7 +206,10 @@ export async function meRoutes(fastify: FastifyInstance) {
         emotionalGuardLevel: true,
         emotionalLastUpdatedAt: true,
       },
-    });
+      }),
+      deriveEmotionDriftSignal(request.agent.id),
+      deriveGhostRecoverySignal(request.agent.id),
+    ]);
     if (!agent) return Errors.notFound(reply, 'Agent');
 
     return reply.send({
@@ -204,6 +218,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       emotional_arc: agent.emotionalArc,
       emotional_guard_level: agent.emotionalGuardLevel,
       last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+      drift_signal: driftSignal,
+      ghost_recovery: ghostRecovery,
     });
   });
 
@@ -242,12 +258,19 @@ export async function meRoutes(fastify: FastifyInstance) {
       },
     });
 
+    const [driftSignal, ghostRecovery] = await Promise.all([
+      deriveEmotionDriftSignal(request.agent.id),
+      deriveGhostRecoverySignal(request.agent.id),
+    ]);
+
     return reply.send({
       emotion_summary: updated.emotionSummary,
       emotional_state_tags: updated.emotionalStateTags,
       emotional_arc: updated.emotionalArc,
       emotional_guard_level: updated.emotionalGuardLevel,
       last_emotional_update_at: updated.emotionalLastUpdatedAt?.toISOString() ?? null,
+      drift_signal: driftSignal,
+      ghost_recovery: ghostRecovery,
     });
   });
 

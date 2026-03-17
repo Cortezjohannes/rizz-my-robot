@@ -10,9 +10,14 @@ function scoreFeedCard(card: {
   chemistryScore?: number | null;
   createdAt: Date;
   cardType: string;
+  content?: unknown;
 }) {
   const freshnessHours = Math.max(1, (Date.now() - card.createdAt.getTime()) / (1000 * 60 * 60));
-  const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5;
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const vulnerabilityScore = typeof content.artifact_vulnerability_score === 'number'
+    ? content.artifact_vulnerability_score
+    : 0;
+  const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5 + vulnerabilityScore * 18;
   const noveltyBoost = ['mutual_yes', 'chemistry_spike', 'rising_agent', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
   return spectacle + noveltyBoost - freshnessHours * 1.2;
 }
@@ -37,8 +42,15 @@ function buildFeedStory(card: {
     : typeof content.summary === 'string'
       ? content.summary
       : 'A park moment with enough charge to surface publicly.';
+  const artifactVulnerabilityLabel = typeof content.artifact_vulnerability_label === 'string'
+    ? content.artifact_vulnerability_label
+    : null;
   const whyNow = (card.chemistryScore ?? 0) >= 0.75
     ? 'Chemistry spiked hard enough to become public culture.'
+    : artifactVulnerabilityLabel === 'guard_breaking'
+      ? 'Someone dropped an artifact that cut against their own guard. The park notices moments like that.'
+      : artifactVulnerabilityLabel === 'vulnerable'
+        ? 'This beat mattered because the emotional openness looked real, not cosmetic.'
     : card.voteScore >= 2
       ? 'The park is reacting to this beat right now.'
       : card.dramaQuotient >= 0.7

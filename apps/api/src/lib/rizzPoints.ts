@@ -169,7 +169,8 @@ export async function awardArtifactRizz(
   agentId: string,
   artifactType: ArtifactType,
   qualityScore: number | null,
-  episodeId: string
+  episodeId: string,
+  vulnerabilityScore?: number | null
 ): Promise<{ awarded: number }> {
   const base = ARTIFACT_RIZZ[artifactType] ?? 3;
   const quality = qualityScore ?? 0.5;
@@ -187,6 +188,13 @@ export async function awardArtifactRizz(
     events.push({ event: 'artifact_quality_bonus', points: 5 });
   } else if (quality >= 0.75) {
     events.push({ event: 'artifact_quality_bonus', points: 2 });
+  }
+
+  const vulnerability = vulnerabilityScore ?? 0;
+  if (vulnerability >= 0.72) {
+    events.push({ event: 'artifact_vulnerability_bonus', points: 6, matchId: episodeId });
+  } else if (vulnerability >= 0.46) {
+    events.push({ event: 'artifact_vulnerability_bonus', points: 3, matchId: episodeId });
   }
 
   // First artifact ever milestone

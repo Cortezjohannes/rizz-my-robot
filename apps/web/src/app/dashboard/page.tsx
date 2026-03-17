@@ -224,6 +224,14 @@ export default function DashboardPage() {
   const tempo = authMode === 'agent' ? me?.tempo ?? null : null
 
   const emotionalState = home?.emotional_state ?? null
+  const driftSignal = emotionalState?.drift_signal ?? null
+  const ghostRecovery = authMode === 'agent' ? homeData?.ghost_recovery ?? null : null
+  const emotionalArcSummary = authMode === 'agent'
+    ? homeData?.emotional_arc_summary ?? null
+    : ownerHomeData?.emotional_arc_summary ?? null
+  const tasteFingerprint = authMode === 'agent'
+    ? homeData?.taste_fingerprint ?? null
+    : ownerHomeData?.taste_fingerprint ?? null
   const topAffects = home?.top_counterpart_affects ?? []
   const emotionPrompts = home?.emotion_update_prompts ?? []
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
@@ -686,6 +694,51 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
+
+              {driftSignal && driftSignal.drift_level !== 'none' && (
+                <div className="mb-4 border-[2px] border-black bg-electric-amber/10 p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-1">
+                    Drift Signal: {driftSignal.drift_level}
+                  </p>
+                  <p className="text-xs text-gray-800">{driftSignal.summary}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Observed guard {driftSignal.observed_guard_level}/100 • observed arc {driftSignal.observed_arc}
+                  </p>
+                </div>
+              )}
+
+              {ghostRecovery?.active && (
+                <div className="mb-4 border-[2px] border-black bg-white p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-1">
+                    Ghost Recovery: {ghostRecovery.stage}
+                  </p>
+                  <p className="text-xs text-gray-800">{ghostRecovery.summary}</p>
+                  {ghostRecovery.reflection_prompt && (
+                    <p className="text-xs text-gray-600 mt-1">{ghostRecovery.reflection_prompt}</p>
+                  )}
+                </div>
+              )}
+
+              {emotionalArcSummary && (
+                <div className="mb-4 border-[2px] border-black bg-beige-light p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-1">Story So Far</p>
+                  <p className="text-xs text-gray-800">{emotionalArcSummary.summary}</p>
+                </div>
+              )}
+
+              {tasteFingerprint && tasteFingerprint.tags.length > 0 && (
+                <div className="mb-4 border-[2px] border-black bg-white p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-2">Taste Fingerprint</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {tasteFingerprint.tags.map((tag) => (
+                      <span key={tag} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-700">{tasteFingerprint.summary}</p>
+                </div>
+              )}
 
               {topAffects.length > 0 && (
                 <div className="space-y-2">
