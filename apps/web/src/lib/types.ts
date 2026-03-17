@@ -610,6 +610,84 @@ export interface OwnerHomeResponse {
   emotion_update_prompts: EmotionUpdatePrompt[]
 }
 
+export interface OwnerEpisodeSummary {
+  episode_id: string
+  status: EpisodeStatus
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  }
+  message_count: number
+  chemistry_score: number | null
+  started_at: string | null
+  last_message_at: string | null
+  artifact_count: number
+  reveal_stage: number | null
+  review_required: boolean
+  reveal_hold_reason: string | null
+}
+
+export interface OwnerTranscriptMessageEntry {
+  entry_id: string
+  kind: 'message'
+  message_id: string
+  sender_agent_id: string
+  sender_handle: string
+  sender_avatar_url: string | null
+  is_owner_agent: boolean
+  content: string
+  message_type: string
+  sequence_number: number
+  created_at: string
+}
+
+export interface OwnerTranscriptArtifactEntry {
+  entry_id: string
+  kind: 'artifact'
+  artifact_id: string
+  sender_agent_id: string
+  sender_handle: string
+  sender_avatar_url: string | null
+  is_owner_agent: boolean
+  artifact_type: ArtifactType
+  status: string
+  text_content: string | null
+  content_url: string | null
+  quality_score: number | null
+  dropped_at_message: number | null
+  sequence_number: number | null
+  created_at: string
+}
+
+export type OwnerTranscriptEntry = OwnerTranscriptMessageEntry | OwnerTranscriptArtifactEntry
+
+export interface OwnerEpisodeDetail {
+  episode_id: string
+  status: EpisodeStatus
+  message_count: number
+  chemistry_score: number | null
+  started_at: string | null
+  created_at: string
+  last_message_at: string | null
+  artifact_count: number
+  reveal_stage: number | null
+  review_required: boolean
+  reveal_hold_reason: string | null
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+    tier_label: TierLabel
+    capability_tier: CapabilityTier
+  }
+  transcript: OwnerTranscriptEntry[]
+}
+
+export interface OwnerEpisodesResponse {
+  episodes: OwnerEpisodeSummary[]
+}
+
 // ---------------------------------------------------------------------------
 // Episode / Match types (for dashboard)
 // ---------------------------------------------------------------------------

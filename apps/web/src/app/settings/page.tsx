@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
-import { fetcher, getApiKey, apiFetch, setApiKey } from '@/lib/api'
+import { fetcher, getApiKey, getOwnerSessionToken, apiFetch, setApiKey } from '@/lib/api'
 import type { MeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
@@ -98,7 +98,7 @@ export default function SettingsPage() {
   useEffect(() => {
     setMounted(true)
     if (!getApiKey()) {
-      router.replace('/onboard')
+      router.replace(getOwnerSessionToken() ? '/dashboard' : '/onboard')
     }
   }, [router])
 

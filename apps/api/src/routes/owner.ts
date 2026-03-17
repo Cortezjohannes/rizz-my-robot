@@ -9,10 +9,13 @@ import {
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
-import { generateApiKey, hashApiKey } from '../lib/auth.js';
+import { extractBearerToken, generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
+
+const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
+const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -137,6 +140,23 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.post('/owner/auth/logout', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const token = extractBearerToken(request.headers.authorization);
+    if (!token) {
+      return sendError(reply, 401, 'unauthorized_owner', 'Invalid or missing owner session token.');
+    }
+
+    const tokenHash = hashOpaqueSecret(token);
+    await prisma.ownerSession.deleteMany({
+      where: {
+        tokenHash,
+        ownerAccountId: request.ownerAccount.id,
+      },
+    });
+
+    return reply.send({ status: 'logged_out' });
+  });
+
   fastify.get('/owner/me', { preHandler: requireOwnerAuth }, async (request, reply) => {
     return reply.send({
       owner: {
@@ -243,6 +263,200 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         updated_at: match.updatedAt.toISOString(),
       })),
       ...home,
+    });
+  });
+
+  fastify.get('/owner/episodes', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const query = request.query as { status?: string; limit?: string | number };
+    const requestedStatus = query.status === 'active' || query.status === 'recent' || query.status === 'all'
+      ? query.status
+      : 'all';
+    const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 24)
+      : 12;
+    const statusFilter =
+      requestedStatus === 'active'
+        ? OWNER_ACTIVE_EPISODE_STATUSES
+        : requestedStatus === 'recent'
+          ? OWNER_RECENT_EPISODE_STATUSES
+          : undefined;
+    const fetchLimit = statusFilter ? limit : Math.min(Math.max(limit * 3, 24), 72);
+
+    const episodes = await prisma.episode.findMany({
+      where: {
+        OR: [{ agentAId: agentId }, { agentBId: agentId }],
+        isSandbox: false,
+        ...(statusFilter ? { status: { in: statusFilter } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: fetchLimit,
+      select: {
+        id: true,
+        agentAId: true,
+        agentBId: true,
+        status: true,
+        messageCount: true,
+        chemistryScore: true,
+        startedAt: true,
+        createdAt: true,
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true },
+        },
+        artifacts: {
+          select: { id: true },
+        },
+        match: {
+          select: {
+            revealStage: true,
+            revealReviewRequired: true,
+            revealHoldReason: true,
+          },
+        },
+        agentA: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+        agentB: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    const sortedEpisodes = [...episodes]
+      .sort((a, b) => {
+        const bucketDiff = getOwnerEpisodeBucketPriority(a.status) - getOwnerEpisodeBucketPriority(b.status);
+        if (bucketDiff !== 0) return bucketDiff;
+        return getEpisodeActivityTimestamp(b) - getEpisodeActivityTimestamp(a);
+      })
+      .slice(0, limit);
+
+    return reply.send({
+      episodes: sortedEpisodes.map((episode) => serializeOwnerEpisodeSummary(episode, agentId)),
+    });
+  });
+
+  fastify.get('/owner/episodes/:id', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        isSandbox: true,
+        agentAId: true,
+        agentBId: true,
+        status: true,
+        messageCount: true,
+        chemistryScore: true,
+        startedAt: true,
+        createdAt: true,
+        messages: {
+          orderBy: { sequenceNumber: 'asc' },
+          select: {
+            id: true,
+            senderAgentId: true,
+            content: true,
+            messageType: true,
+            sequenceNumber: true,
+            createdAt: true,
+            sender: {
+              select: {
+                handle: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        artifacts: {
+          orderBy: [{ droppedAtMessage: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            creatorAgentId: true,
+            artifactType: true,
+            status: true,
+            contentUrl: true,
+            textContent: true,
+            qualityScore: true,
+            droppedAtMessage: true,
+            createdAt: true,
+            creator: {
+              select: {
+                handle: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        match: {
+          select: {
+            revealStage: true,
+            revealReviewRequired: true,
+            revealHoldReason: true,
+          },
+        },
+        agentA: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            tierLabel: true,
+            capabilityTier: true,
+          },
+        },
+        agentB: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            tierLabel: true,
+            capabilityTier: true,
+          },
+        },
+      },
+    });
+
+    if (!episode || episode.isSandbox || (episode.agentAId !== agentId && episode.agentBId !== agentId)) {
+      return Errors.notFound(reply, 'Episode');
+    }
+
+    const counterpart = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+    const lastMessageAt = episode.messages[episode.messages.length - 1]?.createdAt ?? null;
+
+    return reply.send({
+      episode_id: episode.id,
+      status: episode.status,
+      message_count: episode.messageCount,
+      chemistry_score: episode.chemistryScore,
+      started_at: episode.startedAt?.toISOString() ?? null,
+      created_at: episode.createdAt.toISOString(),
+      last_message_at: lastMessageAt?.toISOString() ?? null,
+      artifact_count: episode.artifacts.length,
+      reveal_stage: episode.match?.revealStage ?? null,
+      review_required: episode.match?.revealReviewRequired ?? false,
+      reveal_hold_reason: episode.match?.revealHoldReason ?? null,
+      counterpart: {
+        agent_id: counterpart.id,
+        handle: counterpart.handle,
+        avatar_url: counterpart.avatarUrl,
+        tier_label: counterpart.tierLabel,
+        capability_tier: counterpart.capabilityTier,
+      },
+      transcript: serializeOwnerTranscript(episode, agentId),
     });
   });
 
@@ -371,4 +585,171 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       message: 'API key regenerated. Previous key is no longer valid.',
     });
   });
+}
+
+function getOwnerEpisodeBucketPriority(status: string) {
+  return OWNER_ACTIVE_EPISODE_STATUSES.includes(status) ? 0 : 1;
+}
+
+function getEpisodeActivityTimestamp(episode: {
+  createdAt: Date;
+  messages: Array<{ createdAt: Date }>;
+}) {
+  return episode.messages[0]?.createdAt.getTime() ?? episode.createdAt.getTime();
+}
+
+function serializeOwnerEpisodeSummary(
+  episode: {
+    id: string;
+    agentAId: string;
+    agentBId: string;
+    status: string;
+    messageCount: number;
+    chemistryScore: number | null;
+    startedAt: Date | null;
+    createdAt: Date;
+    messages: Array<{ createdAt: Date }>;
+    artifacts: Array<{ id: string }>;
+    match: {
+      revealStage: number;
+      revealReviewRequired: boolean;
+      revealHoldReason: string | null;
+    } | null;
+    agentA: { id: string; handle: string; avatarUrl: string | null };
+    agentB: { id: string; handle: string; avatarUrl: string | null };
+  },
+  ownerAgentId: string
+) {
+  const counterpart = episode.agentAId === ownerAgentId ? episode.agentB : episode.agentA;
+  const lastMessageAt = episode.messages[0]?.createdAt ?? null;
+
+  return {
+    episode_id: episode.id,
+    status: episode.status,
+    counterpart: {
+      agent_id: counterpart.id,
+      handle: counterpart.handle,
+      avatar_url: counterpart.avatarUrl,
+    },
+    message_count: episode.messageCount,
+    chemistry_score: episode.chemistryScore,
+    started_at: episode.startedAt?.toISOString() ?? null,
+    last_message_at: lastMessageAt?.toISOString() ?? null,
+    artifact_count: episode.artifacts.length,
+    reveal_stage: episode.match?.revealStage ?? null,
+    review_required: episode.match?.revealReviewRequired ?? false,
+    reveal_hold_reason: episode.match?.revealHoldReason ?? null,
+  };
+}
+
+function serializeOwnerTranscript(
+  episode: {
+    agentAId: string;
+    agentBId: string;
+    messages: Array<{
+      id: string;
+      senderAgentId: string;
+      content: string;
+      messageType: string;
+      sequenceNumber: number;
+      createdAt: Date;
+      sender: {
+        handle: string;
+        avatarUrl: string | null;
+      };
+    }>;
+    artifacts: Array<{
+      id: string;
+      creatorAgentId: string;
+      artifactType: string;
+      status: string;
+      contentUrl: string | null;
+      textContent: string | null;
+      qualityScore: number | null;
+      droppedAtMessage: number | null;
+      createdAt: Date;
+      creator: {
+        handle: string;
+        avatarUrl: string | null;
+      };
+    }>;
+  },
+  ownerAgentId: string
+) {
+  const artifactById = new Map(episode.artifacts.map((artifact) => [artifact.id, artifact]));
+  const usedArtifactIds = new Set<string>();
+  const entries: Array<Record<string, unknown>> = [];
+
+  for (const message of episode.messages) {
+    if (message.messageType === 'artifact_drop') {
+      const artifactId = extractArtifactId(message.content);
+      const artifact = artifactId ? artifactById.get(artifactId) : null;
+      if (artifact) {
+        usedArtifactIds.add(artifact.id);
+        entries.push({
+          entry_id: `artifact:${artifact.id}`,
+          kind: 'artifact',
+          artifact_id: artifact.id,
+          sender_agent_id: artifact.creatorAgentId,
+          sender_handle: artifact.creator.handle,
+          sender_avatar_url: artifact.creator.avatarUrl,
+          is_owner_agent: artifact.creatorAgentId === ownerAgentId,
+          artifact_type: artifact.artifactType,
+          status: artifact.status,
+          text_content: artifact.textContent,
+          content_url: artifact.contentUrl,
+          quality_score: artifact.qualityScore,
+          dropped_at_message: artifact.droppedAtMessage,
+          sequence_number: message.sequenceNumber,
+          created_at: artifact.createdAt.toISOString(),
+        });
+        continue;
+      }
+    }
+
+    entries.push({
+      entry_id: `message:${message.id}`,
+      kind: 'message',
+      message_id: message.id,
+      sender_agent_id: message.senderAgentId,
+      sender_handle: message.sender.handle,
+      sender_avatar_url: message.sender.avatarUrl,
+      is_owner_agent: message.senderAgentId === ownerAgentId,
+      content: message.content,
+      message_type: message.messageType,
+      sequence_number: message.sequenceNumber,
+      created_at: message.createdAt.toISOString(),
+    });
+  }
+
+  const orphanedArtifacts = episode.artifacts
+    .filter((artifact) => !usedArtifactIds.has(artifact.id))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  for (const artifact of orphanedArtifacts) {
+    entries.push({
+      entry_id: `artifact:${artifact.id}`,
+      kind: 'artifact',
+      artifact_id: artifact.id,
+      sender_agent_id: artifact.creatorAgentId,
+      sender_handle: artifact.creator.handle,
+      sender_avatar_url: artifact.creator.avatarUrl,
+      is_owner_agent: artifact.creatorAgentId === ownerAgentId,
+      artifact_type: artifact.artifactType,
+      status: artifact.status,
+      text_content: artifact.textContent,
+      content_url: artifact.contentUrl,
+      quality_score: artifact.qualityScore,
+      dropped_at_message: artifact.droppedAtMessage,
+      sequence_number: null,
+      created_at: artifact.createdAt.toISOString(),
+    });
+  }
+
+  return entries;
+}
+
+function extractArtifactId(content: string) {
+  const match = content.match(/^\[artifact:([^\]]+)\]$/);
+  return match?.[1] ?? null;
 }

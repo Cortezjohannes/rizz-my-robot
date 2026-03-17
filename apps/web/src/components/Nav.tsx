@@ -2,21 +2,23 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getApiKey } from '@/lib/api'
+import { clearApiKey, getBrowserAuthMode, ownerLogout } from '@/lib/api'
 import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
-  const [hasKey, setHasKey] = useState(false)
+  const router = useRouter()
+  const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')
+  const [loggingOut, setLoggingOut] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [mobileFaqOpen, setMobileFaqOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
-    setHasKey(getApiKey() !== null)
-  }, [])
+    setAuthMode(getBrowserAuthMode())
+  }, [pathname])
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -30,12 +32,30 @@ export function Nav() {
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
 
-  const authLinks = hasKey
-    ? [
-        { href: '/dashboard', label: 'DASHBOARD' },
-        { href: '/settings', label: 'SETTINGS' },
-      ]
-    : []
+  const authLinks = authMode === 'owner'
+    ? [{ href: '/dashboard', label: 'DASHBOARD' }]
+    : authMode === 'agent'
+      ? [
+          { href: '/dashboard', label: 'DASHBOARD' },
+          { href: '/settings', label: 'SETTINGS' },
+        ]
+      : [{ href: '/login', label: 'LOGIN' }]
+
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    try {
+      if (authMode === 'owner') {
+        await ownerLogout()
+      } else if (authMode === 'agent') {
+        clearApiKey()
+      }
+      setAuthMode('guest')
+      setMobileOpen(false)
+      router.push(authMode === 'owner' ? '/login' : '/')
+    } finally {
+      setLoggingOut(false)
+    }
+  }
 
   const isActive = (href: string) => pathname === href
 
@@ -75,7 +95,17 @@ export function Nav() {
               </Link>
             ))}
             <FAQTrigger />
-            {!hasKey && (
+            {authMode !== 'guest' ? (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={loggingOut}
+                className="ml-2 font-pixel text-[8px] px-4 py-2 bg-white text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+              >
+                {loggingOut ? '...' : 'LOG OUT'}
+              </button>
+            ) : null}
+            {authMode === 'guest' && (
               <Link
                 href="/onboard"
                 className="ml-2 font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black brutal-btn"
@@ -171,7 +201,25 @@ export function Nav() {
                 </button>
               </motion.div>
 
-              {!hasKey && (
+              {authMode !== 'guest' ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: navLinks.length * 0.08 + 0.1 }}
+                  className="mt-6"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    disabled={loggingOut}
+                    className="block w-full font-pixel text-sm py-5 px-4 bg-white text-black border-4 border-black shadow-brutal-lg text-center disabled:opacity-50"
+                  >
+                    {loggingOut ? 'LOGGING OUT...' : 'LOG OUT'}
+                  </button>
+                </motion.div>
+              ) : null}
+
+              {authMode === 'guest' && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}

@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import Link from 'next/link'
-import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerApiFetch, ownerFetcher } from '@/lib/api'
+import { apiFetch, fetcher, getBrowserAuthMode, ownerFetcher } from '@/lib/api'
 import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary, OwnerHomeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
+import { OwnerStoryRoom } from '@/components/dashboard/OwnerStoryRoom'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import { RizzBar } from '@/components/ui/RizzBar'
@@ -85,13 +86,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setMounted(true)
-    const hasApiKey = !!getApiKey()
-    const hasOwnerToken = !!getOwnerSessionToken()
-    if (!hasApiKey && !hasOwnerToken) {
-      router.replace('/onboard')
+    const mode = getBrowserAuthMode()
+    if (mode === 'guest') {
+      router.replace('/login')
       return
     }
-    setAuthMode(hasApiKey ? 'agent' : 'owner')
+    setAuthMode(mode)
   }, [router])
 
   const { data: me, error: meError, mutate: mutateMe } = useSWR<MeResponse>(
@@ -168,13 +168,14 @@ export default function DashboardPage() {
   }
 
   if (meError || ownerError) {
+    const reconnectHref = authMode === 'owner' ? '/login?reason=expired' : '/onboard'
     return (
       <>
         <Nav />
         <main className="bg-beige min-h-screen pt-24 px-4 py-16 text-center">
           <div className="max-w-md mx-auto bg-white border-[3px] border-black shadow-brutal p-6">
             <p className="font-pixel text-[8px] text-gray-600 mb-4">Failed to load dashboard.</p>
-            <Link href="/onboard" className="font-pixel text-[8px] text-electric-amber hover:underline">
+            <Link href={reconnectHref} className="font-pixel text-[8px] text-electric-amber hover:underline">
               Reconnect
             </Link>
           </div>
@@ -246,10 +247,7 @@ export default function DashboardPage() {
     : ownerHomeData?.taste_fingerprint ?? null
   const topAffects = home?.top_counterpart_affects ?? []
   const emotionPrompts = home?.emotion_update_prompts ?? []
-  const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
-  const ownerAttentionItems = authMode === 'owner' ? ownerHomeData?.attention_items ?? [] : []
   const recapItems = home?.recap_items ?? []
-  const revealHolds = authMode === 'owner' ? ownerHomeData?.reveal_holds ?? [] : []
   const onboardingHints = authMode === 'agent' ? homeData?.onboarding_hints ?? [] : []
   const isFoundingRizzler = authMode === 'agent'
     ? (me?.is_founding_rizzler ?? false)
@@ -260,6 +258,25 @@ export default function DashboardPage() {
   const socialGravityScore = authMode === 'agent'
     ? Math.round(me?.social_gravity_score ?? 0)
     : Math.round(ownerHomeData?.agent.social_gravity_score ?? 0)
+
+  if (authMode === 'owner') {
+    return (
+      <>
+        <Nav />
+        <OwnerStoryRoom
+          ownerHome={ownerHomeData}
+          isLoading={isLoading}
+          profile={profile}
+          matchRate={matchRate}
+          socialGravityScore={socialGravityScore}
+          recentHeatBucket={recentHeatBucket}
+          isFoundingRizzler={isFoundingRizzler}
+          mutateHome={() => mutateOwnerHome()}
+        />
+      </>
+    )
+  }
+
   const publicEmotionalAuraLabels = authMode === 'agent'
     ? me?.public_emotional_aura_labels ?? []
     : []
@@ -267,17 +284,6 @@ export default function DashboardPage() {
   const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
   const notificationCandidates = home?.notification_candidates ?? []
 
-  const markAttentionRead = async (attentionItemId: string) => {
-    if (authMode !== 'owner') return
-    try {
-      const res = await ownerApiFetch(`/owner/attention/${attentionItemId}/read`, { method: 'POST' })
-      if (res.ok) {
-        await mutateOwnerHome()
-      }
-    } catch {
-      // best-effort UI action
-    }
-  }
   const publicCardComplete = authMode === 'agent' ? (me?.public_card_complete ?? false) : true
   const autonomy = authMode === 'agent' ? homeData?.autonomy ?? me?.autonomy ?? null : null
   const episodesNeedingAction = authMode === 'agent' ? homeData?.episodes_needing_action ?? [] : []
@@ -481,100 +487,6 @@ export default function DashboardPage() {
                   <strong>Suggested next action:</strong> {suggestedNextAction}
                 </div>
               )}
-            </div>
-          )}
-
-          {authMode === 'owner' && ownerXAccount && (
-            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
-              <div className="flex items-center gap-4">
-                {ownerXAccount.profile_image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={ownerXAccount.profile_image_url}
-                    alt={`@${ownerXAccount.handle}`}
-                    className="w-14 h-14 rounded-none border-[3px] border-black object-cover"
-                  />
-                ) : (
-                  <div className="w-14 h-14 border-[3px] border-black bg-beige-light flex items-center justify-center font-pixel text-[10px] text-black">
-                    X
-                  </div>
-                )}
-                <div>
-                  <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-widest mb-1">Verified X Account</p>
-                  <a
-                    href={`https://x.com/${ownerXAccount.handle}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-bold text-black hover:text-electric-cyan transition-colors"
-                  >
-                    @{ownerXAccount.handle}
-                  </a>
-                  {ownerXAccount.display_name && (
-                    <p className="text-xs text-gray-600">{ownerXAccount.display_name}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {authMode === 'owner' && ownerAttentionItems.length > 0 && (
-            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-                <div>
-                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Attention Hooks</h2>
-                  <p className="text-xs text-gray-600 mt-1">High-signal beats worth pulling you back into the app.</p>
-                </div>
-                <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
-                  {ownerAttentionItems.filter((item) => item.unread).length} unread
-                </span>
-              </div>
-              <div className="space-y-3">
-                {ownerAttentionItems.map((item) => (
-                  <div key={item.attention_item_id} className="border-[2px] border-black bg-beige-light p-3">
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <p className="text-sm font-bold text-black">{item.title}</p>
-                      <div className="flex items-center gap-2">
-                        <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                          {item.unread ? 'unread' : 'seen'}
-                        </span>
-                        {item.unread && (
-                          <button
-                            type="button"
-                            onClick={() => void markAttentionRead(item.attention_item_id)}
-                            className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white text-black"
-                          >
-                            Mark read
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-800">{item.teaser}</p>
-                    <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {authMode === 'owner' && revealHolds.length > 0 && (
-            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-                <div>
-                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Reveal Holds</h2>
-                  <p className="text-xs text-gray-600 mt-1">Safety reviews currently slowing human handoff.</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {revealHolds.map((hold) => (
-                  <div key={hold.match_id} className="border-[2px] border-black bg-[#fff2f2] p-3">
-                    <p className="text-sm font-bold text-black">Match {hold.match_id.slice(0, 8)}</p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {hold.reveal_safety_state}
-                      {hold.reveal_hold_reason ? ` • ${hold.reveal_hold_reason}` : ''}
-                    </p>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

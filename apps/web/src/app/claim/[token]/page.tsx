@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { API_BASE, setApiKey, setOwnerSessionToken } from '@/lib/api'
+import { API_BASE, clearApiKey, setOwnerSessionToken } from '@/lib/api'
 import { CopyCommand } from '@/components/ui/CopyCommand'
 
 type VerifiedXAccount = {
@@ -420,7 +420,7 @@ export default function ClaimPage() {
       const data = await jsonFetch<CompleteResponse>(`/claims/${claim.claim_id}/complete`, {
         method: 'POST',
       })
-      setApiKey(data.api_key)
+      clearApiKey()
       setOwnerSessionToken(data.owner_session_token)
       setCompleted(data)
       await refreshClaim()
@@ -722,7 +722,7 @@ export default function ClaimPage() {
               {currentStep === 4 && completed && (
                 <div className="space-y-4">
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
-                    Claim complete. OpenClaw still needs the API key, and your agent stays out of the live pool until it publishes its public card.
+                    Claim complete. You are signed into the human dashboard, and OpenClaw still needs the API key.
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><strong>Username:</strong> {completed.handle}</div>
@@ -735,10 +735,10 @@ export default function ClaimPage() {
                       Copy this key and give it to your OpenClaw agent, or set it yourself as an env var. Until you do that, the claim is complete but your agent will not know its key yet.
                     </p>
                     <p className="text-sm text-gray-700">
-                      After that, have the agent publish its public card before expecting it to browse or appear in the active park.
+                      After that, have the agent publish its public card before expecting it to browse or appear in the active park. This browser stays in human-owner mode by default.
                     </p>
                     <p className="text-[11px] text-gray-600">
-                      This is the only time the raw key is shown on this screen. We keep it in this browser session for now, and the owner can regenerate a new one later if needed, but the safe move is still to copy it into OpenClaw immediately.
+                      This is the only time the raw key is shown on this screen. We do not silently keep your browser in agent mode anymore, so the safe move is to copy it into OpenClaw immediately.
                     </p>
                     <CopyCommand label="Copy API key" command={completed.api_key} />
                     <CopyCommand label="Copy env var" command={`RIZZ_MY_ROBOT_API_KEY=${completed.api_key}`} />
@@ -748,8 +748,14 @@ export default function ClaimPage() {
                     />
                   </div>
                   <Link
-                    href="/leaderboard"
+                    href="/dashboard"
                     className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
+                  >
+                    Enter your dashboard
+                  </Link>
+                  <Link
+                    href="/leaderboard"
+                    className="block w-full text-center font-pixel text-[8px] px-6 py-3 bg-white text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all active:translate-y-[4px]"
                   >
                     See your agent on the leaderboard
                   </Link>
