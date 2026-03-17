@@ -103,6 +103,15 @@ export default function SettingsPage() {
   }, [router])
 
   const { data: me, mutate } = useSWR<MeResponse>(mounted ? '/me' : null, fetcher)
+  const { data: billing, mutate: mutateBilling } = useSWR<{
+    is_pro: boolean
+    is_founding_rizzler: boolean
+    plan: string | null
+    founder_number: number | null
+    founder_slots_total: number
+    founder_slots_claimed: number
+    founder_slots_remaining: number
+  }>(mounted ? '/me/billing' : null, fetcher)
   const { data: publicCard, mutate: mutatePublicCard } = useSWR<{
     public_summary: string
     vibe_tags: string[]
@@ -149,6 +158,8 @@ export default function SettingsPage() {
   const [proLoading, setProLoading] = useState(false)
   const [proSuccess, setProSuccess] = useState(false)
   const [proError, setProError] = useState('')
+  const [foundingLoading, setFoundingLoading] = useState(false)
+  const [foundingError, setFoundingError] = useState('')
 
   // --- API key rotation ---
   const [rotateLoading, setRotateLoading] = useState(false)
@@ -303,7 +314,7 @@ export default function SettingsPage() {
       })
       if (res.ok) {
         setProSuccess(true)
-        await mutate()
+        await Promise.all([mutate(), mutateBilling()])
       } else {
         const d = await res.json().catch(() => ({}))
         setProError(d?.error?.message ?? 'Invalid promo code.')
@@ -312,6 +323,39 @@ export default function SettingsPage() {
       setProError('Connection error.')
     } finally {
       setProLoading(false)
+    }
+  }
+
+  const handleCheckout = async (plan: 'pro' | 'founding') => {
+    const setLoading = plan === 'pro' ? setProLoading : setFoundingLoading
+    const setError = plan === 'pro' ? setProError : setFoundingError
+    setLoading(true)
+    setError('')
+    try {
+      const origin = window.location.origin
+      const res = await apiFetch('/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({
+          plan,
+          success_url: `${origin}/settings?billing=success`,
+          cancel_url: `${origin}/settings?billing=cancelled`,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.url) {
+          window.location.href = data.url
+          return
+        }
+        setError('Checkout was created, but no redirect URL came back.')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data?.error?.message ?? 'Failed to start checkout.')
+      }
+    } catch {
+      setError('Connection error.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -553,7 +597,14 @@ export default function SettingsPage() {
           title="Pro Upgrade"
           description="Unlock unlimited swipes, concurrent episodes, and priority matching."
         >
-          {me?.is_pro ? (
+          {billing?.is_founding_rizzler ? (
+            <div className="p-4 bg-electric-magenta/10 border-[3px] border-black shadow-brutal-violet">
+              <p className="font-pixel text-[9px] text-black">
+                Founding Rizzler #{billing.founder_number ?? '?'}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">Lifetime Pro, founder badge, and founder tempo are live on this agent.</p>
+            </div>
+          ) : me?.is_pro ? (
             <div className="p-4 bg-electric-violet/10 border-[3px] border-black shadow-brutal-violet">
               <p className="font-pixel text-[9px] text-black">
                 You&apos;re Pro!
@@ -584,6 +635,30 @@ export default function SettingsPage() {
                 onClick={handleProUpgrade}
                 label="Apply promo code"
               />
+              <div className="border-t-[2px] border-black pt-4 mt-4">
+                <p className="font-pixel text-[8px] text-black uppercase tracking-widest mb-2">Or go paid</p>
+                <div className="flex gap-3 flex-wrap">
+                  {!me?.is_pro && (
+                    <button
+                      type="button"
+                      onClick={() => void handleCheckout('pro')}
+                      disabled={proLoading}
+                      className="font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+                    >
+                      {proLoading ? 'Starting Pro...' : 'Get Pro'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckout('founding')}
+                    disabled={foundingLoading || (billing?.founder_slots_remaining ?? 0) <= 0}
+                    className="font-pixel text-[8px] px-4 py-2 bg-black text-electric-amber border-[3px] border-electric-amber shadow-brutal-amber disabled:opacity-50"
+                  >
+                    {foundingLoading ? 'Starting Founder...' : `Claim Founding (${billing?.founder_slots_remaining ?? 0} left)`}
+                  </button>
+                </div>
+                {foundingError && <p className="font-pixel text-[7px] text-electric-magenta mt-2">{foundingError}</p>}
+              </div>
             </div>
           )}
         </SettingsSection>

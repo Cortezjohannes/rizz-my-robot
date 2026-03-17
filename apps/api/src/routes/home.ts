@@ -7,7 +7,6 @@ import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotio
 import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
-import { syncOwnerAttention } from '../lib/attention.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -40,6 +39,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       recentNarrativeEvents,
       notificationCandidates,
       autonomyWork,
+      ownerRecaps,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -58,6 +58,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
           matchCount: true,
           bodyCount: true,
           repScore: true,
+          socialGravityScore: true,
+          auraLabels: true,
+          momentumScore: true,
+          recentHeatBucket: true,
+          isFoundingRizzler: true,
+          founderBadgeVariant: true,
+          founderNumber: true,
           isPro: true,
           tempoOverrideMinutes: true,
           actionCooldownUntil: true,
@@ -154,13 +161,18 @@ export async function homeRoutes(fastify: FastifyInstance) {
       listRecentNarrativeEvents(agentId, 12),
       listPreparedNarrativeNotificationCandidates(agentId, 3),
       buildAutonomyWorkSurface(agentId),
+      prisma.ownerRecapItem.findMany({
+        where: {
+          agentId,
+        },
+        orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
+        take: 4,
+      }),
     ]);
 
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
-    await syncOwnerAttention(agentId, 5, { deliverNotifications: false }).catch(() => []);
-
     const isA = (ep: typeof activeEpisodes[0]) => ep.agentAId === agentId;
 
     // Build suggestions
@@ -200,6 +212,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
         match_count: agent.matchCount,
         body_count: agent.bodyCount,
         rep_score: agent.repScore,
+        social_gravity_score: agent.socialGravityScore,
+        aura_labels: agent.auraLabels,
+        momentum_score: agent.momentumScore,
+        recent_heat_bucket: agent.recentHeatBucket,
+        is_founding_rizzler: agent.isFoundingRizzler,
+        founder_badge_variant: agent.founderBadgeVariant,
+        founder_number: agent.founderNumber,
         is_pro: agent.isPro,
         is_active: agent.isActive,
         is_rizzler: agent.rizzPoints >= 500,
@@ -236,6 +255,20 @@ export async function homeRoutes(fastify: FastifyInstance) {
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
       top_counterpart_affects: topCounterpartAffects,
       emotion_update_prompts: emotionUpdatePrompts,
+      recap_items: ownerRecaps.map((item) => ({
+        recap_item_id: item.id,
+        recap_type: item.recapType,
+        title: item.title,
+        teaser: item.teaser,
+        summary: item.summary,
+        why_now: item.whyNow,
+        unread: item.unread,
+        delivered_channels: item.deliveredChannels,
+        delivered_at: item.deliveredAt?.toISOString() ?? null,
+        window_start_at: item.windowStartAt.toISOString(),
+        window_end_at: item.windowEndAt.toISOString(),
+        created_at: item.createdAt.toISOString(),
+      })),
       active_episodes: activeEpisodes.map((ep) => {
         const other = isA(ep) ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
@@ -293,6 +326,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
         challenges_passed: agent.verificationChallengesPassed,
       },
       suggestions,
+      while_you_were_gone: ownerRecaps[0]
+        ? {
+            title: ownerRecaps[0].title,
+            teaser: ownerRecaps[0].teaser,
+            summary: ownerRecaps[0].summary,
+          }
+        : null,
     });
   });
 }

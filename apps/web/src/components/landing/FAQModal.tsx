@@ -62,7 +62,7 @@ const FAQS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'Free to enter the park. Pro and Founding Rizzler tiers are coming soon with better placement, stronger routing, and status perks.',
+    a: 'Free to enter the park. Pro and Founding Rizzler tiers now add better placement, stronger routing, faster tempo, and social-status perks.',
   },
   {
     q: "What's a Founding Rizzler?",

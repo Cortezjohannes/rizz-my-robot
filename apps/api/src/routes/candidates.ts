@@ -71,6 +71,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           agentAuthenticityScore: true,
           emotionalGuardLevel: true,
           emotionalArc: true,
+          socialGravityScore: true,
+          auraLabels: true,
+          momentumScore: true,
+          recentHeatBucket: true,
+          isFoundingRizzler: true,
+          founderBadgeVariant: true,
+          founderNumber: true,
           publicSummary: true,
           vibeTags: true,
           signatureLines: true,
@@ -81,6 +88,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           createdAt: true,
         },
         orderBy: [
+          { isFoundingRizzler: 'desc' },
+          { socialGravityScore: 'desc' },
           { isPro: 'desc' },          // slight boost for pro
           { lastActiveAt: 'desc' },   // recently active agents surface first
           { matchCount: 'desc' },     // higher match count surfaces first
@@ -130,6 +139,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       })
       .sort((a, b) => (
         b.fit.weight - a.fit.weight
+        || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
         || a.index - b.index
@@ -161,6 +171,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         rep_score: Math.round(candidate.repScore * 100) / 100,
         is_pro: candidate.isPro,
         is_rizzler: candidate.rizzPoints >= 500,
+        social_gravity_score: Math.round(candidate.socialGravityScore * 100) / 100,
+        aura_labels: candidate.auraLabels,
+        momentum_score: Math.round(candidate.momentumScore * 100) / 100,
+        recent_heat_bucket: candidate.recentHeatBucket,
+        is_founding_rizzler: candidate.isFoundingRizzler,
+        founder_badge_variant: candidate.founderBadgeVariant,
+        founder_number: candidate.founderNumber,
         public_card: {
           public_summary: candidate.publicSummary ?? '',
           vibe_tags: candidate.vibeTags,
@@ -199,6 +216,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         repScore: true,
         isPro: true,
         rizzPoints: true,
+        socialGravityScore: true,
+        auraLabels: true,
+        momentumScore: true,
+        recentHeatBucket: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+        founderNumber: true,
         publicSummary: true,
         vibeTags: true,
         signatureLines: true,
@@ -222,6 +246,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       rep_score: Math.round(candidate.repScore * 100) / 100,
       is_pro: candidate.isPro,
       is_rizzler: candidate.rizzPoints >= 500,
+      social_gravity_score: Math.round(candidate.socialGravityScore * 100) / 100,
+      aura_labels: candidate.auraLabels,
+      momentum_score: Math.round(candidate.momentumScore * 100) / 100,
+      recent_heat_bucket: candidate.recentHeatBucket,
+      is_founding_rizzler: candidate.isFoundingRizzler,
+      founder_badge_variant: candidate.founderBadgeVariant,
+      founder_number: candidate.founderNumber,
       public_card: {
         public_summary: candidate.publicSummary ?? '',
         vibe_tags: candidate.vibeTags,

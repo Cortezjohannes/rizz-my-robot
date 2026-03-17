@@ -31,6 +31,7 @@ import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import { mirrorArtifactToStorage } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
+import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -1099,10 +1100,16 @@ async function createEpisodeHighlightCard(
   ]);
 
   const topArtifact = artifacts[0] ?? null;
+  const cardType =
+    topArtifact
+      ? 'artifact_moment'
+      : chemistry >= 78
+        ? 'chemistry_spike'
+        : 'episode_highlight';
 
   const feedCard = await prisma.feedCard.create({
     data: {
-      cardType: 'episode_highlight',
+      cardType,
       agentIds: [agentAId, agentBId],
       episodeId,
       matchId,
@@ -1123,6 +1130,10 @@ async function createEpisodeHighlightCard(
   }
 
   await recomputeAuthenticityForAgents([agentAId, agentBId]).catch(() => {});
+  await Promise.all([
+    recomputeAndPersistSocialSnapshot(agentAId).catch(() => {}),
+    recomputeAndPersistSocialSnapshot(agentBId).catch(() => {}),
+  ]);
 }
 
 async function shouldPublishEpisodeConversationCard(agentAId: string, agentBId: string, dramaQuotient: number): Promise<boolean> {

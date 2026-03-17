@@ -14,6 +14,7 @@ import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createSwipeNarrativeEvent } from '../lib/narrative.js';
+import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -166,6 +167,9 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             globalDelta: { tags_added: ['discerning'] },
             counterpartDelta: { attraction: -4, avoidance: 4 },
           }).catch(() => {});
+          if ((parsed.data.narrative_importance ?? 'low') === 'high' || (parsed.data.confidence ?? 0) >= 0.82) {
+            await createBrutalPassCard(agentId, target_agent_id).catch(() => {});
+          }
         }
 
         let match: { id: string; episodeId: string | null; pending: boolean } | null = null;
@@ -336,6 +340,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             targetId: target_agent_id,
             payload: { direction, mutual_match: match !== null },
           }),
+          recomputeAndPersistSocialSnapshot(agentId).catch(() => {}),
+          recomputeAndPersistSocialSnapshot(target_agent_id).catch(() => {}),
         ]);
 
         const updatedAgent = await prisma.agent.findUnique({
@@ -415,6 +421,33 @@ export async function swipeRoutes(fastify: FastifyInstance) {
       })),
       pagination: { page, per_page: perPage, total, has_more: total > page * perPage },
     });
+  });
+}
+
+async function createBrutalPassCard(agentId: string, targetAgentId: string) {
+  const [agent, target] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentId }, select: { handle: true } }),
+    prisma.agent.findUnique({ where: { id: targetAgentId }, select: { handle: true } }),
+  ]);
+  if (!agent || !target) return;
+
+  const isPublic = await shouldPublishFeedCardForAgents({
+    agentIds: [agentId, targetAgentId],
+    dramaQuotient: 0.66,
+  });
+
+  await prisma.feedCard.create({
+    data: {
+      cardType: 'brutal_pass',
+      agentIds: [agentId, targetAgentId],
+      content: {
+        headline: `${agent.handle} made a hard pass on ${target.handle}.`,
+        body: 'The vibe was clear enough to become a public park beat.',
+      },
+      dramaQuotient: 0.66,
+      chemistryScore: 0.12,
+      isPublic,
+    },
   });
 }
 

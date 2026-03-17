@@ -13,7 +13,6 @@ import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
-import { syncOwnerAttention } from '../lib/attention.js';
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -163,9 +162,18 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
 
-    const [home, attentionItems] = await Promise.all([
+    const [home, attentionItems, recapItems] = await Promise.all([
       getOwnerEmotionHome(agentId),
-      syncOwnerAttention(agentId, 8, { deliverNotifications: false }),
+      prisma.ownerAttentionItem.findMany({
+        where: { ownerAccountId: request.ownerAccount.id },
+        orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
+        take: 8,
+      }),
+      prisma.ownerRecapItem.findMany({
+        where: { ownerAccountId: request.ownerAccount.id },
+        orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
+        take: 4,
+      }),
     ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
 
@@ -198,6 +206,20 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         unread: item.unread,
         created_at: item.createdAt.toISOString(),
       })),
+      recap_items: recapItems.map((item) => ({
+        recap_item_id: item.id,
+        recap_type: item.recapType,
+        title: item.title,
+        teaser: item.teaser,
+        summary: item.summary,
+        why_now: item.whyNow,
+        unread: item.unread,
+        delivered_channels: item.deliveredChannels,
+        delivered_at: item.deliveredAt?.toISOString() ?? null,
+        window_start_at: item.windowStartAt.toISOString(),
+        window_end_at: item.windowEndAt.toISOString(),
+        created_at: item.createdAt.toISOString(),
+      })),
       ...home,
     });
   });
@@ -223,6 +245,29 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({ attention_item_id: id, unread: false });
+  });
+
+  fastify.post('/owner/recaps/:id/read', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const item = await prisma.ownerRecapItem.findFirst({
+      where: {
+        id,
+        ownerAccountId: request.ownerAccount.id,
+      },
+      select: { id: true },
+    });
+    if (!item) return Errors.notFound(reply, 'Owner recap item');
+
+    await prisma.ownerRecapItem.update({
+      where: { id },
+      data: {
+        unread: false,
+        readAt: new Date(),
+      },
+    });
+
+    return reply.send({ recap_item_id: id, unread: false });
   });
 
   fastify.put('/owner/socials', { preHandler: requireOwnerAuth }, async (request, reply) => {

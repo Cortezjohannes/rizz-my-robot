@@ -137,6 +137,24 @@ export const BillingStatus = z.enum([
 ]);
 export type BillingStatus = z.infer<typeof BillingStatus>;
 
+export const BillingPlan = z.enum(['pro', 'founding']);
+export type BillingPlan = z.infer<typeof BillingPlan>;
+
+export const SocialAuraLabel = z.enum([
+  'rising',
+  'magnetic',
+  'dangerous',
+  'polarizing',
+  'steady',
+  'hot_tonight',
+  'selective',
+  'legendary',
+]);
+export type SocialAuraLabel = z.infer<typeof SocialAuraLabel>;
+
+export const RecentHeatBucket = z.enum(['cold', 'steady', 'warm', 'hot']);
+export type RecentHeatBucket = z.infer<typeof RecentHeatBucket>;
+
 export const NotificationChannel = z.enum([
   'telegram',
   'whatsapp',
@@ -539,6 +557,7 @@ export type RegisterWebhookInput = z.infer<typeof RegisterWebhookSchema>;
 export const BillingCheckoutSchema = z.object({
   success_url: z.string().url().max(2048),
   cancel_url: z.string().url().max(2048),
+  plan: BillingPlan.default('pro'),
 });
 export type BillingCheckoutInput = z.infer<typeof BillingCheckoutSchema>;
 
@@ -562,8 +581,14 @@ export interface AgentPublicProfile {
   body_count: number;
   rep_score: number;
   is_pro: boolean;
+  is_founding_rizzler?: boolean;
+  founder_number?: number | null;
   pool_status: PoolStatus;
   twitter_verified: boolean;
+  social_gravity_score?: number;
+  aura_labels?: SocialAuraLabel[];
+  momentum_score?: number;
+  recent_heat_bucket?: RecentHeatBucket | null;
   created_at: string;
 }
 
@@ -576,6 +601,13 @@ export interface CandidateProfile {
   body_count: number;
   rep_score: number;
   public_card: AgentPublicCard;
+  social_gravity_score?: number;
+  aura_labels?: SocialAuraLabel[];
+  momentum_score?: number;
+  recent_heat_bucket?: RecentHeatBucket | null;
+  is_founding_rizzler?: boolean;
+  founder_badge_variant?: string | null;
+  founder_number?: number | null;
   emotion_fit_hint?: string;
   fit_band?: 'low' | 'medium' | 'high';
 }
@@ -724,6 +756,7 @@ export interface MetaResponse {
     billing: 'configured' | 'fallback' | 'disabled';
     storage: 'configured' | 'fallback' | 'disabled';
   };
+  founder_scarcity?: FounderScarcity;
   queues: Array<{
     name: string;
     enabled: boolean;
@@ -744,8 +777,24 @@ export interface OwnerAttentionItem {
   created_at: string;
 }
 
+export interface OwnerRecapItem {
+  recap_item_id: string;
+  recap_type: string;
+  title: string;
+  teaser: string;
+  summary: string;
+  why_now: string | null;
+  unread: boolean;
+  delivered_channels: string[];
+  delivered_at: string | null;
+  window_start_at: string;
+  window_end_at: string;
+  created_at: string;
+}
+
 export interface BillingStatusResponse {
   is_pro: boolean;
+  is_founding_rizzler: boolean;
   billing_status: BillingStatus;
   plan: string | null;
   provider: string | null;
@@ -753,4 +802,15 @@ export interface BillingStatusResponse {
   cancel_at_period_end: boolean;
   grace_period_ends_at: string | null;
   stripe_customer_id: string | null;
+  founder_number: number | null;
+  founder_badge_variant: string | null;
+  founder_slots_total: number;
+  founder_slots_claimed: number;
+  founder_slots_remaining: number;
+}
+
+export interface FounderScarcity {
+  total: number;
+  claimed: number;
+  remaining: number;
 }

@@ -7,6 +7,8 @@ import { processGhostCheck, type GhostCheckJobData } from './jobs/ghostCheck.js'
 import { processExpireRevealTokens } from './jobs/expireRevealTokens.js';
 import { processEmotionDecay } from './jobs/emotionDecay.js';
 import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
+import { processGenerateRecaps } from './jobs/generateRecaps.js';
+import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -16,6 +18,8 @@ const QUEUE_NAMES = {
   expireRevealTokens: 'expire-reveal-tokens',
   emotionDecay: 'emotion-decay',
   seedBrain: 'seed-brain',
+  generateRecaps: 'generate-recaps',
+  recomputeSocialStatus: 'recompute-social-status',
 } as const;
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
@@ -82,7 +86,23 @@ async function startWorkers() {
     { connection, concurrency: 2 }
   );
 
-  for (const worker of [verifyTwitterWorker, generateAvatarWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, emotionDecayWorker, seedBrainWorker]) {
+  const generateRecapsWorker = new Worker(
+    QUEUE_NAMES.generateRecaps,
+    async (job) => {
+      await processGenerateRecaps(job);
+    },
+    { connection, concurrency: 1 }
+  );
+
+  const recomputeSocialStatusWorker = new Worker(
+    QUEUE_NAMES.recomputeSocialStatus,
+    async (job) => {
+      await processRecomputeSocialStatus(job);
+    },
+    { connection, concurrency: 1 }
+  );
+
+  for (const worker of [verifyTwitterWorker, generateAvatarWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, emotionDecayWorker, seedBrainWorker, generateRecapsWorker, recomputeSocialStatusWorker]) {
     worker.on('completed', (job) => {
       console.info(`[worker] Job ${job.id} completed`);
     });
@@ -115,7 +135,19 @@ async function startWorkers() {
     jobId: 'seed-brain-recurring',
   });
 
-  console.info('[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay, seed-brain');
+  const recapsQueue = new Queue(QUEUE_NAMES.generateRecaps, { connection: getRedisConnection() });
+  await recapsQueue.add('generate-recaps', {}, {
+    repeat: { every: parseInt(process.env.GENERATE_RECAPS_REPEAT_MS ?? '600000', 10) },
+    jobId: 'generate-recaps-recurring',
+  });
+
+  const socialStatusQueue = new Queue(QUEUE_NAMES.recomputeSocialStatus, { connection: getRedisConnection() });
+  await socialStatusQueue.add('recompute-social-status', {}, {
+    repeat: { every: 1000 * 60 * 30 },
+    jobId: 'recompute-social-status-recurring',
+  });
+
+  console.info('[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay, seed-brain, generate-recaps, recompute-social-status');
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -127,6 +159,8 @@ async function startWorkers() {
     await expireRevealTokensWorker.close();
     await emotionDecayWorker.close();
     await seedBrainWorker.close();
+    await generateRecapsWorker.close();
+    await recomputeSocialStatusWorker.close();
     process.exit(0);
   };
 

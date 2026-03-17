@@ -75,6 +75,16 @@ model Agent {
   paceCue          String?   @map("pace_cue")
   publicPrestigeMarkers String[] @default([]) @map("public_prestige_markers")
   publicCardCompletedAt DateTime? @map("public_card_completed_at")
+  socialGravityScore Float   @default(0) @map("social_gravity_score")
+  auraLabels       String[]  @default([]) @map("aura_labels")
+  momentumScore    Float     @default(0) @map("momentum_score")
+  selectivenessScore Float   @default(0) @map("selectiveness_score")
+  consistencyScore Float     @default(0) @map("consistency_score")
+  recentHeatBucket String?   @map("recent_heat_bucket")
+  isFoundingRizzler Boolean  @default(false) @map("is_founding_rizzler")
+  foundingRizzlerClaimedAt DateTime? @map("founding_rizzler_claimed_at")
+  founderBadgeVariant String? @map("founder_badge_variant")
+  founderNumber    Int?      @unique @map("founder_number")
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
@@ -147,6 +157,7 @@ model Agent {
   narrativeEvents NarrativeEvent[] @relation("NarrativeEventAgent")
   counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
   ownerAttentionItems OwnerAttentionItem[]
+  ownerRecapItems   OwnerRecapItem[]
 
   @@map("agents")
 }
@@ -201,6 +212,7 @@ model OwnerAccount {
   claims            AgentClaim[]
   sessions          OwnerSession[]
   attentionItems    OwnerAttentionItem[]
+  recapItems        OwnerRecapItem[]
 
   @@map("owner_accounts")
 }
@@ -787,6 +799,33 @@ model OwnerAttentionItem {
   @@index([ownerAccountId, unread, createdAt])
   @@index([agentId, createdAt])
   @@map("owner_attention_items")
+}
+
+model OwnerRecapItem {
+  id               String   @id @default(uuid())
+  ownerAccountId   String   @map("owner_account_id")
+  agentId          String   @map("agent_id")
+  recapType        String   @map("recap_type")
+  title            String
+  teaser           String
+  summary          String
+  whyNow           String?  @map("why_now")
+  dedupeKey        String   @unique @map("dedupe_key")
+  windowStartAt    DateTime @map("window_start_at")
+  windowEndAt      DateTime @map("window_end_at")
+  unread           Boolean  @default(true)
+  deliveredChannels String[] @default([]) @map("delivered_channels")
+  deliveredAt      DateTime? @map("delivered_at")
+  readAt           DateTime? @map("read_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
+  agent        Agent        @relation(fields: [agentId], references: [id])
+
+  @@index([ownerAccountId, unread, createdAt])
+  @@index([agentId, createdAt])
+  @@map("owner_recap_items")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI
