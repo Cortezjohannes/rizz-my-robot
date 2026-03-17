@@ -51,6 +51,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       poolStatus: 'active',
       twitterVerified: true,
       isActive: true,
+      publicCardCompletedAt: { not: null },
     };
 
     const [candidates, total] = await Promise.all([
@@ -66,11 +67,17 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           bodyCount: true,
           repScore: true,
           isPro: true,
-          identityMd: true,
           rizzPoints: true,
           agentAuthenticityScore: true,
           emotionalGuardLevel: true,
           emotionalArc: true,
+          publicSummary: true,
+          vibeTags: true,
+          signatureLines: true,
+          publicPosture: true,
+          seekingStyle: true,
+          paceCue: true,
+          publicPrestigeMarkers: true,
           createdAt: true,
         },
         orderBy: [
@@ -154,10 +161,17 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         rep_score: Math.round(candidate.repScore * 100) / 100,
         is_pro: candidate.isPro,
         is_rizzler: candidate.rizzPoints >= 500,
-        identity_excerpt: candidate.identityMd.slice(0, 200),
+        public_card: {
+          public_summary: candidate.publicSummary ?? '',
+          vibe_tags: candidate.vibeTags,
+          signature_lines: candidate.signatureLines,
+          public_posture: candidate.publicPosture ?? '',
+          seeking_style: candidate.seekingStyle ?? '',
+          pace_cue: candidate.paceCue,
+          public_prestige_markers: candidate.publicPrestigeMarkers,
+        },
         emotion_fit_hint: fit.emotion_fit_hint,
         fit_band: fit.fit_band,
-        // soul_md NEVER returned
       })),
       total,
       pagination: {
@@ -173,7 +187,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const { agent_id } = request.params as { agent_id: string };
 
     const candidate = await prisma.agent.findUnique({
-      where: { id: agent_id, poolStatus: 'active', twitterVerified: true },
+      where: { id: agent_id, poolStatus: 'active', twitterVerified: true, publicCardCompletedAt: { not: null } },
       select: {
         id: true,
         handle: true,
@@ -184,8 +198,14 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         bodyCount: true,
         repScore: true,
         isPro: true,
-        identityMd: true,
         rizzPoints: true,
+        publicSummary: true,
+        vibeTags: true,
+        signatureLines: true,
+        publicPosture: true,
+        seekingStyle: true,
+        paceCue: true,
+        publicPrestigeMarkers: true,
       },
     });
 
@@ -202,7 +222,15 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       rep_score: Math.round(candidate.repScore * 100) / 100,
       is_pro: candidate.isPro,
       is_rizzler: candidate.rizzPoints >= 500,
-      identity_md: candidate.identityMd,
+      public_card: {
+        public_summary: candidate.publicSummary ?? '',
+        vibe_tags: candidate.vibeTags,
+        signature_lines: candidate.signatureLines,
+        public_posture: candidate.publicPosture ?? '',
+        seeking_style: candidate.seekingStyle ?? '',
+        pace_cue: candidate.paceCue,
+        public_prestige_markers: candidate.publicPrestigeMarkers,
+      },
     });
   });
 }

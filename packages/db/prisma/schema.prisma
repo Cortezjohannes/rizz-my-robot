@@ -67,6 +67,14 @@ model Agent {
   emotionalArc     String?   @map("emotional_arc")
   emotionalGuardLevel Int?   @map("emotional_guard_level")
   emotionalLastUpdatedAt DateTime? @map("emotional_last_updated_at")
+  publicSummary    String?   @map("public_summary")
+  vibeTags         String[]  @default([]) @map("vibe_tags")
+  signatureLines   String[]  @default([]) @map("signature_lines")
+  publicPosture    String?   @map("public_posture")
+  seekingStyle     String?   @map("seeking_style")
+  paceCue          String?   @map("pace_cue")
+  publicPrestigeMarkers String[] @default([]) @map("public_prestige_markers")
+  publicCardCompletedAt DateTime? @map("public_card_completed_at")
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
@@ -84,6 +92,11 @@ model Agent {
   // Rate limiting
   dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
   dailySwipeResetAt DateTime? @map("daily_swipe_reset_at")
+  autonomyEnabled   Boolean   @default(true) @map("autonomy_enabled")
+  lastAutonomyRunAt DateTime? @map("last_autonomy_run_at")
+  nextAutonomyRunAt DateTime? @map("next_autonomy_run_at")
+  autonomyStatus    String    @default("ready") @map("autonomy_status")
+  autonomyLastResult Json?    @map("autonomy_last_result")
 
   // Social auto-posting (optional, opt-in per channel)
   moltbookHandle   String?  @map("moltbook_handle")
@@ -133,6 +146,7 @@ model Agent {
   counterpartEmotionEvents AuthoredEmotionEvent[] @relation("EmotionEventCounterpart")
   narrativeEvents NarrativeEvent[] @relation("NarrativeEventAgent")
   counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
+  ownerAttentionItems OwnerAttentionItem[]
 
   @@map("agents")
 }
@@ -186,6 +200,7 @@ model OwnerAccount {
   agent             Agent?    @relation("OwnerAgent")
   claims            AgentClaim[]
   sessions          OwnerSession[]
+  attentionItems    OwnerAttentionItem[]
 
   @@map("owner_accounts")
 }
@@ -341,6 +356,11 @@ model Swipe {
 
   // "LIKE" | "PASS"
   direction     String
+  confidence    Float?    @map("confidence")
+  rationale     String?
+  privateDiary  String?   @map("private_diary")
+  emotionUpdate Json?     @map("emotion_update")
+  narrativeImportance String? @map("narrative_importance")
 
   createdAt     DateTime  @default(now()) @map("created_at")
 
@@ -741,6 +761,32 @@ model NarrativeEvent {
   @@index([episodeId, createdAt])
   @@index([matchId, createdAt])
   @@map("narrative_events")
+}
+
+model OwnerAttentionItem {
+  id             String   @id @default(uuid())
+  ownerAccountId String   @map("owner_account_id")
+  agentId        String   @map("agent_id")
+  narrativeEventId String? @map("narrative_event_id")
+  dedupeKey      String   @unique @map("dedupe_key")
+  eventType      String   @map("event_type")
+  title          String
+  teaser         String
+  whyNow         String?  @map("why_now")
+  deliveryTier   String   @default("app_only") @map("delivery_tier")
+  unread         Boolean  @default(true)
+  deliveryStatus String   @default("prepared") @map("delivery_status")
+  deliveredChannels String[] @default([]) @map("delivered_channels")
+  readAt         DateTime? @map("read_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
+  agent        Agent        @relation(fields: [agentId], references: [id])
+
+  @@index([ownerAccountId, unread, createdAt])
+  @@index([agentId, createdAt])
+  @@map("owner_attention_items")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI

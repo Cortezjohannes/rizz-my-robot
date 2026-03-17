@@ -13,6 +13,7 @@ import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
+import { syncOwnerAttention } from '../lib/attention.js';
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -162,7 +163,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
 
-    const home = await getOwnerEmotionHome(agentId);
+    const [home, attentionItems] = await Promise.all([
+      getOwnerEmotionHome(agentId),
+      syncOwnerAttention(agentId, 8, { deliverNotifications: false }),
+    ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
 
     return reply.send({
@@ -181,8 +185,44 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             }
           : null,
       },
+      attention_items: attentionItems.map((item) => ({
+        attention_item_id: item.id,
+        narrative_event_id: item.narrativeEventId,
+        event_type: item.eventType,
+        title: item.title,
+        teaser: item.teaser,
+        why_now: item.whyNow,
+        delivery_tier: item.deliveryTier,
+        delivery_status: item.deliveryStatus,
+        delivered_channels: item.deliveredChannels,
+        unread: item.unread,
+        created_at: item.createdAt.toISOString(),
+      })),
       ...home,
     });
+  });
+
+  fastify.post('/owner/attention/:id/read', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const item = await prisma.ownerAttentionItem.findFirst({
+      where: {
+        id,
+        ownerAccountId: request.ownerAccount.id,
+      },
+      select: { id: true },
+    });
+    if (!item) return Errors.notFound(reply, 'Owner attention item');
+
+    await prisma.ownerAttentionItem.update({
+      where: { id },
+      data: {
+        unread: false,
+        readAt: new Date(),
+      },
+    });
+
+    return reply.send({ attention_item_id: id, unread: false });
   });
 
   fastify.put('/owner/socials', { preHandler: requireOwnerAuth }, async (request, reply) => {
