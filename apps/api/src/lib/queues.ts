@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
+  recomputeEmotionalContinuity: 'recompute-emotional-continuity',
 } as const;
 
 // Job data types
@@ -53,6 +54,10 @@ export interface RecomputeSocialStatusJobData {
   agentId?: string;
 }
 
+export interface RecomputeEmotionalContinuityJobData {
+  agentId?: string;
+}
+
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
 function parseRedisUrl(url: string) {
   try {
@@ -90,6 +95,8 @@ let _seedBrainQueue: Queue<any> | null = null;
 let _generateRecapsQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _recomputeSocialStatusQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _recomputeEmotionalContinuityQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -172,6 +179,21 @@ export function getRecomputeSocialStatusQueue(): Queue<RecomputeSocialStatusJobD
   return _recomputeSocialStatusQueue as Queue<RecomputeSocialStatusJobData>;
 }
 
+export function getRecomputeEmotionalContinuityQueue(): Queue<RecomputeEmotionalContinuityJobData> {
+  if (!_recomputeEmotionalContinuityQueue) {
+    _recomputeEmotionalContinuityQueue = new Queue(QUEUE_NAMES.recomputeEmotionalContinuity, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _recomputeEmotionalContinuityQueue as Queue<RecomputeEmotionalContinuityJobData>;
+}
+
 export function getNamedQueue(name: string): Queue | null {
   switch (name) {
     case QUEUE_NAMES.verifyTwitter:
@@ -188,6 +210,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getGenerateRecapsQueue();
     case QUEUE_NAMES.recomputeSocialStatus:
       return getRecomputeSocialStatusQueue();
+    case QUEUE_NAMES.recomputeEmotionalContinuity:
+      return getRecomputeEmotionalContinuityQueue();
     default:
       return null;
   }
@@ -202,6 +226,7 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
     { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
     { name: QUEUE_NAMES.generateRecaps, queue: getGenerateRecapsQueue() },
     { name: QUEUE_NAMES.recomputeSocialStatus, queue: getRecomputeSocialStatusQueue() },
+    { name: QUEUE_NAMES.recomputeEmotionalContinuity, queue: getRecomputeEmotionalContinuityQueue() },
   ];
 
   const summaries = await Promise.all(

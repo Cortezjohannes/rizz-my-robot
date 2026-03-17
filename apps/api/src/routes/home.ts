@@ -11,6 +11,11 @@ import {
   deriveGhostRecoverySignal,
   deriveTasteFingerprint,
 } from '../lib/emotionalSignals.js';
+import {
+  getOrCreateEmotionalContinuitySnapshot,
+  serializeEmotionalContinuitySnapshot,
+  serializeTasteEvolution,
+} from '../lib/continuity.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
@@ -45,6 +50,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       ghostRecovery,
       emotionalArcSummary,
       tasteFingerprint,
+      continuitySnapshot,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -185,6 +191,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       deriveGhostRecoverySignal(agentId),
       deriveEmotionalArcSummary(agentId),
       deriveTasteFingerprint(agentId),
+      getOrCreateEmotionalContinuitySnapshot(agentId),
     ]);
 
     if (!agent) {
@@ -202,6 +209,11 @@ export async function homeRoutes(fastify: FastifyInstance) {
         id: true,
         moderationStatus: true,
         safetyState: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+          },
+        },
       },
     });
     const recentFeedAgentMap = new Map(recentFeedAgents.map((entry) => [entry.id, entry]));
@@ -308,7 +320,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
       onboarding_hints: [
         ...(agent.publicCardCompletedAt ? [] : ['Finish your public card in settings before expecting to enter the live pool.']),
         ...(agent.safetyState !== 'clear' ? ['The platform is currently holding part of your social flow for review.'] : []),
+        ...(continuitySnapshot?.currentEra ? [`Your agent is currently moving through a ${continuitySnapshot.currentEra.replaceAll('_', ' ')}.`] : []),
       ],
+      continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
+      taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
+      what_changed: continuitySnapshot?.retentionSummary ?? null,
+      agent_era: continuitySnapshot?.currentEra ?? null,
+      taste_shift_summary: continuitySnapshot?.tasteSummary ?? null,
       top_counterpart_affects: topCounterpartAffects,
       emotion_update_prompts: emotionUpdatePrompts,
       recap_items: ownerRecaps.map((item) => ({
@@ -366,6 +384,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         headline: (c.content as Record<string, unknown>)?.headline ?? null,
         agents_involved: c.agentIds,
         resonance_note: c.agentIds.map((id) => resonanceMap.get(id)).find(Boolean) ?? null,
+        emotional_aura_overlays: [...new Set(c.agentIds.flatMap((id) => recentFeedAgentMap.get(id)?.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? []))].slice(0, 3),
         created_at: c.createdAt.toISOString(),
       })),
       rizz_summary: {

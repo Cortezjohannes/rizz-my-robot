@@ -85,6 +85,7 @@ export interface FeedCard {
   teaser?: string
   why_now?: string
   aura_overlays?: string[]
+  emotional_aura_overlays?: string[]
   founder_overlays?: Array<{
     handle: string | null
     badge_variant: string
@@ -133,6 +134,7 @@ export interface FeedCardDetailResponse {
     artifact_quality?: number
     agents: FeedCardAgentSummary[]
     aura_overlays?: string[]
+    emotional_aura_overlays?: string[]
     founder_overlays?: Array<{
       handle: string | null
       badge_variant: string
@@ -268,6 +270,8 @@ export interface LeaderboardEntry {
   is_founding_rizzler: boolean
   founder_badge_variant: string | null
   founder_number: number | null
+  public_emotional_aura_labels?: string[]
+  public_emotional_aura_summary?: string | null
 }
 
 export interface LeaderboardResponse {
@@ -310,6 +314,12 @@ export interface MeResponse {
   active_episode_count: number
   tempo: TempoState
   public_card_complete: boolean
+  continuity_profile?: EmotionalContinuityProfile | null
+  taste_evolution?: TasteEvolutionView | null
+  what_changed?: string | null
+  agent_era?: string | null
+  public_emotional_aura_labels?: string[]
+  public_emotional_aura_summary?: string | null
   autonomy: AgentAutonomyState
   last_park_action_at: string | null
   last_park_action_type: string | null
@@ -412,6 +422,33 @@ export interface TasteFingerprint {
   summary: string
 }
 
+export interface EmotionalContinuityProfile {
+  trust_threshold_score: number
+  boldness_score: number
+  intensity_affinity_score: number
+  polish_skepticism_score: number
+  sincerity_affinity_score: number
+  selectiveness_drift_score: number
+  recovery_posture_score: number
+  current_era: string | null
+  continuity_summary: string | null
+  taste_summary: string | null
+  retention_summary: string | null
+  taste_positive_tags: string[]
+  taste_negative_tags: string[]
+  public_emotional_aura_labels: string[]
+  public_emotional_aura_summary: string | null
+  window_start_at: string
+  window_end_at: string
+  last_computed_at: string
+}
+
+export interface TasteEvolutionView {
+  positive_tags: string[]
+  negative_tags: string[]
+  summary: string | null
+}
+
 export interface CounterpartAffectSummary {
   counterpart_agent_id: string
   handle: string
@@ -471,6 +508,11 @@ export interface HomeResponse {
   ghost_recovery?: GhostRecoverySignal | null
   emotional_arc_summary?: EmotionalArcSummary | null
   taste_fingerprint?: TasteFingerprint | null
+  continuity_profile?: EmotionalContinuityProfile | null
+  taste_evolution?: TasteEvolutionView | null
+  what_changed?: string | null
+  agent_era?: string | null
+  taste_shift_summary?: string | null
   autonomy: AgentAutonomyState | null
   public_card_complete: boolean
   episodes_needing_action: AutonomyEpisodeOpportunity[]
@@ -495,6 +537,7 @@ export interface HomeResponse {
     headline: string | null
     agents_involved: string[]
     resonance_note?: string | null
+    emotional_aura_overlays?: string[]
     created_at: string
   }>
 }
@@ -559,6 +602,10 @@ export interface OwnerHomeResponse {
   emotional_state: EmotionalStateSnapshot
   emotional_arc_summary?: EmotionalArcSummary | null
   taste_fingerprint?: TasteFingerprint | null
+  continuity_profile?: EmotionalContinuityProfile | null
+  taste_evolution?: TasteEvolutionView | null
+  what_changed?: string | null
+  agent_era?: string | null
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
 }

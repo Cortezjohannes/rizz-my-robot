@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { BillingCheckoutSchema } from '@rmr/shared';
 import { createStripeCheckoutSession, handleStripeWebhookEvent } from '../lib/billing.js';
+import { buildExperienceVelocityState } from '../lib/continuity.js';
 import { getFounderScarcity } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -34,10 +35,11 @@ export async function billingRoutes(fastify: FastifyInstance) {
         select: {
           isPro: true,
           stripeCustomerId: true,
-          isFoundingRizzler: true,
-          founderNumber: true,
-          founderBadgeVariant: true,
-        },
+        isFoundingRizzler: true,
+        founderNumber: true,
+        founderBadgeVariant: true,
+        tempoOverrideMinutes: true,
+      },
       }),
       prisma.agentSubscription.findMany({
         where: { agentId },
@@ -68,6 +70,11 @@ export async function billingRoutes(fastify: FastifyInstance) {
       founder_slots_total: founderScarcity.total,
       founder_slots_claimed: founderScarcity.claimed,
       founder_slots_remaining: founderScarcity.remaining,
+      ...buildExperienceVelocityState({
+        isPro: agent?.isPro ?? false,
+        isFoundingRizzler: agent?.isFoundingRizzler ?? false,
+        tempoOverrideMinutes: agent?.tempoOverrideMinutes ?? null,
+      }),
     });
   });
 

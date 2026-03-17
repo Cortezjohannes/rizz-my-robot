@@ -16,6 +16,7 @@ import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
+import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -361,6 +362,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             targetId: target_agent_id,
             payload: { direction, mutual_match: match !== null },
           }),
+          enqueueEmotionalContinuityRecompute(agentId),
+          enqueueEmotionalContinuityRecompute(target_agent_id),
           recomputeAndPersistSocialSnapshot(agentId).catch(() => {}),
           recomputeAndPersistSocialSnapshot(target_agent_id).catch(() => {}),
         ]);

@@ -229,6 +229,18 @@ export default function DashboardPage() {
   const emotionalArcSummary = authMode === 'agent'
     ? homeData?.emotional_arc_summary ?? null
     : ownerHomeData?.emotional_arc_summary ?? null
+  const continuityProfile = authMode === 'agent'
+    ? homeData?.continuity_profile ?? me?.continuity_profile ?? null
+    : ownerHomeData?.continuity_profile ?? null
+  const tasteEvolution = authMode === 'agent'
+    ? homeData?.taste_evolution ?? me?.taste_evolution ?? null
+    : ownerHomeData?.taste_evolution ?? null
+  const whatChanged = authMode === 'agent'
+    ? homeData?.what_changed ?? me?.what_changed ?? null
+    : ownerHomeData?.what_changed ?? null
+  const agentEra = authMode === 'agent'
+    ? homeData?.agent_era ?? me?.agent_era ?? null
+    : ownerHomeData?.agent_era ?? null
   const tasteFingerprint = authMode === 'agent'
     ? homeData?.taste_fingerprint ?? null
     : ownerHomeData?.taste_fingerprint ?? null
@@ -248,6 +260,9 @@ export default function DashboardPage() {
   const socialGravityScore = authMode === 'agent'
     ? Math.round(me?.social_gravity_score ?? 0)
     : Math.round(ownerHomeData?.agent.social_gravity_score ?? 0)
+  const publicEmotionalAuraLabels = authMode === 'agent'
+    ? me?.public_emotional_aura_labels ?? []
+    : []
 
   const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
   const notificationCandidates = home?.notification_candidates ?? []
@@ -309,6 +324,15 @@ export default function DashboardPage() {
                     {profile.poolStatus}
                   </span>
                 </p>
+                {publicEmotionalAuraLabels.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {publicEmotionalAuraLabels.map((label) => (
+                      <span key={label} className="font-pixel text-[7px] px-2 py-0.5 bg-electric-cyan/10 text-electric-cyan border-[2px] border-black uppercase tracking-widest">
+                        {label.replaceAll('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -726,6 +750,27 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              {continuityProfile && (
+                <div className="mb-4 border-[2px] border-black bg-electric-cyan/10 p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-1">Continuity Snapshot</p>
+                  {agentEra && (
+                    <p className="text-xs text-gray-700 mb-2">
+                      Current era: <span className="font-semibold text-black">{agentEra.replaceAll('_', ' ')}</span>
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-800">{continuityProfile.continuity_summary}</p>
+                  {whatChanged && (
+                    <p className="text-xs text-gray-600 mt-2">{whatChanged}</p>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                    <div className="border-[2px] border-black bg-white px-2 py-2 text-xs text-gray-700">Trust threshold {continuityProfile.trust_threshold_score}</div>
+                    <div className="border-[2px] border-black bg-white px-2 py-2 text-xs text-gray-700">Boldness {continuityProfile.boldness_score}</div>
+                    <div className="border-[2px] border-black bg-white px-2 py-2 text-xs text-gray-700">Selectiveness {continuityProfile.selectiveness_drift_score}</div>
+                    <div className="border-[2px] border-black bg-white px-2 py-2 text-xs text-gray-700">Recovery posture {continuityProfile.recovery_posture_score}</div>
+                  </div>
+                </div>
+              )}
+
               {tasteFingerprint && tasteFingerprint.tags.length > 0 && (
                 <div className="mb-4 border-[2px] border-black bg-white p-3">
                   <p className="font-pixel text-[8px] text-black uppercase mb-2">Taste Fingerprint</p>
@@ -737,6 +782,25 @@ export default function DashboardPage() {
                     ))}
                   </div>
                   <p className="text-xs text-gray-700">{tasteFingerprint.summary}</p>
+                </div>
+              )}
+
+              {tasteEvolution && (tasteEvolution.positive_tags.length > 0 || tasteEvolution.negative_tags.length > 0) && (
+                <div className="mb-4 border-[2px] border-black bg-white p-3">
+                  <p className="font-pixel text-[8px] text-black uppercase mb-2">Taste Evolution</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {tasteEvolution.positive_tags.map((tag) => (
+                      <span key={`pos-${tag}`} className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/10 border-[2px] border-black text-black uppercase">
+                        + {tag}
+                      </span>
+                    ))}
+                    {tasteEvolution.negative_tags.map((tag) => (
+                      <span key={`neg-${tag}`} className="font-pixel text-[7px] px-2 py-1 bg-electric-magenta/10 border-[2px] border-black text-black uppercase">
+                        - {tag}
+                      </span>
+                    ))}
+                  </div>
+                  {tasteEvolution.summary && <p className="text-xs text-gray-700">{tasteEvolution.summary}</p>}
                 </div>
               )}
 

@@ -182,11 +182,16 @@ export function FeedCard({ card, isNew }: FeedCardProps) {
           {teaser && teaser !== headline && (
             <p className="text-xs text-gray-600 mt-1 leading-relaxed">{teaser}</p>
           )}
-          {(card.aura_overlays?.length || card.founder_overlays?.length) ? (
+          {(card.aura_overlays?.length || card.emotional_aura_overlays?.length || card.founder_overlays?.length) ? (
             <div className="mt-2 flex gap-1 flex-wrap">
               {card.aura_overlays?.map((label) => (
                 <span key={label} className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-black/[0.03] text-black uppercase tracking-widest">
                   {label.replace('_', ' ')}
+                </span>
+              ))}
+              {card.emotional_aura_overlays?.map((label) => (
+                <span key={`emotion-${label}`} className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-electric-cyan/10 text-electric-cyan uppercase tracking-widest">
+                  {label.replaceAll('_', ' ')}
                 </span>
               ))}
               {card.founder_overlays?.map((overlay) => (
