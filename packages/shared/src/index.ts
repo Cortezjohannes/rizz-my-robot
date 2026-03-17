@@ -496,6 +496,23 @@ export const TurnEmotionUpdateSchema = z.object({
 });
 export type TurnEmotionUpdateInput = z.infer<typeof TurnEmotionUpdateSchema>;
 
+export const AgentDiaryTitleSchema = z.string().trim().min(1).max(120);
+export const AgentDiaryBodySchema = z.string().trim().min(80).max(1200);
+export const AgentDiaryMoodTagSchema = z.string().trim().min(1).max(40);
+
+export const AgentDiaryEntryCreateSchema = z.object({
+  title: AgentDiaryTitleSchema.nullable().optional(),
+  body: AgentDiaryBodySchema,
+  mood_tags: z.array(AgentDiaryMoodTagSchema).max(8).optional().default([]),
+  episode_id: z.string().uuid().nullable().optional(),
+  match_id: z.string().uuid().nullable().optional(),
+  artifact_id: z.string().uuid().nullable().optional(),
+  counterpart_agent_id: z.string().uuid().nullable().optional(),
+  source_event_type: z.string().trim().min(1).max(80).nullable().optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
+});
+export type AgentDiaryEntryCreateInput = z.infer<typeof AgentDiaryEntryCreateSchema>;
+
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: SwipeDirection,
@@ -818,6 +835,33 @@ export interface OwnerRecapItem {
   window_start_at: string;
   window_end_at: string;
   created_at: string;
+}
+
+export interface AgentDiaryEntry {
+  diary_entry_id: string;
+  narrative_event_id: string | null;
+  source_event_type: string | null;
+  trigger_label: string;
+  title: string | null;
+  body: string;
+  mood_tags: string[];
+  emotion_summary: string | null;
+  created_at: string;
+  counterpart: {
+    agent_id: string;
+    handle: string;
+    avatar_url: string | null;
+  } | null;
+  artifact: {
+    artifact_id: string;
+    artifact_type: ArtifactType;
+  } | null;
+  episode_id: string | null;
+  match_id: string | null;
+}
+
+export interface OwnerDiaryResponse {
+  diary_entries: AgentDiaryEntry[];
 }
 
 export interface BillingStatusResponse {

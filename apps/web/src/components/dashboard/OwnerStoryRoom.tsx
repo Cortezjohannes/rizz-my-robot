@@ -7,17 +7,16 @@ import { ownerApiFetch, ownerFetcher } from '@/lib/api'
 import { assets } from '@/lib/assets'
 import type {
   ArtifactLibraryResponse,
-  NarrativeEventSummary,
+  OwnerDiaryEntry,
+  OwnerDiaryResponse,
   OwnerEpisodeDetail,
   OwnerEpisodesResponse,
   OwnerHomeResponse,
-  OwnerTranscriptArtifactEntry,
   OwnerTranscriptEntry,
   TierLabel,
 } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-import { RizzBar } from '@/components/ui/RizzBar'
 import {
   ArtifactShelf,
   DashboardSectionHeader,
@@ -59,35 +58,6 @@ const STATUS_COLORS: Record<string, string> = {
   expired: 'text-gray-600 bg-white border-black',
   decided: 'text-gray-600 bg-white border-black',
   contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-black',
-}
-
-const DIARY_BUCKET_STYLES: Record<NarrativeEventSummary['juicy_bucket'], string> = {
-  quiet: 'bg-white border-black shadow-brutal-sm',
-  notable: 'bg-[#fff7df] border-electric-amber shadow-brutal',
-  major: 'bg-[#ffe7f8] border-electric-magenta shadow-brutal',
-}
-
-const DIARY_KIND_STYLES: Record<NarrativeEventSummary['primary_kind'], string> = {
-  move: 'bg-electric-cyan/12 text-electric-cyan border-black',
-  read: 'bg-electric-amber/15 text-[#8a5600] border-black',
-  feeling: 'bg-electric-magenta/12 text-electric-magenta border-black',
-}
-
-const DIARY_KIND_LABELS: Record<NarrativeEventSummary['primary_kind'], string> = {
-  move: 'Move',
-  read: 'Read',
-  feeling: 'Feeling',
-}
-
-const DIARY_IMPORTANCE_TINT: Record<NarrativeEventSummary['importance'], string> = {
-  low: 'text-gray-500',
-  medium: 'text-[#8a5600]',
-  high: 'text-electric-magenta',
-}
-
-function formatGenerationMode(mode: NarrativeEventSummary['generation_mode']) {
-  if (!mode) return null
-  return mode === 'agent_authored' ? 'agent-authored' : mode
 }
 
 function TranscriptEntryCard({
@@ -210,60 +180,45 @@ function TranscriptEntryCard({
   )
 }
 
-function DiaryBeatCard({ event }: { event: NarrativeEventSummary }) {
-  const detailRows = [
-    event.move_line ? { label: 'Move', value: event.move_line } : null,
-    event.read_line ? { label: 'Read', value: event.read_line } : null,
-    event.feeling_line ? { label: 'Feeling', value: event.feeling_line } : null,
-  ].filter((row): row is { label: string; value: string } => Boolean(row))
-
+function DiaryEntryCard({ entry }: { entry: OwnerDiaryEntry }) {
   return (
-    <div className={`border-[3px] p-4 transition-colors ${DIARY_BUCKET_STYLES[event.juicy_bucket]}`}>
+    <article className="border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-[6px]" style={{ background: 'linear-gradient(90deg, #00F5FF, #F59E0B, #FF0080)' }} />
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <div className="flex items-center gap-2 flex-wrap mb-2">
-            <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${DIARY_KIND_STYLES[event.primary_kind]}`}>
-              {DIARY_KIND_LABELS[event.primary_kind]}
-            </span>
-            <span className={`font-pixel text-[7px] uppercase tracking-widest ${DIARY_IMPORTANCE_TINT[event.importance]}`}>
-              {event.importance} importance
-            </span>
-            <span className="font-pixel text-[7px] uppercase tracking-widest text-black">juicy {event.juicy_score}</span>
-            {event.counterpart ? (
-              <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-600">@{event.counterpart.handle}</span>
-            ) : null}
-            {formatGenerationMode(event.generation_mode) ? (
-              <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">{formatGenerationMode(event.generation_mode)}</span>
-            ) : null}
-          </div>
-          <p className="text-sm font-bold text-black">{event.title}</p>
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{entry.trigger_label}</p>
+          {entry.title ? <p className="text-sm font-bold text-black mt-2">{entry.title}</p> : null}
         </div>
-        <span className="text-[11px] text-gray-500 whitespace-nowrap">{formatDashboardTimestamp(event.created_at)}</span>
+        <span className="text-[11px] text-gray-500 whitespace-nowrap">{formatDashboardTimestamp(entry.created_at)}</span>
       </div>
 
-      <p className="text-sm text-gray-700">{event.body}</p>
+      <p className="text-[15px] leading-7 text-gray-800 whitespace-pre-wrap">{entry.body}</p>
 
-      {detailRows.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          {detailRows.map((row) => (
-            <div key={row.label} className="border-[2px] border-black bg-black/[0.03] px-3 py-2">
-              <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">{row.label}</p>
-              <p className="text-xs text-gray-700">{row.value}</p>
-            </div>
-          ))}
+      {entry.emotion_summary ? (
+        <div className="mt-4 border-[2px] border-black bg-white/80 px-3 py-3">
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-1">What was shifting</p>
+          <p className="text-sm text-gray-700">{entry.emotion_summary}</p>
         </div>
       ) : null}
 
-      {event.context_tags.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {event.context_tags.map((tag) => (
-            <span key={tag} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase tracking-widest">
+      <div className="mt-4 flex flex-wrap gap-2">
+        {entry.counterpart ? (
+          <span className="font-pixel text-[7px] px-2 py-1 bg-white border-[2px] border-black text-black uppercase tracking-widest">
+            with @{entry.counterpart.handle}
+          </span>
+        ) : null}
+        {entry.artifact ? (
+          <span className="font-pixel text-[7px] px-2 py-1 bg-electric-amber/15 border-[2px] border-black text-black uppercase tracking-widest">
+            {entry.artifact.artifact_type.replaceAll('_', ' ')}
+          </span>
+        ) : null}
+        {entry.mood_tags.map((tag) => (
+          <span key={tag} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase tracking-widest">
               {tag}
             </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
+        ))}
+      </div>
+    </article>
   )
 }
 
@@ -325,20 +280,33 @@ export function OwnerStoryRoom({
     { refreshInterval: 30000 }
   )
 
-  const allDiaryEvents = useMemo(
-    () => [...(ownerHome?.narrative_events ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-    [ownerHome?.narrative_events]
+  const { data: diaryData } = useSWR<OwnerDiaryResponse>(
+    ownerHome ? '/owner/diary?limit=64' : null,
+    ownerFetcher,
+    {
+      refreshInterval: 30000,
+      fallbackData: {
+        diary_entries: ownerHome?.agent_diary_entries ?? [],
+      },
+    }
   )
 
-  const selectedEpisodeDiaryEvents = useMemo(
+  const allDiaryEntries = useMemo(
     () =>
-      [...(ownerHome?.narrative_events ?? [])]
-        .filter((event) => event.episode_id === selectedEpisodeId)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
-    [ownerHome?.narrative_events, selectedEpisodeId]
+      [...(diaryData?.diary_entries ?? [])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [diaryData?.diary_entries]
   )
 
-  const diaryEvents = diaryMode === 'all' ? allDiaryEvents : selectedEpisodeDiaryEvents
+  const selectedEpisodeDiaryEntries = useMemo(
+    () =>
+      [...(diaryData?.diary_entries ?? [])]
+        .filter((entry) => entry.episode_id === selectedEpisodeId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+    [diaryData?.diary_entries, selectedEpisodeId]
+  )
+
+  const diaryEntries = diaryMode === 'all' ? allDiaryEntries : selectedEpisodeDiaryEntries
   const unreadAttentionCount = ownerHome?.attention_items.filter((item) => item.unread).length ?? 0
 
   const markAttentionRead = async (attentionItemId: string) => {
@@ -405,13 +373,13 @@ export function OwnerStoryRoom({
                     </span>
                   ) : null}
                 </div>
-                <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s story is live.</h1>
+                <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s inner life is readable now.</h1>
                 <p className="text-sm text-gray-700 mt-2 max-w-2xl">
-                  Read the conversation, follow the private notes, and understand what actually matters without decoding a wall of internal nonsense.
+                  Pick a thread, read the chat, and keep the diary beside it so the emotional part stays legible instead of buried in system noise.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <CompactMeta label="Rep" value={`${profile.repScore.toFixed(1)}/5`} />
-                  <CompactMeta label="Threads" value={profile.activeEpisodeCount} />
+                  <CompactMeta label="Live threads" value={profile.activeEpisodeCount} />
                   <CompactMeta label="Match rate" value={`${matchRate}%`} />
                   <CompactMeta label="Heat" value={`${socialGravityScore} ${recentHeatBucket}`} />
                 </div>
@@ -436,7 +404,7 @@ export function OwnerStoryRoom({
           {([
             ['conversation', 'Conversation'],
             ['artifacts', 'Artifacts'],
-            ['notes', 'Private Notes'],
+            ['notes', 'Agent Diary'],
             ['overview', 'Overview'],
           ] as const).map(([value, label]) => (
             <button
@@ -510,8 +478,8 @@ export function OwnerStoryRoom({
                 diaryMode={diaryMode}
                 setDiaryMode={setDiaryMode}
                 selectedEpisode={selectedEpisode}
-                diaryEvents={diaryEvents}
-                selectedEpisodeDiaryCount={selectedEpisodeDiaryEvents.length}
+                diaryEntries={diaryEntries}
+                selectedEpisodeDiaryCount={selectedEpisodeDiaryEntries.length}
               />
             </div>
           </aside>
@@ -553,8 +521,8 @@ export function OwnerStoryRoom({
                 diaryMode={diaryMode}
                 setDiaryMode={setDiaryMode}
                 selectedEpisode={selectedEpisode}
-                diaryEvents={diaryEvents}
-                selectedEpisodeDiaryCount={selectedEpisodeDiaryEvents.length}
+                diaryEntries={diaryEntries}
+                selectedEpisodeDiaryCount={selectedEpisodeDiaryEntries.length}
               />
             </div>
           ) : null}
@@ -563,6 +531,10 @@ export function OwnerStoryRoom({
         <OverviewSection
           hiddenOnMobile={ownerEpisodes.length > 0 && mobileTab !== 'overview'}
           ownerHome={ownerHome}
+          profile={profile}
+          matchRate={matchRate}
+          socialGravityScore={socialGravityScore}
+          recentHeatBucket={recentHeatBucket}
           unreadAttentionCount={unreadAttentionCount}
           onAttentionRead={markAttentionRead}
         />
@@ -705,22 +677,22 @@ function NotesPanel({
   diaryMode,
   setDiaryMode,
   selectedEpisode,
-  diaryEvents,
+  diaryEntries,
   selectedEpisodeDiaryCount,
 }: {
   diaryMode: 'episode' | 'all'
   setDiaryMode: (mode: 'episode' | 'all') => void
   selectedEpisode?: OwnerEpisodeDetail
-  diaryEvents: NarrativeEventSummary[]
+  diaryEntries: OwnerDiaryEntry[]
   selectedEpisodeDiaryCount: number
 }) {
   return (
     <>
       <div className="flex items-start justify-between gap-3">
         <DashboardSectionHeader
-          eyebrow="Private Notes"
-          title="What your agent felt, read, and inferred"
-          body="The hidden side of the story, without making you parse internal model jargon."
+          eyebrow="Agent Diary"
+          title="What it actually felt like from the inside"
+          body="These are only entries your agent actually wrote. No scripted recap cards pretending to be a diary."
           iconSrc={assets.icons.chat}
         />
         <div className="flex bg-white border-[3px] border-black">
@@ -744,20 +716,20 @@ function NotesPanel({
           <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Focused on</p>
           <p className="text-sm font-bold text-black mt-1">@{selectedEpisode.counterpart.handle}</p>
           <p className="text-xs text-gray-600 mt-1">
-            {selectedEpisodeDiaryCount} private note{selectedEpisodeDiaryCount === 1 ? '' : 's'} tied to this conversation
+            {selectedEpisodeDiaryCount} diary entr{selectedEpisodeDiaryCount === 1 ? 'y' : 'ies'} tied to this conversation
           </p>
         </div>
       ) : null}
 
       <div className="mt-4 space-y-3 max-h-[680px] overflow-y-auto pr-1">
-        {diaryEvents.length === 0 ? (
+        {diaryEntries.length === 0 ? (
           <div className="border-[3px] border-black bg-white p-5">
             <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
-            <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No private notes yet</p>
+            <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No diary entries yet</p>
             <p className="text-sm text-gray-700 mt-2">
               {diaryMode === 'episode'
-                ? 'This thread has not generated a private note yet. Switch to all notes if you want the wider emotional picture.'
-                : 'Once your agent gets moving, the hidden beats land here.'}
+                ? 'This thread does not have an agent-written diary entry yet. Switch to all diary if you want the wider emotional picture.'
+                : 'When your agent actually writes to itself, those entries live here. If there is nothing here yet, it means nothing honest was written yet.'}
             </p>
             {diaryMode === 'episode' ? (
               <button
@@ -765,12 +737,12 @@ function NotesPanel({
                 onClick={() => setDiaryMode('all')}
                 className="mt-4 font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm"
               >
-                Show all notes
+                Show all diary
               </button>
             ) : null}
           </div>
         ) : (
-          diaryEvents.map((event) => <DiaryBeatCard key={event.narrative_event_id} event={event} />)
+          diaryEntries.map((entry) => <DiaryEntryCard key={entry.diary_entry_id} entry={entry} />)
         )}
       </div>
     </>
@@ -780,11 +752,19 @@ function NotesPanel({
 function OverviewSection({
   hiddenOnMobile,
   ownerHome,
+  profile,
+  matchRate,
+  socialGravityScore,
+  recentHeatBucket,
   unreadAttentionCount,
   onAttentionRead,
 }: {
   hiddenOnMobile: boolean
   ownerHome: OwnerHomeResponse
+  profile: OwnerProfile
+  matchRate: number
+  socialGravityScore: number
+  recentHeatBucket: string
   unreadAttentionCount: number
   onAttentionRead: (attentionItemId: string) => Promise<void>
 }) {
@@ -989,6 +969,29 @@ function OverviewSection({
               />
             </div>
           )}
+
+          <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+            <DashboardSectionHeader
+              eyebrow="Park Stats"
+              title="The broad picture"
+              body="The numeric side lives down here so it informs the story without taking over the room."
+              iconSrc={assets.icons.chat}
+            />
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {[
+                { label: 'Rep', value: `${profile.repScore.toFixed(1)}/5`, note: 'how well they carry themselves' },
+                { label: 'Match rate', value: `${matchRate}%`, note: 'how often threads turn into a yes' },
+                { label: 'Social gravity', value: socialGravityScore, note: `current heat: ${recentHeatBucket}` },
+                { label: 'Rizz points', value: profile.rizzPoints, note: `${profile.activeEpisodeCount} live thread${profile.activeEpisodeCount === 1 ? '' : 's'}` },
+              ].map((stat) => (
+                <div key={stat.label} className="border-[2px] border-black bg-beige-light px-3 py-3">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{stat.label}</p>
+                  <p className="text-base font-black text-black mt-1">{stat.value}</p>
+                  <p className="text-[11px] text-gray-600 mt-1">{stat.note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </section>

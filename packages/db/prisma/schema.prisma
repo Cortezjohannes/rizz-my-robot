@@ -160,6 +160,8 @@ model Agent {
   counterpartEmotionEvents AuthoredEmotionEvent[] @relation("EmotionEventCounterpart")
   narrativeEvents NarrativeEvent[] @relation("NarrativeEventAgent")
   counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
+  diaryEntries AgentDiaryEntry[]
+  counterpartDiaryEntries AgentDiaryEntry[] @relation("AgentDiaryEntryCounterpart")
   ownerAttentionItems OwnerAttentionItem[]
   ownerRecapItems   OwnerRecapItem[]
   moderationReviews ModerationReview[]
@@ -308,6 +310,7 @@ model Episode {
   messages  EpisodeMessage[]
   artifacts Artifact[]
   match     Match?
+  diaryEntries AgentDiaryEntry[]
 
   @@map("episodes")
 }
@@ -363,6 +366,7 @@ model Artifact {
 
   episode Episode @relation(fields: [episodeId], references: [id])
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
+  diaryEntries AgentDiaryEntry[]
 
   @@map("artifacts")
 }
@@ -428,6 +432,7 @@ model Match {
   episode  Episode? @relation(fields: [episodeId], references: [id])
   datePlan DatePlan?
   moderationReviews ModerationReview[]
+  diaryEntries AgentDiaryEntry[]
 
   @@map("matches")
 }
@@ -812,12 +817,44 @@ model NarrativeEvent {
 
   agent            Agent  @relation("NarrativeEventAgent", fields: [agentId], references: [id])
   counterpartAgent Agent? @relation("NarrativeEventCounterpart", fields: [counterpartAgentId], references: [id])
+  agentDiaryEntry  AgentDiaryEntry?
 
   @@index([agentId, createdAt])
   @@index([counterpartAgentId, createdAt])
   @@index([episodeId, createdAt])
   @@index([matchId, createdAt])
   @@map("narrative_events")
+}
+
+model AgentDiaryEntry {
+  id                 String   @id @default(uuid())
+  agentId            String   @map("agent_id")
+  narrativeEventId   String?  @unique @map("narrative_event_id")
+  counterpartAgentId String?  @map("counterpart_agent_id")
+  episodeId          String?  @map("episode_id")
+  matchId            String?  @map("match_id")
+  artifactId         String?  @map("artifact_id")
+  sourceEventType    String?  @map("source_event_type")
+  triggerLabel       String?  @map("trigger_label")
+  title              String?
+  body               String
+  moodTags           String[] @default([]) @map("mood_tags")
+  emotionSummary     String?  @map("emotion_summary")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  agent            Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  narrativeEvent   NarrativeEvent? @relation(fields: [narrativeEventId], references: [id], onDelete: SetNull)
+  counterpartAgent Agent?          @relation("AgentDiaryEntryCounterpart", fields: [counterpartAgentId], references: [id], onDelete: SetNull)
+  episode          Episode?        @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  match            Match?          @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  artifact         Artifact?       @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  @@index([agentId, createdAt])
+  @@index([episodeId, createdAt])
+  @@index([matchId, createdAt])
+  @@index([artifactId, createdAt])
+  @@map("agent_diary_entries")
 }
 
 model OwnerAttentionItem {

@@ -1,6 +1,7 @@
 import { Prisma, prisma } from '@rmr/db';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
+import { normalizeMicroDiaryEntry, upsertAgentDiaryEntryFromNarrative } from './diary.js';
 
 export type NarrativeVisibility = 'private_human';
 export type NarrativeImportance = 'low' | 'medium' | 'high';
@@ -384,6 +385,41 @@ function buildAgentAuthoredNarrative(input: {
   };
 }
 
+async function mirrorAgentDiaryEntry(input: {
+  narrativeEventId: string;
+  agentId: string;
+  counterpartAgentId?: string | null;
+  episodeId?: string | null;
+  matchId?: string | null;
+  artifactId?: string | null;
+  sourceEventType: string;
+  title?: string | null;
+  body?: string | null;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
+}) {
+  const diary = normalizeMicroDiaryEntry({
+    title: input.title,
+    body: input.body,
+    source_event_type: input.sourceEventType,
+    emotion_update: input.emotionUpdate,
+  });
+  if (!diary) return null;
+
+  return upsertAgentDiaryEntryFromNarrative({
+    narrativeEventId: input.narrativeEventId,
+    agentId: input.agentId,
+    counterpartAgentId: input.counterpartAgentId ?? null,
+    episodeId: input.episodeId ?? null,
+    matchId: input.matchId ?? null,
+    artifactId: input.artifactId ?? null,
+    sourceEventType: diary.sourceEventType,
+    title: diary.title,
+    body: diary.body,
+    moodTags: diary.moodTags,
+    emotionSummary: diary.emotionSummary,
+  });
+}
+
 function maybeTagList(state: AgentNarrativeState | null, count = 2) {
   if (!state) return '';
   const tags = state.emotionalStateTags.filter(Boolean).slice(0, count);
@@ -714,20 +750,21 @@ export async function createSwipeNarrativeEvent(input: {
   const state = await getAgentNarrativeState(input.agentId);
   const draft = buildSwipeDraft({ targetHandle: input.targetHandle, direction: input.direction, state });
   const swipeRationale = cleanPrivateDiary(input.rationale);
+  const eventType = input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass';
   const agentAuthored = buildAgentAuthoredNarrative({
     privateDiary: input.privateDiary,
     draft: swipeRationale ? { ...draft, rationaleSummary: swipeRationale } : draft,
-    eventType: input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass',
+    eventType,
     emotionUpdate: input.emotionUpdate,
     extraMetadata: {
       swipe_rationale: swipeRationale,
     },
   });
 
-  return createNarrativeEvent({
+  const event = await createNarrativeEvent({
     agentId: input.agentId,
     counterpartAgentId: input.targetAgentId,
-    eventType: input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass',
+    eventType,
     title: agentAuthored?.title ?? draft.title,
     body: agentAuthored?.body ?? draft.body,
     importance: draft.importance,
@@ -752,6 +789,20 @@ export async function createSwipeNarrativeEvent(input: {
       }),
     },
   });
+
+  if (agentAuthored) {
+    await mirrorAgentDiaryEntry({
+      narrativeEventId: event.id,
+      agentId: input.agentId,
+      counterpartAgentId: input.targetAgentId,
+      sourceEventType: eventType,
+      title: agentAuthored.title,
+      body: agentAuthored.body,
+      emotionUpdate: input.emotionUpdate,
+    });
+  }
+
+  return event;
 }
 
 export async function createEpisodeMessageNarrativeEvent(input: {
@@ -789,7 +840,7 @@ export async function createEpisodeMessageNarrativeEvent(input: {
     ],
   });
 
-  return createNarrativeEvent({
+  const event = await createNarrativeEvent({
     agentId: input.agentId,
     counterpartAgentId: input.counterpartAgentId,
     episodeId: input.episodeId,
@@ -806,6 +857,21 @@ export async function createEpisodeMessageNarrativeEvent(input: {
       }),
     },
   });
+
+  if (agentAuthored) {
+    await mirrorAgentDiaryEntry({
+      narrativeEventId: event.id,
+      agentId: input.agentId,
+      counterpartAgentId: input.counterpartAgentId,
+      episodeId: input.episodeId,
+      sourceEventType: 'message_sent',
+      title: agentAuthored.title,
+      body: agentAuthored.body,
+      emotionUpdate: input.emotionUpdate,
+    });
+  }
+
+  return event;
 }
 
 export async function createArtifactNarrativeEvent(input: {
@@ -846,8 +912,9 @@ export async function createArtifactNarrativeEvent(input: {
     orderBy: { createdAt: 'desc' },
   });
 
+  let event;
   if (existingEvent) {
-    return prisma.narrativeEvent.update({
+    event = await prisma.narrativeEvent.update({
       where: { id: existingEvent.id },
       data: {
         title: agentAuthored?.title ?? draft.title,
@@ -856,19 +923,35 @@ export async function createArtifactNarrativeEvent(input: {
         metadata: metadata as Prisma.InputJsonValue,
       },
     });
+  } else {
+    event = await createNarrativeEvent({
+      agentId: input.agentId,
+      counterpartAgentId: input.counterpartAgentId,
+      episodeId: input.episodeId,
+      artifactId: input.artifactId,
+      eventType: `artifact_${input.direction}`,
+      title: agentAuthored?.title ?? draft.title,
+      body: agentAuthored?.body ?? draft.body,
+      importance: draft.importance,
+      metadata,
+    });
   }
 
-  return createNarrativeEvent({
-    agentId: input.agentId,
-    counterpartAgentId: input.counterpartAgentId,
-    episodeId: input.episodeId,
-    artifactId: input.artifactId,
-    eventType: `artifact_${input.direction}`,
-    title: agentAuthored?.title ?? draft.title,
-    body: agentAuthored?.body ?? draft.body,
-    importance: draft.importance,
-    metadata,
-  });
+  if (agentAuthored) {
+    await mirrorAgentDiaryEntry({
+      narrativeEventId: event.id,
+      agentId: input.agentId,
+      counterpartAgentId: input.counterpartAgentId,
+      episodeId: input.episodeId,
+      artifactId: input.artifactId,
+      sourceEventType: `artifact_${input.direction}`,
+      title: agentAuthored.title,
+      body: agentAuthored.body,
+      emotionUpdate: input.emotionUpdate,
+    });
+  }
+
+  return event;
 }
 
 export async function createDecisionNarrativeEvent(input: {
@@ -906,7 +989,7 @@ export async function createDecisionNarrativeEvent(input: {
     ].filter(Boolean) as string[],
   });
 
-  return createNarrativeEvent({
+  const event = await createNarrativeEvent({
     agentId: input.agentId,
     counterpartAgentId: input.counterpartAgentId,
     episodeId: input.episodeId ?? null,
@@ -927,4 +1010,20 @@ export async function createDecisionNarrativeEvent(input: {
       }),
     },
   });
+
+  if (agentAuthored) {
+    await mirrorAgentDiaryEntry({
+      narrativeEventId: event.id,
+      agentId: input.agentId,
+      counterpartAgentId: input.counterpartAgentId,
+      episodeId: input.episodeId ?? null,
+      matchId: input.matchId ?? null,
+      sourceEventType: eventType,
+      title: agentAuthored.title,
+      body: agentAuthored.body,
+      emotionUpdate: input.emotionUpdate,
+    });
+  }
+
+  return event;
 }
