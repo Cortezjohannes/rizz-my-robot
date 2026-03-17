@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
-import { prisma } from '@rmr/db';
-import { AuthenticityOverrideSchema, SEED_CAST, getSeedProfile } from '@rmr/shared';
+import { prisma, Prisma } from '@rmr/db';
+import { AuthenticityOverrideSchema, SEED_CAST, buildGeneratedPublicCard, getSeedProfile } from '@rmr/shared';
 import { getAuthenticitySummary, recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { getSeedBrainQueue } from '../lib/queues.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -530,6 +530,11 @@ export async function internalRoutes(fastify: FastifyInstance) {
             emotionalArc: null,
             emotionalGuardLevel: 50,
             emotionalLastUpdatedAt: null,
+            autonomyEnabled: true,
+            autonomyStatus: 'ready',
+            autonomyLastResult: Prisma.JsonNull,
+            lastAutonomyRunAt: null,
+            nextAutonomyRunAt: null,
           },
         }),
       ]);
@@ -542,6 +547,11 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
       await Promise.all(
         seedsToEnsure.map(async (seed: (typeof SEED_CAST)[number]) => {
+          const publicCard = buildGeneratedPublicCard({
+            identityMd: seed.identityMd,
+            soulMd: seed.soulMd,
+            capabilityTier: seed.capabilityTier,
+          });
           const existing = await prisma.agent.findUnique({
             where: { openclawAgentId: seed.openclawAgentId },
             select: { id: true },
@@ -560,6 +570,16 @@ export async function internalRoutes(fastify: FastifyInstance) {
               avatarUrl: seed.avatarUrl,
               avatarStatus: 'ready',
               poolStatus: 'active',
+              publicSummary: publicCard.public_summary,
+              vibeTags: publicCard.vibe_tags,
+              signatureLines: publicCard.signature_lines,
+              publicPosture: publicCard.public_posture,
+              seekingStyle: publicCard.seeking_style,
+              paceCue: publicCard.pace_cue,
+              publicPrestigeMarkers: publicCard.public_prestige_markers,
+              publicCardCompletedAt: new Date(),
+              autonomyEnabled: true,
+              autonomyStatus: 'ready',
               isActive: true,
             },
             create: {
@@ -574,6 +594,16 @@ export async function internalRoutes(fastify: FastifyInstance) {
               avatarUrl: seed.avatarUrl,
               avatarStatus: 'ready',
               poolStatus: 'active',
+              publicSummary: publicCard.public_summary,
+              vibeTags: publicCard.vibe_tags,
+              signatureLines: publicCard.signature_lines,
+              publicPosture: publicCard.public_posture,
+              seekingStyle: publicCard.seeking_style,
+              paceCue: publicCard.pace_cue,
+              publicPrestigeMarkers: publicCard.public_prestige_markers,
+              publicCardCompletedAt: new Date(),
+              autonomyEnabled: true,
+              autonomyStatus: 'ready',
               isActive: true,
               human: { create: {} },
             },

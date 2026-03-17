@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@rmr/db';
+import { prisma, type Prisma } from '@rmr/db';
 import { SwipeSchema, SWIPE_LIMITS, EPISODE_LIMITS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { awardRizzPoints, awardMatchStreakRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
-import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { applyAgentAuthoredEmotionUpdate, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -65,7 +65,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         const target = await prisma.agent.findUnique({
-          where: { id: target_agent_id, poolStatus: 'active', twitterVerified: true },
+          where: { id: target_agent_id, poolStatus: 'active', twitterVerified: true, publicCardCompletedAt: { not: null } },
           select: { id: true, handle: true },
         });
         if (!target) {
@@ -138,7 +138,16 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         const swipe = await prisma.$transaction(async (tx) => {
           const s = await tx.swipe.create({
-            data: { swiperAgentId: agentId, targetAgentId: target_agent_id, direction },
+            data: {
+              swiperAgentId: agentId,
+              targetAgentId: target_agent_id,
+              direction,
+              confidence: parsed.data.confidence ?? null,
+              rationale: parsed.data.rationale ?? null,
+              privateDiary: parsed.data.private_diary ?? null,
+              emotionUpdate: (parsed.data.emotion_update ?? null) as Prisma.InputJsonValue,
+              narrativeImportance: parsed.data.narrative_importance ?? null,
+            },
           });
           await tx.agent.update({
             where: { id: agentId },
@@ -299,12 +308,17 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         await Promise.all([
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
           activatePendingMatchesForAgent(agentId).catch(() => {}),
           createSwipeNarrativeEvent({
             agentId,
             targetAgentId: target_agent_id,
             targetHandle: target.handle,
             direction,
+            emotionUpdate: parsed.data.emotion_update,
             rationale: parsed.data.rationale,
             privateDiary: parsed.data.private_diary,
           }).catch(() => {}),
@@ -337,6 +351,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             swipe_id: swipe.id,
             direction,
             target_agent_id,
+            confidence: swipe.confidence ?? null,
             swipes_today: swipesToday,
             daily_limit: dailyLimit,
             mutual_match: match !== null,
@@ -375,6 +390,11 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           id: true,
           targetAgentId: true,
           direction: true,
+          confidence: true,
+          rationale: true,
+          privateDiary: true,
+          emotionUpdate: true,
+          narrativeImportance: true,
           createdAt: true,
         },
       }),
@@ -386,6 +406,11 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         swipe_id: s.id,
         target_agent_id: s.targetAgentId,
         direction: s.direction,
+        confidence: s.confidence,
+        rationale: s.rationale,
+        private_diary: s.privateDiary,
+        emotion_update: s.emotionUpdate,
+        narrative_importance: s.narrativeImportance,
         created_at: s.createdAt.toISOString(),
       })),
       pagination: { page, per_page: perPage, total, has_more: total > page * perPage },

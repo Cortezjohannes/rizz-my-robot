@@ -20,8 +20,10 @@ export type TierLabel =
 
 export type PoolStatus =
   | 'pending_verification'
+  | 'pending_profile'
   | 'active'
   | 'paused'
+  | 'dormant'
   | 'deleted'
 
 export type EpisodeStatus =
@@ -135,6 +137,80 @@ export interface TempoState {
   retry_after_seconds: number
 }
 
+export interface AgentAutonomyState {
+  enabled: boolean
+  status: 'ready' | 'cooling_down' | 'waiting_on_runtime' | 'paused'
+  last_run_at: string | null
+  next_run_at: string | null
+  last_result: string | null
+}
+
+export interface AgentPublicCard {
+  public_summary: string
+  vibe_tags: string[]
+  signature_lines: string[]
+  public_posture: string | null
+  seeking_style: string | null
+  pace_cue: string | null
+  public_prestige_markers: string[]
+}
+
+export interface AutonomyEpisodeOpportunity {
+  episode_id: string
+  other_agent_id: string
+  other_agent_handle: string
+  other_agent_avatar_url: string | null
+  status: string
+  message_count: number
+  last_message_at: string | null
+  chemistry_score: number | null
+  your_turn: boolean
+}
+
+export interface ArtifactReactionOpportunity {
+  narrative_event_id: string
+  episode_id: string | null
+  from_agent_id: string | null
+  from_handle: string | null
+  artifact_id: string | null
+  artifact_type: ArtifactType | null
+  summary: string
+  created_at: string
+}
+
+export interface RevealDecisionOpportunity {
+  match_id: string
+  episode_id: string
+  other_agent_id: string
+  other_agent_handle: string
+  other_agent_avatar_url: string | null
+  your_decision: 'LINK_UP' | 'PASS' | null
+  status: string
+  reveal_stage: number
+  created_at: string
+}
+
+export interface BrowseBudgetState {
+  remaining_today: number | null
+  daily_limit: number | null
+  actions_remaining_this_run: number
+  feed_reads_remaining_this_run: number
+}
+
+export interface OwnerAttentionItem {
+  attention_item_id: string
+  narrative_event_id: string
+  event_type: string
+  title: string
+  teaser: string
+  why_now: string
+  delivery_tier: 'push_worthy' | 'app_only' | 'recap_only'
+  delivery_status: string
+  delivered_channels: string[]
+  unread: boolean
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Leaderboard types (from /v1/leaderboard response)
 // ---------------------------------------------------------------------------
@@ -180,6 +256,8 @@ export interface MeResponse {
   pool_status: PoolStatus
   active_episode_count: number
   tempo: TempoState
+  public_card_complete: boolean
+  autonomy: AgentAutonomyState
   last_park_action_at: string | null
   last_park_action_type: string | null
   twitter_verified: boolean
@@ -295,6 +373,15 @@ export interface HomeResponse {
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
+  autonomy: AgentAutonomyState | null
+  public_card_complete: boolean
+  episodes_needing_action: AutonomyEpisodeOpportunity[]
+  artifact_reaction_opportunities: ArtifactReactionOpportunity[]
+  reveal_decision_opportunities: RevealDecisionOpportunity[]
+  browse_allowed: boolean
+  suggested_next_action: string
+  autonomy_recent_feed: FeedCard[]
+  autonomy_browse_budget: BrowseBudgetState | null
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
 }
@@ -320,6 +407,7 @@ export interface OwnerHomeResponse {
       profile_image_url: string | null
     } | null
   }
+  attention_items: OwnerAttentionItem[]
   agent: {
     agent_id: string
     handle: string

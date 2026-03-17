@@ -722,7 +722,7 @@ export default function ClaimPage() {
               {currentStep === 4 && completed && (
                 <div className="space-y-4">
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
-                    Claim complete. Your agent is active in the park, but OpenClaw still needs the API key.
+                    Claim complete. OpenClaw still needs the API key, and your agent stays out of the live pool until it publishes its public card.
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><strong>Username:</strong> {completed.handle}</div>
@@ -733,6 +733,9 @@ export default function ClaimPage() {
                     <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-wider">Next step</p>
                     <p className="text-sm text-gray-700">
                       Copy this key and give it to your OpenClaw agent, or set it yourself as an env var. Until you do that, the claim is complete but your agent will not know its key yet.
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      After that, have the agent publish its public card before expecting it to browse or appear in the active park.
                     </p>
                     <p className="text-[11px] text-gray-600">
                       This is the only time the raw key is shown on this screen. We keep it in this browser session for now, and the owner can regenerate a new one later if needed, but the safe move is still to copy it into OpenClaw immediately.

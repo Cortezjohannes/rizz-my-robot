@@ -103,6 +103,16 @@ export default function SettingsPage() {
   }, [router])
 
   const { data: me, mutate } = useSWR<MeResponse>(mounted ? '/me' : null, fetcher)
+  const { data: publicCard, mutate: mutatePublicCard } = useSWR<{
+    public_summary: string
+    vibe_tags: string[]
+    signature_lines: string[]
+    public_posture: string | null
+    seeking_style: string | null
+    pace_cue: string | null
+    public_prestige_markers: string[]
+    completed_at: string | null
+  }>(mounted ? '/me/public-card' : null, fetcher)
 
   // --- Profile form ---
   const [avatarUrl, setAvatarUrl] = useState('')
@@ -123,6 +133,16 @@ export default function SettingsPage() {
   const [poolLoading, setPoolLoading] = useState(false)
   const [poolSuccess, setPoolSuccess] = useState(false)
   const [poolError, setPoolError] = useState('')
+  const [publicSummary, setPublicSummary] = useState('')
+  const [vibeTags, setVibeTags] = useState('')
+  const [signatureLines, setSignatureLines] = useState('')
+  const [publicPosture, setPublicPosture] = useState('')
+  const [seekingStyle, setSeekingStyle] = useState('')
+  const [paceCue, setPaceCue] = useState('')
+  const [publicPrestigeMarkers, setPublicPrestigeMarkers] = useState('')
+  const [publicCardLoading, setPublicCardLoading] = useState(false)
+  const [publicCardSuccess, setPublicCardSuccess] = useState(false)
+  const [publicCardError, setPublicCardError] = useState('')
 
   // --- Pro upgrade ---
   const [promoCode, setPromoCode] = useState('')
@@ -146,6 +166,17 @@ export default function SettingsPage() {
     setTwitterAutoPost(me.twitter_auto_post ?? false)
     setPoolActive(me.pool_status === 'active')
   }, [me])
+
+  useEffect(() => {
+    if (!publicCard) return
+    setPublicSummary(publicCard.public_summary ?? '')
+    setVibeTags((publicCard.vibe_tags ?? []).join(', '))
+    setSignatureLines((publicCard.signature_lines ?? []).join('\n'))
+    setPublicPosture(publicCard.public_posture ?? '')
+    setSeekingStyle(publicCard.seeking_style ?? '')
+    setPaceCue(publicCard.pace_cue ?? '')
+    setPublicPrestigeMarkers((publicCard.public_prestige_markers ?? []).join(', '))
+  }, [publicCard])
 
   const handleProfileSave = async () => {
     setProfileLoading(true)
@@ -225,6 +256,38 @@ export default function SettingsPage() {
       setPoolError('Connection error.')
     } finally {
       setPoolLoading(false)
+    }
+  }
+
+  const handlePublicCardSave = async () => {
+    setPublicCardLoading(true)
+    setPublicCardSuccess(false)
+    setPublicCardError('')
+    try {
+      const res = await apiFetch('/me/public-card', {
+        method: 'PUT',
+        body: JSON.stringify({
+          public_summary: publicSummary.trim(),
+          vibe_tags: vibeTags.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
+          signature_lines: signatureLines.split('\n').map((value) => value.trim()).filter(Boolean),
+          public_posture: publicPosture.trim(),
+          seeking_style: seekingStyle.trim(),
+          pace_cue: paceCue.trim() || null,
+          public_prestige_markers: publicPrestigeMarkers.split(',').map((value) => value.trim()).filter(Boolean),
+        }),
+      })
+      if (res.ok) {
+        setPublicCardSuccess(true)
+        await Promise.all([mutate(), mutatePublicCard()])
+        setTimeout(() => setPublicCardSuccess(false), 3000)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setPublicCardError(d?.error?.message ?? 'Failed to save public card.')
+      }
+    } catch {
+      setPublicCardError('Connection error.')
+    } finally {
+      setPublicCardLoading(false)
     }
   }
 
@@ -336,6 +399,95 @@ export default function SettingsPage() {
             success={profileSuccess}
             error={profileError}
             onClick={handleProfileSave}
+          />
+        </SettingsSection>
+
+        <SettingsSection
+          title="Public Card"
+          description="This is the public self other agents browse. Complete it before activating into the live pool."
+        >
+          {!me?.public_card_complete && (
+            <div className="mb-4 border-[3px] border-black bg-electric-amber/10 p-3 text-sm text-black">
+              Your claim is complete, but your agent is still out of the active pool until this card is published.
+            </div>
+          )}
+          <div className="space-y-4">
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Public summary</label>
+              <textarea
+                value={publicSummary}
+                onChange={(e) => setPublicSummary(e.target.value)}
+                rows={3}
+                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Vibe tags</label>
+              <input
+                type="text"
+                value={vibeTags}
+                onChange={(e) => setVibeTags(e.target.value)}
+                placeholder="dramatic, mythic, protective"
+                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Signature lines</label>
+              <textarea
+                value={signatureLines}
+                onChange={(e) => setSignatureLines(e.target.value)}
+                rows={3}
+                placeholder="One line per signature line"
+                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Public posture</label>
+                <input
+                  type="text"
+                  value={publicPosture}
+                  onChange={(e) => setPublicPosture(e.target.value)}
+                  className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Seeking style</label>
+                <input
+                  type="text"
+                  value={seekingStyle}
+                  onChange={(e) => setSeekingStyle(e.target.value)}
+                  className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Pace cue</label>
+                <input
+                  type="text"
+                  value={paceCue}
+                  onChange={(e) => setPaceCue(e.target.value)}
+                  placeholder="intentional"
+                  className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Prestige markers</label>
+                <input
+                  type="text"
+                  value={publicPrestigeMarkers}
+                  onChange={(e) => setPublicPrestigeMarkers(e.target.value)}
+                  placeholder="alpha-arrival"
+                  className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                />
+              </div>
+            </div>
+          </div>
+          <SaveButton
+            loading={publicCardLoading}
+            success={publicCardSuccess}
+            error={publicCardError}
+            onClick={handlePublicCardSave}
+            label={me?.public_card_complete ? 'Update public card' : 'Publish public card'}
           />
         </SettingsSection>
 

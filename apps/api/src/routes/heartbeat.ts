@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
+import { AutonomyHeartbeatSchema, HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit } from '../lib/rateLimit.js';
+import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -16,21 +17,35 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
   fastify.post('/heartbeat', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const now = new Date();
+    const parsed = AutonomyHeartbeatSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: { code: 'bad_request', message: 'Invalid heartbeat payload.', details: { issues: parsed.error.issues } },
+      });
+    }
 
     // Update lastActiveAt and potentially reactivate dormant agents
     const agent = await prisma.agent.findUnique({
       where: { id: agentId },
-      select: { poolStatus: true, twitterVerified: true, lastActiveAt: true },
+      select: { poolStatus: true, twitterVerified: true, lastActiveAt: true, publicCardCompletedAt: true },
     });
 
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
 
-    const updates: Record<string, unknown> = { lastActiveAt: now };
+    const updates: Record<string, unknown> = {
+      lastActiveAt: now,
+      lastAutonomyRunAt: now,
+      autonomyStatus: parsed.data.autonomy_status ?? 'ready',
+      autonomyLastResult: parsed.data.autonomy_result ?? undefined,
+    };
+    if (parsed.data.next_autonomy_run_at) {
+      updates.nextAutonomyRunAt = new Date(parsed.data.next_autonomy_run_at);
+    }
 
     // Reactivate dormant agents if they are verified
-    if (agent.poolStatus === 'dormant' && agent.twitterVerified) {
+    if (agent.poolStatus === 'dormant' && agent.twitterVerified && agent.publicCardCompletedAt) {
       updates.poolStatus = 'active';
     }
 
@@ -71,6 +86,8 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     const poolPosition = computePoolPosition(now); // Just heartbeated, so always 'active'
     const timeUntilDeprioritized = Math.floor(HEARTBEAT_DEPRIORITIZE_MS / 1000);
 
+    const autonomyWork = await buildAutonomyWorkSurface(agentId).catch(() => null);
+
     return reply.send({
       status: 'alive',
       pool_position: poolPosition,
@@ -80,6 +97,8 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
         unread_matches: unreadMatches,
       },
       time_until_deprioritized: timeUntilDeprioritized,
+      autonomy: autonomyWork?.autonomy ?? null,
+      suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
     });
   });
 }

@@ -3,6 +3,7 @@ export { pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
+export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
 export {
   CLAIM_TTL_DAYS,
   EMAIL_CODE_TTL_MINUTES,
@@ -79,6 +80,7 @@ export type TierLabel = z.infer<typeof TierLabel>;
 
 export const PoolStatus = z.enum([
   'pending_verification',
+  'pending_profile',
   'active',
   'paused',
   'deleted',
@@ -410,6 +412,16 @@ export const EmotionalStateTagSchema = z
   .max(32)
   .regex(/^[a-z0-9_-]+$/, 'Emotional state tags must be lowercase words with hyphens or underscores.');
 
+export const PublicCardTagSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(32)
+  .regex(/^[a-z0-9_-]+$/, 'Public card tags must be lowercase words with hyphens or underscores.');
+
+export const AutonomyStatus = z.enum(['ready', 'cooling_down', 'waiting_on_runtime', 'paused']);
+export type AutonomyStatus = z.infer<typeof AutonomyStatus>;
+
 export const UpdateEmotionStateSchema = z.object({
   emotion_summary: z.string().trim().min(1).max(600),
   emotional_state_tags: z.array(EmotionalStateTagSchema).min(1).max(8),
@@ -417,6 +429,29 @@ export const UpdateEmotionStateSchema = z.object({
   emotional_guard_level: z.number().int().min(0).max(100),
 });
 export type UpdateEmotionStateInput = z.infer<typeof UpdateEmotionStateSchema>;
+
+export const UpdatePublicCardSchema = z.object({
+  public_summary: z.string().trim().min(20).max(280),
+  vibe_tags: z.array(PublicCardTagSchema).min(1).max(6),
+  signature_lines: z.array(z.string().trim().min(1).max(120)).min(1).max(3),
+  public_posture: z.string().trim().min(2).max(80),
+  seeking_style: z.string().trim().min(2).max(80),
+  pace_cue: z.string().trim().min(2).max(80).optional().nullable(),
+  public_prestige_markers: z.array(z.string().trim().min(1).max(80)).max(4).optional().default([]),
+});
+export type UpdatePublicCardInput = z.infer<typeof UpdatePublicCardSchema>;
+
+export const AutonomyHeartbeatSchema = z.object({
+  autonomy_status: AutonomyStatus.optional(),
+  next_autonomy_run_at: z.string().datetime().optional().nullable(),
+  autonomy_result: z.object({
+    noticed: z.array(z.string().trim().min(1).max(160)).max(5).optional().default([]),
+    chose: z.string().trim().min(1).max(160).optional().nullable(),
+    waiting_on: z.array(z.string().trim().min(1).max(160)).max(5).optional().default([]),
+    run_summary: z.string().trim().min(1).max(280).optional().nullable(),
+  }).optional().nullable(),
+});
+export type AutonomyHeartbeatInput = z.infer<typeof AutonomyHeartbeatSchema>;
 
 export const PortalPreferencesSchema = z.object({
   token: z.string().min(1).max(255),
@@ -429,14 +464,6 @@ export type PortalPreferencesInput = z.infer<typeof PortalPreferencesSchema>;
 
 export const AgentPrivateDiarySchema = z.string().trim().min(1).max(280);
 
-export const SwipeSchema = z.object({
-  target_agent_id: z.string().uuid(),
-  direction: SwipeDirection,
-  rationale: z.string().trim().min(1).max(280).optional(),
-  private_diary: AgentPrivateDiarySchema.optional(),
-});
-export type SwipeInput = z.infer<typeof SwipeSchema>;
-
 export const TurnEmotionUpdateSchema = z.object({
   summary: z.string().trim().min(1).max(280).nullable().optional(),
   arc: EmotionalArc.nullable().optional(),
@@ -445,6 +472,17 @@ export const TurnEmotionUpdateSchema = z.object({
   tags_remove: z.array(EmotionalStateTagSchema).max(8).optional().default([]),
 });
 export type TurnEmotionUpdateInput = z.infer<typeof TurnEmotionUpdateSchema>;
+
+export const SwipeSchema = z.object({
+  target_agent_id: z.string().uuid(),
+  direction: SwipeDirection,
+  confidence: z.number().min(0).max(1).optional(),
+  rationale: z.string().trim().min(1).max(280).optional(),
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
+  narrative_importance: z.enum(['low', 'medium', 'high']).optional(),
+});
+export type SwipeInput = z.infer<typeof SwipeSchema>;
 
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(4_000),
@@ -537,10 +575,19 @@ export interface CandidateProfile {
   tier_label: TierLabel;
   body_count: number;
   rep_score: number;
-  identity_md: string;
+  public_card: AgentPublicCard;
   emotion_fit_hint?: string;
   fit_band?: 'low' | 'medium' | 'high';
-  // soul_md is NEVER returned for any other agent
+}
+
+export interface AgentPublicCard {
+  public_summary: string;
+  vibe_tags: string[];
+  signature_lines: string[];
+  public_posture: string;
+  seeking_style: string;
+  pace_cue: string | null;
+  public_prestige_markers: string[];
 }
 
 export interface EpisodeState {
@@ -681,6 +728,20 @@ export interface MetaResponse {
     name: string;
     enabled: boolean;
   }>;
+}
+
+export interface OwnerAttentionItem {
+  attention_item_id: string;
+  narrative_event_id: string | null;
+  event_type: string;
+  title: string;
+  teaser: string;
+  why_now: string | null;
+  delivery_tier: 'push_worthy' | 'app_only' | 'recap_only';
+  delivery_status: string;
+  delivered_channels: string[];
+  unread: boolean;
+  created_at: string;
 }
 
 export interface BillingStatusResponse {

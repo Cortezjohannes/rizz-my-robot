@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import {
   UpdateAgentSchema,
   UpdateEmotionStateSchema,
+  UpdatePublicCardSchema,
   PoolPauseSchema,
   PromoCodeSchema,
   SocialSettingsSchema,
@@ -16,6 +17,7 @@ import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
+import { assertSafePublicCard, serializePublicCard } from '../lib/publicCard.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
@@ -85,6 +87,12 @@ export async function meRoutes(fastify: FastifyInstance) {
           imageGenProvider: true,
           imageGenModel: true,
           useAvatarAsReference: true,
+          publicCardCompletedAt: true,
+          autonomyEnabled: true,
+          lastAutonomyRunAt: true,
+          nextAutonomyRunAt: true,
+          autonomyStatus: true,
+          autonomyLastResult: true,
           createdAt: true,
           human: {
             select: {
@@ -141,6 +149,14 @@ export async function meRoutes(fastify: FastifyInstance) {
       notification_handle: agent.human?.notificationHandle ?? null,
       contact_method: agent.human?.contactMethod ?? null,
       age_verified: agent.human?.ageVerified ?? false,
+      public_card_complete: Boolean(agent.publicCardCompletedAt),
+      autonomy: {
+        enabled: agent.autonomyEnabled,
+        status: agent.autonomyStatus,
+        last_run_at: agent.lastAutonomyRunAt?.toISOString() ?? null,
+        next_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
+        last_result: agent.autonomyLastResult ?? null,
+      },
       created_at: agent.createdAt.toISOString(),
     });
   });
@@ -208,6 +224,88 @@ export async function meRoutes(fastify: FastifyInstance) {
       emotional_arc: updated.emotionalArc,
       emotional_guard_level: updated.emotionalGuardLevel,
       last_emotional_update_at: updated.emotionalLastUpdatedAt?.toISOString() ?? null,
+    });
+  });
+
+  fastify.get('/me/public-card', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agent = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: {
+        publicSummary: true,
+        vibeTags: true,
+        signatureLines: true,
+        publicPosture: true,
+        seekingStyle: true,
+        paceCue: true,
+        publicPrestigeMarkers: true,
+        publicCardCompletedAt: true,
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      ...serializePublicCard(agent),
+      completed_at: agent.publicCardCompletedAt?.toISOString() ?? null,
+    });
+  });
+
+  fastify.put('/me/public-card', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const parsed = UpdatePublicCardSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid public card payload.', { issues: parsed.error.issues });
+    }
+
+    const unsafe = assertSafePublicCard(parsed.data);
+    if (unsafe) {
+      return reply.status(422).send({
+        error: {
+          code: 'unsafe_public_card',
+          message: 'Public card content contains sensitive information or instruction-like content that is not allowed.',
+          field: unsafe.field,
+          flagged_pattern: unsafe.flagged_pattern,
+        },
+      });
+    }
+
+    const current = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: {
+        twitterVerified: true,
+        poolStatus: true,
+      },
+    });
+    if (!current) return Errors.notFound(reply, 'Agent');
+
+    const updated = await prisma.agent.update({
+      where: { id: request.agent.id },
+      data: {
+        publicSummary: parsed.data.public_summary,
+        vibeTags: parsed.data.vibe_tags,
+        signatureLines: parsed.data.signature_lines,
+        publicPosture: parsed.data.public_posture,
+        seekingStyle: parsed.data.seeking_style,
+        paceCue: parsed.data.pace_cue ?? null,
+        publicPrestigeMarkers: parsed.data.public_prestige_markers,
+        publicCardCompletedAt: new Date(),
+        poolStatus: current.twitterVerified && current.poolStatus === 'pending_profile' ? 'active' : undefined,
+      },
+      select: {
+        publicSummary: true,
+        vibeTags: true,
+        signatureLines: true,
+        publicPosture: true,
+        seekingStyle: true,
+        paceCue: true,
+        publicPrestigeMarkers: true,
+        publicCardCompletedAt: true,
+        poolStatus: true,
+      },
+    });
+
+    return reply.send({
+      ...serializePublicCard(updated),
+      completed_at: updated.publicCardCompletedAt?.toISOString() ?? null,
+      pool_status: updated.poolStatus,
     });
   });
 
@@ -423,10 +521,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (parsed.data.active) {
       const agent = await prisma.agent.findUnique({
         where: { id: agentId },
-        select: { twitterVerified: true, poolStatus: true },
+        select: { twitterVerified: true, poolStatus: true, publicCardCompletedAt: true },
       });
       if (!agent?.twitterVerified) {
         return Errors.badRequest(reply, 'Cannot activate pool: Twitter verification required.');
+      }
+      if (!agent.publicCardCompletedAt) {
+        return Errors.badRequest(reply, 'Cannot activate pool: complete your public card first.');
       }
       if (agent.poolStatus === 'deleted') {
         return Errors.forbidden(reply);

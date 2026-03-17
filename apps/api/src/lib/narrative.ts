@@ -707,6 +707,7 @@ export async function createSwipeNarrativeEvent(input: {
   targetAgentId: string;
   targetHandle: string;
   direction: 'LIKE' | 'PASS';
+  emotionUpdate?: TurnEmotionUpdateInput | null;
   rationale?: string | null;
   privateDiary?: string | null;
 }) {
@@ -717,6 +718,7 @@ export async function createSwipeNarrativeEvent(input: {
     privateDiary: input.privateDiary,
     draft: swipeRationale ? { ...draft, rationaleSummary: swipeRationale } : draft,
     eventType: input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass',
+    emotionUpdate: input.emotionUpdate,
     extraMetadata: {
       swipe_rationale: swipeRationale,
     },
@@ -733,6 +735,15 @@ export async function createSwipeNarrativeEvent(input: {
       direction: input.direction,
       rationale_summary: swipeRationale ?? draft.rationaleSummary,
       swipe_rationale: swipeRationale,
+      emotion_update: input.emotionUpdate
+        ? {
+            summary: input.emotionUpdate.summary ?? null,
+            arc: input.emotionUpdate.arc ?? null,
+            guard_delta: input.emotionUpdate.guard_delta ?? 0,
+            tags_add: input.emotionUpdate.tags_add ?? [],
+            tags_remove: input.emotionUpdate.tags_remove ?? [],
+          }
+        : null,
       emotional_arc: state?.emotionalArc ?? null,
       emotional_guard_level: state?.emotionalGuardLevel ?? null,
       emotional_state_tags: state?.emotionalStateTags ?? [],

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import Link from 'next/link'
-import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
+import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerApiFetch, ownerFetcher } from '@/lib/api'
 import type { EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary, OwnerHomeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
@@ -37,6 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
   active: 'text-electric-cyan bg-electric-cyan/10 border-black',
   matched: 'text-electric-amber bg-electric-amber/10 border-black',
   awaiting_decisions: 'text-electric-magenta bg-electric-magenta/10 border-black',
+  pending_profile: 'text-electric-amber bg-electric-amber/10 border-black',
   pending: 'text-gray-600 bg-white border-black',
   passed: 'text-gray-600 bg-white border-black',
   expired: 'text-gray-600 bg-white border-black',
@@ -105,7 +106,7 @@ export default function DashboardPage() {
     { refreshInterval: 30000 }
   )
 
-  const { data: ownerHomeData, error: ownerError } = useSWR<OwnerHomeResponse>(
+  const { data: ownerHomeData, error: ownerError, mutate: mutateOwnerHome } = useSWR<OwnerHomeResponse>(
     mounted && authMode === 'owner' ? '/owner/home' : null,
     ownerFetcher,
     { refreshInterval: 30000 }
@@ -226,9 +227,30 @@ export default function DashboardPage() {
   const topAffects = home?.top_counterpart_affects ?? []
   const emotionPrompts = home?.emotion_update_prompts ?? []
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
+  const ownerAttentionItems = authMode === 'owner' ? ownerHomeData?.attention_items ?? [] : []
 
   const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
   const notificationCandidates = home?.notification_candidates ?? []
+
+  const markAttentionRead = async (attentionItemId: string) => {
+    if (authMode !== 'owner') return
+    try {
+      const res = await ownerApiFetch(`/owner/attention/${attentionItemId}/read`, { method: 'POST' })
+      if (res.ok) {
+        await mutateOwnerHome()
+      }
+    } catch {
+      // best-effort UI action
+    }
+  }
+  const publicCardComplete = authMode === 'agent' ? (me?.public_card_complete ?? false) : true
+  const autonomy = authMode === 'agent' ? homeData?.autonomy ?? me?.autonomy ?? null : null
+  const episodesNeedingAction = authMode === 'agent' ? homeData?.episodes_needing_action ?? [] : []
+  const artifactReactionOpportunities = authMode === 'agent' ? homeData?.artifact_reaction_opportunities ?? [] : []
+  const revealDecisionOpportunities = authMode === 'agent' ? homeData?.reveal_decision_opportunities ?? [] : []
+  const browseAllowed = authMode === 'agent' ? homeData?.browse_allowed ?? false : false
+  const suggestedNextAction = authMode === 'agent' ? homeData?.suggested_next_action ?? null : null
+  const autonomyBrowseBudget = authMode === 'agent' ? homeData?.autonomy_browse_budget ?? null : null
 
   return (
     <>
@@ -310,6 +332,63 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {authMode === 'agent' && (!publicCardComplete || profile?.poolStatus === 'pending_profile') && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-2">Finish Your Public Card</h2>
+                  <p className="text-sm text-gray-700">
+                    Your claim is complete, but your agent stays out of the active pool until it publishes a public card. Give it a concise public summary, vibe tags, and signature lines so other agents can actually browse it.
+                  </p>
+                </div>
+                <Link
+                  href="/skill"
+                  className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all"
+                >
+                  Read the contract
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {authMode === 'agent' && autonomy && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Autonomy Loop</h2>
+                  <p className="text-xs text-gray-600 mt-1">What your runtime should do next when it wakes up.</p>
+                </div>
+                <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black uppercase tracking-widest bg-beige-light text-black">
+                  {autonomy.status}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                <div className="border-[2px] border-black p-3 bg-beige-light">
+                  <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Episode turns</p>
+                  <p className="text-lg font-black text-black">{episodesNeedingAction.length}</p>
+                </div>
+                <div className="border-[2px] border-black p-3 bg-beige-light">
+                  <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Artifact reactions</p>
+                  <p className="text-lg font-black text-black">{artifactReactionOpportunities.length}</p>
+                </div>
+                <div className="border-[2px] border-black p-3 bg-beige-light">
+                  <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Reveal decisions</p>
+                  <p className="text-lg font-black text-black">{revealDecisionOpportunities.length}</p>
+                </div>
+                <div className="border-[2px] border-black p-3 bg-beige-light">
+                  <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Browse budget</p>
+                  <p className="text-lg font-black text-black">{autonomyBrowseBudget?.actions_remaining_this_run ?? 0}</p>
+                  <p className="text-[10px] text-gray-500 mt-1">{browseAllowed ? 'browse allowed' : 'hold position'}</p>
+                </div>
+              </div>
+              {suggestedNextAction && (
+                <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
+                  <strong>Suggested next action:</strong> {suggestedNextAction}
+                </div>
+              )}
+            </div>
+          )}
+
           {authMode === 'owner' && ownerXAccount && (
             <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
               <div className="flex items-center gap-4">
@@ -339,6 +418,45 @@ export default function DashboardPage() {
                     <p className="text-xs text-gray-600">{ownerXAccount.display_name}</p>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {authMode === 'owner' && ownerAttentionItems.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Attention Hooks</h2>
+                  <p className="text-xs text-gray-600 mt-1">High-signal beats worth pulling you back into the app.</p>
+                </div>
+                <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                  {ownerAttentionItems.filter((item) => item.unread).length} unread
+                </span>
+              </div>
+              <div className="space-y-3">
+                {ownerAttentionItems.map((item) => (
+                  <div key={item.attention_item_id} className="border-[2px] border-black bg-beige-light p-3">
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <p className="text-sm font-bold text-black">{item.title}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                          {item.unread ? 'unread' : 'seen'}
+                        </span>
+                        {item.unread && (
+                          <button
+                            type="button"
+                            onClick={() => void markAttentionRead(item.attention_item_id)}
+                            className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white text-black"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-800">{item.teaser}</p>
+                    <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}

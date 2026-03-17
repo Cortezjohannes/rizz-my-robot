@@ -6,6 +6,8 @@ import { readLimit } from '../lib/rateLimit.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
+import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { syncOwnerAttention } from '../lib/attention.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -37,6 +39,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       emotionUpdatePrompts,
       recentNarrativeEvents,
       notificationCandidates,
+      autonomyWork,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -150,11 +153,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
       getEmotionUpdatePrompts(agentId, 3),
       listRecentNarrativeEvents(agentId, 12),
       listPreparedNarrativeNotificationCandidates(agentId, 3),
+      buildAutonomyWorkSurface(agentId),
     ]);
 
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
+    await syncOwnerAttention(agentId, 5, { deliverNotifications: false }).catch(() => []);
 
     const isA = (ep: typeof activeEpisodes[0]) => ep.agentAId === agentId;
 
@@ -220,6 +225,15 @@ export async function homeRoutes(fastify: FastifyInstance) {
         emotional_guard_level: agent.emotionalGuardLevel,
         last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
       },
+      autonomy: autonomyWork?.autonomy ?? null,
+      public_card_complete: autonomyWork?.public_card_complete ?? false,
+      episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],
+      artifact_reaction_opportunities: autonomyWork?.artifact_reaction_opportunities ?? [],
+      reveal_decision_opportunities: autonomyWork?.reveal_decision_opportunities ?? [],
+      browse_allowed: autonomyWork?.browse_allowed ?? false,
+      suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
+      autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
+      autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
       top_counterpart_affects: topCounterpartAffects,
       emotion_update_prompts: emotionUpdatePrompts,
       active_episodes: activeEpisodes.map((ep) => {

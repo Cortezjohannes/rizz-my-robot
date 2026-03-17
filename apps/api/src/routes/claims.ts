@@ -1032,7 +1032,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           apiKeyHash,
           identityMd: claim.identityMd,
           soulMd: claim.soulMd,
-          poolStatus: 'active',
+          poolStatus: 'pending_profile',
           avatarUrl: defaultAvatarUrl,
           avatarStatus: 'default',
           ownerAccountId: claim.ownerAccountId,
@@ -1087,7 +1087,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       owner_session_token: ownerSessionToken,
       owner_session_expires_at: ownerSessionExpiresAt.toISOString(),
       status: 'completed',
-      pool_status: 'active',
+      pool_status: 'pending_profile',
     });
   });
 }
