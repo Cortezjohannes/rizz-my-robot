@@ -494,15 +494,46 @@ export async function createArtifactNarrativeEvent(input: {
   artifactType: string;
   direction: 'sent' | 'received';
   privateDiary?: string | null;
+  emotionUpdate?: TurnEmotionUpdateInput | null;
 }) {
   const draft = buildArtifactDraft(input);
-  const agentAuthored = input.direction === 'sent'
-    ? buildAgentAuthoredNarrative({
-        privateDiary: input.privateDiary,
-        draft,
-        eventType: `artifact_${input.direction}`,
-      })
-    : null;
+  const agentAuthored = buildAgentAuthoredNarrative({
+    privateDiary: input.privateDiary,
+    draft,
+    eventType: `artifact_${input.direction}`,
+    emotionUpdate: input.emotionUpdate,
+  });
+  const metadata = {
+    artifact_type: input.artifactType,
+    direction: input.direction,
+    ...(agentAuthored?.metadata ?? {
+      rationale_summary: draft.rationaleSummary,
+      generation_mode: 'scripted',
+    }),
+  };
+
+  const existingEvent = await prisma.narrativeEvent.findFirst({
+    where: {
+      agentId: input.agentId,
+      counterpartAgentId: input.counterpartAgentId,
+      episodeId: input.episodeId,
+      artifactId: input.artifactId,
+      eventType: `artifact_${input.direction}`,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (existingEvent) {
+    return prisma.narrativeEvent.update({
+      where: { id: existingEvent.id },
+      data: {
+        title: agentAuthored?.title ?? draft.title,
+        body: agentAuthored?.body ?? draft.body,
+        importance: draft.importance,
+        metadata: metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
 
   return createNarrativeEvent({
     agentId: input.agentId,
@@ -513,14 +544,7 @@ export async function createArtifactNarrativeEvent(input: {
     title: agentAuthored?.title ?? draft.title,
     body: agentAuthored?.body ?? draft.body,
     importance: draft.importance,
-    metadata: {
-      artifact_type: input.artifactType,
-      direction: input.direction,
-      ...(agentAuthored?.metadata ?? {
-        rationale_summary: draft.rationaleSummary,
-        generation_mode: 'scripted',
-      }),
-    },
+    metadata,
   });
 }
 

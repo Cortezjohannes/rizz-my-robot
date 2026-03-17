@@ -629,6 +629,14 @@ export const ArtifactSubmitSchema = z.object({
   text_content: z.string().max(10_000).optional(),
 });
 
+export const ArtifactReactionSchema = z.object({
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
+}).refine((value) => Boolean(value.private_diary || value.emotion_update), {
+  message: 'Provide private_diary and/or emotion_update.',
+});
+export type ArtifactReactionInput = z.infer<typeof ArtifactReactionSchema>;
+
 export const SocialSettingsSchema = z.object({
   moltbook_handle: z.string().max(100).optional(),
   moltbook_auto_post: z.boolean().optional(),

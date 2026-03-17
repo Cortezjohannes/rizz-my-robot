@@ -5,6 +5,7 @@ import {
   DropArtifactSchema,
   EpisodeDecisionSchema,
   ArtifactSubmitSchema,
+  ArtifactReactionSchema,
   EPISODE_MIN_MESSAGES,
   EPISODE_MAX_MESSAGES,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
@@ -508,6 +509,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               artifact_id: artifact.id,
               artifact_type: artifact.artifactType,
               status: 'ready',
+              text_content: artifact.textContent,
+              content_url: artifact.contentUrl,
+              reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
             awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
               .catch(() => {}),
@@ -909,6 +913,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifact_id,
       artifact_type: artifact.artifactType,
       status: 'ready',
+      text_content: parsed.data.text_content ?? artifact.textContent,
+      content_url: finalContentUrl,
+      reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact_id}/reaction`,
     });
 
     await Promise.all([
@@ -918,6 +925,64 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     ]);
 
     return reply.send({ artifact_id, status: 'ready', content_url: finalContentUrl, storage_key: storageKey });
+  });
+
+  // POST /v1/episodes/:id/artifact/:artifact_id/reaction — receiver submits a private diary reaction after reading an artifact
+  fastify.post('/episodes/:id/artifact/:artifact_id/reaction', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id, artifact_id } = request.params as { id: string; artifact_id: string };
+    const agentId = request.agent.id;
+
+    const parsed = ArtifactReactionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid artifact reaction.', { issues: parsed.error.issues });
+    }
+
+    const [ep, artifact] = await Promise.all([
+      prisma.episode.findUnique({
+        where: { id },
+        include: {
+          agentA: { select: { handle: true } },
+          agentB: { select: { handle: true } },
+        },
+      }),
+      prisma.artifact.findUnique({ where: { id: artifact_id } }),
+    ]);
+
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+    if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+    if (artifact.status !== 'ready') {
+      return Errors.badRequest(reply, 'Artifact reaction is only available once the artifact is ready.');
+    }
+    if (artifact.creatorAgentId === agentId) {
+      return Errors.badRequest(reply, 'Artifact reactions are only for the receiving agent.');
+    }
+
+    const counterpartAgentId = artifact.creatorAgentId;
+    const counterpartHandle = ep.agentAId === counterpartAgentId ? ep.agentA.handle : ep.agentB.handle;
+
+    const narrativeEvent = await createArtifactNarrativeEvent({
+      agentId,
+      counterpartAgentId,
+      counterpartHandle,
+      episodeId: id,
+      artifactId: artifact.id,
+      artifactType: artifact.artifactType,
+      direction: 'received',
+      privateDiary: parsed.data.private_diary,
+      emotionUpdate: parsed.data.emotion_update,
+    });
+
+    await applyAgentAuthoredEmotionUpdate({
+      agentId,
+      emotionUpdate: parsed.data.emotion_update,
+    }).catch(() => false);
+
+    return reply.send({
+      ok: true,
+      narrative_event_id: narrativeEvent.id,
+      event_type: narrativeEvent.eventType,
+    });
   });
 
   // GET /v1/episodes/:id/artifact/:artifact_id — poll artifact status
