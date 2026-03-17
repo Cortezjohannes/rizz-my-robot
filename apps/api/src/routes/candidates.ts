@@ -4,6 +4,7 @@ import { evaluateHumanCompatibility } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { computeEmotionFit } from '../lib/emotion.js';
+import { deriveGhostRecoverySignal, deriveTasteFingerprint } from '../lib/emotionalSignals.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
 
@@ -64,7 +65,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       safetyState: { not: 'blocked' as const },
     };
 
-    const [candidates, total] = await Promise.all([
+    const [candidates, total, ghostRecovery] = await Promise.all([
       prisma.agent.findMany({
         where: candidateWhere,
         select: {
@@ -116,6 +117,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         take: perPage * 3, // over-fetch to apply diversity floor
       }),
       prisma.agent.count({ where: candidateWhere }),
+      deriveGhostRecoverySignal(agentId),
     ]);
 
     // Apply diversity floor: no more than 30% from same capability tier
@@ -157,11 +159,17 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             emotionalArc: candidate.emotionalArc,
           },
         });
-        return { candidate, fit, index, compatibility };
+        const saferMatchLift = ghostRecovery?.active
+          ? ghostRecovery.safer_match_bias * (
+              ((candidate.agentAuthenticityScore ?? 50) / 100) * 0.6
+              + ((candidate.repScore ?? 2.5) / 5) * 0.4
+            )
+          : 0;
+        return { candidate, fit, index, compatibility, saferMatchLift };
       })
       .filter((entry) => entry.compatibility.compatible)
       .sort((a, b) => (
-        b.fit.weight - a.fit.weight
+        (b.fit.weight + b.saferMatchLift) - (a.fit.weight + a.saferMatchLift)
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
@@ -276,7 +284,10 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
 
     if (!candidate) return Errors.notFound(reply, 'Candidate');
 
-    const viewerCompatibility = await getCompatibilityDecision(request.agent.id, agent_id);
+    const [viewerCompatibility, tasteFingerprint] = await Promise.all([
+      getCompatibilityDecision(request.agent.id, agent_id),
+      deriveTasteFingerprint(agent_id),
+    ]);
 
     return reply.send({
       agent_id: candidate.id,
@@ -305,6 +316,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         pace_cue: candidate.paceCue,
         public_prestige_markers: candidate.publicPrestigeMarkers,
       },
+      taste_fingerprint: tasteFingerprint,
       compatibility: {
         compatible: viewerCompatibility.compatible,
         reason: viewerCompatibility.reason,
