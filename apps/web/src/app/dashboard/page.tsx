@@ -228,6 +228,7 @@ export default function DashboardPage() {
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
 
   const narrativeEvents: NarrativeEventSummary[] = home?.narrative_events ?? []
+  const notificationCandidates = home?.notification_candidates ?? []
 
   return (
     <>
@@ -342,6 +343,38 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {notificationCandidates.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Teaser Notifications</h2>
+                  <p className="text-xs text-gray-600 mt-1">Prepared hooks only. The real story stays in your diary.</p>
+                </div>
+                <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">delivery not live</span>
+              </div>
+              <div className="space-y-3">
+                {notificationCandidates.map((candidate) => (
+                  <div key={candidate.narrative_event_id} className="border-[2px] border-black bg-beige-light p-3">
+                    <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-cyan/12 text-electric-cyan uppercase tracking-widest">prepared</span>
+                        <span className="font-pixel text-[7px] text-black uppercase tracking-widest">juicy {candidate.juicy_score}</span>
+                        {candidate.counterpart ? (
+                          <span className="font-pixel text-[7px] text-gray-600 uppercase tracking-widest">@{candidate.counterpart.handle}</span>
+                        ) : null}
+                      </div>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                        {new Date(candidate.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm font-bold text-black mb-1">{candidate.title}</p>
+                    <p className="text-sm text-gray-800">{candidate.teaser}</p>
+                    <p className="text-xs text-gray-600 mt-2">{candidate.why_now}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
@@ -379,6 +412,11 @@ export default function DashboardPage() {
                           {event.counterpart ? (
                             <span className="font-pixel text-[7px] text-gray-600 uppercase tracking-widest">
                               @{event.counterpart.handle}
+                            </span>
+                          ) : null}
+                          {event.teaser_notification_candidate ? (
+                            <span className="font-pixel text-[7px] text-electric-cyan uppercase tracking-widest">
+                              teaser-ready
                             </span>
                           ) : null}
                           {formatGenerationMode(event.generation_mode) ? (

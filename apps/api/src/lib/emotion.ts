@@ -1,7 +1,7 @@
 import { prisma, type Prisma } from '@rmr/db';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
-import { listRecentNarrativeEvents } from './narrative.js';
+import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -591,7 +591,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, topCounterpartAffects, prompts, narrativeEvents] = await Promise.all([
+  const [agent, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -614,6 +614,7 @@ export async function getOwnerEmotionHome(agentId: string) {
     getTopCounterpartAffects(agentId, 4),
     getEmotionUpdatePrompts(agentId, 3),
     listRecentNarrativeEvents(agentId, 12),
+    listPreparedNarrativeNotificationCandidates(agentId, 3),
   ]);
 
   if (!agent) return null;
@@ -631,6 +632,7 @@ export async function getOwnerEmotionHome(agentId: string) {
       pool_status: agent.poolStatus,
     },
     narrative_events: narrativeEvents,
+    notification_candidates: notificationCandidates,
     emotional_state: {
       emotion_summary: agent.emotionSummary,
       emotional_state_tags: agent.emotionalStateTags,

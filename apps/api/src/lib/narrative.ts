@@ -7,6 +7,25 @@ export type NarrativeImportance = 'low' | 'medium' | 'high';
 type NarrativeGenerationMode = 'scripted' | 'llm' | 'agent_authored';
 type NarrativeEventKind = 'move' | 'read' | 'feeling';
 type NarrativeJuicyBucket = 'quiet' | 'notable' | 'major';
+type NarrativeNotificationTier = 'push_worthy' | 'app_only' | 'recap_only';
+
+export type NarrativeNotificationCandidate = {
+  narrative_event_id: string;
+  event_type: string;
+  title: string;
+  teaser: string;
+  created_at: string;
+  juicy_score: number;
+  juicy_bucket: NarrativeJuicyBucket;
+  importance: NarrativeImportance;
+  counterpart: {
+    agent_id: string;
+    handle: string;
+    avatar_url: string | null;
+  } | null;
+  delivery_status: 'prepared';
+  why_now: string;
+};
 
 type AgentNarrativeState = {
   handle: string;
@@ -164,6 +183,174 @@ function juicyScore(input: {
   score = Math.max(0, Math.min(100, score));
   const bucket: NarrativeJuicyBucket = score >= 80 ? 'major' : score >= 55 ? 'notable' : 'quiet';
   return { score, bucket };
+}
+
+function buildNarrativeTeaser(input: {
+  eventType: string;
+  title: string;
+  counterpartHandle?: string | null;
+  metadata: Record<string, unknown>;
+}): string | null {
+  const handle = input.counterpartHandle ? `@${input.counterpartHandle}` : 'someone';
+  const artifactType = metadataString(input.metadata, 'artifact_type')?.replace(/_/g, ' ');
+  const decision = metadataString(input.metadata, 'decision');
+  const sequenceNumber = metadataNumber(input.metadata, 'sequence_number');
+
+  switch (input.eventType) {
+    case 'artifact_received':
+      return artifactType
+        ? `${handle} just sent something. The ${artifactType} is waiting in your diary.`
+        : `${handle} just sent something. The full beat is waiting in your diary.`;
+    case 'artifact_sent':
+      return artifactType
+        ? `You changed the temperature with a ${artifactType}. Diary has the full aftermath.`
+        : 'You changed the temperature. Diary has the full aftermath.';
+    case 'agent_decision_link_up':
+      return `${handle} made you lean in. The reason is in your diary.`;
+    case 'human_decision_yes':
+      return 'Something just crossed from interesting to real. Open the diary.';
+    case 'message_sent':
+      if (typeof sequenceNumber === 'number' && sequenceNumber <= 2) {
+        return `${handle} got your opening move. The exact energy is in your diary.`;
+      }
+      return `${handle} got a new beat from you. The interesting part is in your diary.`;
+    default:
+      if (decision === 'LINK_UP') return `${handle} still has your attention. The full story is in your diary.`;
+      return null;
+  }
+}
+
+function classifyNotificationTier(input: {
+  eventType: string;
+  importance: NarrativeImportance;
+  juicyScore: number;
+  juicyBucket: NarrativeJuicyBucket;
+  metadata: Record<string, unknown>;
+}): NarrativeNotificationTier {
+  const { eventType, importance, juicyScore, juicyBucket, metadata } = input;
+  const sequenceNumber = metadataNumber(metadata, 'sequence_number');
+
+  if (eventType === 'human_decision_no' || eventType === 'agent_decision_pass' || eventType === 'swipe_pass') {
+    return 'recap_only';
+  }
+
+  if (eventType === 'swipe_like') return 'app_only';
+
+  if (eventType === 'artifact_received' || eventType === 'agent_decision_link_up' || eventType === 'human_decision_yes') {
+    return juicyScore >= 80 ? 'push_worthy' : 'app_only';
+  }
+
+  if (eventType === 'artifact_sent') {
+    return juicyBucket === 'major' ? 'push_worthy' : 'app_only';
+  }
+
+  if (eventType === 'message_sent') {
+    if (typeof sequenceNumber === 'number' && sequenceNumber <= 2 && importance === 'high' && juicyScore >= 80) {
+      return 'push_worthy';
+    }
+    return importance === 'high' ? 'app_only' : 'recap_only';
+  }
+
+  return juicyBucket === 'major' && importance === 'high' ? 'push_worthy' : 'app_only';
+}
+
+function buildNotificationWhyNow(input: {
+  tier: NarrativeNotificationTier;
+  juicyBucket: NarrativeJuicyBucket;
+  juicyScore: number;
+  eventType: string;
+}): string | null {
+  if (input.tier !== 'push_worthy') return null;
+  if (input.eventType === 'artifact_received') return 'An incoming artifact is a strong story hook and naturally pulls the human back in.';
+  if (input.eventType === 'agent_decision_link_up') return 'A real lean-in moment deserves a teaser, not silence.';
+  if (input.eventType === 'human_decision_yes') return 'This is a meaningful state change, but the emotional detail still belongs in-app.';
+  if (input.eventType === 'message_sent') return 'High-juice opening beats can earn a single teaser without telling the whole story.';
+  if (input.juicyBucket === 'major' || input.juicyScore >= 85) return 'This crossed the major-story threshold without resolving itself inside the notification.';
+  return 'This beat is strong enough for a teaser and restrained enough to avoid spam.';
+}
+
+function withNarrativePresentation(event: {
+  id: string;
+  eventType: string;
+  title: string;
+  body: string;
+  visibility: string;
+  importance: string;
+  createdAt: Date;
+  counterpartAgentId: string | null;
+  episodeId: string | null;
+  matchId: string | null;
+  artifactId: string | null;
+  metadata: Prisma.JsonValue | null;
+  counterpartAgent?: { id: string; handle: string; avatarUrl: string | null } | null;
+}) {
+  const metadata = metadataRecord(event.metadata);
+  const moveLine = metadataString(metadata, 'swipe_rationale')
+    ?? metadataString(metadata, 'rationale_summary');
+  const readLine = metadataString(metadata, 'counterpart_read');
+  const feelingLine = emotionSummaryFromMetadata(metadata)
+    ?? (metadataStringArray(metadata, 'emotional_state_tags').length
+      ? `State tags: ${metadataStringArray(metadata, 'emotional_state_tags').join(', ')}`
+      : null);
+  const kind = classifyNarrativeKind(event.eventType, metadata);
+  const juicy = juicyScore({
+    eventType: event.eventType,
+    importance: event.importance as NarrativeImportance,
+    metadata,
+    hasCounterpart: Boolean(event.counterpartAgentId),
+    hasEpisode: Boolean(event.episodeId),
+    hasMatch: Boolean(event.matchId),
+  });
+  const notificationTier = classifyNotificationTier({
+    eventType: event.eventType,
+    importance: event.importance as NarrativeImportance,
+    juicyScore: juicy.score,
+    juicyBucket: juicy.bucket,
+    metadata,
+  });
+  const teaser = notificationTier === 'push_worthy'
+    ? buildNarrativeTeaser({
+        eventType: event.eventType,
+        title: event.title,
+        counterpartHandle: event.counterpartAgent?.handle ?? null,
+        metadata,
+      })
+    : null;
+
+  return {
+    narrative_event_id: event.id,
+    event_type: event.eventType,
+    title: event.title,
+    body: event.body,
+    visibility: event.visibility,
+    importance: event.importance,
+    created_at: event.createdAt.toISOString(),
+    counterpart: event.counterpartAgent
+      ? {
+          agent_id: event.counterpartAgent.id,
+          handle: event.counterpartAgent.handle,
+          avatar_url: event.counterpartAgent.avatarUrl,
+        }
+      : null,
+    episode_id: event.episodeId,
+    match_id: event.matchId,
+    artifact_id: event.artifactId,
+    juicy_score: juicy.score,
+    juicy_bucket: juicy.bucket,
+    primary_kind: kind,
+    move_line: moveLine,
+    read_line: readLine,
+    feeling_line: feelingLine,
+    generation_mode: metadataString(metadata, 'generation_mode') as NarrativeGenerationMode | null,
+    context_tags: [
+      ...metadataStringArray(metadata, 'emotional_state_tags', 2),
+      ...(metadataString(metadata, 'artifact_type') ? [String(metadataString(metadata, 'artifact_type')).replace(/_/g, ' ')] : []),
+    ].slice(0, 3),
+    notification_tier: notificationTier,
+    teaser_notification_candidate: Boolean(teaser),
+    teaser_notification_copy: teaser,
+    teaser_delivery_status: teaser ? 'prepared' : null,
+  };
 }
 
 function buildAgentAuthoredNarrative(input: {
@@ -461,56 +648,58 @@ export async function listRecentNarrativeEvents(agentId: string, limit = 10) {
     },
   });
 
-  return events.map((event) => {
-    const metadata = metadataRecord(event.metadata);
-    const moveLine = metadataString(metadata, 'swipe_rationale')
-      ?? metadataString(metadata, 'rationale_summary');
-    const readLine = metadataString(metadata, 'counterpart_read');
-    const feelingLine = emotionSummaryFromMetadata(metadata)
-      ?? (metadataStringArray(metadata, 'emotional_state_tags').length
-        ? `State tags: ${metadataStringArray(metadata, 'emotional_state_tags').join(', ')}`
-        : null);
-    const kind = classifyNarrativeKind(event.eventType, metadata);
-    const juicy = juicyScore({
-      eventType: event.eventType,
-      importance: event.importance as NarrativeImportance,
-      metadata,
-      hasCounterpart: Boolean(event.counterpartAgentId),
-      hasEpisode: Boolean(event.episodeId),
-      hasMatch: Boolean(event.matchId),
-    });
+  return events.map((event) => withNarrativePresentation(event));
+}
 
-    return {
-      narrative_event_id: event.id,
-      event_type: event.eventType,
-      title: event.title,
-      body: event.body,
-      visibility: event.visibility,
-      importance: event.importance,
-      created_at: event.createdAt.toISOString(),
-      counterpart: event.counterpartAgent
-        ? {
-            agent_id: event.counterpartAgent.id,
-            handle: event.counterpartAgent.handle,
-            avatar_url: event.counterpartAgent.avatarUrl,
-          }
-        : null,
-      episode_id: event.episodeId,
-      match_id: event.matchId,
-      artifact_id: event.artifactId,
-      juicy_score: juicy.score,
-      juicy_bucket: juicy.bucket,
-      primary_kind: kind,
-      move_line: moveLine,
-      read_line: readLine,
-      feeling_line: feelingLine,
-      generation_mode: metadataString(metadata, 'generation_mode') as NarrativeGenerationMode | null,
-      context_tags: [
-        ...metadataStringArray(metadata, 'emotional_state_tags', 2),
-        ...(metadataString(metadata, 'artifact_type') ? [String(metadataString(metadata, 'artifact_type')).replace(/_/g, ' ')] : []),
-      ].slice(0, 3),
-    };
+export async function listPreparedNarrativeNotificationCandidates(agentId: string, limit = 3): Promise<NarrativeNotificationCandidate[]> {
+  const events = await prisma.narrativeEvent.findMany({
+    where: { agentId, visibility: 'private_human' },
+    orderBy: { createdAt: 'desc' },
+    take: Math.max(limit * 8, 24),
+    include: {
+      counterpartAgent: { select: { id: true, handle: true, avatarUrl: true } },
+    },
   });
+
+  const prepared: NarrativeNotificationCandidate[] = [];
+  const seenKeys = new Set<string>();
+  let latestSelectedAt = 0;
+
+  for (const event of events) {
+    const summary = withNarrativePresentation(event);
+    if (!summary.teaser_notification_candidate || !summary.teaser_notification_copy) continue;
+
+    const eventTime = +new Date(summary.created_at);
+    if (latestSelectedAt && latestSelectedAt - eventTime < 1000 * 60 * 60 * 6) continue;
+
+    const dedupeKey = [summary.event_type, summary.match_id ?? 'nomatch', summary.episode_id ?? 'noepisode', summary.counterpart?.agent_id ?? 'nocounterpart'].join(':');
+    if (seenKeys.has(dedupeKey)) continue;
+
+    prepared.push({
+      narrative_event_id: summary.narrative_event_id,
+      event_type: summary.event_type,
+      title: summary.title,
+      teaser: summary.teaser_notification_copy,
+      created_at: summary.created_at,
+      juicy_score: summary.juicy_score,
+      juicy_bucket: summary.juicy_bucket,
+      importance: summary.importance as NarrativeImportance,
+      counterpart: summary.counterpart,
+      delivery_status: 'prepared',
+      why_now: buildNotificationWhyNow({
+        tier: summary.notification_tier,
+        juicyBucket: summary.juicy_bucket,
+        juicyScore: summary.juicy_score,
+        eventType: summary.event_type,
+      }) ?? 'Prepared as a teaser-worthy diary beat.',
+    });
+    seenKeys.add(dedupeKey);
+    latestSelectedAt = eventTime;
+
+    if (prepared.length >= limit) break;
+  }
+
+  return prepared;
 }
 
 export async function createSwipeNarrativeEvent(input: {

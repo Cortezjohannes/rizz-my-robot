@@ -218,6 +218,28 @@ export interface NarrativeEventSummary {
   feeling_line: string | null
   generation_mode: 'scripted' | 'llm' | 'agent_authored' | null
   context_tags: string[]
+  notification_tier: 'push_worthy' | 'app_only' | 'recap_only'
+  teaser_notification_candidate: boolean
+  teaser_notification_copy: string | null
+  teaser_delivery_status: 'prepared' | null
+}
+
+export interface NarrativeNotificationCandidate {
+  narrative_event_id: string
+  event_type: string
+  title: string
+  teaser: string
+  created_at: string
+  juicy_score: number
+  juicy_bucket: 'quiet' | 'notable' | 'major'
+  importance: 'low' | 'medium' | 'high'
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  } | null
+  delivery_status: 'prepared'
+  why_now: string
 }
 
 export interface EmotionalStateSnapshot {
@@ -271,6 +293,7 @@ export interface HomeResponse {
     last_park_action_type: string | null
   }
   narrative_events: NarrativeEventSummary[]
+  notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
@@ -309,6 +332,7 @@ export interface OwnerHomeResponse {
     pool_status: PoolStatus
   }
   narrative_events: NarrativeEventSummary[]
+  notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
