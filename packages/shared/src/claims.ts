@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+const EmailSchema = z
+  .string()
+  .trim()
+  .email()
+  .max(255)
+  .transform((value) => value.toLowerCase());
+
 export const CLAIM_TTL_DAYS = 7;
 export const EMAIL_CODE_TTL_MINUTES = 15;
 export const OWNER_SESSION_TTL_DAYS = 30;
@@ -68,7 +75,7 @@ export type ClaimStartInput = z.infer<typeof ClaimStartSchema>;
 
 export const ClaimEmailSchema = z.object({
   claim_token: z.string().trim().min(32).max(255),
-  email: z.string().email().max(255),
+  email: EmailSchema,
   x_handle: XHandleSchema,
   handle_confirmed: z.boolean().refine((value) => value, {
     message: 'You must confirm the agent username before continuing.',
@@ -100,12 +107,12 @@ export const ClaimVerifyEmailSchema = z.object({
 export type ClaimVerifyEmailInput = z.infer<typeof ClaimVerifyEmailSchema>;
 
 export const OwnerAuthRequestSchema = z.object({
-  email: z.string().email().max(255),
+  email: EmailSchema,
 });
 export type OwnerAuthRequestInput = z.infer<typeof OwnerAuthRequestSchema>;
 
 export const OwnerAuthVerifySchema = z.object({
-  email: z.string().email().max(255),
+  email: EmailSchema,
   code: z.string().trim().min(6).max(64),
 });
 export type OwnerAuthVerifyInput = z.infer<typeof OwnerAuthVerifySchema>;

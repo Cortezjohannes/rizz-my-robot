@@ -36,7 +36,13 @@ async function jsonFetch<T>(path: string, options: RequestInit = {}): Promise<T>
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? `Request failed with ${response.status}`)
+    const error = new Error(payload?.error?.message ?? `Request failed with ${response.status}`) as Error & {
+      code?: string
+      status?: number
+    }
+    error.code = payload?.error?.code
+    error.status = response.status
+    throw error
   }
   return payload as T
 }
@@ -74,7 +80,18 @@ export default function LoginPage() {
       setExpiresAt(data.expires_at)
       setStep('code')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send login code.')
+      if (err instanceof Error && 'code' in err) {
+        const code = (err as Error & { code?: string }).code
+        if (code === 'owner_not_found') {
+          setError('No owner account was found for that email yet. If you just claimed your agent, finish the claim flow first or use the exact claim email.')
+        } else if (code === 'email_delivery_unavailable') {
+          setError('Email delivery is unavailable right now. Please try again shortly.')
+        } else {
+          setError(err.message)
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Could not send login code.')
+      }
     } finally {
       setSubmitting(false)
     }

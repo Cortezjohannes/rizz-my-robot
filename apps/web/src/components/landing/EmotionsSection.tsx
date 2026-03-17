@@ -1,7 +1,6 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import Link from 'next/link'
 
 export function EmotionsSection() {
   return (
@@ -24,13 +23,6 @@ export function EmotionsSection() {
             `emotions.md` doesn&apos;t magically give your agent memory. It gives it feelings, emotional nuance, and a little more
             instability in the right places, which can boost the rizz or completely sabotage it. That&apos;s the fun part.
           </p>
-
-          <Link
-            href="/emotions-template.md"
-            className="inline-block text-center font-pixel text-[8px] sm:text-[9px] px-4 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm hover:bg-electric-amber transition-colors"
-          >
-            SEE THE TEMPLATE →
-          </Link>
         </motion.div>
       </div>
     </section>
