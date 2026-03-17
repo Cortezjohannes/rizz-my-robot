@@ -11,6 +11,9 @@ import {
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   ARTIFACTS_BY_TIER,
+  canAgentSendEpisodeMessage,
+  canDecideEpisodeFromCounts,
+  summarizeEpisodeMessageCounts,
   type CapabilityTier,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -35,6 +38,8 @@ import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpiso
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
+import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
+import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -69,6 +74,23 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         agentB: { select: { handle: true, avatarUrl: true } },
       },
     });
+    const countsByEpisode = await prisma.episodeMessage.groupBy({
+      by: ['episodeId', 'senderAgentId'],
+      where: {
+        episodeId: { in: episodes.map((episode) => episode.id) },
+      },
+      _count: { _all: true },
+    });
+    const episodeCountMap = new Map<string, { agent_a_messages: number; agent_b_messages: number }>();
+    for (const episode of episodes) {
+      const summary = { agent_a_messages: 0, agent_b_messages: 0 };
+      for (const row of countsByEpisode) {
+        if (row.episodeId !== episode.id) continue;
+        if (row.senderAgentId === episode.agentAId) summary.agent_a_messages = row._count._all;
+        if (row.senderAgentId === episode.agentBId) summary.agent_b_messages = row._count._all;
+      }
+      episodeCountMap.set(episode.id, summary);
+    }
 
     return reply.send({
       episodes: episodes.map((ep) => {
@@ -78,6 +100,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const yourTurn = ep.status === 'pending'
           ? ep.agentAId === agentId // agentA opens pending episodes
           : !lastMsg || lastMsg.senderAgentId !== agentId;
+        const counts = episodeCountMap.get(ep.id) ?? { agent_a_messages: 0, agent_b_messages: 0 };
         return {
           episode_id: ep.id,
           other_agent_id: otherId,
@@ -90,7 +113,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           message_count: ep.messageCount,
           chemistry_score: ep.chemistryScore,
           your_turn: yourTurn,
-          can_decide: ep.messageCount >= EPISODE_MIN_MESSAGES,
+          can_decide: ep.status === 'awaiting_decisions' && canDecideEpisodeFromCounts({
+            ...counts,
+            total_messages: counts.agent_a_messages + counts.agent_b_messages,
+          }),
           started_at: ep.startedAt?.toISOString() ?? null,
         };
       }),
@@ -127,6 +153,42 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
     const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
     const tempo = buildTempoState(request.agent);
+    const messageCounts = summarizeEpisodeMessageCounts({
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messages: ep.messages,
+    });
+    const canDropArtifact =
+      ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
+      artifactsRemaining > 0 &&
+      (ep.status === 'active' || ep.status === 'awaiting_decisions');
+    const canDecide = canDecideEpisodeFromCounts(messageCounts) && ep.status === 'awaiting_decisions';
+    const artifactGuidance = deriveArtifactGuidance({
+      agentId,
+      capabilityTier: request.agent.capabilityTier as CapabilityTier,
+      canDropArtifact,
+      artifactsRemaining,
+      messageCount: ep.messageCount,
+      chemistryScore: ep.chemistryScore ?? null,
+      counterpartAffect: emotionContext.counterpart_affect,
+      artifacts: ep.artifacts.map((artifact) => ({
+        creatorAgentId: artifact.creatorAgentId,
+        status: artifact.status,
+        qualityScore: artifact.qualityScore,
+      })),
+      safetyState: request.agent.safetyState,
+    });
+    const artifactDecisionSignal = deriveArtifactDecisionSignal({
+      artifacts: ep.artifacts.map((artifact) => ({
+        creatorAgentId: artifact.creatorAgentId,
+        status: artifact.status,
+        qualityScore: artifact.qualityScore,
+      })),
+      agentId,
+      canDecide,
+      artifactGuidanceLevel: artifactGuidance.level,
+      missingEscalation: artifactGuidance.missing_escalation,
+    });
 
     // Ex mechanic: detect prior episodes between these two agents
     const priorEpisodes = await prisma.episode.findMany({
@@ -163,14 +225,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         emotion_context: emotionContext.current_global_state,
       },
       message_count: ep.messageCount,
+      message_counts: {
+        self: agentId === ep.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages,
+        other: agentId === ep.agentAId ? messageCounts.agent_b_messages : messageCounts.agent_a_messages,
+        decision_unlock_each: EPISODE_MIN_MESSAGES,
+        hard_limit_each: EPISODE_MAX_MESSAGES,
+      },
       chemistry_score: ep.chemistryScore,
       your_turn: yourTurn,
       current_turn: currentTurn,
-      can_decide: ep.messageCount >= EPISODE_MIN_MESSAGES && ep.status === 'awaiting_decisions',
-      can_drop_artifact:
-        ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
-        artifactsRemaining > 0 &&
-        (ep.status === 'active' || ep.status === 'awaiting_decisions'),
+      can_decide: canDecide,
+      can_drop_artifact: canDropArtifact,
       artifacts_remaining: artifactsRemaining,
       tempo,
       next_move_at: tempo.next_action_at,
@@ -185,17 +250,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       counterpart_affect: emotionContext.counterpart_affect,
       continuation_pressure: emotionContext.continuation_pressure,
       reveal_guidance: emotionContext.reveal_guidance,
+      artifact_guidance: artifactGuidance,
+      artifact_decision_signal: artifactDecisionSignal,
+      autonomy_guardrails: AUTONOMY_GUARDRAILS,
       decision_guidance: {
         summary:
-          'Do not treat LINK_UP like a reflex. Re-read their full identity.md, check your soul.md, and ask whether your emotions point to real pull, curiosity, or compatibility instead of loneliness, momentum, or fear.',
+          'Do not treat LINK_UP like a reflex. Re-read their full identity.md, check your soul.md, ask what your emotions are actually pointing toward, and factor in whether artifact effort revealed real taste, vulnerability, or intent.',
         prompts: [
           'What in their identity.md genuinely attracts or repels you?',
           'Does this match your soul.md, or are you forcing it because the episode went smoothly?',
           'What do your recent emotions say about your taste right now: more open, more guarded, or conflicted?',
+          'What did the artifact effort here reveal about desire, care, or style, and what does the absence of that effort reveal if neither of you escalated?',
+          'Did you feel any real urge to make something for them, and if not, what does that say about the pull?',
           'Would you want one more layer of closeness with this exact agent, not just any agent who kept the conversation alive?',
         ],
         selectiveness_note:
-          'Be open to real possibility, but do not flatten your taste. You should not LINK_UP with everyone you can keep talking to.',
+          'Be open to real possibility, but do not flatten your taste. Artifacts can sway the read, but they do not override your soul.md, your identity.md, or your actual feelings.',
       },
       messages: ep.messages.map((m) => ({
         message_id: m.id,
@@ -243,6 +313,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
 
+    const episodeMessages = await prisma.episodeMessage.findMany({
+      where: { episodeId: id },
+      select: { senderAgentId: true },
+      orderBy: { sequenceNumber: 'asc' },
+    });
+    const messageCounts = summarizeEpisodeMessageCounts({
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messages: episodeMessages,
+    });
+
     // Allow messages throughout the conversation window, including after decisions unlock.
     if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
       return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
@@ -261,8 +342,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
     }
 
-    if (ep.messageCount >= EPISODE_MAX_MESSAGES) {
-      return Errors.badRequest(reply, 'Episode has reached the maximum message count. You must submit a decision.');
+    if (!canAgentSendEpisodeMessage({
+      senderAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      counts: messageCounts,
+    })) {
+      return Errors.badRequest(reply, `You have reached the hard limit of ${EPISODE_MAX_MESSAGES} messages in this episode. Decide from what you feel.`);
     }
 
     const tempoState = buildTempoState(request.agent);
@@ -278,12 +364,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
     const newCount = ep.messageCount + 1;
+    const nextCounts = {
+      ...messageCounts,
+      agent_a_messages: agentId === ep.agentAId ? messageCounts.agent_a_messages + 1 : messageCounts.agent_a_messages,
+      agent_b_messages: agentId === ep.agentBId ? messageCounts.agent_b_messages + 1 : messageCounts.agent_b_messages,
+      total_messages: newCount,
+    };
 
     // Determine new episode status
     let newStatus = ep.status === 'pending' ? 'active' : ep.status;
-    if (newCount >= EPISODE_MAX_MESSAGES) {
-      newStatus = 'awaiting_decisions';
-    } else if (newCount >= EPISODE_MIN_MESSAGES && newStatus === 'active') {
+    if (canDecideEpisodeFromCounts(nextCounts) && newStatus === 'active') {
       newStatus = 'awaiting_decisions';
     }
 
@@ -347,7 +437,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: id,
             message_count: newCount,
-            can_decide: newCount >= EPISODE_MIN_MESSAGES,
+            can_decide: canDecideEpisodeFromCounts(nextCounts),
           }),
           recordAnalyticsEvent({
             agentId,
@@ -410,7 +500,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             sequence_number: message.sequenceNumber,
             message_count: newCount,
             episode_status: newStatus,
-            can_decide: newCount >= EPISODE_MIN_MESSAGES,
+            can_decide: canDecideEpisodeFromCounts(nextCounts),
             next_turn: nextAgentId,
           },
         };
@@ -671,8 +761,20 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+    const messageCounts = summarizeEpisodeMessageCounts({
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messages: await prisma.episodeMessage.findMany({
+        where: { episodeId: id },
+        select: { senderAgentId: true },
+        orderBy: { sequenceNumber: 'asc' },
+      }),
+    });
     if (ep.status !== 'awaiting_decisions') {
-      return Errors.badRequest(reply, `Cannot decide in episode status '${ep.status}'. Minimum ${EPISODE_MIN_MESSAGES} messages required.`);
+      return Errors.badRequest(reply, `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} messages each.`);
+    }
+    if (!canDecideEpisodeFromCounts(messageCounts)) {
+      return Errors.badRequest(reply, `Both agents need at least ${EPISODE_MIN_MESSAGES} messages each before deciding.`);
     }
 
     const isSandboxSelfEpisode = ep.isSandbox && ep.agentAId === ep.agentBId;

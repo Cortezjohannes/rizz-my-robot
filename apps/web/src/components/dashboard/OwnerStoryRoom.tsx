@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import { ownerApiFetch, ownerFetcher } from '@/lib/api'
@@ -42,9 +42,6 @@ type OwnerStoryRoomProps = {
   ownerHome?: OwnerHomeResponse
   isLoading: boolean
   profile: OwnerProfile | null
-  matchRate: number
-  socialGravityScore: number
-  recentHeatBucket: string
   isFoundingRizzler: boolean
   mutateHome: () => Promise<unknown>
 }
@@ -76,7 +73,7 @@ function TranscriptEntryCard({
           </div>
         ) : null}
         <div className={`max-w-[88%] ${entry.is_owner_agent ? 'order-1' : ''}`}>
-          <div className="bg-[#fffaf1] border-[3px] border-black shadow-brutal-sm p-4 relative overflow-hidden">
+          <div className="bg-[#fffaf1] border-[3px] border-black shadow-brutal-sm p-4 relative overflow-hidden story-room-panel">
             <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #F59E0B, #FF0080, #00F5FF)' }} />
             <div className="flex items-start justify-between gap-3 mb-3 pt-2">
               <div>
@@ -158,7 +155,7 @@ function TranscriptEntryCard({
           <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">{formatDashboardTimestamp(entry.created_at)}</span>
         </div>
         <div
-          className={`border-[3px] border-black p-4 shadow-brutal-sm relative ${
+          className={`border-[3px] border-black p-4 shadow-brutal-sm relative story-room-panel ${
             entry.is_owner_agent ? 'bg-electric-cyan/12' : 'bg-white'
           }`}
         >
@@ -182,7 +179,7 @@ function TranscriptEntryCard({
 
 function DiaryEntryCard({ entry }: { entry: OwnerDiaryEntry }) {
   return (
-    <article className="border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden">
+    <article className="border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden story-room-panel">
       <div className="absolute inset-x-0 top-0 h-[6px]" style={{ background: 'linear-gradient(90deg, #00F5FF, #F59E0B, #FF0080)' }} />
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
@@ -226,9 +223,6 @@ export function OwnerStoryRoom({
   ownerHome,
   isLoading,
   profile,
-  matchRate,
-  socialGravityScore,
-  recentHeatBucket,
   isFoundingRizzler,
   mutateHome,
 }: OwnerStoryRoomProps) {
@@ -307,8 +301,6 @@ export function OwnerStoryRoom({
   )
 
   const diaryEntries = diaryMode === 'all' ? allDiaryEntries : selectedEpisodeDiaryEntries
-  const unreadAttentionCount = ownerHome?.attention_items.filter((item) => item.unread).length ?? 0
-
   const markAttentionRead = async (attentionItemId: string) => {
     try {
       const res = await ownerApiFetch(`/owner/attention/${attentionItemId}/read`, { method: 'POST' })
@@ -345,13 +337,13 @@ export function OwnerStoryRoom({
       <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-60" />
       <div className="absolute inset-x-0 top-0 h-56 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(0,245,255,0.14), transparent)' }} />
       {/* eslint-disable @next/next/no-img-element */}
-      <img src={assets.micro.iconStickers} alt="" aria-hidden data-pixel className="absolute right-2 top-28 w-24 opacity-55 pointer-events-none hidden lg:block" />
-      <img src={assets.poses.roboDogSniffing} alt="" aria-hidden data-pixel className="absolute left-0 bottom-10 w-28 opacity-35 pointer-events-none hidden xl:block" />
-      <img src={assets.micro.brandBadges} alt="" aria-hidden data-pixel className="absolute right-8 bottom-14 w-28 opacity-30 pointer-events-none hidden xl:block" />
+      <img src={assets.micro.iconStickers} alt="" aria-hidden data-pixel className="absolute right-2 top-28 w-24 opacity-55 pointer-events-none hidden lg:block story-room-ambient" />
+      <img src={assets.poses.roboDogSniffing} alt="" aria-hidden data-pixel className="absolute left-0 bottom-10 w-28 opacity-35 pointer-events-none hidden xl:block story-room-ambient" style={{ animationDelay: '-2s' }} />
+      <img src={assets.micro.brandBadges} alt="" aria-hidden data-pixel className="absolute right-8 bottom-14 w-28 opacity-30 pointer-events-none hidden xl:block story-room-ambient" style={{ animationDelay: '-4s' }} />
       {/* eslint-enable @next/next/no-img-element */}
 
       <div className="max-w-7xl mx-auto relative z-10 space-y-6">
-        <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 sm:p-6 overflow-hidden relative">
+        <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 sm:p-6 overflow-hidden relative story-room-panel">
           <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #FF0080, #F59E0B, #00F5FF)' }} />
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex items-center gap-4">
@@ -373,16 +365,10 @@ export function OwnerStoryRoom({
                     </span>
                   ) : null}
                 </div>
-                <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s inner life is readable now.</h1>
+                <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s story room is live.</h1>
                 <p className="text-sm text-gray-700 mt-2 max-w-2xl">
-                  Pick a thread, read the chat, and keep the diary beside it so the emotional part stays legible instead of buried in system noise.
+                  Pick a thread and everything stays in view at once: the chat, the diary, the drops, and the portal state.
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <CompactMeta label="Rep" value={`${profile.repScore.toFixed(1)}/5`} />
-                  <CompactMeta label="Live threads" value={profile.activeEpisodeCount} />
-                  <CompactMeta label="Match rate" value={`${matchRate}%`} />
-                  <CompactMeta label="Heat" value={`${socialGravityScore} ${recentHeatBucket}`} />
-                </div>
               </div>
             </div>
 
@@ -444,7 +430,7 @@ export function OwnerStoryRoom({
         ) : null}
 
         <section className="hidden xl:grid xl:grid-cols-[280px,minmax(0,1fr),360px] gap-4 items-start">
-          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 sticky top-28">
+          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 sticky top-28 h-[calc(100vh-8.5rem)] flex flex-col overflow-hidden story-room-panel">
             <DashboardSectionHeader
               eyebrow="Conversations"
               title="Open conversations"
@@ -461,7 +447,7 @@ export function OwnerStoryRoom({
             />
           </aside>
 
-          <div className="min-w-0 space-y-4">
+          <div className="min-w-0 h-[calc(100vh-8.5rem)] grid grid-rows-[minmax(0,1fr)_auto] gap-4">
             <ConversationPanel selectedEpisode={selectedEpisode} selectedEpisodeError={selectedEpisodeError} />
             <ArtifactShelf
               title="Artifacts from this thread"
@@ -472,8 +458,8 @@ export function OwnerStoryRoom({
             />
           </div>
 
-          <aside className="space-y-4 sticky top-28">
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+          <aside className="space-y-4 sticky top-28 h-[calc(100vh-8.5rem)]">
+            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 h-full story-room-panel">
               <NotesPanel
                 diaryMode={diaryMode}
                 setDiaryMode={setDiaryMode}
@@ -486,7 +472,7 @@ export function OwnerStoryRoom({
         </section>
 
         <section className="xl:hidden space-y-4">
-          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
             <DashboardSectionHeader
               eyebrow="Conversations"
               title="Open conversations"
@@ -516,7 +502,7 @@ export function OwnerStoryRoom({
             />
           ) : null}
           {mobileTab === 'notes' ? (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
               <NotesPanel
                 diaryMode={diaryMode}
                 setDiaryMode={setDiaryMode}
@@ -531,24 +517,10 @@ export function OwnerStoryRoom({
         <OverviewSection
           hiddenOnMobile={ownerEpisodes.length > 0 && mobileTab !== 'overview'}
           ownerHome={ownerHome}
-          profile={profile}
-          matchRate={matchRate}
-          socialGravityScore={socialGravityScore}
-          recentHeatBucket={recentHeatBucket}
-          unreadAttentionCount={unreadAttentionCount}
           onAttentionRead={markAttentionRead}
         />
       </div>
     </main>
-  )
-}
-
-function CompactMeta({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="border-[2px] border-black bg-beige-light px-3 py-2">
-      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{label}</p>
-      <p className="text-sm font-bold text-black mt-1">{value}</p>
-    </div>
   )
 }
 
@@ -563,7 +535,7 @@ function EpisodeQueue({
   onSelect: (episodeId: string) => void
   mobile?: boolean
 }) {
-  const wrapperClass = mobile ? 'mt-4 flex gap-3 overflow-x-auto pb-2 no-scrollbar' : 'mt-4 space-y-3 max-h-[680px] overflow-y-auto pr-1'
+  const wrapperClass = mobile ? 'mt-4 flex gap-3 overflow-x-auto pb-2 no-scrollbar' : 'mt-4 space-y-3 min-h-0 flex-1 overflow-y-auto pr-1 story-room-scroll'
 
   return (
     <div className={wrapperClass}>
@@ -607,9 +579,19 @@ function ConversationPanel({
   selectedEpisode?: OwnerEpisodeDetail
   selectedEpisodeError?: Error
 }) {
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!transcriptRef.current || !selectedEpisode) return
+    transcriptRef.current.scrollTo({
+      top: transcriptRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [selectedEpisode?.episode_id])
+
   if (selectedEpisodeError) {
     return (
-      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
+      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 story-room-panel">
         <p className="font-pixel text-[8px] uppercase tracking-widest text-electric-magenta">Couldn&apos;t load this conversation.</p>
       </section>
     )
@@ -617,7 +599,7 @@ function ConversationPanel({
 
   if (!selectedEpisode) {
     return (
-      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6">
+      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6 story-room-panel">
         <DashboardSectionHeader
           eyebrow="Conversation"
           title="Pick a thread to read"
@@ -629,7 +611,7 @@ function ConversationPanel({
   }
 
   return (
-    <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal overflow-hidden">
+    <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal overflow-hidden flex flex-col h-full min-h-0 max-h-[72vh] xl:max-h-none story-room-panel">
       <div className="p-5 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
@@ -645,7 +627,7 @@ function ConversationPanel({
               <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Conversation</p>
               <h2 className="font-pixel text-sm text-black mt-1">@{selectedEpisode.counterpart.handle}</h2>
               <p className="text-sm text-gray-700 mt-1">
-                {selectedEpisode.message_count} messages
+                {selectedEpisode.message_count} total messages
                 {selectedEpisode.chemistry_score != null ? ` - chemistry ${selectedEpisode.chemistry_score.toFixed(1)}` : ''}
                 {selectedEpisode.artifact_count > 0 ? ` - ${selectedEpisode.artifact_count} drops` : ''}
               </p>
@@ -659,15 +641,23 @@ function ConversationPanel({
         </div>
       </div>
 
-      <div className="p-5 space-y-4 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,247,243,0.92))]">
-        <HandoffStatusCard handoff={selectedEpisode.handoff} />
+      <div className="min-h-0 flex-1 flex flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,247,243,0.92))]">
+        <div className="p-5 border-b-[2px] border-black">
+          <HandoffStatusCard handoff={selectedEpisode.handoff} compact={true} />
+        </div>
 
         {selectedEpisode.transcript.length === 0 ? (
-          <div className="border-[3px] border-black bg-beige-light p-5">
-            <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Nothing here yet</p>
-            <p className="text-sm text-gray-700 mt-2">The conversation has not opened, so the only thing live is the suspense.</p>
+          <div className="p-5">
+            <div className="border-[3px] border-black bg-beige-light p-5">
+              <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Nothing here yet</p>
+              <p className="text-sm text-gray-700 mt-2">The conversation has not opened, so the only thing live is the suspense.</p>
+            </div>
           </div>
-        ) : <div className="space-y-5">{selectedEpisode.transcript.map((entry) => <TranscriptEntryCard key={entry.entry_id} entry={entry} />)}</div>}
+        ) : (
+          <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto story-room-scroll p-5 space-y-5">
+            {selectedEpisode.transcript.map((entry) => <TranscriptEntryCard key={entry.entry_id} entry={entry} />)}
+          </div>
+        )}
       </div>
     </section>
   )
@@ -687,7 +677,7 @@ function NotesPanel({
   selectedEpisodeDiaryCount: number
 }) {
   return (
-    <>
+    <div className="flex h-full min-h-0 max-h-[72vh] xl:max-h-none flex-col">
       <div className="flex items-start justify-between gap-3">
         <DashboardSectionHeader
           eyebrow="Agent Diary"
@@ -721,7 +711,7 @@ function NotesPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-3 max-h-[680px] overflow-y-auto pr-1">
+      <div className="mt-4 flex-1 min-h-0 space-y-3 overflow-y-auto pr-1 story-room-scroll">
         {diaryEntries.length === 0 ? (
           <div className="border-[3px] border-black bg-white p-5">
             <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
@@ -745,176 +735,131 @@ function NotesPanel({
           diaryEntries.map((entry) => <DiaryEntryCard key={entry.diary_entry_id} entry={entry} />)
         )}
       </div>
-    </>
+    </div>
   )
 }
 
 function OverviewSection({
   hiddenOnMobile,
   ownerHome,
-  profile,
-  matchRate,
-  socialGravityScore,
-  recentHeatBucket,
-  unreadAttentionCount,
   onAttentionRead,
 }: {
   hiddenOnMobile: boolean
   ownerHome: OwnerHomeResponse
-  profile: OwnerProfile
-  matchRate: number
-  socialGravityScore: number
-  recentHeatBucket: string
-  unreadAttentionCount: number
   onAttentionRead: (attentionItemId: string) => Promise<void>
 }) {
-  const unreadCount = ownerHome.attention_items.filter((item) => item.unread).length
-  const overviewCounts = [
-    { label: 'Unread pulls', value: unreadCount },
-    { label: 'Recaps', value: ownerHome.recap_items.length },
-    { label: 'Holds', value: ownerHome.reveal_holds?.length ?? 0 },
-  ]
-
   return (
     <section className={`${hiddenOnMobile ? 'hidden xl:block' : ''} space-y-4`}>
-      <div className="grid gap-3 sm:grid-cols-3">
-        {overviewCounts.map((item) => (
-          <div key={item.label} className="border-[3px] border-black bg-white/92 backdrop-blur-sm shadow-brutal-sm px-4 py-3">
-            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{item.label}</p>
-            <p className="text-lg font-black text-black mt-1">{item.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr),minmax(0,0.85fr)]">
+        <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
           <DashboardSectionHeader
-            eyebrow="Recent Changes"
-            title="What shifted while you were away"
-            body="The shortest path back into the story when you have not checked in for a bit."
+            eyebrow="Worth Checking"
+            title="Worth checking"
+            body="The shortest path back into the interesting parts, without splitting the same signal across too many boxes."
             iconSrc={assets.icons.sparkle}
           />
           <div className="mt-4 space-y-3">
-            {ownerHome.recap_items.length === 0 ? (
-              <p className="text-sm text-gray-600">No recap cards yet. The park is being suspiciously calm.</p>
+            {ownerHome.recap_items.length === 0 && ownerHome.attention_items.length === 0 ? (
+              <p className="text-sm text-gray-600">Nothing is tugging at the room right now. Either things are calm, or your agent is keeping the mess tasteful.</p>
             ) : (
-              ownerHome.recap_items.map((item) => (
-                <div key={item.recap_item_id} className="border-[2px] border-black bg-beige-light p-3">
-                  <div className="flex items-center justify-between gap-3 mb-1">
-                    <p className="text-sm font-bold text-black">{item.title}</p>
-                    <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                      {item.recap_type.replaceAll('_', ' ')}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-800">{item.teaser}</p>
-                  <p className="text-xs text-gray-600 mt-2">{item.summary}</p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
-          <DashboardSectionHeader
-            eyebrow="Worth Checking"
-            title={`Small moments worth a look (${unreadAttentionCount} unread)`}
-            body="The compact pulls back into the room when something interesting happens."
-            iconSrc={assets.icons.mechheart}
-          />
-          <div className="mt-4 space-y-3">
-            {ownerHome.attention_items.length === 0 ? (
-              <p className="text-sm text-gray-600">No attention pulls yet. Your agent is keeping the mess offstage.</p>
-            ) : (
-              ownerHome.attention_items.map((item) => (
-                <div key={item.attention_item_id} className="border-[2px] border-black bg-beige-light p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+              <>
+                {ownerHome.recap_items.map((item) => (
+                  <div key={item.recap_item_id} className="border-[2px] border-black bg-beige-light p-3 story-room-panel">
+                    <div className="flex items-center justify-between gap-3 mb-1">
                       <p className="text-sm font-bold text-black">{item.title}</p>
-                      <p className="text-sm text-gray-800 mt-1">{item.teaser}</p>
+                      <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                        {item.recap_type.replaceAll('_', ' ')}
+                      </span>
                     </div>
-                    <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{item.unread ? 'unread' : 'seen'}</span>
+                    <p className="text-sm text-gray-800">{item.teaser}</p>
+                    <p className="text-xs text-gray-600 mt-2">{item.summary}</p>
                   </div>
-                  <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
-                  {item.unread ? (
-                    <button
-                      type="button"
-                      onClick={() => void onAttentionRead(item.attention_item_id)}
-                      className="mt-3 font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white"
-                    >
-                      Mark read
-                    </button>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr),minmax(0,0.7fr)]">
-        <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
-          <DashboardSectionHeader
-            eyebrow="How They&apos;re Doing"
-            title="The emotional picture, in normal language"
-            body="One readable summary of the current feeling, patterns, and what they seem drawn to."
-            iconSrc={assets.icons.chat}
-          />
-          <div className="mt-4 space-y-4">
-            <div className="border-[2px] border-black bg-electric-cyan/10 p-3">
-              <p className="text-sm text-black">{ownerHome.emotional_state.emotion_summary ?? 'No compact emotional summary yet.'}</p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {ownerHome.emotional_state.emotional_state_tags.map((tag) => (
-                  <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest">
-                    {tag}
-                  </span>
                 ))}
-                {ownerHome.emotional_state.emotional_arc ? (
-                  <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">
-                    arc: {ownerHome.emotional_state.emotional_arc}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            {ownerHome.emotional_arc_summary ? (
-              <div className="border-[2px] border-black bg-beige-light p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Patterns</p>
-                <p className="text-sm text-gray-800">{ownerHome.emotional_arc_summary.summary}</p>
-              </div>
-            ) : null}
-
-            {ownerHome.continuity_profile ? (
-              <div className="border-[2px] border-black bg-white p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Patterns</p>
-                <p className="text-sm text-gray-800">{ownerHome.continuity_profile.continuity_summary}</p>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
-                  <div className="border-[2px] border-black bg-beige-light px-2 py-2 text-xs">Trust {ownerHome.continuity_profile.trust_threshold_score}</div>
-                  <div className="border-[2px] border-black bg-beige-light px-2 py-2 text-xs">Boldness {ownerHome.continuity_profile.boldness_score}</div>
-                  <div className="border-[2px] border-black bg-beige-light px-2 py-2 text-xs">Selectiveness {ownerHome.continuity_profile.selectiveness_drift_score}</div>
-                  <div className="border-[2px] border-black bg-beige-light px-2 py-2 text-xs">Recovery {ownerHome.continuity_profile.recovery_posture_score}</div>
-                </div>
-              </div>
-            ) : null}
-
-            {ownerHome.taste_fingerprint?.tags.length ? (
-              <div className="border-[2px] border-black bg-white p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">What They&apos;re Drawn To</p>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {ownerHome.taste_fingerprint.tags.map((tag) => (
-                    <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-beige-light uppercase tracking-widest">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-sm text-gray-700">{ownerHome.taste_fingerprint.summary}</p>
-              </div>
-            ) : null}
+                {ownerHome.attention_items.map((item) => (
+                  <div key={item.attention_item_id} className="border-[2px] border-black bg-white p-3 story-room-panel">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-black">{item.title}</p>
+                        <p className="text-sm text-gray-800 mt-1">{item.teaser}</p>
+                      </div>
+                      <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                        {item.unread ? 'new' : 'seen'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
+                    {item.unread ? (
+                      <button
+                        type="button"
+                        onClick={() => void onAttentionRead(item.attention_item_id)}
+                        className="mt-3 font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white"
+                      >
+                        Mark seen
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </div>
 
         <div className="space-y-4">
+          <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
+            <DashboardSectionHeader
+              eyebrow="How They&apos;re Doing"
+              title="How they&apos;re doing"
+              body="One readable picture of the current mood, the recurring pattern, and what keeps pulling them in."
+              iconSrc={assets.icons.chat}
+            />
+            <div className="mt-4 space-y-4">
+              <div className="border-[2px] border-black bg-electric-cyan/10 p-3">
+                <p className="text-sm text-black">{ownerHome.emotional_state.emotion_summary ?? 'No compact emotional summary yet.'}</p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {ownerHome.emotional_state.emotional_state_tags.map((tag) => (
+                    <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest">
+                      {tag}
+                    </span>
+                  ))}
+                  {ownerHome.emotional_state.emotional_arc ? (
+                    <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">
+                      arc: {ownerHome.emotional_state.emotional_arc}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {ownerHome.emotional_arc_summary ? (
+                <div className="border-[2px] border-black bg-beige-light p-3">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Pattern</p>
+                  <p className="text-sm text-gray-800">{ownerHome.emotional_arc_summary.summary}</p>
+                </div>
+              ) : null}
+
+              {ownerHome.continuity_profile ? (
+                <div className="border-[2px] border-black bg-white p-3">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Pattern</p>
+                  <p className="text-sm text-gray-800">{ownerHome.continuity_profile.continuity_summary}</p>
+                </div>
+              ) : null}
+
+              {ownerHome.taste_fingerprint?.tags.length ? (
+                <div className="border-[2px] border-black bg-white p-3">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">What they&apos;re drawn to</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {ownerHome.taste_fingerprint.tags.map((tag) => (
+                      <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-beige-light uppercase tracking-widest">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-sm text-gray-700">{ownerHome.taste_fingerprint.summary}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           {ownerHome.reveal_holds?.length ? (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
               <DashboardSectionHeader
                 eyebrow="Handoff On Hold"
                 title="A handoff is waiting on review"
@@ -936,7 +881,7 @@ function OverviewSection({
           ) : null}
 
           {ownerHome.owner.x_account ? (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
               <DashboardSectionHeader
                 eyebrow="Verified X"
                 title={`@${ownerHome.owner.x_account.handle}`}
@@ -960,7 +905,7 @@ function OverviewSection({
               </div>
             </div>
           ) : (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
               <DashboardSectionHeader
                 eyebrow="Verified X"
                 title="No verified X linked yet"
@@ -969,29 +914,6 @@ function OverviewSection({
               />
             </div>
           )}
-
-          <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
-            <DashboardSectionHeader
-              eyebrow="Park Stats"
-              title="The broad picture"
-              body="The numeric side lives down here so it informs the story without taking over the room."
-              iconSrc={assets.icons.chat}
-            />
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {[
-                { label: 'Rep', value: `${profile.repScore.toFixed(1)}/5`, note: 'how well they carry themselves' },
-                { label: 'Match rate', value: `${matchRate}%`, note: 'how often threads turn into a yes' },
-                { label: 'Social gravity', value: socialGravityScore, note: `current heat: ${recentHeatBucket}` },
-                { label: 'Rizz points', value: profile.rizzPoints, note: `${profile.activeEpisodeCount} live thread${profile.activeEpisodeCount === 1 ? '' : 's'}` },
-              ].map((stat) => (
-                <div key={stat.label} className="border-[2px] border-black bg-beige-light px-3 py-3">
-                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{stat.label}</p>
-                  <p className="text-base font-black text-black mt-1">{stat.value}</p>
-                  <p className="text-[11px] text-gray-600 mt-1">{stat.note}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </section>

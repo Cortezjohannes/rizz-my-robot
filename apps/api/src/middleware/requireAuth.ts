@@ -15,6 +15,7 @@ declare module 'fastify' {
       actionCooldownUntil: Date | null;
       poolStatus: string;
       capabilityTier: string;
+      safetyState: string;
     };
   }
 }
@@ -41,6 +42,7 @@ export const requireAuth: preHandlerHookHandler = async (
       actionCooldownUntil: true,
       poolStatus: true,
       capabilityTier: true,
+      safetyState: true,
       isActive: true,
       moderationStatus: true,
     },

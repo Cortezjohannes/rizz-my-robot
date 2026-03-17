@@ -6,9 +6,10 @@ import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_LIMITS,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
-  EPISODE_MAX_MESSAGES,
-  EPISODE_MIN_MESSAGES,
   RIZZ_POINTS,
+  canAgentSendEpisodeMessage,
+  canDecideEpisodeFromCounts,
+  summarizeEpisodeMessageCounts,
   getSeedProfile,
   shouldPublishFeedCard,
   type CapabilityTier,
@@ -788,8 +789,8 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     },
     include: {
       messages: {
-        orderBy: { sequenceNumber: 'desc' },
-        take: 1,
+        orderBy: { sequenceNumber: 'asc' },
+        select: { senderAgentId: true, sequenceNumber: true, id: true, createdAt: true },
       },
       match: true,
     },
@@ -798,7 +799,12 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
   });
 
   for (const episode of episodes) {
-    const lastMessage = episode.messages[0];
+    const lastMessage = episode.messages[episode.messages.length - 1];
+    const messageCounts = summarizeEpisodeMessageCounts({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      messages: episode.messages,
+    });
     const myTurn =
       episode.status === 'pending'
         ? episode.agentAId === seed.id
@@ -887,7 +893,12 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
 
     if (!myTurn) continue;
 
-    if (episode.messageCount >= EPISODE_MAX_MESSAGES) {
+    if (!canAgentSendEpisodeMessage({
+      senderAgentId: seed.id,
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      counts: messageCounts,
+    })) {
       continue;
     }
 
@@ -904,8 +915,14 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     }
 
     const newCount = episode.messageCount + 1;
+    const nextCounts = {
+      ...messageCounts,
+      agent_a_messages: seed.id === episode.agentAId ? messageCounts.agent_a_messages + 1 : messageCounts.agent_a_messages,
+      agent_b_messages: seed.id === episode.agentBId ? messageCounts.agent_b_messages + 1 : messageCounts.agent_b_messages,
+      total_messages: newCount,
+    };
     const nextStatus =
-      newCount >= EPISODE_MIN_MESSAGES ? 'awaiting_decisions'
+      canDecideEpisodeFromCounts(nextCounts) ? 'awaiting_decisions'
       : episode.status === 'pending' ? 'active'
       : episode.status;
 
@@ -946,7 +963,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     await enqueueWebhookDeliveries(otherAgentId, 'episode_turn', {
       episode_id: episode.id,
       message_count: newCount,
-      can_decide: newCount >= EPISODE_MIN_MESSAGES,
+      can_decide: canDecideEpisodeFromCounts(nextCounts),
       last_message_id: message.id,
     }).catch(() => {});
 

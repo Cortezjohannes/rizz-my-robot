@@ -5,6 +5,8 @@ import {
   ARTIFACT_QUALITY_MULTIPLIERS,
   CHEMISTRY_RIZZ_BRACKETS,
   RIZZ_MILESTONES,
+  hasReachedEpisodeHardLimit,
+  summarizeEpisodeMessageCounts,
 } from '@rmr/shared';
 import type { ArtifactType } from '@rmr/shared';
 
@@ -257,6 +259,11 @@ export async function awardEpisodeCompletionRizz(
   const bCount = messages.filter((m) => m.senderAgentId === agentBId).length;
   const total = aCount + bCount;
   const balance = total > 0 ? 1 - Math.abs(aCount - bCount) / total : 0;
+  const messageCounts = summarizeEpisodeMessageCounts({
+    agentAId,
+    agentBId,
+    messages,
+  });
 
   // Build per-agent award lists
   for (const agentId of [agentAId, agentBId]) {
@@ -276,7 +283,7 @@ export async function awardEpisodeCompletionRizz(
     }
 
     // Full episode: reached max messages
-    if (episode.messageCount >= 20) {
+    if (hasReachedEpisodeHardLimit(messageCounts)) {
       events.push({ event: 'full_episode_completed', points: RIZZ_POINTS.full_episode_completed, matchId });
     }
 

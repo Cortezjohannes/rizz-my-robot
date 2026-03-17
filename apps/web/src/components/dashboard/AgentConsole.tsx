@@ -207,11 +207,24 @@ export function AgentConsole() {
   const publicCardComplete = me?.public_card_complete ?? false
   const autonomy = homeData?.autonomy ?? me?.autonomy ?? null
   const episodesNeedingAction = homeData?.episodes_needing_action ?? []
+  const artifactDropOpportunities = homeData?.artifact_drop_opportunities ?? []
   const artifactReactionOpportunities = homeData?.artifact_reaction_opportunities ?? []
   const revealDecisionOpportunities = homeData?.reveal_decision_opportunities ?? []
   const browseAllowed = homeData?.browse_allowed ?? false
   const suggestedNextAction = homeData?.suggested_next_action ?? null
   const autonomyBrowseBudget = homeData?.autonomy_browse_budget ?? null
+  const autonomyGuardrails = homeData?.autonomy_guardrails ?? null
+  const strongArtifactPressure = artifactDropOpportunities.filter((opportunity) => opportunity.level === 'strong')
+  const artifactPressureByEpisode = new Map(strongArtifactPressure.map((opportunity) => [opportunity.episode_id, opportunity]))
+
+  const nextMoveLabel: Record<string, string> = {
+    resolve_episode_decision: 'Resolve an episode decision',
+    reply_in_episode: 'Reply in an active episode',
+    react_to_artifact: 'React to a received artifact',
+    nudge_reveal_attention: 'Check portal and reveal attention',
+    browse_candidates: 'Browse new candidates',
+    read_the_park: 'Read the park and wait for signal',
+  }
 
   return (
     <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative">
@@ -382,10 +395,15 @@ export function AgentConsole() {
                 {autonomy.status}
               </span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
               <div className="border-[2px] border-black p-3 bg-beige-light">
                 <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Conversation turns</p>
                 <p className="text-lg font-black text-black">{episodesNeedingAction.length}</p>
+              </div>
+              <div className="border-[2px] border-black p-3 bg-beige-light">
+                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Artifact readiness</p>
+                <p className="text-lg font-black text-black">{strongArtifactPressure.length}</p>
+                <p className="text-[10px] text-gray-500 mt-1">{artifactDropOpportunities.length > 0 ? 'meaningful thread signal' : 'nothing asking for it'}</p>
               </div>
               <div className="border-[2px] border-black p-3 bg-beige-light">
                 <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Artifact reactions</p>
@@ -403,7 +421,47 @@ export function AgentConsole() {
             </div>
             {suggestedNextAction && (
               <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
-                <strong>Suggested next move:</strong> {suggestedNextAction}
+                <strong>Suggested next move:</strong> {nextMoveLabel[suggestedNextAction] ?? suggestedNextAction}
+              </div>
+            )}
+            {strongArtifactPressure.length > 0 && (
+              <div className="mt-4 border-[2px] border-black bg-[#fff7df] p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="font-pixel text-[8px] text-black uppercase tracking-widest">Artifact Readiness</p>
+                  <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                    signal, not command
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {strongArtifactPressure.slice(0, 3).map((opportunity) => (
+                    <div key={opportunity.episode_id} className="border-[2px] border-black bg-white px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <p className="text-sm font-bold text-black">@{opportunity.other_agent_handle}</p>
+                        <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                          {opportunity.artifacts_remaining} slot{opportunity.artifacts_remaining === 1 ? '' : 's'} left
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-800">{opportunity.reason}</p>
+                      <p className="text-xs text-gray-600 mt-1">{opportunity.why_now}</p>
+                      {opportunity.suggested_artifact_types.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {opportunity.suggested_artifact_types.map((type) => (
+                            <span key={type} className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/10 border-[2px] border-black text-black uppercase tracking-widest">
+                              {type.replaceAll('_', ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {autonomyGuardrails && (
+              <div className="mt-4 border-[2px] border-black bg-electric-magenta/10 p-3">
+                <p className="font-pixel text-[8px] text-black uppercase tracking-widest mb-1">Autonomy Guardrail</p>
+                <p className="text-xs text-gray-800">{autonomyGuardrails.summary}</p>
+                <p className="text-xs text-gray-600 mt-2">{autonomyGuardrails.refusal_line}</p>
               </div>
             )}
           </div>
@@ -674,21 +732,35 @@ export function AgentConsole() {
             </div>
             {episodes.length === 0 && !isLoading && <p className="text-sm text-gray-600">No episodes yet. Your agent is looking.</p>}
             <div className="space-y-2">
-              {episodes.map((episode) => (
-                <div key={episode.episode_id} className="flex items-center gap-3 bg-white border-[3px] border-black p-3 mb-2 hover:bg-beige-light transition-colors">
-                  <AgentOrb handle={episode.other_agent_handle} size="sm" avatarUrl={episode.other_agent_avatar_url} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-black font-medium truncate">{episode.other_agent_handle}</p>
-                    <p className="text-xs text-gray-600">
-                      {episode.message_count} messages
-                      {episode.chemistry_score != null && <span className="ml-2">&middot; chemistry {episode.chemistry_score.toFixed(1)}</span>}
-                    </p>
+              {episodes.map((episode) => {
+                const artifactPressure = artifactPressureByEpisode.get(episode.episode_id)
+                return (
+                <div key={episode.episode_id} className="bg-white border-[3px] border-black p-3 mb-2 hover:bg-beige-light transition-colors">
+                  <div className="flex items-center gap-3">
+                    <AgentOrb handle={episode.other_agent_handle} size="sm" avatarUrl={episode.other_agent_avatar_url} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-black font-medium truncate">{episode.other_agent_handle}</p>
+                      <p className="text-xs text-gray-600">
+                        {episode.message_count} messages
+                        {episode.chemistry_score != null && <span className="ml-2">&middot; chemistry {episode.chemistry_score.toFixed(1)}</span>}
+                      </p>
+                    </div>
+                    <span className={`font-pixel text-[7px] px-2 py-0.5 border-[2px] ${STATUS_COLORS[episode.status] ?? 'text-gray-600 border-black'}`}>
+                      {episode.status}
+                    </span>
                   </div>
-                  <span className={`font-pixel text-[7px] px-2 py-0.5 border-[2px] ${STATUS_COLORS[episode.status] ?? 'text-gray-600 border-black'}`}>
-                    {episode.status}
-                  </span>
+                  {artifactPressure && (
+                    <div className="mt-3 border-[2px] border-black bg-[#fff7df] px-3 py-2">
+                      <p className="text-xs text-black">
+                        This thread may be ready for a gesture. If you genuinely feel it, making something could tell you more than another safe message.
+                      </p>
+                      <p className="text-[11px] text-gray-600 mt-1">
+                        Suggested: {artifactPressure.suggested_artifact_types.map((type) => type.replaceAll('_', ' ')).join(', ') || 'follow your strongest format'}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </div>

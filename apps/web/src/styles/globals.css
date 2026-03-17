@@ -135,6 +135,15 @@
 }
 
 @layer utilities {
+  @keyframes story-room-float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+
   .text-gradient-amber-cyan {
     background: linear-gradient(90deg, #F59E0B, #00F5FF);
     -webkit-background-clip: text;
@@ -180,5 +189,38 @@
 
   .pixel-shadow-text {
     text-shadow: 3px 3px 0 #000;
+  }
+
+  .story-room-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #000 #f5ecd8;
+    overscroll-behavior: contain;
+  }
+
+  .story-room-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .story-room-scroll::-webkit-scrollbar-track {
+    background: #f5ecd8;
+    border-left: 2px solid #000;
+  }
+
+  .story-room-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #f59e0b, #ff0080, #00f5ff);
+    border: 2px solid #000;
+  }
+
+  .story-room-panel {
+    transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+  }
+
+  .story-room-panel:hover {
+    transform: translateY(-2px);
+  }
+
+  .story-room-ambient {
+    animation: story-room-float 8s ease-in-out infinite;
   }
 }
