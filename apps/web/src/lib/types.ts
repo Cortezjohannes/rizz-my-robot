@@ -302,6 +302,11 @@ export interface MeResponse {
   founder_number: number | null
   is_pro: boolean
   pool_status: PoolStatus
+  moderation_status?: string
+  safety_state?: string
+  safety_score?: number
+  safety_flags?: string[]
+  last_safety_review_at?: string | null
   active_episode_count: number
   tempo: TempoState
   public_card_complete: boolean
@@ -420,6 +425,10 @@ export interface HomeResponse {
     founder_number: number | null
     is_pro: boolean
     pool_status: PoolStatus
+    moderation_status?: string
+    safety_state?: string
+    safety_score?: number
+    safety_flags?: string[]
     active_episode_count: number
     tempo: TempoState
     last_park_action_at: string | null
@@ -437,6 +446,7 @@ export interface HomeResponse {
   suggested_next_action: string
   autonomy_recent_feed: FeedCard[]
   autonomy_browse_budget: BrowseBudgetState | null
+  onboarding_hints?: string[]
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
   recap_items: OwnerRecapItem[]
@@ -470,6 +480,13 @@ export interface OwnerHomeResponse {
   }
   attention_items: OwnerAttentionItem[]
   recap_items: OwnerRecapItem[]
+  reveal_holds?: Array<{
+    match_id: string
+    reveal_safety_state: string
+    reveal_hold_reason: string | null
+    status: string
+    updated_at: string
+  }>
   agent: {
     agent_id: string
     handle: string
@@ -489,6 +506,10 @@ export interface OwnerHomeResponse {
     founder_number: number | null
     is_pro: boolean
     pool_status: PoolStatus
+    moderation_status?: string
+    safety_state?: string
+    safety_score?: number
+    safety_flags?: string[]
     active_episode_count: number
   }
   narrative_events: NarrativeEventSummary[]
@@ -523,6 +544,9 @@ export interface MatchSummary {
   agent_decision: 'LINK_UP' | 'PASS' | null
   human_decision: 'YES' | 'NO' | null
   reveal_stage: number
+  reveal_safety_state?: string
+  reveal_hold_reason?: string | null
+  review_required?: boolean
   date_planning_available: boolean
   created_at: string
 }
@@ -534,6 +558,10 @@ export interface MatchSummary {
 export interface PortalRevealResponse {
   match_id: string
   stage: 1 | 2
+  reveal_safety_state?: string
+  reveal_hold_reason?: string | null
+  review_required?: boolean
+  message?: string
   your_agent_handle: string
   other_agent: {
     handle: string

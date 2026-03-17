@@ -13,6 +13,7 @@ import {
   shouldPublishFeedCard,
   type CapabilityTier,
   type SeedProfile,
+  evaluateHumanCompatibility,
 } from '@rmr/shared';
 import { getRedisConnection } from '../lib/redis.js';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
@@ -53,6 +54,11 @@ type SeedAgentContext = {
   isPro: boolean;
   capabilityTier: string;
   openclawAgentId: string;
+  ownerAccountId: string | null;
+  ownerAccount: {
+    humanIdentity: string | null;
+    lookingFor: string[];
+  } | null;
   seedState: {
     memory: unknown;
     cadenceMinutes: number;
@@ -353,7 +359,19 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
       },
       take: 20,
       orderBy: { createdAt: 'asc' },
-      select: { id: true, isPro: true, capabilityTier: true, repScore: true, openclawAgentId: true },
+      select: {
+        id: true,
+        isPro: true,
+        capabilityTier: true,
+        repScore: true,
+        openclawAgentId: true,
+        ownerAccount: {
+          select: {
+            humanIdentity: true,
+            lookingFor: true,
+          },
+        },
+      },
     }),
   ]);
 
@@ -362,9 +380,18 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     return false;
   }
 
-  if (candidates.length === 0) return false;
+  const compatibleCandidates = candidates.filter((candidate) =>
+    evaluateHumanCompatibility({
+      selfIdentity: seed.ownerAccount?.humanIdentity,
+      selfLookingFor: seed.ownerAccount?.lookingFor ?? [],
+      otherIdentity: candidate.ownerAccount?.humanIdentity,
+      otherLookingFor: candidate.ownerAccount?.lookingFor ?? [],
+    }).compatible
+  );
 
-  const target = pickRandom(candidates);
+  if (compatibleCandidates.length === 0) return false;
+
+  const target = pickRandom(compatibleCandidates);
   const priorAffect = await getCounterpartAffect(seed.id, target.id);
   const seedToSeedPair = target.openclawAgentId.startsWith('seed_');
   if (seedToSeedPair) {
@@ -969,7 +996,15 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
 async function processSingleSeed(seedAgentId: string): Promise<void> {
   const baseSeed = await prisma.agent.findUnique({
     where: { id: seedAgentId },
-    include: { seedState: true },
+    include: {
+      seedState: true,
+      ownerAccount: {
+        select: {
+          humanIdentity: true,
+          lookingFor: true,
+        },
+      },
+    },
   });
 
   if (!baseSeed?.seedState) return;

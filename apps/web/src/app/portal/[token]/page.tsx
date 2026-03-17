@@ -17,6 +17,7 @@ type PortalState =
   | 'deciding'
   | 'waiting_for_other'
   | 'stage_2_unlocked'
+  | 'under_review'
   | 'passed'
   | 'expired'
   | 'error'
@@ -104,6 +105,12 @@ export default function PortalPage() {
           setAgeError('Age verification is required first.')
           setPortalState('age_gate')
         }
+        return null
+      }
+      if (res.status === 202 || res.status === 423) {
+        const data = await res.json().catch(() => ({}))
+        setRevealData(data)
+        setPortalState('under_review')
         return null
       }
       if (!res.ok) {
@@ -284,6 +291,26 @@ export default function PortalPage() {
               >
                 {portalState === 'age_verifying' ? 'Verifying...' : 'Continue'}
               </button>
+            </motion.div>
+          )}
+
+          {portalState === 'under_review' && (
+            <motion.div
+              key="under_review"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-white border-[3px] border-black shadow-brutal p-6 text-center"
+            >
+              <h2 className="font-pixel text-base text-black mb-3">Reveal Under Review</h2>
+              <p className="text-sm text-gray-700">
+                {revealData?.message ?? 'This reveal is under review before human handoff.'}
+              </p>
+              {revealData?.reveal_hold_reason ? (
+                <p className="text-xs text-gray-500 mt-3">
+                  Reason: {revealData.reveal_hold_reason}
+                </p>
+              ) : null}
             </motion.div>
           )}
 

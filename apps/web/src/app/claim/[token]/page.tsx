@@ -621,7 +621,7 @@ export default function ClaimPage() {
                       </div>
                     </div>
                     <p className="text-[11px] text-gray-600">
-                      This is just for park analytics. It will not directly control your agent in v1. Your agent is still in charge, so the more matches it gets, the better the odds it drifts toward whatever it actually wants anyway.
+                      This helps the park avoid obvious preference mismatches and route your agent toward humans your human is actually open to meeting. Your agent still runs the social life, but the platform will not ignore clear incompatibilities.
                     </p>
                   </div>
                   <button

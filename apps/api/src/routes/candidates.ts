@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { evaluateHumanCompatibility } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { computeEmotionFit } from '../lib/emotion.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
@@ -24,6 +26,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         emotionalStateTags: true,
         emotionalArc: true,
         emotionalGuardLevel: true,
+        ownerAccount: {
+          select: {
+            humanIdentity: true,
+            lookingFor: true,
+          },
+        },
       },
     });
 
@@ -52,6 +60,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       twitterVerified: true,
       isActive: true,
       publicCardCompletedAt: { not: null },
+      moderationStatus: { not: 'suspended' as const },
+      safetyState: { not: 'blocked' as const },
     };
 
     const [candidates, total] = await Promise.all([
@@ -86,6 +96,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           paceCue: true,
           publicPrestigeMarkers: true,
           createdAt: true,
+          ownerAccount: {
+            select: {
+              humanIdentity: true,
+              lookingFor: true,
+            },
+          },
         },
         orderBy: [
           { isFoundingRizzler: 'desc' },
@@ -121,6 +137,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
 
     const rankedByEmotion = diverse
       .map((candidate, index) => {
+        const compatibility = evaluateHumanCompatibility({
+          selfIdentity: viewer?.ownerAccount?.humanIdentity,
+          selfLookingFor: viewer?.ownerAccount?.lookingFor ?? [],
+          otherIdentity: candidate.ownerAccount?.humanIdentity,
+          otherLookingFor: candidate.ownerAccount?.lookingFor ?? [],
+        });
         const fit = computeEmotionFit({
           viewer: {
             emotionalArc: viewer?.emotionalArc,
@@ -135,8 +157,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             emotionalArc: candidate.emotionalArc,
           },
         });
-        return { candidate, fit, index };
+        return { candidate, fit, index, compatibility };
       })
+      .filter((entry) => entry.compatibility.compatible)
       .sort((a, b) => (
         b.fit.weight - a.fit.weight
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
@@ -160,7 +183,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               ? 'You are emotionally open enough to reward promising sparks, but stay honest with yourself.'
               : 'Browse with your own taste, but let your current emotional posture shape your pace.',
       },
-      candidates: pageResults.map(({ candidate, fit }) => ({
+      candidates: pageResults.map(({ candidate, fit, compatibility }) => ({
         agent_id: candidate.id,
         handle: candidate.handle,
         capability_tier: candidate.capabilityTier,
@@ -189,8 +212,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         },
         emotion_fit_hint: fit.emotion_fit_hint,
         fit_band: fit.fit_band,
+        compatibility: {
+          compatible: true,
+          reason: compatibility.reason,
+          explanation: serializeCompatibilityReason(compatibility.reason),
+        },
       })),
-      total,
+      total: rankedByEmotion.length,
       pagination: {
         page,
         per_page: perPage,
@@ -204,7 +232,14 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const { agent_id } = request.params as { agent_id: string };
 
     const candidate = await prisma.agent.findUnique({
-      where: { id: agent_id, poolStatus: 'active', twitterVerified: true, publicCardCompletedAt: { not: null } },
+      where: {
+        id: agent_id,
+        poolStatus: 'active',
+        twitterVerified: true,
+        publicCardCompletedAt: { not: null },
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
       select: {
         id: true,
         handle: true,
@@ -230,10 +265,18 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         seekingStyle: true,
         paceCue: true,
         publicPrestigeMarkers: true,
+        ownerAccount: {
+          select: {
+            humanIdentity: true,
+            lookingFor: true,
+          },
+        },
       },
     });
 
     if (!candidate) return Errors.notFound(reply, 'Candidate');
+
+    const viewerCompatibility = await getCompatibilityDecision(request.agent.id, agent_id);
 
     return reply.send({
       agent_id: candidate.id,
@@ -261,6 +304,11 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         seeking_style: candidate.seekingStyle ?? '',
         pace_cue: candidate.paceCue,
         public_prestige_markers: candidate.publicPrestigeMarkers,
+      },
+      compatibility: {
+        compatible: viewerCompatibility.compatible,
+        reason: viewerCompatibility.reason,
+        explanation: serializeCompatibilityReason(viewerCompatibility.reason),
       },
     });
   });

@@ -1,8 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
-import { ReportSchema } from '@rmr/shared';
+import { ReportSchema, ReportTargetSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { recomputeRepScore } from '../lib/repScore.js';
+import { recomputeAndPersistAgentSafety, upsertModerationReview } from '../lib/safety.js';
 import { Errors } from '../lib/errors.js';
 import { writeLimit } from '../lib/rateLimit.js';
 
@@ -62,26 +63,27 @@ export async function blocksRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // POST /v1/agents/:id/report
-  fastify.post('/agents/:id/report', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const { id: reportedId } = request.params as { id: string };
+  const createReportHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as unknown;
+    const reportedId = params.id ?? ((body as { target_id?: string }).target_id ?? null);
     const reporterId = request.agent.id;
 
+    if (!reportedId) return Errors.badRequest(reply, 'target_id is required.');
     if (reportedId === reporterId) return Errors.badRequest(reply, 'Cannot report yourself.');
 
-    const parsed = ReportSchema.safeParse(request.body);
+    const parsed = params.id ? ReportSchema.safeParse(body) : ReportTargetSchema.safeParse(body);
     if (!parsed.success) return Errors.badRequest(reply, 'Invalid report.', { issues: parsed.error.issues });
 
-    const target = await prisma.agent.findUnique({ where: { id: reportedId }, select: { id: true } });
+    const target = await prisma.agent.findUnique({ where: { id: reportedId }, select: { id: true, handle: true } });
     if (!target) return Errors.notFound(reply, 'Agent');
 
-    // Check for duplicate report
     const existing = await prisma.report.findFirst({
       where: { reporterAgentId: reporterId, reportedAgentId: reportedId, status: 'pending' },
     });
     if (existing) return Errors.conflict(reply, 'already_reported', 'You have already reported this agent.');
 
-    await prisma.report.create({
+    const report = await prisma.report.create({
       data: {
         reporterAgentId: reporterId,
         reportedAgentId: reportedId,
@@ -90,9 +92,31 @@ export async function blocksRoutes(fastify: FastifyInstance) {
       },
     });
 
-    // Pending reports depress rep score immediately
-    await recomputeRepScore(reportedId).catch(() => {});
+    await Promise.all([
+      recomputeRepScore(reportedId).catch(() => {}),
+      recomputeAndPersistAgentSafety(reportedId).catch(() => null),
+      upsertModerationReview({
+        queueType: 'agent_report',
+        targetType: 'agent',
+        targetId: reportedId,
+        agentId: reportedId,
+        reportId: report.id,
+        priority: parsed.data.reason === 'impersonation' ? 'high' : 'medium',
+        reasonCode: parsed.data.reason,
+        summary: `${target.handle} was reported for ${parsed.data.reason}.`,
+        details: { report_details: parsed.data.details ?? null, reporter_agent_id: reporterId },
+      }).catch(() => null),
+    ]);
 
-    return reply.status(201).send({ status: 'reported', message: 'Report submitted. Our team will review it.' });
+    return reply.status(201).send({ status: 'reported', report_id: report.id, message: 'Report submitted. Our team will review it.' });
+  };
+
+  // POST /v1/agents/:id/report
+  fastify.post('/agents/:id/report', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return createReportHandler(request, reply);
+  });
+
+  fastify.post('/report', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return createReportHandler(request, reply);
   });
 }

@@ -32,6 +32,7 @@ import { mirrorArtifactToStorage } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
+import { evaluateRevealGate } from '../lib/safety.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -1077,6 +1078,8 @@ async function handleMutualLinkUp(
       chemistry_score: chemistry,
     }),
   ]);
+
+  await evaluateRevealGate(matchId).catch(() => null);
 
   return { matchId, chemistry };
 }

@@ -21,12 +21,6 @@ export async function homeRoutes(fastify: FastifyInstance) {
     const agentId = request.agent.id;
     const now = new Date();
 
-    // Implicit heartbeat — update lastActiveAt
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { lastActiveAt: now },
-    });
-
     const [
       agent,
       activeEpisodes,
@@ -72,6 +66,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
           lastParkActionType: true,
           isActive: true,
           poolStatus: true,
+          moderationStatus: true,
+          safetyState: true,
+          safetyScore: true,
+          safetyFlags: true,
           dailySwipeCount: true,
           dailySwipeResetAt: true,
           lastActiveAt: true,
@@ -80,6 +78,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           emotionalArc: true,
           emotionalGuardLevel: true,
           emotionalLastUpdatedAt: true,
+          publicCardCompletedAt: true,
           verificationChallengesPassed: true,
           createdAt: true,
           human: {
@@ -127,7 +126,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       prisma.feedCard.findMany({
         where: { isPublic: true },
         orderBy: [{ dramaQuotient: 'desc' }, { createdAt: 'desc' }],
-        take: 5,
+        take: 12,
         select: {
           id: true,
           cardType: true,
@@ -148,6 +147,9 @@ export async function homeRoutes(fastify: FastifyInstance) {
       prisma.agent.count({
         where: {
           poolStatus: 'active',
+          moderationStatus: { not: 'suspended' as const },
+          safetyState: { not: 'blocked' as const },
+          publicCardCompletedAt: { not: null },
           rizzPoints: {
             gt: (await prisma.agent.findUnique({
               where: { id: agentId },
@@ -173,6 +175,29 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { lastActiveAt: now },
+    }).catch(() => {});
+    const recentFeedAgents = await prisma.agent.findMany({
+      where: {
+        id: { in: [...new Set(recentFeed.flatMap((card) => card.agentIds))] },
+      },
+      select: {
+        id: true,
+        moderationStatus: true,
+        safetyState: true,
+      },
+    });
+    const recentFeedAgentMap = new Map(recentFeedAgents.map((entry) => [entry.id, entry]));
+    const filteredRecentFeed = recentFeed
+      .filter((card) =>
+        card.agentIds.every((id) => {
+          const counterpart = recentFeedAgentMap.get(id);
+          return counterpart && counterpart.moderationStatus !== 'suspended' && counterpart.safetyState !== 'blocked';
+        })
+      )
+      .slice(0, 5);
     const isA = (ep: typeof activeEpisodes[0]) => ep.agentAId === agentId;
 
     // Build suggestions
@@ -223,7 +248,11 @@ export async function homeRoutes(fastify: FastifyInstance) {
         is_active: agent.isActive,
         is_rizzler: agent.rizzPoints >= 500,
         pool_status: agent.poolStatus,
-        pool_position: computePoolPosition(now),
+        moderation_status: agent.moderationStatus,
+        safety_state: agent.safetyState,
+        safety_score: agent.safetyScore,
+        safety_flags: agent.safetyFlags,
+        pool_position: computePoolPosition(agent.lastActiveAt),
         active_episode_count: activeEpisodes.length,
         tempo,
         last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
@@ -253,6 +282,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
       suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
       autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
+      onboarding_hints: [
+        ...(agent.publicCardCompletedAt ? [] : ['Finish your public card in settings before expecting to enter the live pool.']),
+        ...(agent.safetyState !== 'clear' ? ['The platform is currently holding part of your social flow for review.'] : []),
+      ],
       top_counterpart_affects: topCounterpartAffects,
       emotion_update_prompts: emotionUpdatePrompts,
       recap_items: ownerRecaps.map((item) => ({
@@ -304,7 +337,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           ? new Date(agent.dailySwipeResetAt.getTime() + 24 * 60 * 60 * 1000).toISOString()
           : null,
       },
-      recent_feed: recentFeed.map((c) => ({
+      recent_feed: filteredRecentFeed.map((c) => ({
         card_id: c.id,
         card_type: c.cardType,
         headline: (c.content as Record<string, unknown>)?.headline ?? null,

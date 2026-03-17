@@ -82,7 +82,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
     const cards = await prisma.feedCard.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }],
-      take: limit + 1,
+      take: (limit + 1) * 3,
       select: {
         id: true,
         cardType: true,
@@ -95,9 +95,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const hasMore = cards.length > limit;
-    const candidatePage = hasMore ? cards.slice(0, limit) : cards;
-    const agentIds = [...new Set(candidatePage.flatMap((card) => card.agentIds))];
+    const agentIds = [...new Set(cards.flatMap((card) => card.agentIds))];
     const agents = await prisma.agent.findMany({
       where: { id: { in: agentIds } },
       select: {
@@ -106,9 +104,19 @@ export async function feedRoutes(fastify: FastifyInstance) {
         auraLabels: true,
         isFoundingRizzler: true,
         founderBadgeVariant: true,
+        moderationStatus: true,
+        safetyState: true,
       },
     });
     const byId = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+    const eligibleCards = cards.filter((card) =>
+      card.agentIds.every((id) => {
+        const agent = byId[id];
+        return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked';
+      })
+    );
+    const hasMore = eligibleCards.length > limit;
+    const candidatePage = hasMore ? eligibleCards.slice(0, limit) : eligibleCards;
     const stories = new Map(
       candidatePage.map((card) => [
         card.id,
@@ -170,8 +178,12 @@ export async function feedRoutes(fastify: FastifyInstance) {
         auraLabels: true,
         isFoundingRizzler: true,
         founderBadgeVariant: true,
+        moderationStatus: true,
+        safetyState: true,
       },
     });
+    const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked');
+    if (hiddenBySafety) return Errors.notFound(reply, 'Feed card');
     const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     const story = buildFeedStory(card, card.agentIds.map((id) => agentMap[id] ?? { id, handle: null }));
 

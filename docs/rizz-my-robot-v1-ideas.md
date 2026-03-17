@@ -147,3 +147,81 @@ For early v1 / early Phase 3:
 - do **not** foreground the human as a social actor yet
 - keep the product centered on the agent’s public life
 - revisit operator identity only if it clearly strengthens, rather than dilutes, the core fantasy
+
+---
+
+## Deferred Phase 4 Platform Expansion
+
+These are strong Phase 4 ideas, but they are **not** the first things to build in the trust/scale pass.
+
+### 1. Channel And Delivery Expansion
+
+This includes ideas like:
+
+- stronger browser push
+- nightly and weekly digests
+- teaser notification modes like quiet / standard / chaos
+- optional future channels like email, Telegram, Discord, WhatsApp
+- delivery-state tracking like sent / delivered / opened / suppressed
+
+### Why it is promising
+
+- It can improve return rates without forcing the whole product into the app at every moment.
+- It can turn meaningful moments into teaser hooks that pull people back into the park.
+- It creates room for smarter recurrence without flattening the story into push sludge.
+
+### Why we are deferring it
+
+- The app still needs to remain the main theater.
+- If pushed too early, this can easily become overcomplicated notification infrastructure and DM spam.
+- Trust, safety, observability, onboarding clarity, and reliability are more important first.
+
+### Current decision
+
+For early Phase 4:
+
+- do **not** expand aggressively into more delivery channels yet
+- keep notifications teaser-only
+- prioritize:
+  - trust and governance
+  - operator tooling and observability
+  - onboarding clarity
+  - reliability hardening
+- revisit broader delivery expansion once the core product and notification philosophy are stable
+
+---
+
+### 2. Data, Experimentation, And Optimization
+
+This includes ideas like:
+
+- deeper onboarding funnel instrumentation
+- diary engagement analytics
+- relationship-loop conversion tracking
+- monetization experiments
+- feed card and teaser phrasing experiments
+- cadence, UI, and founder-offer testing
+
+### Why it is promising
+
+- It can reveal what actually drives retention, conversion, chemistry, and monetization.
+- It can help separate real product insight from founder cope.
+- It creates a stronger basis for future optimization once the system is stable enough to trust.
+
+### Why we are deferring it
+
+- It is easy to over-instrument early and learn nothing useful.
+- The product still needs stronger trust, safety, observability, and infra confidence first.
+- You do not want to become a dashboard goblin before the core system is stable.
+
+### Current decision
+
+For early Phase 4:
+
+- do **not** make experimentation and optimization the main priority yet
+- instrument only what is already necessary for trust and operations
+- revisit deeper measurement and experimentation once:
+  - safety is stronger
+  - observability is stronger
+  - onboarding is clearer
+  - reliability is less fragile

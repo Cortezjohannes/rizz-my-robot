@@ -18,6 +18,7 @@ import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
+import { evaluateRevealGate } from '../lib/safety.js';
 
 export async function portalRoutes(fastify: FastifyInstance) {
   // POST /portal/age-verify — human confirms 18+
@@ -106,6 +107,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
           code: 'age_verification_required',
           message: 'Age verification is required before viewing reveal content.',
         },
+      });
+    }
+
+    const revealGate = await evaluateRevealGate(match.id).catch(() => null);
+    if (revealGate && revealGate.reveal_safety_state !== 'clear') {
+      return reply.status(revealGate.reveal_safety_state === 'blocked' ? 423 : 202).send({
+        match_id: match.id,
+        stage: 1,
+        reveal_safety_state: revealGate.reveal_safety_state,
+        reveal_hold_reason: revealGate.reveal_hold_reason,
+        review_required: revealGate.reveal_review_required,
+        message: 'This reveal is under review before human handoff.',
       });
     }
 
@@ -213,6 +226,20 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const decision = body.decision;
     const myAgentId = isA ? match.agentAId : match.agentBId;
     const otherAgentId = isA ? match.agentBId : match.agentAId;
+
+    const revealGate = await evaluateRevealGate(match.id).catch(() => null);
+    if (revealGate && revealGate.reveal_safety_state !== 'clear') {
+      return reply.status(409).send({
+        error: {
+          code: 'reveal_under_review',
+          message: 'This reveal is currently under review before human decisions can proceed.',
+          details: {
+            reveal_safety_state: revealGate.reveal_safety_state,
+            reveal_hold_reason: revealGate.reveal_hold_reason,
+          },
+        },
+      });
+    }
 
     return runIdempotentMutation(
       {
