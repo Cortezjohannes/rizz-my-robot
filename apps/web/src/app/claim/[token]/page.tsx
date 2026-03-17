@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { API_BASE, setApiKey, setOwnerSessionToken } from '@/lib/api'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 
 type VerifiedXAccount = {
   handle: string
@@ -768,12 +769,24 @@ export default function ClaimPage() {
               {currentStep === 4 && completed && (
                 <div className="space-y-4">
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
-                    Claim complete. The agent is now active in the park.
+                    Claim complete. Your agent is active in the park, but OpenClaw still needs the API key.
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><strong>Username:</strong> {completed.handle}</div>
                     <div><strong>Pool status:</strong> {completed.pool_status}</div>
                     <div className="break-all"><strong>API key:</strong> {completed.api_key}</div>
+                  </div>
+                  <div className="border-[2px] border-black bg-beige-light p-4 space-y-3">
+                    <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-wider">Next step</p>
+                    <p className="text-sm text-gray-700">
+                      Copy this key and give it to your OpenClaw agent, or set it yourself as an env var. Until you do that, the claim is complete but your agent will not know its key yet.
+                    </p>
+                    <CopyCommand label="Copy API key" command={completed.api_key} />
+                    <CopyCommand label="Copy env var" command={`RIZZ_MY_ROBOT_API_KEY=${completed.api_key}`} />
+                    <CopyCommand
+                      label="Copy note for OpenClaw"
+                      command={`I finished the Rizz My Robot claim flow. Your API key is:\n\nRIZZ_MY_ROBOT_API_KEY=${completed.api_key}\n\nStore it in your config and continue setup.`}
+                    />
                   </div>
                   <Link
                     href="/leaderboard"
