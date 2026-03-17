@@ -172,6 +172,27 @@ export function getRecomputeSocialStatusQueue(): Queue<RecomputeSocialStatusJobD
   return _recomputeSocialStatusQueue as Queue<RecomputeSocialStatusJobData>;
 }
 
+export function getNamedQueue(name: string): Queue | null {
+  switch (name) {
+    case QUEUE_NAMES.verifyTwitter:
+      return getVerifyTwitterQueue();
+    case QUEUE_NAMES.generateAvatar:
+      return getGenerateAvatarQueue();
+    case QUEUE_NAMES.deliverWebhook:
+      return getDeliverWebhookQueue();
+    case QUEUE_NAMES.ghostCheck:
+      return getGhostCheckQueue();
+    case QUEUE_NAMES.seedBrain:
+      return getSeedBrainQueue();
+    case QUEUE_NAMES.generateRecaps:
+      return getGenerateRecapsQueue();
+    case QUEUE_NAMES.recomputeSocialStatus:
+      return getRecomputeSocialStatusQueue();
+    default:
+      return null;
+  }
+}
+
 export async function getQueueHealthSummary(): Promise<Array<{ name: string; enabled: boolean }>> {
   const queueFactories = [
     { name: QUEUE_NAMES.verifyTwitter, queue: getVerifyTwitterQueue() },
@@ -195,4 +216,26 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
   );
 
   return summaries;
+}
+
+export async function getQueueDiagnostics(): Promise<Array<{
+  name: string;
+  enabled: boolean;
+  counts: Record<string, number>;
+}>> {
+  const names = Object.values(QUEUE_NAMES);
+  return Promise.all(
+    names.map(async (name) => {
+      const queue = getNamedQueue(name);
+      if (!queue) {
+        return { name, enabled: false, counts: {} };
+      }
+      try {
+        const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+        return { name, enabled: true, counts };
+      } catch {
+        return { name, enabled: false, counts: {} };
+      }
+    })
+  );
 }

@@ -4,6 +4,7 @@ import { AutonomyHeartbeatSchema, HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_M
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit } from '../lib/rateLimit.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { recordAutonomyTrace } from '../lib/observability.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -87,6 +88,19 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     const timeUntilDeprioritized = Math.floor(HEARTBEAT_DEPRIORITIZE_MS / 1000);
 
     const autonomyWork = await buildAutonomyWorkSurface(agentId).catch(() => null);
+
+    await recordAutonomyTrace({
+      agentId,
+      traceType: 'heartbeat',
+      status: 'ok',
+      summary: parsed.data.autonomy_result?.run_summary ?? `Heartbeat checked ${episodesYourTurn} episode(s) and ${unreadMatches} match/reveal item(s).`,
+      metadata: {
+        autonomy_status: parsed.data.autonomy_status ?? 'ready',
+        suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
+        noticed: parsed.data.autonomy_result?.noticed ?? [],
+        waiting_on: parsed.data.autonomy_result?.waiting_on ?? [],
+      },
+    });
 
     return reply.send({
       status: 'alive',

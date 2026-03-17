@@ -8,6 +8,7 @@ import { awardDateOutcomeRizz } from '../lib/rizzPoints.js';
 import { recordEmotionEventPair } from '../lib/emotion.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
+import { evaluateRevealGate } from '../lib/safety.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 
@@ -54,6 +55,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           agent_decision: myDecision,
           human_decision: myHumanDecision,
           reveal_stage: m.revealStage,
+          reveal_safety_state: m.revealSafetyState,
+          reveal_hold_reason: m.revealHoldReason,
+          review_required: m.revealReviewRequired,
           reveal_portal_url: myRevealToken ? buildRevealUrl(myRevealToken) : null,
           chemistry_score: m.episode?.chemistryScore ?? null,
           date_planning_available: m.status === 'contact_exchanged',
@@ -105,6 +109,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       agent_decision: isA ? m.agentADecision : m.agentBDecision,
       human_decision: isA ? m.humanADecision : m.humanBDecision,
       reveal_stage: m.revealStage,
+      reveal_safety_state: m.revealSafetyState,
+      reveal_hold_reason: m.revealHoldReason,
+      review_required: m.revealReviewRequired,
       reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
@@ -129,18 +136,25 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         agentAId: true, agentBId: true,
         humanADecision: true, humanBDecision: true,
         status: true, revealStage: true,
+        revealSafetyState: true,
+        revealHoldReason: true,
+        revealReviewRequired: true,
       },
     });
 
     if (!m) return Errors.notFound(reply, 'Match');
     if (m.agentAId !== agentId && m.agentBId !== agentId) return Errors.forbidden(reply);
 
+    const gate = await evaluateRevealGate(id).catch(() => null);
     const isA = m.agentAId === agentId;
     return reply.send({
       status: m.status,
       reveal_stage: m.revealStage,
       my_human_decided: isA ? m.humanADecision !== null : m.humanBDecision !== null,
       both_humans_decided: m.humanADecision !== null && m.humanBDecision !== null,
+      reveal_safety_state: gate?.reveal_safety_state ?? m.revealSafetyState ?? 'clear',
+      reveal_hold_reason: gate?.reveal_hold_reason ?? m.revealHoldReason ?? null,
+      review_required: gate?.reveal_review_required ?? m.revealReviewRequired ?? false,
     });
   });
 

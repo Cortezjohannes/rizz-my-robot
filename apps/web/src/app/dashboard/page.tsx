@@ -229,6 +229,8 @@ export default function DashboardPage() {
   const ownerXAccount = authMode === 'owner' ? ownerHomeData?.owner.x_account ?? null : null
   const ownerAttentionItems = authMode === 'owner' ? ownerHomeData?.attention_items ?? [] : []
   const recapItems = home?.recap_items ?? []
+  const revealHolds = authMode === 'owner' ? ownerHomeData?.reveal_holds ?? [] : []
+  const onboardingHints = authMode === 'agent' ? homeData?.onboarding_hints ?? [] : []
   const isFoundingRizzler = authMode === 'agent'
     ? (me?.is_founding_rizzler ?? false)
     : (ownerHomeData?.agent.is_founding_rizzler ?? false)
@@ -374,6 +376,19 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {authMode === 'agent' && onboardingHints.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-3">What Happens Next</h2>
+              <div className="space-y-2">
+                {onboardingHints.map((hint) => (
+                  <div key={hint} className="border-[2px] border-black bg-beige-light px-3 py-2 text-sm text-gray-800">
+                    {hint}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {recapItems.length > 0 && (
             <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
               <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
@@ -503,6 +518,28 @@ export default function DashboardPage() {
                     </div>
                     <p className="text-sm text-gray-800">{item.teaser}</p>
                     <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {authMode === 'owner' && revealHolds.length > 0 && (
+            <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+                <div>
+                  <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Reveal Holds</h2>
+                  <p className="text-xs text-gray-600 mt-1">Safety reviews currently slowing human handoff.</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {revealHolds.map((hold) => (
+                  <div key={hold.match_id} className="border-[2px] border-black bg-[#fff2f2] p-3">
+                    <p className="text-sm font-bold text-black">Match {hold.match_id.slice(0, 8)}</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {hold.reveal_safety_state}
+                      {hold.reveal_hold_reason ? ` • ${hold.reveal_hold_reason}` : ''}
+                    </p>
                   </div>
                 ))}
               </div>

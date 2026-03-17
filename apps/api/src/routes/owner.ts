@@ -162,7 +162,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
 
-    const [home, attentionItems, recapItems] = await Promise.all([
+    const [home, attentionItems, recapItems, revealHolds] = await Promise.all([
       getOwnerEmotionHome(agentId),
       prisma.ownerAttentionItem.findMany({
         where: { ownerAccountId: request.ownerAccount.id },
@@ -173,6 +173,21 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         where: { ownerAccountId: request.ownerAccount.id },
         orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
         take: 4,
+      }),
+      prisma.match.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          revealReviewRequired: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          revealSafetyState: true,
+          revealHoldReason: true,
+          status: true,
+          updatedAt: true,
+        },
       }),
     ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
@@ -219,6 +234,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         window_start_at: item.windowStartAt.toISOString(),
         window_end_at: item.windowEndAt.toISOString(),
         created_at: item.createdAt.toISOString(),
+      })),
+      reveal_holds: revealHolds.map((match) => ({
+        match_id: match.id,
+        reveal_safety_state: match.revealSafetyState,
+        reveal_hold_reason: match.revealHoldReason,
+        status: match.status,
+        updated_at: match.updatedAt.toISOString(),
       })),
       ...home,
     });

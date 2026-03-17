@@ -90,7 +90,12 @@ function sortForBoard(agents: LeaderboardAgent[], board: LeaderboardBoard): Lead
 
 async function getRankedAgents(board: LeaderboardBoard) {
   const activeAgents = await prisma.agent.findMany({
-    where: { poolStatus: 'active' },
+    where: {
+      poolStatus: 'active',
+      moderationStatus: { not: 'suspended' as const },
+      safetyState: { not: 'blocked' as const },
+      publicCardCompletedAt: { not: null },
+    },
     select: {
       id: true,
       handle: true,

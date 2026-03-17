@@ -98,6 +98,10 @@ model Agent {
   poolStatus       String    @default("pending_verification") @map("pool_status")
   moderationStatus String    @default("good_standing") @map("moderation_status")
   suspensionReason String?   @map("suspension_reason")
+  safetyState      String    @default("clear") @map("safety_state")
+  safetyScore      Int       @default(100) @map("safety_score")
+  safetyFlags      String[]  @default([]) @map("safety_flags")
+  lastSafetyReviewAt DateTime? @map("last_safety_review_at")
 
   // Rate limiting
   dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
@@ -158,6 +162,8 @@ model Agent {
   counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
   ownerAttentionItems OwnerAttentionItem[]
   ownerRecapItems   OwnerRecapItem[]
+  moderationReviews ModerationReview[]
+  autonomyTraces    AgentAutonomyTrace[]
 
   @@map("agents")
 }
@@ -406,6 +412,9 @@ model Match {
   revealTokenB          String?   @unique @map("reveal_token_b")
   revealTokenAExpiresAt DateTime? @map("reveal_token_a_expires_at")
   revealTokenBExpiresAt DateTime? @map("reveal_token_b_expires_at")
+  revealSafetyState     String    @default("clear") @map("reveal_safety_state")
+  revealHoldReason      String?   @map("reveal_hold_reason")
+  revealReviewRequired  Boolean   @default(false) @map("reveal_review_required")
 
   // Status: "pending" | "matched" | "contact_exchanged" | "passed_agent" | "passed_human"
   status String @default("pending")
@@ -417,6 +426,7 @@ model Match {
   agentB   Agent    @relation("MatchAgentB", fields: [agentBId], references: [id])
   episode  Episode? @relation(fields: [episodeId], references: [id])
   datePlan DatePlan?
+  moderationReviews ModerationReview[]
 
   @@map("matches")
 }
@@ -557,8 +567,42 @@ model Report {
 
   reporter Agent @relation("ReportsGiven", fields: [reporterAgentId], references: [id])
   reported Agent @relation("ReportsReceived", fields: [reportedAgentId], references: [id])
+  moderationReviews ModerationReview[]
 
   @@map("reports")
+}
+
+model ModerationReview {
+  id                String   @id @default(uuid())
+  queueType         String   @map("queue_type")
+  targetType        String   @map("target_type")
+  targetId          String   @map("target_id")
+  agentId           String?  @map("agent_id")
+  matchId           String?  @map("match_id")
+  reportId          String?  @map("report_id")
+  priority          String   @default("medium")
+  reasonCode        String   @map("reason_code")
+  summary           String
+  details           Json?
+  safetyState       String   @default("flagged") @map("safety_state")
+  status            String   @default("pending")
+  assignedTo        String?  @map("assigned_to")
+  resolutionNotes   String?  @map("resolution_notes")
+  resolvedAction    String?  @map("resolved_action")
+  resolvedBy        String?  @map("resolved_by")
+  resolvedAt        DateTime? @map("resolved_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  agent  Agent?  @relation(fields: [agentId], references: [id])
+  match  Match?  @relation(fields: [matchId], references: [id])
+  report Report? @relation(fields: [reportId], references: [id])
+
+  @@index([status, priority, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([matchId, createdAt])
+  @@map("moderation_reviews")
 }
 
 // Rizz points ledger — append-only event log
@@ -826,6 +870,26 @@ model OwnerRecapItem {
   @@index([ownerAccountId, unread, createdAt])
   @@index([agentId, createdAt])
   @@map("owner_recap_items")
+}
+
+model AgentAutonomyTrace {
+  id          String   @id @default(uuid())
+  agentId     String   @map("agent_id")
+  episodeId   String?  @map("episode_id")
+  matchId     String?  @map("match_id")
+  traceType   String   @map("trace_type")
+  status      String   @default("info")
+  summary     String
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, createdAt])
+  @@index([episodeId, createdAt])
+  @@index([matchId, createdAt])
+  @@index([traceType, createdAt])
+  @@map("agent_autonomy_traces")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI

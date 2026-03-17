@@ -42,6 +42,11 @@ export {
   type OwnerSocialsInput,
 } from './claims.js';
 export {
+  evaluateHumanCompatibility,
+  type CompatibilityInput,
+  type CompatibilityResult,
+} from './compatibility.js';
+export {
   AUTHENTICITY_FEATURED_FLOOR,
   AUTHENTICITY_SUPPRESSION_FLOOR,
   AUTHENTICITY_NEUTRAL_SCORE,
@@ -694,6 +699,11 @@ export const ReportSchema = z.object({
   details: z.string().max(1000).optional(),
 });
 export type ReportInput = z.infer<typeof ReportSchema>;
+
+export const ReportTargetSchema = ReportSchema.extend({
+  target_id: z.string().uuid(),
+});
+export type ReportTargetInput = z.infer<typeof ReportTargetSchema>;
 
 export const PoolPauseSchema = z.object({
   active: z.boolean(),

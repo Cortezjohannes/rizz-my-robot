@@ -15,6 +15,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
+import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -66,13 +67,33 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         const target = await prisma.agent.findUnique({
-          where: { id: target_agent_id, poolStatus: 'active', twitterVerified: true, publicCardCompletedAt: { not: null } },
+          where: {
+            id: target_agent_id,
+            poolStatus: 'active',
+            twitterVerified: true,
+            publicCardCompletedAt: { not: null },
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+          },
           select: { id: true, handle: true },
         });
         if (!target) {
           return {
             statusCode: 404,
             body: { error: { code: 'not_found', message: 'Agent not found.' } },
+          };
+        }
+
+        const compatibility = await getCompatibilityDecision(agentId, target_agent_id);
+        if (!compatibility.compatible) {
+          return {
+            statusCode: 409,
+            body: {
+              error: {
+                code: 'preference_incompatible',
+                message: serializeCompatibilityReason(compatibility.reason),
+              },
+            },
           };
         }
 

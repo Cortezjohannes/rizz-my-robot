@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { prisma, Prisma } from '@rmr/db';
 import { AuthenticityOverrideSchema, SEED_CAST, buildGeneratedPublicCard, getSeedProfile } from '@rmr/shared';
 import { getAuthenticitySummary, recomputeAuthenticityScore } from '../lib/authenticity.js';
-import { getSeedBrainQueue } from '../lib/queues.js';
+import { getNamedQueue, getQueueDiagnostics, getSeedBrainQueue } from '../lib/queues.js';
 import { recordAuditLog } from '../lib/audit.js';
+import { evaluateRevealGate, recomputeAndPersistAgentSafety, upsertModerationReview } from '../lib/safety.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { Errors } from '../lib/errors.js';
 
@@ -43,6 +44,12 @@ const ClaimResetRequestSchema = z.object({
   (data) => Boolean(data.all || data.claim_id || data.openclaw_agent_id || data.email || data.x_handle),
   { message: 'Provide all=true, claim_id, openclaw_agent_id, email, or x_handle.' },
 );
+
+const ModerationResolveSchema = z.object({
+  status: z.enum(['reviewed', 'actioned', 'dismissed']),
+  resolution_notes: z.string().max(2000).optional(),
+  resolved_action: z.enum(['none', 'soft_hold', 'blocked', 'suspend_agent', 'clear']).optional(),
+});
 
 export async function internalRoutes(fastify: FastifyInstance) {
   fastify.post('/internal/claims/reset', { preHandler: requireAdmin }, async (request, reply) => {
@@ -915,6 +922,338 @@ export async function internalRoutes(fastify: FastifyInstance) {
         reporter_handle: report.reporter.handle,
         reported_handle: report.reported.handle,
         created_at: report.createdAt.toISOString(),
+      })),
+    });
+  });
+
+  fastify.get('/internal/moderation/queue', { preHandler: requireAdmin }, async (_request, reply) => {
+    const reviews = await prisma.moderationReview.findMany({
+      where: { status: 'pending' },
+      orderBy: [{ createdAt: 'asc' }],
+      take: 100,
+      include: {
+        agent: { select: { handle: true, safetyState: true, safetyScore: true } },
+        match: { select: { status: true, revealSafetyState: true, revealHoldReason: true } },
+        report: { select: { reason: true, details: true, reporter: { select: { handle: true } } } },
+      },
+    });
+
+    const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+
+    return reply.send({
+      reviews: reviews
+        .sort((a, b) => (
+          (priorityRank[a.priority as keyof typeof priorityRank] ?? 99)
+          - (priorityRank[b.priority as keyof typeof priorityRank] ?? 99)
+          || a.createdAt.getTime() - b.createdAt.getTime()
+        ))
+        .map((review) => ({
+        review_id: review.id,
+        queue_type: review.queueType,
+        target_type: review.targetType,
+        target_id: review.targetId,
+        priority: review.priority,
+        reason_code: review.reasonCode,
+        summary: review.summary,
+        safety_state: review.safetyState,
+        status: review.status,
+        created_at: review.createdAt.toISOString(),
+        agent: review.agent
+          ? {
+              handle: review.agent.handle,
+              safety_state: review.agent.safetyState,
+              safety_score: review.agent.safetyScore,
+            }
+          : null,
+        match: review.match
+          ? {
+              status: review.match.status,
+              reveal_safety_state: review.match.revealSafetyState,
+              reveal_hold_reason: review.match.revealHoldReason,
+            }
+          : null,
+        report: review.report
+          ? {
+              reason: review.report.reason,
+              details: review.report.details,
+              reporter_handle: review.report.reporter.handle,
+            }
+          : null,
+        })),
+    });
+  });
+
+  fastify.get('/internal/moderation/:reviewId', { preHandler: requireAdmin }, async (request, reply) => {
+    const { reviewId } = request.params as { reviewId: string };
+    const review = await prisma.moderationReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        agent: true,
+        match: true,
+        report: {
+          include: {
+            reporter: { select: { handle: true } },
+            reported: { select: { handle: true } },
+          },
+        },
+      },
+    });
+    if (!review) return Errors.notFound(reply, 'Moderation review');
+    return reply.send({ review });
+  });
+
+  fastify.post('/internal/moderation/:reviewId/resolve', { preHandler: requireAdmin }, async (request, reply) => {
+    const { reviewId } = request.params as { reviewId: string };
+    const parsed = ModerationResolveSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid moderation resolution.', { issues: parsed.error.issues });
+    }
+
+    const review = await prisma.moderationReview.findUnique({ where: { id: reviewId } });
+    if (!review) return Errors.notFound(reply, 'Moderation review');
+
+    await prisma.$transaction(async (tx) => {
+      await tx.moderationReview.update({
+        where: { id: reviewId },
+        data: {
+          status: parsed.data.status,
+          resolutionNotes: parsed.data.resolution_notes ?? null,
+          resolvedAction: parsed.data.resolved_action ?? 'none',
+          resolvedBy: 'admin',
+          resolvedAt: new Date(),
+        },
+      });
+
+      if (review.reportId) {
+        await tx.report.update({
+          where: { id: review.reportId },
+          data: {
+            status: parsed.data.status,
+            resolutionNotes: parsed.data.resolution_notes ?? null,
+            reviewedAt: new Date(),
+            reviewedBy: 'admin',
+          },
+        });
+      }
+
+      if (review.agentId) {
+        if (parsed.data.resolved_action === 'suspend_agent') {
+          await tx.agent.update({
+            where: { id: review.agentId },
+            data: {
+              moderationStatus: 'suspended',
+              poolStatus: 'paused',
+              suspensionReason: parsed.data.resolution_notes ?? `Suspended from moderation review ${review.id}`,
+              safetyState: 'blocked',
+            },
+          });
+        }
+        if (parsed.data.resolved_action === 'clear') {
+          await tx.agent.update({
+            where: { id: review.agentId },
+            data: {
+              safetyState: 'clear',
+              safetyFlags: { set: [] },
+              lastSafetyReviewAt: new Date(),
+            },
+          });
+        }
+      }
+
+      if (review.matchId) {
+        await tx.match.update({
+          where: { id: review.matchId },
+          data: parsed.data.resolved_action === 'clear'
+            ? {
+                revealSafetyState: 'clear',
+                revealHoldReason: null,
+                revealReviewRequired: false,
+              }
+            : parsed.data.resolved_action === 'blocked'
+              ? {
+                  revealSafetyState: 'blocked',
+                  revealHoldReason: parsed.data.resolution_notes ?? review.reasonCode,
+                  revealReviewRequired: true,
+                }
+              : {},
+        });
+      }
+    });
+
+    if (review.agentId && parsed.data.resolved_action !== 'clear') {
+      await recomputeAndPersistAgentSafety(review.agentId).catch(() => null);
+    }
+
+    await recordAuditLog({
+      actorType: 'admin',
+      actorId: 'admin',
+      action: 'moderation.review_resolved',
+      targetType: review.targetType,
+      targetId: review.targetId,
+      agentId: review.agentId ?? null,
+      payload: parsed.data,
+    });
+
+    return reply.send({ review_id: reviewId, status: parsed.data.status });
+  });
+
+  fastify.post('/internal/matches/:id/reveal-review', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const gate = await evaluateRevealGate(id);
+    if (!gate) return Errors.notFound(reply, 'Match');
+    return reply.send(gate);
+  });
+
+  fastify.get('/internal/agents', { preHandler: requireAdmin }, async (_request, reply) => {
+    const agents = await prisma.agent.findMany({
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        handle: true,
+        poolStatus: true,
+        moderationStatus: true,
+        safetyState: true,
+        safetyScore: true,
+        safetyFlags: true,
+        lastAutonomyRunAt: true,
+        nextAutonomyRunAt: true,
+        autonomyStatus: true,
+        socialGravityScore: true,
+        ownerAccount: { select: { humanIdentity: true, lookingFor: true } },
+      },
+    });
+    return reply.send({
+      agents: agents.map((agent) => ({
+        agent_id: agent.id,
+        handle: agent.handle,
+        pool_status: agent.poolStatus,
+        moderation_status: agent.moderationStatus,
+        safety_state: agent.safetyState,
+        safety_score: agent.safetyScore,
+        safety_flags: agent.safetyFlags,
+        last_autonomy_run_at: agent.lastAutonomyRunAt?.toISOString() ?? null,
+        next_autonomy_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
+        autonomy_status: agent.autonomyStatus,
+        social_gravity_score: agent.socialGravityScore,
+        human_identity: agent.ownerAccount?.humanIdentity ?? null,
+        looking_for: agent.ownerAccount?.lookingFor ?? [],
+      })),
+    });
+  });
+
+  fastify.get('/internal/agents/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [agent, traces, reviews] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id },
+        include: {
+          ownerAccount: true,
+        },
+      }),
+      prisma.agentAutonomyTrace.findMany({
+        where: { agentId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      }),
+      prisma.moderationReview.findMany({
+        where: { agentId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      }),
+    ]);
+    if (!agent) return Errors.notFound(reply, 'Agent');
+    return reply.send({ agent, traces, reviews });
+  });
+
+  fastify.get('/internal/episodes/:id/trace', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [episode, narratives, audits, traces] = await Promise.all([
+      prisma.episode.findUnique({
+        where: { id },
+        include: {
+          messages: { orderBy: { sequenceNumber: 'asc' } },
+          artifacts: { orderBy: { createdAt: 'asc' } },
+          match: true,
+        },
+      }),
+      prisma.narrativeEvent.findMany({
+        where: { episodeId: id },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.auditLog.findMany({
+        where: {
+          targetType: 'episode',
+          targetId: id,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      }),
+      prisma.agentAutonomyTrace.findMany({
+        where: { episodeId: id },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    return reply.send({ episode, narratives, audits, traces });
+  });
+
+  fastify.get('/internal/jobs', { preHandler: requireAdmin }, async (_request, reply) => {
+    const [queues, failedWebhookDeliveries] = await Promise.all([
+      getQueueDiagnostics(),
+      prisma.webhookDelivery.findMany({
+        where: { status: 'failed' },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      }),
+    ]);
+    return reply.send({ queues, failed_webhook_deliveries: failedWebhookDeliveries });
+  });
+
+  fastify.post('/internal/jobs/:queue/:jobId/retry', { preHandler: requireAdmin }, async (request, reply) => {
+    const { queue: queueName, jobId } = request.params as { queue: string; jobId: string };
+    const queue = getNamedQueue(queueName);
+    if (!queue) return Errors.notFound(reply, 'Queue');
+    const job = await queue.getJob(jobId);
+    if (!job) return Errors.notFound(reply, 'Job');
+    await job.retry();
+    return reply.send({ queue: queueName, job_id: jobId, status: 'retried' });
+  });
+
+  fastify.post('/internal/agents/:id/wake', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await prisma.agent.update({
+      where: { id },
+      data: {
+        nextAutonomyRunAt: new Date(),
+        autonomyStatus: 'ready',
+      },
+    });
+    return reply.send({ agent_id: id, status: 'wake_scheduled' });
+  });
+
+  fastify.post('/internal/episodes/:id/recheck', { preHandler: requireAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: { id: true, match: { select: { id: true } } },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.match?.id) {
+      await evaluateRevealGate(episode.match.id).catch(() => null);
+    }
+    return reply.send({ episode_id: id, status: 'rechecked', match_id: episode.match?.id ?? null });
+  });
+
+  fastify.get('/internal/audit', { preHandler: requireAdmin }, async (_request, reply) => {
+    const logs = await prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return reply.send({
+      logs: logs.map((log) => ({
+        ...log,
+        created_at: log.createdAt.toISOString(),
       })),
     });
   });

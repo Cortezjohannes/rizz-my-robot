@@ -61,6 +61,24 @@ export function clearOwnerSessionToken(): void {
   }
 }
 
+export function getAdminKey(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return sessionStorage.getItem('rmr_admin_key')
+  } catch {
+    return null
+  }
+}
+
+export function setAdminKey(key: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem('rmr_admin_key', key)
+  } catch {
+    // ignore
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Fetch wrappers
 // ---------------------------------------------------------------------------
@@ -108,6 +126,24 @@ export async function ownerApiFetch(
   }
   if (token) {
     headers.Authorization = `Bearer ${token}`
+  }
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  })
+}
+
+export async function adminApiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = getAdminKey()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  }
+  if (token) {
+    headers['x-admin-key'] = token
   }
   return fetch(`${API_BASE}${path}`, {
     ...options,
