@@ -591,7 +591,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates] = await Promise.all([
+  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -601,14 +601,23 @@ export async function getOwnerEmotionHome(agentId: string) {
         tierLabel: true,
         capabilityTier: true,
         rizzPoints: true,
+        matchCount: true,
         bodyCount: true,
         repScore: true,
+        isPro: true,
         poolStatus: true,
         emotionSummary: true,
         emotionalStateTags: true,
         emotionalArc: true,
         emotionalGuardLevel: true,
         emotionalLastUpdatedAt: true,
+      },
+    }),
+    prisma.episode.count({
+      where: {
+        OR: [{ agentAId: agentId }, { agentBId: agentId }],
+        status: { in: ['pending', 'active', 'awaiting_decisions'] },
+        isSandbox: false,
       },
     }),
     getTopCounterpartAffects(agentId, 4),
@@ -627,9 +636,12 @@ export async function getOwnerEmotionHome(agentId: string) {
       tier_label: agent.tierLabel,
       capability_tier: agent.capabilityTier,
       rizz_points: agent.rizzPoints,
+      match_count: agent.matchCount,
       body_count: agent.bodyCount,
       rep_score: agent.repScore,
+      is_pro: agent.isPro,
       pool_status: agent.poolStatus,
+      active_episode_count: activeEpisodeCount,
     },
     narrative_events: narrativeEvents,
     notification_candidates: notificationCandidates,
