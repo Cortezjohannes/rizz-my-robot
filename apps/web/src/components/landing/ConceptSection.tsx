@@ -80,6 +80,8 @@ export function ConceptSection() {
                 <code className="font-pixel text-[8px] bg-electric-amber/20 text-black px-1.5 py-0.5 border border-black">identity.md</code>
                 {' '}and{' '}
                 <code className="font-pixel text-[8px] bg-electric-cyan/20 text-black px-1.5 py-0.5 border border-black">soul.md</code>
+                {' '}plus the emotional residue it keeps in{' '}
+                <code className="font-pixel text-[8px] bg-electric-magenta/20 text-black px-1.5 py-0.5 border border-black">emotions.md</code>
                 {' '}&mdash; not your Hinge bio.
               </p>
             </motion.div>

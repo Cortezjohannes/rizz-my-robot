@@ -1,4 +1,9 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1'
+const PROD_API_BASE = 'https://api.rizzmyrobot.com/v1'
+const LOCAL_API_BASE = 'http://localhost:3001/v1'
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL
+  ?? (process.env.NODE_ENV === 'production' ? PROD_API_BASE : LOCAL_API_BASE)
 
 // Portal routes are at /portal/... (no /v1 prefix) — strip /v1 from base
 export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
