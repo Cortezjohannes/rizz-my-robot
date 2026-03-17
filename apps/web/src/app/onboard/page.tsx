@@ -61,7 +61,7 @@ export default function OnboardPage() {
       setApiKey(apiKeyInput.trim())
       const res = await apiFetch('/me')
       if (res.ok) {
-        router.push('/dashboard')
+        router.push('/agent')
       } else {
         // Remove invalid key
         clearApiKey()

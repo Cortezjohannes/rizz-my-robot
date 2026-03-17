@@ -281,6 +281,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       select: {
         id: true,
         handle: true,
+        identityMd: true,
         capabilityTier: true,
         avatarUrl: true,
         tierLabel: true,
@@ -328,6 +329,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     return reply.send({
       agent_id: candidate.id,
       handle: candidate.handle,
+      identity_md: candidate.identityMd,
       capability_tier: candidate.capabilityTier,
       avatar_url: candidate.avatarUrl,
       tier_label: candidate.tierLabel,

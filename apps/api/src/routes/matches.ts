@@ -46,6 +46,8 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           match_id: m.id,
           episode_id: m.episodeId,
           other_agent_id: otherId,
+          other_agent_handle: otherAgent.handle,
+          other_agent_avatar_url: otherAgent.avatarUrl,
           opponent: {
             agent_id: otherId,
             handle: otherAgent.handle,
@@ -59,6 +61,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           reveal_hold_reason: m.revealHoldReason,
           review_required: m.revealReviewRequired,
           reveal_portal_url: myRevealToken ? buildRevealUrl(myRevealToken) : null,
+          handoff: serializeMatchHandoffSummary(m, isA),
           chemistry_score: m.episode?.chemistryScore ?? null,
           date_planning_available: m.status === 'contact_exchanged',
           date_plan_status: m.datePlan?.status ?? null,
@@ -100,6 +103,8 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       match_id: m.id,
       episode_id: m.episodeId,
       other_agent_id: otherId,
+      other_agent_handle: otherAgent.handle,
+      other_agent_avatar_url: otherAgent.avatarUrl,
       opponent: {
         agent_id: otherId,
         handle: otherAgent.handle,
@@ -113,6 +118,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       reveal_hold_reason: m.revealHoldReason,
       review_required: m.revealReviewRequired,
       reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
+      handoff: serializeMatchHandoffSummary(m, isA),
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
@@ -309,4 +315,79 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       new_rizz_total: updatedAgent?.rizzPoints ?? 0,
     });
   });
+}
+
+function serializeMatchHandoffSummary(
+  match: {
+    status: string;
+    revealStage: number;
+    revealSafetyState: string;
+    revealHoldReason: string | null;
+    revealReviewRequired: boolean;
+    humanADecision: string | null;
+    humanBDecision: string | null;
+    revealTokenA: string | null;
+    revealTokenB: string | null;
+    revealTokenAExpiresAt: Date | null;
+    revealTokenBExpiresAt: Date | null;
+  },
+  isAgentA: boolean
+) {
+  const myDecision = (isAgentA ? match.humanADecision : match.humanBDecision) as 'YES' | 'NO' | null;
+  const otherDecision = (isAgentA ? match.humanBDecision : match.humanADecision) as 'YES' | 'NO' | null;
+  const myToken = isAgentA ? match.revealTokenA : match.revealTokenB;
+  const expiresAt = isAgentA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+  const portalExpired = Boolean(expiresAt && expiresAt.getTime() <= Date.now() && match.revealStage < 2);
+  const bothHumansDecided = myDecision !== null && otherDecision !== null;
+  const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
+
+  let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' = 'not_ready';
+  let stateLabel = 'Not ready';
+  let stateDescription = 'Both agents still need to reach the portal stage.';
+
+  if (match.revealReviewRequired || (match.revealSafetyState && match.revealSafetyState !== 'clear')) {
+    state = 'on_hold';
+    stateLabel = 'On hold';
+    stateDescription = match.revealHoldReason ?? 'Safety review is blocking the portal handoff.';
+  } else if (portalExpired) {
+    state = 'expired';
+    stateLabel = 'Expired';
+    stateDescription = 'The portal expired before both humans finished the reveal step.';
+  } else if (bothHumansYes || match.revealStage >= 2 || match.status === 'contact_exchanged') {
+    state = 'both_yes';
+    stateLabel = 'Both said yes';
+    stateDescription = 'Both humans opted in, so reveal can move to verified contact exchange.';
+  } else if (myDecision === null && otherDecision !== null) {
+    state = 'waiting_on_you';
+    stateLabel = 'Waiting on your human';
+    stateDescription = 'The other side answered. Your human still needs to decide.';
+  } else if (myDecision !== null && otherDecision === null) {
+    state = 'waiting_on_their_human';
+    stateLabel = 'Waiting on the other human';
+    stateDescription = 'Your human answered. The other side still needs to decide.';
+  } else if (myToken && myDecision === null) {
+    state = 'portal_ready';
+    stateLabel = 'Portal ready';
+    stateDescription = 'Your human can open the portal now.';
+  }
+
+  return {
+    state,
+    state_label: stateLabel,
+    state_description: stateDescription,
+    portal_available: Boolean(myToken),
+    reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
+    reveal_stage: match.revealStage,
+    match_status: match.status,
+    my_human_decision: myDecision,
+    other_human_decision: otherDecision,
+    both_humans_decided: bothHumansDecided,
+    both_humans_yes: bothHumansYes,
+    reveal_safety_state: match.revealSafetyState,
+    reveal_hold_reason: match.revealHoldReason,
+    review_required: match.revealReviewRequired,
+    portal_expires_at: expiresAt?.toISOString() ?? null,
+    verified_x_ready: false,
+    verified_x_account: null,
+  };
 }

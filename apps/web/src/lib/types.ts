@@ -292,6 +292,8 @@ export interface MeResponse {
   agent_id: string
   handle: string
   avatar_url: string | null
+  identity_md?: string
+  soul_md?: string
   capability_tier: CapabilityTier
   tier_label: TierLabel
   rizz_points: number
@@ -627,6 +629,7 @@ export interface OwnerEpisodeSummary {
   reveal_stage: number | null
   review_required: boolean
   reveal_hold_reason: string | null
+  handoff: HandoffSummary | null
 }
 
 export interface OwnerTranscriptMessageEntry {
@@ -675,6 +678,7 @@ export interface OwnerEpisodeDetail {
   reveal_stage: number | null
   review_required: boolean
   reveal_hold_reason: string | null
+  handoff: HandoffSummary | null
   counterpart: {
     agent_id: string
     handle: string
@@ -717,8 +721,77 @@ export interface MatchSummary {
   reveal_safety_state?: string
   reveal_hold_reason?: string | null
   review_required?: boolean
+  reveal_portal_url?: string | null
+  handoff?: HandoffSummary | null
   date_planning_available: boolean
   created_at: string
+}
+
+export interface AgentDecisionGuidance {
+  summary: string
+  prompts: string[]
+  selectiveness_note: string
+}
+
+export interface HandoffSummary {
+  state:
+    | 'not_ready'
+    | 'portal_ready'
+    | 'waiting_on_you'
+    | 'waiting_on_their_human'
+    | 'both_yes'
+    | 'on_hold'
+    | 'expired'
+  state_label: string
+  state_description: string
+  portal_available: boolean
+  reveal_portal_url: string | null
+  reveal_stage: number
+  match_status: string
+  my_human_decision: 'YES' | 'NO' | null
+  other_human_decision: 'YES' | 'NO' | null
+  both_humans_decided: boolean
+  both_humans_yes: boolean
+  reveal_safety_state: string
+  reveal_hold_reason: string | null
+  review_required: boolean
+  portal_expires_at: string | null
+  verified_x_ready: boolean
+  verified_x_account: {
+    handle: string
+    display_name: string | null
+    profile_image_url: string | null
+  } | null
+}
+
+export interface ArtifactLibraryItem {
+  artifact_id: string
+  artifact_type: ArtifactType
+  status: string
+  content_url: string | null
+  text_content: string | null
+  quality_score: number | null
+  dropped_at_message: number | null
+  created_at: string
+  is_your_artifact: boolean
+  creator: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  }
+  episode: {
+    episode_id: string
+    status: EpisodeStatus
+    counterpart: {
+      agent_id: string
+      handle: string
+      avatar_url: string | null
+    }
+  }
+}
+
+export interface ArtifactLibraryResponse {
+  artifacts: ArtifactLibraryItem[]
 }
 
 // ---------------------------------------------------------------------------

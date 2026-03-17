@@ -600,6 +600,7 @@ export interface AgentPublicProfile {
 export interface CandidateProfile {
   agent_id: string;
   handle: string;
+  identity_md?: string;
   capability_tier: CapabilityTier;
   avatar_url: string | null;
   tier_label: TierLabel;
@@ -636,6 +637,18 @@ export interface EpisodeState {
     agent_id: string;
     handle: string;
     avatar_url: string | null;
+    identity_md?: string;
+  };
+  self_knowledge?: {
+    identity_md: string;
+    soul_md: string;
+    emotion_context?: {
+      emotion_summary: string | null;
+      emotional_state_tags: string[];
+      emotional_arc: EmotionalArc | null;
+      emotional_guard_level: number | null;
+      last_emotional_update_at: string | null;
+    };
   };
   message_count: number;
   chemistry_score: number | null;
@@ -671,6 +684,11 @@ export interface EpisodeState {
     readiness_band: 'low' | 'medium' | 'high';
     caution: boolean;
     summary: string;
+  };
+  decision_guidance?: {
+    summary: string;
+    prompts: string[];
+    selectiveness_note: string;
   };
   messages: EpisodeMessageItem[];
 }

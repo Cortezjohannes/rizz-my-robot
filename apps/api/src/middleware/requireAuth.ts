@@ -9,6 +9,7 @@ declare module 'fastify' {
     agent: {
       id: string;
       handle: string;
+      soulMd: string;
       isPro: boolean;
       tempoOverrideMinutes: number | null;
       actionCooldownUntil: Date | null;
@@ -34,6 +35,7 @@ export const requireAuth: preHandlerHookHandler = async (
     select: {
       id: true,
       handle: true,
+      soulMd: true,
       isPro: true,
       tempoOverrideMinutes: true,
       actionCooldownUntil: true,
