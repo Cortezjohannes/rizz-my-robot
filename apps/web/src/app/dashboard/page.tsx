@@ -44,6 +44,37 @@ const STATUS_COLORS: Record<string, string> = {
   contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-black',
 }
 
+
+const DIARY_BUCKET_STYLES: Record<NarrativeEventSummary['juicy_bucket'], string> = {
+  quiet: 'bg-white border-black shadow-brutal-sm',
+  notable: 'bg-[#fff7df] border-electric-amber shadow-brutal',
+  major: 'bg-[#ffe7f8] border-electric-magenta shadow-brutal',
+}
+
+const DIARY_KIND_STYLES: Record<NarrativeEventSummary['primary_kind'], string> = {
+  move: 'bg-electric-cyan/12 text-electric-cyan border-black',
+  read: 'bg-electric-amber/15 text-[#8a5600] border-black',
+  feeling: 'bg-electric-magenta/12 text-electric-magenta border-black',
+}
+
+const DIARY_KIND_LABELS: Record<NarrativeEventSummary['primary_kind'], string> = {
+  move: 'Move',
+  read: 'Read',
+  feeling: 'Feeling',
+}
+
+const DIARY_IMPORTANCE_TINT: Record<NarrativeEventSummary['importance'], string> = {
+  low: 'text-gray-500',
+  medium: 'text-[#8a5600]',
+  high: 'text-electric-magenta',
+}
+
+function formatGenerationMode(mode: NarrativeEventSummary['generation_mode']) {
+  if (!mode) return null
+  if (mode === 'agent_authored') return 'agent-authored'
+  return mode
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
@@ -321,23 +352,73 @@ export default function DashboardPage() {
               <p className="text-sm text-gray-600">No diary beats yet. Once your agent starts moving, the story lands here.</p>
             )}
             <div className="space-y-3">
-              {narrativeEvents.map((event) => (
-                <div key={event.narrative_event_id} className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <p className="text-sm font-bold text-black">{event.title}</p>
-                      <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mt-1">
-                        {event.importance} importance
-                        {event.counterpart ? ` • @${event.counterpart.handle}` : ''}
-                      </p>
+              {narrativeEvents.map((event) => {
+                const detailRows = [
+                  event.move_line ? { label: 'Move', value: event.move_line } : null,
+                  event.read_line ? { label: 'Read', value: event.read_line } : null,
+                  event.feeling_line ? { label: 'Feeling', value: event.feeling_line } : null,
+                ].filter((row): row is { label: string; value: string } => Boolean(row))
+
+                return (
+                  <div
+                    key={event.narrative_event_id}
+                    className={`border-[3px] p-4 transition-colors ${DIARY_BUCKET_STYLES[event.juicy_bucket]}`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${DIARY_KIND_STYLES[event.primary_kind]}`}>
+                            {DIARY_KIND_LABELS[event.primary_kind]}
+                          </span>
+                          <span className={`font-pixel text-[7px] uppercase tracking-widest ${DIARY_IMPORTANCE_TINT[event.importance]}`}>
+                            {event.importance} importance
+                          </span>
+                          <span className="font-pixel text-[7px] text-black uppercase tracking-widest">
+                            juicy {event.juicy_score}
+                          </span>
+                          {event.counterpart ? (
+                            <span className="font-pixel text-[7px] text-gray-600 uppercase tracking-widest">
+                              @{event.counterpart.handle}
+                            </span>
+                          ) : null}
+                          {formatGenerationMode(event.generation_mode) ? (
+                            <span className="font-pixel text-[7px] text-gray-400 uppercase tracking-widest">
+                              {formatGenerationMode(event.generation_mode)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-sm font-bold text-black">{event.title}</p>
+                      </div>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                        {new Date(event.created_at).toLocaleString()}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
-                      {new Date(event.created_at).toLocaleString()}
-                    </span>
+
+                    <p className="text-sm text-gray-700">{event.body}</p>
+
+                    {detailRows.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {detailRows.map((row) => (
+                          <div key={row.label} className="border-[2px] border-black bg-black/[0.03] px-3 py-2">
+                            <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">{row.label}</p>
+                            <p className="text-xs text-gray-700">{row.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {event.context_tags.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {event.context_tags.map((tag) => (
+                          <span key={tag} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase tracking-widest">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-700">{event.body}</p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 

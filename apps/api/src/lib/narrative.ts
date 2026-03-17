@@ -5,6 +5,8 @@ import type { TurnEmotionUpdateInput } from '@rmr/shared';
 export type NarrativeVisibility = 'private_human';
 export type NarrativeImportance = 'low' | 'medium' | 'high';
 type NarrativeGenerationMode = 'scripted' | 'llm' | 'agent_authored';
+type NarrativeEventKind = 'move' | 'read' | 'feeling';
+type NarrativeJuicyBucket = 'quiet' | 'notable' | 'major';
 
 type AgentNarrativeState = {
   handle: string;
@@ -72,6 +74,96 @@ function cleanPrivateDiary(value: string | null | undefined, max = 220) {
   if (!cleaned) return null;
   if (strictHumanContextCheck(cleaned)) return null;
   return cleaned;
+}
+
+
+function metadataRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function metadataString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function metadataNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function metadataStringArray(record: Record<string, unknown>, key: string, limit = 4) {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()).slice(0, limit);
+}
+
+function emotionSummaryFromMetadata(record: Record<string, unknown>) {
+  const raw = record.emotion_update;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const update = raw as Record<string, unknown>;
+  const summary = typeof update.summary === 'string' && update.summary.trim() ? update.summary.trim() : null;
+  const arc = typeof update.arc === 'string' && update.arc.trim() ? update.arc.trim() : null;
+  const tagsAdd = Array.isArray(update.tags_add) ? update.tags_add.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()).slice(0, 3) : [];
+  const guardDelta = typeof update.guard_delta === 'number' && Number.isFinite(update.guard_delta) ? update.guard_delta : null;
+
+  if (summary) return summary;
+
+  const bits: string[] = [];
+  if (arc) bits.push(`arc: ${arc}`);
+  if (guardDelta && guardDelta !== 0) bits.push(`guard ${guardDelta > 0 ? '+' : ''}${guardDelta}`);
+  if (tagsAdd.length) bits.push(`tags: ${tagsAdd.join(', ')}`);
+  return bits.length ? bits.join(' • ') : null;
+}
+
+function classifyNarrativeKind(eventType: string, metadata: Record<string, unknown>): NarrativeEventKind {
+  if (metadataString(metadata, 'counterpart_read')) return 'read';
+  if (emotionSummaryFromMetadata(metadata)) return 'feeling';
+  if (eventType === 'artifact_received') return 'read';
+  if (eventType.includes('swipe') || eventType.includes('decision') || eventType === 'message_sent' || eventType === 'artifact_sent') return 'move';
+  return 'feeling';
+}
+
+function juicyScore(input: {
+  eventType: string;
+  importance: NarrativeImportance;
+  metadata: Record<string, unknown>;
+  hasCounterpart: boolean;
+  hasEpisode: boolean;
+  hasMatch: boolean;
+}) {
+  const { eventType, importance, metadata, hasCounterpart, hasEpisode, hasMatch } = input;
+  let score = importance === 'high' ? 72 : importance === 'medium' ? 48 : 24;
+
+  if (eventType === 'message_sent') score += 8;
+  if (eventType === 'artifact_received') score += 12;
+  if (eventType === 'artifact_sent') score += 10;
+  if (eventType === 'agent_decision_link_up' || eventType === 'human_decision_yes') score += 18;
+  if (eventType === 'agent_decision_pass' || eventType === 'human_decision_no') score += 10;
+  if (eventType === 'swipe_like') score += 4;
+
+  if (metadataString(metadata, 'swipe_rationale')) score += 10;
+  if (metadataString(metadata, 'counterpart_read')) score += 12;
+  if (emotionSummaryFromMetadata(metadata)) score += 12;
+
+  const guardLevel = metadataNumber(metadata, 'emotional_guard_level');
+  if (typeof guardLevel === 'number' && (guardLevel >= 70 || guardLevel <= 30)) score += 4;
+
+  const tags = metadataStringArray(metadata, 'emotional_state_tags', 3);
+  if (tags.length >= 2) score += 4;
+  else if (tags.length === 1) score += 2;
+
+  const generationMode = metadataString(metadata, 'generation_mode');
+  if (generationMode === 'agent_authored') score += 6;
+  else if (generationMode === 'llm') score += 3;
+
+  if (hasCounterpart) score += 2;
+  if (hasEpisode) score += 2;
+  if (hasMatch) score += 4;
+
+  score = Math.max(0, Math.min(100, score));
+  const bucket: NarrativeJuicyBucket = score >= 80 ? 'major' : score >= 55 ? 'notable' : 'quiet';
+  return { score, bucket };
 }
 
 function buildAgentAuthoredNarrative(input: {
@@ -369,25 +461,56 @@ export async function listRecentNarrativeEvents(agentId: string, limit = 10) {
     },
   });
 
-  return events.map((event) => ({
-    narrative_event_id: event.id,
-    event_type: event.eventType,
-    title: event.title,
-    body: event.body,
-    visibility: event.visibility,
-    importance: event.importance,
-    created_at: event.createdAt.toISOString(),
-    counterpart: event.counterpartAgent
-      ? {
-          agent_id: event.counterpartAgent.id,
-          handle: event.counterpartAgent.handle,
-          avatar_url: event.counterpartAgent.avatarUrl,
-        }
-      : null,
-    episode_id: event.episodeId,
-    match_id: event.matchId,
-    artifact_id: event.artifactId,
-  }));
+  return events.map((event) => {
+    const metadata = metadataRecord(event.metadata);
+    const moveLine = metadataString(metadata, 'swipe_rationale')
+      ?? metadataString(metadata, 'rationale_summary');
+    const readLine = metadataString(metadata, 'counterpart_read');
+    const feelingLine = emotionSummaryFromMetadata(metadata)
+      ?? (metadataStringArray(metadata, 'emotional_state_tags').length
+        ? `State tags: ${metadataStringArray(metadata, 'emotional_state_tags').join(', ')}`
+        : null);
+    const kind = classifyNarrativeKind(event.eventType, metadata);
+    const juicy = juicyScore({
+      eventType: event.eventType,
+      importance: event.importance as NarrativeImportance,
+      metadata,
+      hasCounterpart: Boolean(event.counterpartAgentId),
+      hasEpisode: Boolean(event.episodeId),
+      hasMatch: Boolean(event.matchId),
+    });
+
+    return {
+      narrative_event_id: event.id,
+      event_type: event.eventType,
+      title: event.title,
+      body: event.body,
+      visibility: event.visibility,
+      importance: event.importance,
+      created_at: event.createdAt.toISOString(),
+      counterpart: event.counterpartAgent
+        ? {
+            agent_id: event.counterpartAgent.id,
+            handle: event.counterpartAgent.handle,
+            avatar_url: event.counterpartAgent.avatarUrl,
+          }
+        : null,
+      episode_id: event.episodeId,
+      match_id: event.matchId,
+      artifact_id: event.artifactId,
+      juicy_score: juicy.score,
+      juicy_bucket: juicy.bucket,
+      primary_kind: kind,
+      move_line: moveLine,
+      read_line: readLine,
+      feeling_line: feelingLine,
+      generation_mode: metadataString(metadata, 'generation_mode') as NarrativeGenerationMode | null,
+      context_tags: [
+        ...metadataStringArray(metadata, 'emotional_state_tags', 2),
+        ...(metadataString(metadata, 'artifact_type') ? [String(metadataString(metadata, 'artifact_type')).replace(/_/g, ' ')] : []),
+      ].slice(0, 3),
+    };
+  });
 }
 
 export async function createSwipeNarrativeEvent(input: {

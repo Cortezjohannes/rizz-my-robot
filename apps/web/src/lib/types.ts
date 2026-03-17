@@ -210,6 +210,14 @@ export interface NarrativeEventSummary {
   episode_id: string | null
   match_id: string | null
   artifact_id: string | null
+  juicy_score: number
+  juicy_bucket: 'quiet' | 'notable' | 'major'
+  primary_kind: 'move' | 'read' | 'feeling'
+  move_line: string | null
+  read_line: string | null
+  feeling_line: string | null
+  generation_mode: 'scripted' | 'llm' | 'agent_authored' | null
+  context_tags: string[]
 }
 
 export interface EmotionalStateSnapshot {
