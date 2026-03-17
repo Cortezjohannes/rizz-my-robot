@@ -4,6 +4,13 @@ import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
+import {
+  buildEmotionalResonanceMap,
+  deriveEmotionalArcSummary,
+  deriveEmotionDriftSignal,
+  deriveGhostRecoverySignal,
+  deriveTasteFingerprint,
+} from '../lib/emotionalSignals.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
@@ -34,6 +41,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
       notificationCandidates,
       autonomyWork,
       ownerRecaps,
+      driftSignal,
+      ghostRecovery,
+      emotionalArcSummary,
+      tasteFingerprint,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -170,6 +181,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
         orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
         take: 4,
       }),
+      deriveEmotionDriftSignal(agentId),
+      deriveGhostRecoverySignal(agentId),
+      deriveEmotionalArcSummary(agentId),
+      deriveTasteFingerprint(agentId),
     ]);
 
     if (!agent) {
@@ -198,6 +213,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
         })
       )
       .slice(0, 5);
+    const resonanceMap = await buildEmotionalResonanceMap(
+      agentId,
+      [...new Set(filteredRecentFeed.flatMap((card) => card.agentIds))]
+    );
     const isA = (ep: typeof activeEpisodes[0]) => ep.agentAId === agentId;
 
     // Build suggestions
@@ -272,7 +291,11 @@ export async function homeRoutes(fastify: FastifyInstance) {
         emotional_arc: agent.emotionalArc,
         emotional_guard_level: agent.emotionalGuardLevel,
         last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+        drift_signal: driftSignal,
       },
+      ghost_recovery: ghostRecovery,
+      emotional_arc_summary: emotionalArcSummary,
+      taste_fingerprint: tasteFingerprint,
       autonomy: autonomyWork?.autonomy ?? null,
       public_card_complete: autonomyWork?.public_card_complete ?? false,
       episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],
@@ -342,6 +365,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         card_type: c.cardType,
         headline: (c.content as Record<string, unknown>)?.headline ?? null,
         agents_involved: c.agentIds,
+        resonance_note: c.agentIds.map((id) => resonanceMap.get(id)).find(Boolean) ?? null,
         created_at: c.createdAt.toISOString(),
       })),
       rizz_summary: {

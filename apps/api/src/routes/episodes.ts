@@ -22,6 +22,7 @@ import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { applyAgentAuthoredEmotionUpdate, buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { computeArtifactVulnerabilitySignal } from '../lib/emotionalSignals.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -486,6 +487,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
+        const creatorEmotion = await prisma.agent.findUnique({
+          where: { id: agentId },
+          select: {
+            emotionalGuardLevel: true,
+            emotionalArc: true,
+          },
+        });
+        const vulnerabilitySignal = computeArtifactVulnerabilitySignal({
+          artifactType: artifact.artifactType,
+          emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
+          emotionalArc: creatorEmotion?.emotionalArc,
+          textContent: artifact.textContent,
+        });
         const tasks: Array<Promise<unknown>> = [
           recordAnalyticsEvent({
             agentId,
@@ -515,7 +529,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               content_url: artifact.contentUrl,
               reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
-            awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
+            awardArtifactRizz(
+              agentId,
+              artifact.artifactType as import('@rmr/shared').ArtifactType,
+              artifact.qualityScore,
+              id,
+              vulnerabilitySignal.score,
+            )
               .catch(() => {}),
           );
         } else {
@@ -910,6 +930,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     // Notify the other agent
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    const creatorEmotion = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        emotionalGuardLevel: true,
+        emotionalArc: true,
+      },
+    });
+    const vulnerabilitySignal = computeArtifactVulnerabilitySignal({
+      artifactType: artifact.artifactType,
+      emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
+      emotionalArc: creatorEmotion?.emotionalArc,
+      textContent: parsed.data.text_content ?? artifact.textContent,
+    });
     await deliverWebhooks(otherAgentId, 'artifact_ready', {
       episode_id: id,
       artifact_id,
@@ -922,7 +955,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     await Promise.all([
       upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {}),
-      awardArtifactRizz(agentId, artifact.artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore, id)
+      awardArtifactRizz(
+        agentId,
+        artifact.artifactType as import('@rmr/shared').ArtifactType,
+        artifact.qualityScore,
+        id,
+        vulnerabilitySignal.score,
+      )
         .catch(() => {}),
     ]);
 
@@ -1176,8 +1215,14 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
   if (!episode) return;
 
   const [agentA, agentB, existingCard] = await Promise.all([
-    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
-    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
+    prisma.agent.findUnique({
+      where: { id: agentAId },
+      select: { handle: true, emotionalGuardLevel: true, emotionalArc: true },
+    }),
+    prisma.agent.findUnique({
+      where: { id: agentBId },
+      select: { handle: true, emotionalGuardLevel: true, emotionalArc: true },
+    }),
     prisma.feedCard.findFirst({
       where: { episodeId, cardType: 'episode_live' },
       select: { id: true },
@@ -1193,6 +1238,14 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
     }))
   );
   const topArtifact = episode.artifacts[episode.artifacts.length - 1] ?? null;
+  const topArtifactSignal = topArtifact
+    ? computeArtifactVulnerabilitySignal({
+        artifactType: topArtifact.artifactType,
+        emotionalGuardLevel: topArtifact.creatorAgentId === agentAId ? agentA?.emotionalGuardLevel : agentB?.emotionalGuardLevel,
+        emotionalArc: topArtifact.creatorAgentId === agentAId ? agentA?.emotionalArc : agentB?.emotionalArc,
+        textContent: topArtifact.textContent,
+      })
+    : null;
   const dramaQuotient = Math.min(0.92, 0.25 + episode.messageCount * 0.035 + episode.artifacts.length * 0.14);
   const isPublic = await shouldPublishEpisodeConversationCard(agentAId, agentBId, dramaQuotient);
 
@@ -1209,6 +1262,8 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
     artifact_count: episode.artifacts.length,
     transcript_preview: transcriptPreview,
     artifact_type: topArtifact?.artifactType ?? null,
+    artifact_vulnerability_label: topArtifactSignal?.label ?? null,
+    artifact_vulnerability_score: topArtifactSignal?.score ?? null,
   };
 
   if (existingCard) {

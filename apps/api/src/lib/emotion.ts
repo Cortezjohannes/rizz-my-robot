@@ -2,6 +2,7 @@ import { prisma, type Prisma } from '@rmr/db';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
+import { deriveEmotionalArcSummary, deriveTasteFingerprint } from './emotionalSignals.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -591,7 +592,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates] = await Promise.all([
+  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates, emotionalArcSummary, tasteFingerprint] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -631,6 +632,8 @@ export async function getOwnerEmotionHome(agentId: string) {
     getEmotionUpdatePrompts(agentId, 3),
     listRecentNarrativeEvents(agentId, 12),
     listPreparedNarrativeNotificationCandidates(agentId, 3),
+    deriveEmotionalArcSummary(agentId),
+    deriveTasteFingerprint(agentId),
   ]);
 
   if (!agent) return null;
@@ -666,6 +669,8 @@ export async function getOwnerEmotionHome(agentId: string) {
       emotional_guard_level: agent.emotionalGuardLevel,
       last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
     },
+    emotional_arc_summary: emotionalArcSummary,
+    taste_fingerprint: tasteFingerprint,
     top_counterpart_affects: topCounterpartAffects.map((affect) => ({
       counterpart_agent_id: affect.counterpart_agent_id,
       handle: affect.handle,

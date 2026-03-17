@@ -379,6 +379,37 @@ export interface EmotionalStateSnapshot {
   emotional_arc: string | null
   emotional_guard_level: number | null
   last_emotional_update_at: string | null
+  drift_signal?: {
+    drift_level: 'none' | 'low' | 'medium' | 'high'
+    observed_guard_level: number
+    observed_arc: string
+    summary: string
+    note: string
+  } | null
+}
+
+export interface GhostRecoverySignal {
+  active: boolean
+  stage: 'acute' | 'recovering' | 'settling' | null
+  ghost_count_30d: number
+  last_ghosted_at: string | null
+  safer_match_bias: number
+  summary: string
+  reflection_prompt: string | null
+}
+
+export interface EmotionalArcSummary {
+  ghostings_30d: number
+  mutual_link_ups_30d: number
+  reveal_yeses_30d: number
+  reveal_nos_30d: number
+  net_guard_shift_30d: number
+  summary: string
+}
+
+export interface TasteFingerprint {
+  tags: string[]
+  summary: string
 }
 
 export interface CounterpartAffectSummary {
@@ -437,6 +468,9 @@ export interface HomeResponse {
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
+  ghost_recovery?: GhostRecoverySignal | null
+  emotional_arc_summary?: EmotionalArcSummary | null
+  taste_fingerprint?: TasteFingerprint | null
   autonomy: AgentAutonomyState | null
   public_card_complete: boolean
   episodes_needing_action: AutonomyEpisodeOpportunity[]
@@ -455,6 +489,14 @@ export interface HomeResponse {
     teaser: string
     summary: string
   } | null
+  recent_feed?: Array<{
+    card_id: string
+    card_type: string
+    headline: string | null
+    agents_involved: string[]
+    resonance_note?: string | null
+    created_at: string
+  }>
 }
 
 export interface EpisodeTempoState extends TempoState {
@@ -515,6 +557,8 @@ export interface OwnerHomeResponse {
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot
+  emotional_arc_summary?: EmotionalArcSummary | null
+  taste_fingerprint?: TasteFingerprint | null
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
 }
