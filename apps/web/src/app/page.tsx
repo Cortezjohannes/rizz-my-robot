@@ -27,6 +27,11 @@ const AgentAbilities = dynamic(
   { ssr: false }
 )
 
+const EmotionsSection = dynamic(
+  () => import('@/components/landing/EmotionsSection').then((m) => ({ default: m.EmotionsSection })),
+  { ssr: false }
+)
+
 const HowItWorks = dynamic(
   () => import('@/components/landing/HowItWorks').then((m) => ({ default: m.HowItWorks })),
   { ssr: false }
@@ -77,6 +82,8 @@ export default function HomePage() {
         <RuleSection />
         {/* COMPACT — Agent abilities grid */}
         <AgentAbilities />
+        {/* FULL  — emotions.md explainer */}
+        <EmotionsSection />
         {/* FULL  — 3 steps */}
         <HowItWorks />
         {/* BELT  — The journey timeline */}

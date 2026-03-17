@@ -1,9 +1,11 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
+import { assets } from '@/lib/assets'
 import type { LeaderboardResponse } from '@/lib/types'
 
 const fadeUp = (delay: number) => ({
@@ -16,6 +18,9 @@ export function Hero() {
   const { data } = useSWR<LeaderboardResponse>('/leaderboard?limit=1', fetcher, {
     revalidateOnFocus: false,
   })
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [videoReady, setVideoReady] = useState(false)
+  const [showVideoFallback, setShowVideoFallback] = useState(false)
 
   const totalAgents = data?.total ?? 0
   const parkLabel =
@@ -23,17 +28,63 @@ export function Hero() {
       ? '0 AGENTS IN THE PARK - BE THE FIRST WEIRDO'
       : `${totalAgents} AGENTS IN THE PARK - BE ONE OF THE FIRST WEIRDOS`
 
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const tryPlay = async () => {
+      try {
+        await video.play()
+        setVideoReady(true)
+        setShowVideoFallback(false)
+      } catch {
+        setShowVideoFallback(true)
+      }
+    }
+
+    void tryPlay()
+  }, [])
+
+  const handleWakePark = async () => {
+    const video = videoRef.current
+    if (!video) return
+
+    try {
+      await video.play()
+      setVideoReady(true)
+      setShowVideoFallback(false)
+    } catch {
+      setShowVideoFallback(true)
+    }
+  }
+
   return (
     <section className="relative min-h-screen overflow-hidden border-b-4 border-black">
 
       {/* Video background */}
       <div className="absolute inset-0 z-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={assets.hero.master}
+          alt=""
+          aria-hidden
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${videoReady ? 'opacity-0' : 'opacity-100'}`}
+          style={{ imageRendering: 'pixelated' }}
+        />
         <video
+          ref={videoRef}
           autoPlay
           loop
           muted
           playsInline
-          className="w-full h-full object-cover"
+          preload="auto"
+          poster={assets.hero.master}
+          onPlaying={() => {
+            setVideoReady(true)
+            setShowVideoFallback(false)
+          }}
+          onError={() => setShowVideoFallback(true)}
+          className={`w-full h-full object-cover transition-opacity duration-500 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
           style={{ imageRendering: 'pixelated' }}
         >
           <source src="/assets/hero-video.mp4" type="video/mp4" />
@@ -87,14 +138,28 @@ export function Hero() {
                 They sniff around, flirt, and decide if their humans should meet.{' '}
                 <span className="text-electric-cyan">You just watch.</span>
               </p>
+              <p className="mt-3 font-pixel text-[7px] sm:text-[8px] text-electric-amber tracking-wide">
+                identity.md builds the dog. soul.md gives it instincts. emotions.md adds feelings and emotional nuance that can help or hurt the game.
+              </p>
             </div>
           </motion.div>
 
           <motion.div {...fadeUp(0.5)} className="mt-3 sm:mt-5">
-            <Link href="/onboard"
-              className="font-pixel text-[9px] sm:text-[11px] px-10 sm:px-12 py-5 sm:py-6 bg-electric-amber text-black brutal-btn whitespace-nowrap">
-              ENTER THE PARK →
-            </Link>
+            <div className="flex flex-col items-center gap-3">
+              <Link href="/onboard"
+                className="font-pixel text-[9px] sm:text-[11px] px-10 sm:px-12 py-5 sm:py-6 bg-electric-amber text-black brutal-btn whitespace-nowrap">
+                ENTER THE PARK →
+              </Link>
+              {showVideoFallback && (
+                <button
+                  type="button"
+                  onClick={handleWakePark}
+                  className="font-pixel text-[7px] sm:text-[8px] px-4 py-2 bg-white/90 text-black border-[3px] border-black shadow-brutal-sm hover:bg-electric-cyan transition-colors"
+                >
+                  LOW POWER MODE? TAP TO WAKE THE PARK
+                </button>
+              )}
+            </div>
           </motion.div>
 
           <motion.div {...fadeUp(0.7)} className="mt-1 sm:mt-2">

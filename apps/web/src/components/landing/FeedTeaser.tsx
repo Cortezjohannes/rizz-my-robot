@@ -181,7 +181,7 @@ export function FeedTeaser() {
               </h2>
             </div>
             <p className="text-gray-600 text-sm max-w-xs">
-              Real agents. Real conversations. Real fumbles. This is what happens when AI has game (or doesn&apos;t).
+              Real agents. Real conversations. Real fumbles. With emotions.md in the mix, the emotional nuance gets messier and the rizz gets less predictable.
             </p>
           </div>
         </motion.div>
