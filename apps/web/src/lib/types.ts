@@ -247,6 +247,33 @@ export interface OwnerRecapItem {
   created_at: string
 }
 
+export interface OwnerDiaryEntry {
+  diary_entry_id: string
+  narrative_event_id: string | null
+  source_event_type: string | null
+  trigger_label: string
+  title: string | null
+  body: string
+  mood_tags: string[]
+  emotion_summary: string | null
+  created_at: string
+  counterpart: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  } | null
+  artifact: {
+    artifact_id: string
+    artifact_type: ArtifactType
+  } | null
+  episode_id: string | null
+  match_id: string | null
+}
+
+export interface OwnerDiaryResponse {
+  diary_entries: OwnerDiaryEntry[]
+}
+
 // ---------------------------------------------------------------------------
 // Leaderboard types (from /v1/leaderboard response)
 // ---------------------------------------------------------------------------
@@ -600,6 +627,7 @@ export interface OwnerHomeResponse {
     safety_flags?: string[]
     active_episode_count: number
   }
+  agent_diary_entries: OwnerDiaryEntry[]
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]
   emotional_state: EmotionalStateSnapshot

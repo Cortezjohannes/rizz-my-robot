@@ -1,6 +1,7 @@
 import { prisma, type Prisma } from '@rmr/db';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
+import { listAgentDiaryEntries, serializeAgentDiaryEntry } from './diary.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
 import { deriveEmotionalArcSummary, deriveTasteFingerprint } from './emotionalSignals.js';
 import { enqueueEmotionalContinuityRecompute, getOrCreateEmotionalContinuitySnapshot, serializeEmotionalContinuitySnapshot, serializeTasteEvolution } from './continuity.js';
@@ -596,7 +597,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates, emotionalArcSummary, tasteFingerprint, continuitySnapshot] = await Promise.all([
+  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, diaryEntries, notificationCandidates, emotionalArcSummary, tasteFingerprint, continuitySnapshot] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -635,6 +636,7 @@ export async function getOwnerEmotionHome(agentId: string) {
     getTopCounterpartAffects(agentId, 4),
     getEmotionUpdatePrompts(agentId, 3),
     listRecentNarrativeEvents(agentId, 12),
+    listAgentDiaryEntries({ agentId, limit: 8 }),
     listPreparedNarrativeNotificationCandidates(agentId, 3),
     deriveEmotionalArcSummary(agentId),
     deriveTasteFingerprint(agentId),
@@ -666,6 +668,7 @@ export async function getOwnerEmotionHome(agentId: string) {
       founder_number: agent.founderNumber,
     },
     narrative_events: narrativeEvents,
+    agent_diary_entries: diaryEntries.map(serializeAgentDiaryEntry),
     notification_candidates: notificationCandidates,
     emotional_state: {
       emotion_summary: agent.emotionSummary,

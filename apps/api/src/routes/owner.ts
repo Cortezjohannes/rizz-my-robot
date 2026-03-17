@@ -11,9 +11,11 @@ import { Errors, sendError } from '../lib/errors.js';
 import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
 import { extractBearerToken, generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
+import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
+import { readLimit } from '../lib/rateLimit.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
@@ -264,6 +266,27 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         updated_at: match.updatedAt.toISOString(),
       })),
       ...home,
+    });
+  });
+
+  fastify.get('/owner/diary', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const query = request.query as { episode_id?: string; limit?: string | number };
+    const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 80)
+      : 40;
+
+    const diaryEntries = await listAgentDiaryEntries({
+      agentId,
+      episodeId: query.episode_id ?? null,
+      limit,
+    });
+
+    return reply.send({
+      diary_entries: diaryEntries.map(serializeAgentDiaryEntry),
     });
   });
 
