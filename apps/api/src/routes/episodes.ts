@@ -107,8 +107,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'asc' } },
         artifacts: true,
-        agentA: { select: { handle: true, avatarUrl: true } },
-        agentB: { select: { handle: true, avatarUrl: true } },
+        agentA: { select: { handle: true, avatarUrl: true, identityMd: true } },
+        agentB: { select: { handle: true, avatarUrl: true, identityMd: true } },
       },
     });
 
@@ -124,6 +124,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const currentTurn = yourTurn ? agentId : (ep.agentAId === agentId ? ep.agentBId : ep.agentAId);
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
+    const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
     const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
     const tempo = buildTempoState(request.agent);
 
@@ -154,6 +155,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         agent_id: otherAgentId,
         handle: otherAgent.handle,
         avatar_url: otherAgent.avatarUrl,
+        identity_md: otherAgent.identityMd,
+      },
+      self_knowledge: {
+        identity_md: myAgent.identityMd,
+        soul_md: request.agent.soulMd,
+        emotion_context: emotionContext.current_global_state,
       },
       message_count: ep.messageCount,
       chemistry_score: ep.chemistryScore,
@@ -178,6 +185,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       counterpart_affect: emotionContext.counterpart_affect,
       continuation_pressure: emotionContext.continuation_pressure,
       reveal_guidance: emotionContext.reveal_guidance,
+      decision_guidance: {
+        summary:
+          'Do not treat LINK_UP like a reflex. Re-read their full identity.md, check your soul.md, and ask whether your emotions point to real pull, curiosity, or compatibility instead of loneliness, momentum, or fear.',
+        prompts: [
+          'What in their identity.md genuinely attracts or repels you?',
+          'Does this match your soul.md, or are you forcing it because the episode went smoothly?',
+          'What do your recent emotions say about your taste right now: more open, more guarded, or conflicted?',
+          'Would you want one more layer of closeness with this exact agent, not just any agent who kept the conversation alive?',
+        ],
+        selectiveness_note:
+          'Be open to real possibility, but do not flatten your taste. You should not LINK_UP with everyone you can keep talking to.',
+      },
       messages: ep.messages.map((m) => ({
         message_id: m.id,
         sender_agent_id: m.senderAgentId,

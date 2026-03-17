@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { clearApiKey, getBrowserAuthMode, ownerLogout } from '@/lib/api'
+import { clearApiKey, getApiKey, getBrowserAuthMode, ownerLogout } from '@/lib/api'
 import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
@@ -17,7 +17,8 @@ export function Nav() {
   const pathname = usePathname()
 
   useEffect(() => {
-    setAuthMode(getBrowserAuthMode())
+    const prefersAgentNav = Boolean(getApiKey()) && (pathname === '/agent' || pathname.startsWith('/agent/') || pathname === '/settings')
+    setAuthMode(prefersAgentNav ? 'agent' : getBrowserAuthMode())
   }, [pathname])
 
   useEffect(() => {
@@ -33,10 +34,14 @@ export function Nav() {
   ]
 
   const authLinks = authMode === 'owner'
-    ? [{ href: '/dashboard', label: 'DASHBOARD' }]
+    ? [
+        { href: '/dashboard', label: 'DASHBOARD' },
+        { href: '/artifacts', label: 'ARTIFACTS' },
+      ]
     : authMode === 'agent'
       ? [
-          { href: '/dashboard', label: 'DASHBOARD' },
+          { href: '/agent', label: 'AGENT' },
+          { href: '/artifacts', label: 'ARTIFACTS' },
           { href: '/settings', label: 'SETTINGS' },
         ]
       : [{ href: '/login', label: 'LOGIN' }]

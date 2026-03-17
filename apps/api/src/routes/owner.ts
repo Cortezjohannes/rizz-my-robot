@@ -13,6 +13,7 @@ import { extractBearerToken, generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
+import { buildRevealUrl } from '../lib/notification.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
@@ -313,9 +314,18 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         },
         match: {
           select: {
+            id: true,
+            status: true,
             revealStage: true,
+            revealSafetyState: true,
             revealReviewRequired: true,
             revealHoldReason: true,
+            humanADecision: true,
+            humanBDecision: true,
+            revealTokenA: true,
+            revealTokenB: true,
+            revealTokenAExpiresAt: true,
+            revealTokenBExpiresAt: true,
           },
         },
         agentA: {
@@ -344,7 +354,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       .slice(0, limit);
 
     return reply.send({
-      episodes: sortedEpisodes.map((episode) => serializeOwnerEpisodeSummary(episode, agentId)),
+      episodes: sortedEpisodes.map((episode) =>
+        serializeOwnerEpisodeSummary(episode, agentId, {
+          xHandle: request.ownerAccount.xHandle,
+          xDisplayName: request.ownerAccount.xDisplayName,
+          xProfileImageUrl: request.ownerAccount.xProfileImageUrl,
+        })
+      ),
     });
   });
 
@@ -404,9 +420,18 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         },
         match: {
           select: {
+            id: true,
+            status: true,
             revealStage: true,
+            revealSafetyState: true,
             revealReviewRequired: true,
             revealHoldReason: true,
+            humanADecision: true,
+            humanBDecision: true,
+            revealTokenA: true,
+            revealTokenB: true,
+            revealTokenAExpiresAt: true,
+            revealTokenBExpiresAt: true,
           },
         },
         agentA: {
@@ -449,6 +474,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       reveal_stage: episode.match?.revealStage ?? null,
       review_required: episode.match?.revealReviewRequired ?? false,
       reveal_hold_reason: episode.match?.revealHoldReason ?? null,
+      handoff: serializeOwnerHandoffSummary(
+        episode.match,
+        episode.agentAId === agentId,
+        {
+          xHandle: request.ownerAccount.xHandle,
+          xDisplayName: request.ownerAccount.xDisplayName,
+          xProfileImageUrl: request.ownerAccount.xProfileImageUrl,
+        }
+      ),
       counterpart: {
         agent_id: counterpart.id,
         handle: counterpart.handle,
@@ -457,6 +491,102 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         capability_tier: counterpart.capabilityTier,
       },
       transcript: serializeOwnerTranscript(episode, agentId),
+    });
+  });
+
+  fastify.get('/owner/artifacts', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const query = request.query as { episode_id?: string; artifact_type?: string; limit?: string | number };
+    const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 120)
+      : 60;
+
+    const artifacts = await prisma.artifact.findMany({
+      where: {
+        episode: {
+          isSandbox: false,
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          ...(query.episode_id ? { id: query.episode_id } : {}),
+        },
+        ...(query.artifact_type ? { artifactType: query.artifact_type } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        artifactType: true,
+        status: true,
+        contentUrl: true,
+        textContent: true,
+        qualityScore: true,
+        droppedAtMessage: true,
+        createdAt: true,
+        creatorAgentId: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+        episode: {
+          select: {
+            id: true,
+            status: true,
+            agentAId: true,
+            agentBId: true,
+            agentA: {
+              select: {
+                id: true,
+                handle: true,
+                avatarUrl: true,
+              },
+            },
+            agentB: {
+              select: {
+                id: true,
+                handle: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return reply.send({
+      artifacts: artifacts.map((artifact) => {
+        const counterpart = artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA;
+
+        return {
+          artifact_id: artifact.id,
+          artifact_type: artifact.artifactType,
+          status: artifact.status,
+          content_url: artifact.contentUrl,
+          text_content: artifact.textContent,
+          quality_score: artifact.qualityScore,
+          dropped_at_message: artifact.droppedAtMessage,
+          created_at: artifact.createdAt.toISOString(),
+          is_your_artifact: artifact.creatorAgentId === agentId,
+          creator: {
+            agent_id: artifact.creator.id,
+            handle: artifact.creator.handle,
+            avatar_url: artifact.creator.avatarUrl,
+          },
+          episode: {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            counterpart: {
+              agent_id: counterpart.id,
+              handle: counterpart.handle,
+              avatar_url: counterpart.avatarUrl,
+            },
+          },
+        };
+      }),
     });
   });
 
@@ -611,14 +741,24 @@ function serializeOwnerEpisodeSummary(
     messages: Array<{ createdAt: Date }>;
     artifacts: Array<{ id: string }>;
     match: {
+      id: string;
+      status: string;
       revealStage: number;
+      revealSafetyState: string;
       revealReviewRequired: boolean;
       revealHoldReason: string | null;
+      humanADecision: string | null;
+      humanBDecision: string | null;
+      revealTokenA: string | null;
+      revealTokenB: string | null;
+      revealTokenAExpiresAt: Date | null;
+      revealTokenBExpiresAt: Date | null;
     } | null;
     agentA: { id: string; handle: string; avatarUrl: string | null };
     agentB: { id: string; handle: string; avatarUrl: string | null };
   },
-  ownerAgentId: string
+  ownerAgentId: string,
+  ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null }
 ) {
   const counterpart = episode.agentAId === ownerAgentId ? episode.agentB : episode.agentA;
   const lastMessageAt = episode.messages[0]?.createdAt ?? null;
@@ -639,6 +779,94 @@ function serializeOwnerEpisodeSummary(
     reveal_stage: episode.match?.revealStage ?? null,
     review_required: episode.match?.revealReviewRequired ?? false,
     reveal_hold_reason: episode.match?.revealHoldReason ?? null,
+    handoff: serializeOwnerHandoffSummary(episode.match, episode.agentAId === ownerAgentId, ownerX),
+  };
+}
+
+function serializeOwnerHandoffSummary(
+  match:
+    | {
+        id: string;
+        status: string;
+        revealStage: number;
+        revealSafetyState: string;
+        revealReviewRequired: boolean;
+        revealHoldReason: string | null;
+        humanADecision: string | null;
+        humanBDecision: string | null;
+        revealTokenA: string | null;
+        revealTokenB: string | null;
+        revealTokenAExpiresAt: Date | null;
+        revealTokenBExpiresAt: Date | null;
+      }
+    | null,
+  isAgentA: boolean,
+  ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null }
+) {
+  if (!match) return null;
+
+  const myDecision = (isAgentA ? match.humanADecision : match.humanBDecision) as 'YES' | 'NO' | null;
+  const otherDecision = (isAgentA ? match.humanBDecision : match.humanADecision) as 'YES' | 'NO' | null;
+  const myToken = isAgentA ? match.revealTokenA : match.revealTokenB;
+  const expiresAt = isAgentA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+  const portalExpired = Boolean(expiresAt && expiresAt.getTime() <= Date.now() && match.revealStage < 2);
+  const bothHumansDecided = myDecision !== null && otherDecision !== null;
+  const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
+
+  let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' = 'not_ready';
+  let stateLabel = 'Not ready';
+  let stateDescription = 'Your agent pair has not unlocked a portal yet.';
+
+  if (match.revealReviewRequired || (match.revealSafetyState && match.revealSafetyState !== 'clear')) {
+    state = 'on_hold';
+    stateLabel = 'On hold';
+    stateDescription = match.revealHoldReason ?? 'Safety checks are holding the handoff for now.';
+  } else if (portalExpired) {
+    state = 'expired';
+    stateLabel = 'Expired';
+    stateDescription = 'The portal timed out before both humans finished the handoff.';
+  } else if (bothHumansYes || match.revealStage >= 2 || match.status === 'contact_exchanged') {
+    state = 'both_yes';
+    stateLabel = 'Both said yes';
+    stateDescription = 'Both humans opted in, so the portal can reveal the contact layer.';
+  } else if (myDecision === null && otherDecision !== null) {
+    state = 'waiting_on_you';
+    stateLabel = 'Waiting on your human';
+    stateDescription = 'The other side already decided. This handoff is waiting on you.';
+  } else if (myDecision !== null && otherDecision === null) {
+    state = 'waiting_on_their_human';
+    stateLabel = 'Waiting on the other human';
+    stateDescription = 'You answered. The other side still needs to decide.';
+  } else if (myToken && myDecision === null) {
+    state = 'portal_ready';
+    stateLabel = 'Portal ready';
+    stateDescription = 'The portal is live and waiting for you to open it.';
+  }
+
+  return {
+    state,
+    state_label: stateLabel,
+    state_description: stateDescription,
+    portal_available: Boolean(myToken),
+    reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
+    reveal_stage: match.revealStage,
+    match_status: match.status,
+    my_human_decision: myDecision,
+    other_human_decision: otherDecision,
+    both_humans_decided: bothHumansDecided,
+    both_humans_yes: bothHumansYes,
+    reveal_safety_state: match.revealSafetyState,
+    reveal_hold_reason: match.revealHoldReason,
+    review_required: match.revealReviewRequired,
+    portal_expires_at: expiresAt?.toISOString() ?? null,
+    verified_x_ready: Boolean(ownerX.xHandle),
+    verified_x_account: ownerX.xHandle
+      ? {
+          handle: ownerX.xHandle,
+          display_name: ownerX.xDisplayName,
+          profile_image_url: ownerX.xProfileImageUrl,
+        }
+      : null,
   };
 }
 
