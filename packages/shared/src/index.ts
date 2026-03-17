@@ -427,13 +427,15 @@ export const PortalPreferencesSchema = z.object({
 });
 export type PortalPreferencesInput = z.infer<typeof PortalPreferencesSchema>;
 
+export const AgentPrivateDiarySchema = z.string().trim().min(1).max(280);
+
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: SwipeDirection,
+  rationale: z.string().trim().min(1).max(280).optional(),
+  private_diary: AgentPrivateDiarySchema.optional(),
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
-
-export const AgentPrivateDiarySchema = z.string().trim().min(1).max(280);
 
 export const TurnEmotionUpdateSchema = z.object({
   summary: z.string().trim().min(1).max(280).nullable().optional(),
@@ -447,6 +449,7 @@ export type TurnEmotionUpdateInput = z.infer<typeof TurnEmotionUpdateSchema>;
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(4_000),
   private_diary: AgentPrivateDiarySchema.optional(),
+  counterpart_read: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
@@ -455,6 +458,7 @@ export const DropArtifactSchema = z.object({
   artifact_type: ArtifactType,
   // text_content required for text artifact types; omit for media types (agent generates and submits later)
   text_content: z.string().max(10_000).optional(),
+  private_diary: AgentPrivateDiarySchema.optional(),
 });
 export type DropArtifactInput = z.infer<typeof DropArtifactSchema>;
 

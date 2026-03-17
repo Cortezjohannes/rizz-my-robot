@@ -562,6 +562,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             artifactId: artifact.id,
             artifactType: artifact.artifactType,
             direction: 'sent',
+            privateDiary: parsed.data.private_diary,
           }).catch(() => {}),
           createArtifactNarrativeEvent({
             agentId: otherAgentId,

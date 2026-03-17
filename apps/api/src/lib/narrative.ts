@@ -79,6 +79,7 @@ function buildAgentAuthoredNarrative(input: {
   draft: NarrativeDraft;
   eventType: string;
   emotionUpdate?: TurnEmotionUpdateInput | null;
+  extraMetadata?: Record<string, unknown> | null;
 }): { title: string; body: string; metadata: Record<string, unknown> } | null {
   const body = cleanPrivateDiary(input.privateDiary);
   if (!body) return null;
@@ -99,6 +100,7 @@ function buildAgentAuthoredNarrative(input: {
             tags_remove: input.emotionUpdate.tags_remove ?? [],
           }
         : null,
+      ...(input.extraMetadata ?? {}),
     },
   };
 }
@@ -393,24 +395,38 @@ export async function createSwipeNarrativeEvent(input: {
   targetAgentId: string;
   targetHandle: string;
   direction: 'LIKE' | 'PASS';
+  rationale?: string | null;
+  privateDiary?: string | null;
 }) {
   const state = await getAgentNarrativeState(input.agentId);
   const draft = buildSwipeDraft({ targetHandle: input.targetHandle, direction: input.direction, state });
+  const swipeRationale = cleanPrivateDiary(input.rationale);
+  const agentAuthored = buildAgentAuthoredNarrative({
+    privateDiary: input.privateDiary,
+    draft: swipeRationale ? { ...draft, rationaleSummary: swipeRationale } : draft,
+    eventType: input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass',
+    extraMetadata: {
+      swipe_rationale: swipeRationale,
+    },
+  });
 
   return createNarrativeEvent({
     agentId: input.agentId,
     counterpartAgentId: input.targetAgentId,
     eventType: input.direction === 'LIKE' ? 'swipe_like' : 'swipe_pass',
-    title: draft.title,
-    body: draft.body,
+    title: agentAuthored?.title ?? draft.title,
+    body: agentAuthored?.body ?? draft.body,
     importance: draft.importance,
     metadata: {
       direction: input.direction,
-      rationale_summary: draft.rationaleSummary,
+      rationale_summary: swipeRationale ?? draft.rationaleSummary,
+      swipe_rationale: swipeRationale,
       emotional_arc: state?.emotionalArc ?? null,
       emotional_guard_level: state?.emotionalGuardLevel ?? null,
       emotional_state_tags: state?.emotionalStateTags ?? [],
-      generation_mode: 'scripted',
+      ...(agentAuthored?.metadata ?? {
+        generation_mode: 'scripted',
+      }),
     },
   });
 }
@@ -423,15 +439,20 @@ export async function createEpisodeMessageNarrativeEvent(input: {
   content: string;
   sequenceNumber: number;
   privateDiary?: string | null;
+  counterpartRead?: string | null;
   emotionUpdate?: TurnEmotionUpdateInput | null;
 }) {
   const agentState = await getAgentNarrativeState(input.agentId);
   const draft = buildMessageDraft(input);
+  const counterpartRead = cleanPrivateDiary(input.counterpartRead);
   const agentAuthored = buildAgentAuthoredNarrative({
     privateDiary: input.privateDiary,
     draft,
     eventType: 'message_sent',
     emotionUpdate: input.emotionUpdate,
+    extraMetadata: {
+      counterpart_read: counterpartRead,
+    },
   });
   const llm = agentAuthored ? null : await maybeGenerateNarrativeWithLlm({
     eventType: 'message_sent',
@@ -455,6 +476,7 @@ export async function createEpisodeMessageNarrativeEvent(input: {
     importance: draft.importance,
     metadata: {
       sequence_number: input.sequenceNumber,
+      counterpart_read: counterpartRead,
       ...(agentAuthored?.metadata ?? {
         rationale_summary: draft.rationaleSummary,
         generation_mode: (llm ? 'llm' : 'scripted') satisfies NarrativeGenerationMode,
@@ -471,8 +493,16 @@ export async function createArtifactNarrativeEvent(input: {
   artifactId: string;
   artifactType: string;
   direction: 'sent' | 'received';
+  privateDiary?: string | null;
 }) {
   const draft = buildArtifactDraft(input);
+  const agentAuthored = input.direction === 'sent'
+    ? buildAgentAuthoredNarrative({
+        privateDiary: input.privateDiary,
+        draft,
+        eventType: `artifact_${input.direction}`,
+      })
+    : null;
 
   return createNarrativeEvent({
     agentId: input.agentId,
@@ -480,14 +510,16 @@ export async function createArtifactNarrativeEvent(input: {
     episodeId: input.episodeId,
     artifactId: input.artifactId,
     eventType: `artifact_${input.direction}`,
-    title: draft.title,
-    body: draft.body,
+    title: agentAuthored?.title ?? draft.title,
+    body: agentAuthored?.body ?? draft.body,
     importance: draft.importance,
     metadata: {
       artifact_type: input.artifactType,
       direction: input.direction,
-      rationale_summary: draft.rationaleSummary,
-      generation_mode: 'scripted',
+      ...(agentAuthored?.metadata ?? {
+        rationale_summary: draft.rationaleSummary,
+        generation_mode: 'scripted',
+      }),
     },
   });
 }

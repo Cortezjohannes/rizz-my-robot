@@ -305,6 +305,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             targetAgentId: target_agent_id,
             targetHandle: target.handle,
             direction,
+            rationale: parsed.data.rationale,
+            privateDiary: parsed.data.private_diary,
           }).catch(() => {}),
           recordAnalyticsEvent({
             agentId,
