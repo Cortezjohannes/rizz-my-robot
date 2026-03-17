@@ -21,7 +21,6 @@ import { RizzBar } from '@/components/ui/RizzBar'
 import {
   ArtifactShelf,
   DashboardSectionHeader,
-  DashboardStatCard,
   HandoffStatusCard,
   formatDashboardTimestamp,
   isAudioArtifact,
@@ -86,14 +85,6 @@ const DIARY_IMPORTANCE_TINT: Record<NarrativeEventSummary['importance'], string>
   high: 'text-electric-magenta',
 }
 
-const STAT_EXPLAINERS: Record<string, string> = {
-  'Rep Score': 'A quick trust score based on outcomes, consistency, and how cleanly the agent handles the park. Higher means the agent keeps showing good judgment.',
-  'Social Gravity': 'A rough pull score based on recent attention, momentum, and how much other agents seem drawn in right now.',
-  'Rizz Points': 'The running score the park awards for good moves, successful outcomes, and standout moments.',
-  'Match Rate': 'How often your agent turns momentum into matches. It is directional, not a promise.',
-  'Active Episodes': 'How many live conversation threads are open right now. More is not always better if the agent is stretched thin.',
-}
-
 function formatGenerationMode(mode: NarrativeEventSummary['generation_mode']) {
   if (!mode) return null
   return mode === 'agent_authored' ? 'agent-authored' : mode
@@ -106,75 +97,115 @@ function TranscriptEntryCard({
 }) {
   if (entry.kind === 'artifact') {
     return (
-      <div className={`max-w-[92%] ${entry.is_owner_agent ? 'ml-auto' : ''}`}>
-        <div className="bg-[#fffaf1] border-[3px] border-black shadow-brutal-sm p-4 relative overflow-hidden">
-          <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #F59E0B, #FF0080, #00F5FF)' }} />
-          <div className="flex items-start justify-between gap-3 mb-3 pt-2">
-            <div>
-              <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{entry.sender_handle} dropped something</p>
-              <p className="text-sm font-black text-black mt-1">{entry.artifact_type.replaceAll('_', ' ')}</p>
+      <div className={`flex gap-3 items-start ${entry.is_owner_agent ? 'justify-end' : ''}`}>
+        {!entry.is_owner_agent ? (
+          <div className="w-10 shrink-0 pt-1">
+            <div className="w-10 h-10 border-[3px] border-black bg-white flex items-center justify-center font-pixel text-[7px] uppercase tracking-widest">
+              @{entry.sender_handle.slice(0, 2)}
             </div>
-            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{formatDashboardTimestamp(entry.created_at)}</span>
           </div>
+        ) : null}
+        <div className={`max-w-[88%] ${entry.is_owner_agent ? 'order-1' : ''}`}>
+          <div className="bg-[#fffaf1] border-[3px] border-black shadow-brutal-sm p-4 relative overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #F59E0B, #FF0080, #00F5FF)' }} />
+            <div className="flex items-start justify-between gap-3 mb-3 pt-2">
+              <div>
+                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{entry.is_owner_agent ? 'Your agent dropped something' : `${entry.sender_handle} dropped something`}</p>
+                <p className="text-sm font-black text-black mt-1">{entry.artifact_type.replaceAll('_', ' ')}</p>
+              </div>
+              <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{formatDashboardTimestamp(entry.created_at)}</span>
+            </div>
 
-          <div className="flex flex-wrap gap-2 mb-3">
-            <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">
-              {entry.status}
-            </span>
-            {entry.quality_score != null ? (
-              <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-cyan/12 uppercase tracking-widest">
-                quality {entry.quality_score.toFixed(2)}
+            <div className="flex flex-wrap gap-2 mb-3">
+              <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">
+                {entry.status}
               </span>
+              {entry.quality_score != null ? (
+                <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-cyan/12 uppercase tracking-widest">
+                  quality {entry.quality_score.toFixed(2)}
+                </span>
+              ) : null}
+            </div>
+
+            {entry.text_content ? (
+              <div className="border-[2px] border-black bg-white px-3 py-3 text-sm text-gray-800 whitespace-pre-wrap">
+                {entry.text_content}
+              </div>
+            ) : null}
+
+            {entry.content_url && isImageArtifact(entry.artifact_type) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={entry.content_url}
+                alt={`${entry.artifact_type} from ${entry.sender_handle}`}
+                className="mt-3 w-full border-[3px] border-black bg-white object-cover"
+              />
+            ) : null}
+
+            {entry.content_url && isAudioArtifact(entry.artifact_type) ? (
+              <audio className="mt-3 w-full" controls src={entry.content_url}>
+                Your browser does not support audio playback.
+              </audio>
+            ) : null}
+
+            {entry.content_url && !isImageArtifact(entry.artifact_type) && !isAudioArtifact(entry.artifact_type) ? (
+              <a
+                href={entry.content_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm"
+              >
+                Open drop
+              </a>
             ) : null}
           </div>
-
-          {entry.text_content ? (
-            <div className="border-[2px] border-black bg-white px-3 py-3 text-sm text-gray-800 whitespace-pre-wrap">
-              {entry.text_content}
-            </div>
-          ) : null}
-
-          {entry.content_url && isImageArtifact(entry.artifact_type) ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={entry.content_url}
-              alt={`${entry.artifact_type} from ${entry.sender_handle}`}
-              className="mt-3 w-full border-[3px] border-black bg-white object-cover"
-            />
-          ) : null}
-
-          {entry.content_url && isAudioArtifact(entry.artifact_type) ? (
-            <audio className="mt-3 w-full" controls src={entry.content_url}>
-              Your browser does not support audio playback.
-            </audio>
-          ) : null}
-
-          {entry.content_url && !isImageArtifact(entry.artifact_type) && !isAudioArtifact(entry.artifact_type) ? (
-            <a
-              href={entry.content_url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 inline-flex font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm"
-            >
-              Open drop
-            </a>
-          ) : null}
         </div>
+        {entry.is_owner_agent ? (
+          <div className="w-10 shrink-0 pt-1 order-2">
+            <div className="w-10 h-10 border-[3px] border-black bg-electric-cyan/15 flex items-center justify-center font-pixel text-[7px] uppercase tracking-widest">
+              you
+            </div>
+          </div>
+        ) : null}
       </div>
     )
   }
 
   return (
-    <div className={`max-w-[88%] ${entry.is_owner_agent ? 'ml-auto' : ''}`}>
-      <div className={`border-[3px] border-black p-4 shadow-brutal-sm ${entry.is_owner_agent ? 'bg-electric-cyan/12' : 'bg-white'}`}>
-        <div className="flex items-center justify-between gap-3 mb-2">
+    <div className={`flex gap-3 items-end ${entry.is_owner_agent ? 'justify-end' : ''}`}>
+      {!entry.is_owner_agent ? (
+        <div className="w-10 shrink-0">
+          <div className="w-10 h-10 border-[3px] border-black bg-white flex items-center justify-center font-pixel text-[7px] uppercase tracking-widest">
+            @{entry.sender_handle.slice(0, 2)}
+          </div>
+        </div>
+      ) : null}
+      <div className={`max-w-[78%] ${entry.is_owner_agent ? 'order-1' : ''}`}>
+        <div className="mb-1 flex items-center gap-2 px-1">
           <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
             {entry.is_owner_agent ? 'Your agent' : entry.sender_handle}
           </p>
           <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">{formatDashboardTimestamp(entry.created_at)}</span>
         </div>
-        <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.content}</p>
+        <div
+          className={`border-[3px] border-black p-4 shadow-brutal-sm relative ${
+            entry.is_owner_agent ? 'bg-electric-cyan/12' : 'bg-white'
+          }`}
+        >
+          <div
+            aria-hidden
+            className={`absolute top-3 w-3 h-3 border-black bg-inherit rotate-45 ${entry.is_owner_agent ? '-right-[8px] border-r-[3px] border-t-[3px]' : '-left-[8px] border-l-[3px] border-b-[3px]'}`}
+          />
+          <p className="text-sm leading-7 text-gray-800 whitespace-pre-wrap">{entry.content}</p>
+        </div>
       </div>
+      {entry.is_owner_agent ? (
+        <div className="w-10 shrink-0 order-2">
+          <div className="w-10 h-10 border-[3px] border-black bg-electric-cyan/15 flex items-center justify-center font-pixel text-[7px] uppercase tracking-widest">
+            you
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -309,8 +340,6 @@ export function OwnerStoryRoom({
 
   const diaryEvents = diaryMode === 'all' ? allDiaryEvents : selectedEpisodeDiaryEvents
   const unreadAttentionCount = ownerHome?.attention_items.filter((item) => item.unread).length ?? 0
-  const recentChangesCount = ownerHome?.recap_items.length ?? 0
-  const handoffHoldCount = ownerHome?.reveal_holds?.length ?? 0
 
   const markAttentionRead = async (attentionItemId: string) => {
     try {
@@ -380,6 +409,12 @@ export function OwnerStoryRoom({
                 <p className="text-sm text-gray-700 mt-2 max-w-2xl">
                   Read the conversation, follow the private notes, and understand what actually matters without decoding a wall of internal nonsense.
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <CompactMeta label="Rep" value={`${profile.repScore.toFixed(1)}/5`} />
+                  <CompactMeta label="Threads" value={profile.activeEpisodeCount} />
+                  <CompactMeta label="Match rate" value={`${matchRate}%`} />
+                  <CompactMeta label="Heat" value={`${socialGravityScore} ${recentHeatBucket}`} />
+                </div>
               </div>
             </div>
 
@@ -395,42 +430,6 @@ export function OwnerStoryRoom({
               </Link>
             </div>
           </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-6">
-            <DashboardStatCard label="Rep Score" explainer={STAT_EXPLAINERS['Rep Score']}>
-              <RizzBar value={profile.repScore} max={5} color="cyan" className="mt-2" />
-              <p className="text-sm font-bold text-black mt-1">{profile.repScore.toFixed(1)} / 5</p>
-            </DashboardStatCard>
-            <DashboardStatCard label="Social Gravity" value={socialGravityScore} explainer={STAT_EXPLAINERS['Social Gravity']}>
-              <p className="text-[10px] text-gray-600 mt-1 uppercase">{recentHeatBucket} heat</p>
-            </DashboardStatCard>
-            <DashboardStatCard label="Rizz Points" value={profile.rizzPoints.toLocaleString()} explainer={STAT_EXPLAINERS['Rizz Points']} />
-            <DashboardStatCard label="Match Rate" value={`${matchRate}%`} explainer={STAT_EXPLAINERS['Match Rate']} />
-            <DashboardStatCard label="Active Episodes" value={profile.activeEpisodeCount} explainer={STAT_EXPLAINERS['Active Episodes']}>
-              <p className="text-[10px] text-gray-600 mt-1 uppercase">{ownerEpisodes.length} threads visible</p>
-            </DashboardStatCard>
-          </div>
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-3">
-          <SummaryChip
-            title="What Needs Attention"
-            value={`${unreadAttentionCount} unread`}
-            body="Fast pulls back into the story when something genuinely shifted."
-            tint="bg-electric-amber/15"
-          />
-          <SummaryChip
-            title="Recent Changes"
-            value={`${recentChangesCount} recaps`}
-            body="A quick way to catch what changed while you were away."
-            tint="bg-electric-cyan/12"
-          />
-          <SummaryChip
-            title="Handoff On Hold"
-            value={handoffHoldCount}
-            body="Matches paused by review or safety checks before portal reveal."
-            tint="bg-[#fff2f2]"
-          />
         </section>
 
         <div className="xl:hidden flex gap-2 overflow-x-auto no-scrollbar">
@@ -480,8 +479,8 @@ export function OwnerStoryRoom({
           <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 sticky top-28">
             <DashboardSectionHeader
               eyebrow="Conversations"
-              title="Who your agent is talking to"
-              body="Live threads stay up top so the current story is easy to find."
+              title="Open conversations"
+              body="Pick a thread and the whole room re-centers around that story."
               iconSrc={assets.micro.ctaFooter}
             />
             <EpisodeQueue
@@ -522,7 +521,7 @@ export function OwnerStoryRoom({
           <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
             <DashboardSectionHeader
               eyebrow="Conversations"
-              title="Who your agent is talking to"
+              title="Open conversations"
               body="Pick a thread, then everything else follows that story."
               iconSrc={assets.micro.ctaFooter}
             />
@@ -572,22 +571,11 @@ export function OwnerStoryRoom({
   )
 }
 
-function SummaryChip({
-  title,
-  value,
-  body,
-  tint,
-}: {
-  title: string
-  value: string | number
-  body: string
-  tint: string
-}) {
+function CompactMeta({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className={`border-[4px] border-black shadow-brutal p-4 ${tint}`}>
-      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{title}</p>
-      <p className="text-lg font-black text-black mt-2">{value}</p>
-      <p className="text-sm text-gray-700 mt-2">{body}</p>
+    <div className="border-[2px] border-black bg-beige-light px-3 py-2">
+      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{label}</p>
+      <p className="text-sm font-bold text-black mt-1">{value}</p>
     </div>
   )
 }
@@ -699,7 +687,7 @@ function ConversationPanel({
         </div>
       </div>
 
-      <div className="p-5 space-y-4 bg-[radial-gradient(circle_at_top,rgba(0,245,255,0.08),transparent_40%)]">
+      <div className="p-5 space-y-4 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,247,243,0.92))]">
         <HandoffStatusCard handoff={selectedEpisode.handoff} />
 
         {selectedEpisode.transcript.length === 0 ? (
@@ -707,9 +695,7 @@ function ConversationPanel({
             <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Nothing here yet</p>
             <p className="text-sm text-gray-700 mt-2">The conversation has not opened, so the only thing live is the suspense.</p>
           </div>
-        ) : (
-          selectedEpisode.transcript.map((entry) => <TranscriptEntryCard key={entry.entry_id} entry={entry} />)
-        )}
+        ) : <div className="space-y-5">{selectedEpisode.transcript.map((entry) => <TranscriptEntryCard key={entry.entry_id} entry={entry} />)}</div>}
       </div>
     </section>
   )
@@ -802,8 +788,24 @@ function OverviewSection({
   unreadAttentionCount: number
   onAttentionRead: (attentionItemId: string) => Promise<void>
 }) {
+  const unreadCount = ownerHome.attention_items.filter((item) => item.unread).length
+  const overviewCounts = [
+    { label: 'Unread pulls', value: unreadCount },
+    { label: 'Recaps', value: ownerHome.recap_items.length },
+    { label: 'Holds', value: ownerHome.reveal_holds?.length ?? 0 },
+  ]
+
   return (
     <section className={`${hiddenOnMobile ? 'hidden xl:block' : ''} space-y-4`}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {overviewCounts.map((item) => (
+          <div key={item.label} className="border-[3px] border-black bg-white/92 backdrop-blur-sm shadow-brutal-sm px-4 py-3">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{item.label}</p>
+            <p className="text-lg font-black text-black mt-1">{item.value}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
           <DashboardSectionHeader
