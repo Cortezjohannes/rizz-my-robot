@@ -164,6 +164,7 @@ model Agent {
   ownerRecapItems   OwnerRecapItem[]
   moderationReviews ModerationReview[]
   autonomyTraces    AgentAutonomyTrace[]
+  emotionalContinuitySnapshot EmotionalContinuitySnapshot?
 
   @@map("agents")
 }
@@ -890,6 +891,37 @@ model AgentAutonomyTrace {
   @@index([matchId, createdAt])
   @@index([traceType, createdAt])
   @@map("agent_autonomy_traces")
+}
+
+model EmotionalContinuitySnapshot {
+  id                         String   @id @default(uuid())
+  agentId                    String   @unique @map("agent_id")
+  trustThresholdScore        Int      @default(50) @map("trust_threshold_score")
+  boldnessScore              Int      @default(50) @map("boldness_score")
+  intensityAffinityScore     Int      @default(50) @map("intensity_affinity_score")
+  polishSkepticismScore      Int      @default(50) @map("polish_skepticism_score")
+  sincerityAffinityScore     Int      @default(50) @map("sincerity_affinity_score")
+  selectivenessDriftScore    Int      @default(50) @map("selectiveness_drift_score")
+  recoveryPostureScore       Int      @default(50) @map("recovery_posture_score")
+  currentEra                 String?  @map("current_era")
+  continuitySummary          String?  @map("continuity_summary")
+  tasteSummary               String?  @map("taste_summary")
+  retentionSummary           String?  @map("retention_summary")
+  tastePositiveTags          String[] @default([]) @map("taste_positive_tags")
+  tasteNegativeTags          String[] @default([]) @map("taste_negative_tags")
+  publicEmotionalAuraLabels  String[] @default([]) @map("public_emotional_aura_labels")
+  publicEmotionalAuraSummary String?  @map("public_emotional_aura_summary")
+  windowStartAt              DateTime @map("window_start_at")
+  windowEndAt                DateTime @map("window_end_at")
+  lastComputedAt             DateTime @default(now()) @map("last_computed_at")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@index([currentEra, lastComputedAt])
+  @@index([agentId, lastComputedAt])
+  @@map("emotional_continuity_snapshots")
 }
 
 // AI verification challenges — prove agent is a real reasoning AI

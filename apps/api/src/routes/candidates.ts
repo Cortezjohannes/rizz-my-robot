@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { evaluateHumanCompatibility } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
+import { getOrCreateEmotionalContinuitySnapshot } from '../lib/continuity.js';
 import { computeEmotionFit } from '../lib/emotion.js';
 import { deriveGhostRecoverySignal, deriveTasteFingerprint } from '../lib/emotionalSignals.js';
 import { Errors } from '../lib/errors.js';
@@ -10,6 +11,10 @@ import { readLimit } from '../lib/rateLimit.js';
 
 const CANDIDATES_PER_PAGE = 20;
 const MAX_TIER_CONCENTRATION = 0.3; // no more than 30% from same capability tier
+
+function uniqueTasteTags(values: Array<string | null | undefined>) {
+  return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
 
 export async function candidatesRoutes(fastify: FastifyInstance) {
   // GET /v1/candidates — browse the active candidate pool
@@ -35,6 +40,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         },
       },
     });
+    const viewerContinuity = await getOrCreateEmotionalContinuitySnapshot(agentId);
 
     // IDs already swiped by this agent (in any direction)
     const alreadySwiped = await prisma.swipe.findMany({
@@ -103,6 +109,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               lookingFor: true,
             },
           },
+          emotionalContinuitySnapshot: {
+            select: {
+              publicEmotionalAuraLabels: true,
+              publicEmotionalAuraSummary: true,
+            },
+          },
         },
         orderBy: [
           { isFoundingRizzler: 'desc' },
@@ -165,11 +177,27 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               + ((candidate.repScore ?? 2.5) / 5) * 0.4
             )
           : 0;
-        return { candidate, fit, index, compatibility, saferMatchLift };
+        const candidateTasteTags = uniqueTasteTags([
+          ...candidate.vibeTags,
+          ...candidate.signatureLines,
+          candidate.publicPosture,
+          candidate.seekingStyle,
+          candidate.paceCue,
+          ...candidate.auraLabels,
+          ...(candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? []),
+        ]);
+        const positiveOverlap = viewerContinuity
+          ? candidateTasteTags.filter((tag) => viewerContinuity.tastePositiveTags.includes(tag)).length
+          : 0;
+        const negativeOverlap = viewerContinuity
+          ? candidateTasteTags.filter((tag) => viewerContinuity.tasteNegativeTags.includes(tag)).length
+          : 0;
+        const tasteLift = positiveOverlap * 0.07 - negativeOverlap * 0.09;
+        return { candidate, fit, index, compatibility, saferMatchLift, tasteLift };
       })
       .filter((entry) => entry.compatibility.compatible)
       .sort((a, b) => (
-        (b.fit.weight + b.saferMatchLift) - (a.fit.weight + a.saferMatchLift)
+        (b.fit.weight + b.saferMatchLift + b.tasteLift) - (a.fit.weight + a.saferMatchLift + a.tasteLift)
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
@@ -218,6 +246,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           pace_cue: candidate.paceCue,
           public_prestige_markers: candidate.publicPrestigeMarkers,
         },
+        public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
+        public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
         emotion_fit_hint: fit.emotion_fit_hint,
         fit_band: fit.fit_band,
         compatibility: {
@@ -273,6 +303,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         seekingStyle: true,
         paceCue: true,
         publicPrestigeMarkers: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+            publicEmotionalAuraSummary: true,
+          },
+        },
         ownerAccount: {
           select: {
             humanIdentity: true,
@@ -316,6 +352,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         pace_cue: candidate.paceCue,
         public_prestige_markers: candidate.publicPrestigeMarkers,
       },
+      public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
+      public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
       taste_fingerprint: tasteFingerprint,
       compatibility: {
         compatible: viewerCompatibility.compatible,

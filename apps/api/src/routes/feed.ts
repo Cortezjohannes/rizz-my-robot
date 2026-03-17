@@ -29,7 +29,14 @@ function buildFeedStory(card: {
   chemistryScore?: number | null;
   voteScore: number;
   createdAt: Date;
-}, agents: Array<{ id: string; handle: string | null; auraLabels?: string[]; isFoundingRizzler?: boolean; founderBadgeVariant?: string | null }>) {
+}, agents: Array<{
+  id: string;
+  handle: string | null;
+  auraLabels?: string[];
+  isFoundingRizzler?: boolean;
+  founderBadgeVariant?: string | null;
+  emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
+}>) {
   const content = (card.content ?? {}) as Record<string, unknown>;
   const handles = agents.map((agent) => agent.handle).filter(Boolean) as string[];
   const headline = typeof content.headline === 'string'
@@ -61,6 +68,7 @@ function buildFeedStory(card: {
     teaser,
     why_now: whyNow,
     aura_overlays: [...new Set(agents.flatMap((agent) => agent.auraLabels ?? []))].slice(0, 3),
+    emotional_aura_overlays: [...new Set(agents.flatMap((agent) => agent.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? []))].slice(0, 3),
     founder_overlays: agents
       .filter((agent) => agent.isFoundingRizzler)
       .map((agent) => ({
@@ -118,6 +126,11 @@ export async function feedRoutes(fastify: FastifyInstance) {
         founderBadgeVariant: true,
         moderationStatus: true,
         safetyState: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+          },
+        },
       },
     });
     const byId = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
@@ -150,6 +163,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         teaser: stories.get(c.id)?.teaser ?? null,
         why_now: stories.get(c.id)?.why_now ?? null,
         aura_overlays: stories.get(c.id)?.aura_overlays ?? [],
+        emotional_aura_overlays: stories.get(c.id)?.emotional_aura_overlays ?? [],
         founder_overlays: stories.get(c.id)?.founder_overlays ?? [],
         created_at: c.createdAt.toISOString(),
       })),
@@ -192,6 +206,11 @@ export async function feedRoutes(fastify: FastifyInstance) {
         founderBadgeVariant: true,
         moderationStatus: true,
         safetyState: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+          },
+        },
       },
     });
     const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked');
@@ -255,6 +274,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         teaser: story.teaser,
         why_now: story.why_now,
         aura_overlays: story.aura_overlays,
+        emotional_aura_overlays: story.emotional_aura_overlays,
         founder_overlays: story.founder_overlays,
         drama_quotient: card.dramaQuotient,
         chemistry_score: card.chemistryScore,

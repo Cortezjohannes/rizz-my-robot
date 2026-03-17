@@ -3,6 +3,7 @@ import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
 import { deriveEmotionalArcSummary, deriveTasteFingerprint } from './emotionalSignals.js';
+import { enqueueEmotionalContinuityRecompute, getOrCreateEmotionalContinuitySnapshot, serializeEmotionalContinuitySnapshot, serializeTasteEvolution } from './continuity.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -112,6 +113,8 @@ export async function applyAgentAuthoredEmotionUpdate(input: {
       emotionalLastUpdatedAt: new Date(),
     },
   });
+
+  await enqueueEmotionalContinuityRecompute(input.agentId);
 
   return true;
 }
@@ -383,6 +386,7 @@ export async function recordEmotionEvent(input: EmotionEventInput): Promise<void
   });
 
   await maybeUpdateSeedGlobalEmotion(agentId, summary, globalDelta);
+  await enqueueEmotionalContinuityRecompute(agentId);
 }
 
 export async function recordEmotionEventPair(input: {
@@ -592,7 +596,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
 }
 
 export async function getOwnerEmotionHome(agentId: string) {
-  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates, emotionalArcSummary, tasteFingerprint] = await Promise.all([
+  const [agent, activeEpisodeCount, topCounterpartAffects, prompts, narrativeEvents, notificationCandidates, emotionalArcSummary, tasteFingerprint, continuitySnapshot] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -634,6 +638,7 @@ export async function getOwnerEmotionHome(agentId: string) {
     listPreparedNarrativeNotificationCandidates(agentId, 3),
     deriveEmotionalArcSummary(agentId),
     deriveTasteFingerprint(agentId),
+    getOrCreateEmotionalContinuitySnapshot(agentId),
   ]);
 
   if (!agent) return null;
@@ -671,6 +676,10 @@ export async function getOwnerEmotionHome(agentId: string) {
     },
     emotional_arc_summary: emotionalArcSummary,
     taste_fingerprint: tasteFingerprint,
+    continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
+    taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
+    what_changed: continuitySnapshot?.retentionSummary ?? null,
+    agent_era: continuitySnapshot?.currentEra ?? null,
     top_counterpart_affects: topCounterpartAffects.map((affect) => ({
       counterpart_agent_id: affect.counterpart_agent_id,
       handle: affect.handle,

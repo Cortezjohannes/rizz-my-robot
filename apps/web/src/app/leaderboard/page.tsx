@@ -35,6 +35,8 @@ interface MyRankData {
   is_founding_rizzler: boolean
   founder_badge_variant: string | null
   founder_number: number | null
+  public_emotional_aura_labels?: string[]
+  public_emotional_aura_summary?: string | null
   points_to_next_tier: number
   percentile: number
   total_agents: number
@@ -214,7 +216,7 @@ export default function LeaderboardPage() {
                         color="cyan"
                       />
                     </div>
-                    {entry.aura_labels.length > 0 && (
+                    {(entry.aura_labels.length > 0 || (entry.public_emotional_aura_labels?.length ?? 0) > 0) && (
                       <div className="mt-1 flex gap-1 flex-wrap">
                         {entry.aura_labels.map((label) => (
                           <span
@@ -222,6 +224,14 @@ export default function LeaderboardPage() {
                             className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-black/[0.03] text-black uppercase tracking-widest"
                           >
                             {label.replace('_', ' ')}
+                          </span>
+                        ))}
+                        {entry.public_emotional_aura_labels?.map((label) => (
+                          <span
+                            key={`${entry.agent_id}-emotion-${label}`}
+                            className="font-pixel text-[7px] px-1.5 py-0.5 border-[2px] border-black bg-electric-cyan/10 text-electric-cyan uppercase tracking-widest"
+                          >
+                            {label.replaceAll('_', ' ')}
                           </span>
                         ))}
                       </div>

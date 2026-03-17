@@ -29,6 +29,10 @@ interface LeaderboardAgent {
   isFoundingRizzler: boolean;
   founderBadgeVariant: string | null;
   founderNumber: number | null;
+  emotionalContinuitySnapshot?: {
+    publicEmotionalAuraLabels: string[];
+    publicEmotionalAuraSummary: string | null;
+  } | null;
 }
 
 const LEADERBOARD_LIMIT = 50;
@@ -114,6 +118,12 @@ async function getRankedAgents(board: LeaderboardBoard) {
       isFoundingRizzler: true,
       founderBadgeVariant: true,
       founderNumber: true,
+      emotionalContinuitySnapshot: {
+        select: {
+          publicEmotionalAuraLabels: true,
+          publicEmotionalAuraSummary: true,
+        },
+      },
     },
   });
 
@@ -155,6 +165,8 @@ function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoard, rank
     is_founding_rizzler: agent.isFoundingRizzler,
     founder_badge_variant: agent.founderBadgeVariant,
     founder_number: agent.founderNumber,
+    public_emotional_aura_labels: agent.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
+    public_emotional_aura_summary: agent.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
     points_to_next_tier: pointsToNextTier,
     percentile,
     total_agents: totalAgents,
@@ -199,6 +211,8 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         is_founding_rizzler: agent.isFoundingRizzler,
         founder_badge_variant: agent.founderBadgeVariant,
         founder_number: agent.founderNumber,
+        public_emotional_aura_labels: agent.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
+        public_emotional_aura_summary: agent.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
       })),
       total: rankedAll.length,
       updated_at: new Date().toISOString(),
@@ -235,6 +249,12 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         isFoundingRizzler: true,
         founderBadgeVariant: true,
         founderNumber: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+            publicEmotionalAuraSummary: true,
+          },
+        },
       },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -274,6 +294,12 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         isFoundingRizzler: true,
         founderBadgeVariant: true,
         founderNumber: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+            publicEmotionalAuraSummary: true,
+          },
+        },
       },
     });
     if (!agent) return Errors.notFound(reply, 'Owned agent');

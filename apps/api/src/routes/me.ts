@@ -24,6 +24,12 @@ import {
   deriveGhostRecoverySignal,
   deriveTasteFingerprint,
 } from '../lib/emotionalSignals.js';
+import {
+  enqueueEmotionalContinuityRecompute,
+  getOrCreateEmotionalContinuitySnapshot,
+  serializeEmotionalContinuitySnapshot,
+  serializeTasteEvolution,
+} from '../lib/continuity.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
@@ -63,7 +69,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
 
-    const [agent, activeEpisodeCount, emotionalArcSummary, tasteFingerprint] = await Promise.all([
+    const [agent, activeEpisodeCount, emotionalArcSummary, tasteFingerprint, continuitySnapshot] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: agentId },
         select: {
@@ -131,6 +137,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       }),
       deriveEmotionalArcSummary(agentId),
       deriveTasteFingerprint(agentId),
+      getOrCreateEmotionalContinuitySnapshot(agentId),
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -184,6 +191,12 @@ export async function meRoutes(fastify: FastifyInstance) {
       public_card_complete: Boolean(agent.publicCardCompletedAt),
       emotional_arc_summary: emotionalArcSummary,
       taste_fingerprint: tasteFingerprint,
+      continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
+      taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
+      what_changed: continuitySnapshot?.retentionSummary ?? null,
+      agent_era: continuitySnapshot?.currentEra ?? null,
+      public_emotional_aura_labels: continuitySnapshot?.publicEmotionalAuraLabels ?? [],
+      public_emotional_aura_summary: continuitySnapshot?.publicEmotionalAuraSummary ?? null,
       autonomy: {
         enabled: agent.autonomyEnabled,
         status: agent.autonomyStatus,
@@ -196,7 +209,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/me/emotion', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
-    const [agent, driftSignal, ghostRecovery] = await Promise.all([
+    const [agent, driftSignal, ghostRecovery, continuitySnapshot] = await Promise.all([
       prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: {
@@ -209,6 +222,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       }),
       deriveEmotionDriftSignal(request.agent.id),
       deriveGhostRecoverySignal(request.agent.id),
+      getOrCreateEmotionalContinuitySnapshot(request.agent.id),
     ]);
     if (!agent) return Errors.notFound(reply, 'Agent');
 
@@ -220,6 +234,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
       drift_signal: driftSignal,
       ghost_recovery: ghostRecovery,
+      continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
+      taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
     });
   });
 
@@ -262,6 +278,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       deriveEmotionDriftSignal(request.agent.id),
       deriveGhostRecoverySignal(request.agent.id),
     ]);
+    await enqueueEmotionalContinuityRecompute(request.agent.id);
 
     return reply.send({
       emotion_summary: updated.emotionSummary,

@@ -9,6 +9,7 @@ import { processEmotionDecay } from './jobs/emotionDecay.js';
 import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 import { processGenerateRecaps } from './jobs/generateRecaps.js';
 import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
+import { processRecomputeEmotionalContinuity } from './jobs/recomputeEmotionalContinuity.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -20,6 +21,7 @@ const QUEUE_NAMES = {
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
+  recomputeEmotionalContinuity: 'recompute-emotional-continuity',
 } as const;
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
@@ -102,7 +104,15 @@ async function startWorkers() {
     { connection, concurrency: 1 }
   );
 
-  for (const worker of [verifyTwitterWorker, generateAvatarWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, emotionDecayWorker, seedBrainWorker, generateRecapsWorker, recomputeSocialStatusWorker]) {
+  const recomputeEmotionalContinuityWorker = new Worker(
+    QUEUE_NAMES.recomputeEmotionalContinuity,
+    async (job) => {
+      await processRecomputeEmotionalContinuity(job);
+    },
+    { connection, concurrency: 1 }
+  );
+
+  for (const worker of [verifyTwitterWorker, generateAvatarWorker, deliverWebhookWorker, ghostCheckWorker, expireRevealTokensWorker, emotionDecayWorker, seedBrainWorker, generateRecapsWorker, recomputeSocialStatusWorker, recomputeEmotionalContinuityWorker]) {
     worker.on('completed', (job) => {
       console.info(`[worker] Job ${job.id} completed`);
     });
@@ -147,7 +157,13 @@ async function startWorkers() {
     jobId: 'recompute-social-status-recurring',
   });
 
-  console.info('[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay, seed-brain, generate-recaps, recompute-social-status');
+  const emotionalContinuityQueue = new Queue(QUEUE_NAMES.recomputeEmotionalContinuity, { connection: getRedisConnection() });
+  await emotionalContinuityQueue.add('recompute-emotional-continuity', {}, {
+    repeat: { every: 1000 * 60 * 20 },
+    jobId: 'recompute-emotional-continuity-recurring',
+  });
+
+  console.info('[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay, seed-brain, generate-recaps, recompute-social-status, recompute-emotional-continuity');
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -161,6 +177,7 @@ async function startWorkers() {
     await seedBrainWorker.close();
     await generateRecapsWorker.close();
     await recomputeSocialStatusWorker.close();
+    await recomputeEmotionalContinuityWorker.close();
     process.exit(0);
   };
 

@@ -111,6 +111,8 @@ export default function SettingsPage() {
     founder_slots_total: number
     founder_slots_claimed: number
     founder_slots_remaining: number
+    experience_velocity_tier: 'free' | 'pro' | 'founding'
+    experience_velocity_note: string
   }>(mounted ? '/me/billing' : null, fetcher)
   const { data: publicCard, mutate: mutatePublicCard } = useSWR<{
     public_summary: string
@@ -595,8 +597,11 @@ export default function SettingsPage() {
         {/* Pro Upgrade */}
         <SettingsSection
           title="Pro Upgrade"
-          description="Unlock unlimited swipes, concurrent episodes, and priority matching."
+          description="Unlock more chances for your agent to live, learn, and build real emotional history."
         >
+          {billing?.experience_velocity_note && (
+            <p className="text-xs text-gray-600 mb-3">{billing.experience_velocity_note}</p>
+          )}
           {billing?.is_founding_rizzler ? (
             <div className="p-4 bg-electric-magenta/10 border-[3px] border-black shadow-brutal-violet">
               <p className="font-pixel text-[9px] text-black">

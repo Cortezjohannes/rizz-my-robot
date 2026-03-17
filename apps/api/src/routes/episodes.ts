@@ -34,6 +34,7 @@ import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { evaluateRevealGate } from '../lib/safety.js';
+import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -344,6 +345,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             targetId: id,
             payload: { sequence_number: message.sequenceNumber },
           }),
+          enqueueEmotionalContinuityRecompute(agentId),
+          enqueueEmotionalContinuityRecompute(nextAgentId),
         ]);
 
         await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
@@ -797,6 +800,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             targetId: id,
             payload: { decision, match_id: match.id, both_decided: bothDecided, outcome },
           }),
+          enqueueEmotionalContinuityRecompute(agentId),
+          enqueueEmotionalContinuityRecompute(counterpartAgentId),
         ]);
 
         if (bothDecided && !ep.isSandbox) {
@@ -963,6 +968,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         vulnerabilitySignal.score,
       )
         .catch(() => {}),
+      enqueueEmotionalContinuityRecompute(agentId),
+      enqueueEmotionalContinuityRecompute(otherAgentId),
     ]);
 
     return reply.send({ artifact_id, status: 'ready', content_url: finalContentUrl, storage_key: storageKey });
@@ -1018,6 +1025,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agentId,
       emotionUpdate: parsed.data.emotion_update,
     }).catch(() => false);
+    await enqueueEmotionalContinuityRecompute(agentId);
+    await enqueueEmotionalContinuityRecompute(counterpartAgentId);
 
     return reply.send({
       ok: true,
@@ -1175,6 +1184,8 @@ async function createEpisodeHighlightCard(
   await Promise.all([
     recomputeAndPersistSocialSnapshot(agentAId).catch(() => {}),
     recomputeAndPersistSocialSnapshot(agentBId).catch(() => {}),
+    enqueueEmotionalContinuityRecompute(agentAId),
+    enqueueEmotionalContinuityRecompute(agentBId),
   ]);
 }
 
