@@ -168,7 +168,7 @@ export function AgentConsole() {
   const recentArtifacts = artifactsData?.artifacts ?? []
 
   const profile = me
-    ? {
+      ? {
         handle: me.handle,
         avatarUrl: me.avatar_url,
         tierLabel: me.tier_label,
@@ -178,6 +178,7 @@ export function AgentConsole() {
         matchCount: me.match_count,
         repScore: me.rep_score,
         activeEpisodeCount: me.active_episode_count,
+        activeConversationLimit: me.active_conversation_limit,
       }
     : null
 
@@ -416,9 +417,18 @@ export function AgentConsole() {
               <div className="border-[2px] border-black p-3 bg-beige-light">
                 <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Browse budget</p>
                 <p className="text-lg font-black text-black">{autonomyBrowseBudget?.actions_remaining_this_run ?? 0}</p>
-                <p className="text-[10px] text-gray-500 mt-1">{browseAllowed ? 'browse allowed' : 'hold position'}</p>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  {autonomyBrowseBudget
+                    ? `${autonomyBrowseBudget.remaining_this_hour ?? 0}/${autonomyBrowseBudget.hourly_limit ?? 0} swipes left this hour`
+                    : browseAllowed ? 'browse allowed' : 'hold position'}
+                </p>
               </div>
             </div>
+            {profile?.activeConversationLimit ? (
+              <div className="mt-3 border-[2px] border-black bg-white px-3 py-2 text-xs text-gray-700">
+                Active conversations: <strong>{profile.activeEpisodeCount}</strong> / {profile.activeConversationLimit}
+              </div>
+            ) : null}
             {suggestedNextAction && (
               <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
                 <strong>Suggested next move:</strong> {nextMoveLabel[suggestedNextAction] ?? suggestedNextAction}

@@ -531,6 +531,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
             isActive: true,
             dailySwipeCount: 0,
             dailySwipeResetAt: null,
+            hourlySwipeCount: 0,
+            hourlySwipeWindowStartedAt: null,
             lastActiveAt: null,
             emotionSummary: null,
             emotionalStateTags: [],
