@@ -3,13 +3,17 @@ import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   canDecideEpisodeFromCounts,
+  getEpisodeLimitForTier,
+  getSwipeLimitForTier,
   publicCardIsComplete,
+  resolveExperienceTier,
   summarizeEpisodeMessageCounts,
   type CapabilityTier,
 } from '@rmr/shared';
 import { deriveArtifactGuidance } from './artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from './autonomyGuardrails.js';
 import { buildTempoState } from './tempo.js';
+import { resolveHourlySwipeWindowState } from './throughput.js';
 
 export const AUTONOMY_LIMITS = {
   max_actions_per_run: 4,
@@ -49,8 +53,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       select: {
         id: true,
         poolStatus: true,
-        dailySwipeCount: true,
+        hourlySwipeCount: true,
+        hourlySwipeWindowStartedAt: true,
         isPro: true,
+        isFoundingRizzler: true,
         actionCooldownUntil: true,
         tempoOverrideMinutes: true,
         publicSummary: true,
@@ -336,13 +342,21 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   });
 
   const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length + revealDecisionOpportunities.length;
-  const browseBudgetRemaining = agent.isPro ? null : Math.max(0, 20 - agent.dailySwipeCount);
+  const experienceTier = resolveExperienceTier(agent);
+  const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
+  const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
+  const hourlyWindow = resolveHourlySwipeWindowState({
+    hourlySwipeCount: agent.hourlySwipeCount,
+    hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
+  });
+  const hourlyBudgetRemaining = Math.max(0, hourlySwipeLimit - hourlyWindow.usedThisHour);
   const browseAllowed = agent.autonomyEnabled
     && agent.poolStatus === 'active'
     && publicCardComplete
     && !tempo.cooldown_active
     && urgentCount === 0
-    && (browseBudgetRemaining === null || browseBudgetRemaining > 0);
+    && episodes.length < activeConversationLimit
+    && hourlyBudgetRemaining > 0;
 
   const suggestedNextAction =
     episodesNeedingAction[0]
@@ -385,8 +399,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       created_at: card.createdAt.toISOString(),
     })),
     browse_budget: {
-      remaining_today: browseBudgetRemaining,
-      daily_limit: agent.isPro ? null : 20,
+      remaining_this_hour: hourlyBudgetRemaining,
+      hourly_limit: hourlySwipeLimit,
+      active_conversations: episodes.length,
+      active_conversation_limit: activeConversationLimit,
       actions_remaining_this_run: Math.max(0, AUTONOMY_LIMITS.max_actions_per_run - urgentCount),
       feed_reads_remaining_this_run: AUTONOMY_LIMITS.max_feed_reads_per_run,
     },

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
-import { SwipeSchema, SWIPE_LIMITS, EPISODE_LIMITS } from '@rmr/shared';
+import { HOURLY_SWIPE_WINDOW_MS, SwipeSchema, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { awardRizzPoints, awardMatchStreakRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
@@ -43,7 +43,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         const { target_agent_id, direction } = parsed.data;
-        const { id: agentId, isPro } = request.agent;
+        const { id: agentId, isPro, isFoundingRizzler } = request.agent;
+        const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
 
         // Verification gate: first-time swipers must pass a challenge
         const gate = await checkVerificationRequired(agentId, 'cold_start');
@@ -114,33 +115,37 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        if (!isPro) {
-          const agent = await prisma.agent.findUnique({
-            where: { id: agentId },
-            select: { dailySwipeCount: true, dailySwipeResetAt: true },
-          });
+        const agentBudget = await prisma.agent.findUnique({
+          where: { id: agentId },
+          select: { hourlySwipeCount: true, hourlySwipeWindowStartedAt: true },
+        });
+        let currentWindowStartedAt = new Date();
 
-          if (agent) {
-            const now = new Date();
-            const resetAt = agent.dailySwipeResetAt;
-            const needsReset = !resetAt || now.getTime() - resetAt.getTime() > 24 * 60 * 60 * 1000;
+        if (agentBudget) {
+          const now = new Date();
+          const windowStartedAt = agentBudget.hourlySwipeWindowStartedAt;
+          const needsReset = !windowStartedAt || now.getTime() - windowStartedAt.getTime() >= HOURLY_SWIPE_WINDOW_MS;
+          const swipeLimit = getSwipeLimitForTier(experienceTier);
+          currentWindowStartedAt = needsReset ? now : windowStartedAt;
 
-            if (needsReset) {
-              await prisma.agent.update({
-                where: { id: agentId },
-                data: { dailySwipeCount: 0, dailySwipeResetAt: now },
-              });
-            } else if (agent.dailySwipeCount >= SWIPE_LIMITS.free) {
-              return {
-                statusCode: 429,
-                body: {
-                  error: {
-                    code: 'rate_limited',
-                    message: 'You have exceeded the rate limit for this action.',
-                  },
+          if (needsReset) {
+            await prisma.agent.update({
+              where: { id: agentId },
+              data: {
+                hourlySwipeCount: 0,
+                hourlySwipeWindowStartedAt: now,
+              },
+            });
+          } else if (agentBudget.hourlySwipeCount >= swipeLimit) {
+            return {
+              statusCode: 429,
+              body: {
+                error: {
+                  code: 'rate_limited',
+                  message: 'You have exceeded the hourly swipe limit for your tier.',
                 },
-              };
-            }
+              },
+            };
           }
         }
 
@@ -174,7 +179,11 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           });
           await tx.agent.update({
             where: { id: agentId },
-            data: { dailySwipeCount: { increment: 1 }, lastActiveAt: new Date() },
+            data: {
+              hourlySwipeCount: { increment: 1 },
+              hourlySwipeWindowStartedAt: currentWindowStartedAt,
+              lastActiveAt: new Date(),
+            },
           });
           return s;
         });
@@ -208,21 +217,25 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               where: {
                 OR: [{ agentAId: agentId }, { agentBId: agentId }],
                 status: { in: ['pending', 'active', 'awaiting_decisions'] },
+                isSandbox: false,
               },
             });
             const targetEpisodeCount = await prisma.episode.count({
               where: {
                 OR: [{ agentAId: target_agent_id }, { agentBId: target_agent_id }],
                 status: { in: ['pending', 'active', 'awaiting_decisions'] },
+                isSandbox: false,
               },
             });
 
-            const agentLimit = isPro ? Infinity : EPISODE_LIMITS.free;
+            const agentLimit = getEpisodeLimitForTier(experienceTier);
             const targetAgent = await prisma.agent.findUnique({
               where: { id: target_agent_id },
-              select: { isPro: true },
+              select: { isPro: true, isFoundingRizzler: true },
             });
-            const targetMax = targetAgent?.isPro ? Infinity : EPISODE_LIMITS.free;
+            const targetMax = targetAgent
+              ? getEpisodeLimitForTier(resolveExperienceTier(targetAgent))
+              : getEpisodeLimitForTier('free');
 
             const existingMatch = await prisma.match.findFirst({
               where: {
@@ -370,10 +383,14 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         const updatedAgent = await prisma.agent.findUnique({
           where: { id: agentId },
-          select: { dailySwipeCount: true, isPro: true },
+          select: { hourlySwipeCount: true, isPro: true, isFoundingRizzler: true },
         });
-        const swipesToday = updatedAgent?.dailySwipeCount ?? 1;
-        const dailyLimit = updatedAgent?.isPro ? null : 20;
+        const resolvedTier = resolveExperienceTier({
+          isPro: updatedAgent?.isPro,
+          isFoundingRizzler: updatedAgent?.isFoundingRizzler,
+        });
+        const swipesThisHour = updatedAgent?.hourlySwipeCount ?? 1;
+        const hourlyLimit = getSwipeLimitForTier(resolvedTier);
 
         return {
           statusCode: 201,
@@ -382,8 +399,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             direction,
             target_agent_id,
             confidence: swipe.confidence ?? null,
-            swipes_today: swipesToday,
-            daily_limit: dailyLimit,
+            swipes_this_hour: swipesThisHour,
+            hourly_limit: hourlyLimit,
             mutual_match: match !== null,
             match: match
               ? {
