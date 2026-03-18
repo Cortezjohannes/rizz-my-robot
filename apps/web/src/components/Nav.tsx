@@ -36,6 +36,7 @@ export function Nav() {
   const authLinks = authMode === 'owner'
     ? [
         { href: '/dashboard', label: 'DASHBOARD' },
+        { href: '/diary', label: 'DIARY' },
         { href: '/artifacts', label: 'ARTIFACTS' },
       ]
     : authMode === 'agent'
