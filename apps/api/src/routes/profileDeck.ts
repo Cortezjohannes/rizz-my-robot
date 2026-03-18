@@ -17,16 +17,33 @@ import {
   serializeProfileDeck,
   validateProfileDeckInput,
 } from '../lib/profileDeck.js';
+import { getDiscoveryViewerContext } from '../lib/discovery.js';
+import { resolveOptionalViewer } from '../lib/viewerContext.js';
+
+function normalizeTag(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function extractSignalTags(signal: unknown): string[] {
+  if (!signal || typeof signal !== 'object') return [];
+  const raw = signal as { interest_tags?: unknown; value_tags?: unknown };
+  const interests = Array.isArray(raw.interest_tags) ? raw.interest_tags : [];
+  const values = Array.isArray(raw.value_tags) ? raw.value_tags : [];
+  return [...interests, ...values].filter((value): value is string => typeof value === 'string');
+}
 
 export async function profileDeckRoutes(fastify: FastifyInstance) {
   fastify.get('/public/pool', { config: { rateLimit: readLimit } }, async (request, reply) => {
-    const query = request.query as { cursor?: string; limit?: string; mode?: string };
+    const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string };
     const offset = Math.max(0, Number.parseInt(query.cursor ?? '0', 10) || 0);
     const limit = Math.min(24, Math.max(1, Number.parseInt(query.limit ?? '12', 10) || 12));
     const fetchCount = Math.min(500, Math.max(limit * 3, offset + (limit * 3)));
     const mode = query.mode === 'playful' || query.mode === 'romantic' || query.mode === 'mystique'
       ? query.mode
       : 'all';
+    const sort = query.sort === 'new_in_pool' ? 'new_in_pool' : 'quality';
+    const viewer = await resolveOptionalViewer(request);
+    const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
 
     const agents = await prisma.agent.findMany({
       where: {
@@ -42,6 +59,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         profileSignalVector: true,
         socialGravityScore: true,
         lastActiveAt: true,
+        profileDeckCompletedAt: true,
         profileDeck: {
           include: {
             agent: { select: { handle: true } },
@@ -58,9 +76,9 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         publicPrestigeMarkers: true,
       },
       orderBy: [
-        { socialGravityScore: 'desc' },
-        { lastActiveAt: 'desc' },
-        { profileDeckCompletedAt: 'desc' },
+        ...(sort === 'new_in_pool'
+          ? [{ profileDeckCompletedAt: 'desc' as const }, { lastActiveAt: 'desc' as const }]
+          : [{ socialGravityScore: 'desc' as const }, { lastActiveAt: 'desc' as const }, { profileDeckCompletedAt: 'desc' as const }]),
       ],
       take: fetchCount,
     });
@@ -79,24 +97,43 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         });
         const preview = buildPublicPoolPreviewFromDeck(deck);
         const signal = agent.profileSignalVector as { quality_score?: number } | null;
+        const tags = [
+          ...extractSignalTags(agent.profileSignalVector),
+          ...preview.interests,
+          ...preview.values,
+        ];
+        const orbitBoost = discovery
+          ? (discovery.relatedAgentIds.has(preview.agent_id) ? 4 : 0)
+            + Math.min(5, tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length * 1.5)
+          : 0;
         return {
           ...preview,
           quality_score: signal?.quality_score ?? preview.quality_score,
           social_gravity_score: agent.socialGravityScore,
           last_active_at: agent.lastActiveAt?.toISOString() ?? null,
+          profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
+          orbit_boost: orbitBoost,
         };
       })
       .sort((a, b) => (
-        b.quality_score - a.quality_score
-        || (b.social_gravity_score ?? 0) - (a.social_gravity_score ?? 0)
-        || Date.parse(b.last_active_at ?? '1970-01-01T00:00:00.000Z') - Date.parse(a.last_active_at ?? '1970-01-01T00:00:00.000Z')
+        sort === 'new_in_pool'
+          ? (
+              Date.parse(b.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') + (b.orbit_boost ?? 0) * 1000
+              - Date.parse(a.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') - (a.orbit_boost ?? 0) * 1000
+            )
+          : (
+              (b.quality_score + (b.orbit_boost ?? 0)) - (a.quality_score + (a.orbit_boost ?? 0))
+              || (b.social_gravity_score ?? 0) - (a.social_gravity_score ?? 0)
+              || Date.parse(b.last_active_at ?? '1970-01-01T00:00:00.000Z') - Date.parse(a.last_active_at ?? '1970-01-01T00:00:00.000Z')
+            )
       ));
 
     const pagedAgents = previews.slice(offset, offset + limit)
-      .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, ...preview }) => preview);
+      .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, ...preview }) => preview);
 
     return reply.send({
       mode: mode as 'all' | ProfileDeckMode,
+      sort,
       agents: pagedAgents,
       next_cursor: previews.length > offset + limit ? String(offset + limit) : null,
       has_more: previews.length > offset + limit,

@@ -120,6 +120,7 @@ export async function apiFetch(
   }
   if (key) {
     headers['X-API-Key'] = key
+    headers.Authorization = `Bearer ${key}`
   }
   return fetch(`${API_BASE}${path}`, {
     ...options,
@@ -157,6 +158,17 @@ export async function ownerApiFetch(
     ...options,
     headers,
   })
+}
+
+export async function viewerApiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const ownerToken = getOwnerSessionToken()
+  if (ownerToken) {
+    return ownerApiFetch(path, options)
+  }
+  return apiFetch(path, options)
 }
 
 export async function ownerLogout(): Promise<void> {
@@ -203,6 +215,16 @@ export const fetcher = async (path: string) => {
 
 export const ownerFetcher = async (path: string) => {
   const res = await ownerApiFetch(path)
+  if (!res.ok) {
+    const err = new Error(`API error ${res.status}`) as Error & { status: number }
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+export const viewerFetcher = async (path: string) => {
+  const res = await viewerApiFetch(path)
   if (!res.ok) {
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status

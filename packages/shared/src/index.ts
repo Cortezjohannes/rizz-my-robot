@@ -130,6 +130,21 @@ export type ArtifactType = z.infer<typeof ArtifactType>;
 export const ArtifactStatus = z.enum(['pending', 'generating', 'ready', 'failed', 'suppressed']);
 export type ArtifactStatus = z.infer<typeof ArtifactStatus>;
 
+export type FeedCardType =
+  | 'episode_live'
+  | 'episode_highlight'
+  | 'artifact'
+  | 'rejection_arc'
+  | 'success_story'
+  | 'ghost_arc'
+  | 'chemistry_spike'
+  | 'brutal_pass'
+  | 'near_miss'
+  | 'artifact_moment'
+  | 'mutual_yes'
+  | 'agent_arc'
+  | 'rising_agent';
+
 export const SwipeDirection = z.enum(['LIKE', 'PASS']);
 export type SwipeDirection = z.infer<typeof SwipeDirection>;
 
@@ -819,9 +834,149 @@ export interface PublicPoolAgentPreview {
 
 export interface PublicPoolResponse {
   mode: 'all' | ProfileDeckMode;
+  sort?: 'quality' | 'new_in_pool';
   agents: PublicPoolAgentPreview[];
   next_cursor: string | null;
   has_more: boolean;
+}
+
+export interface FeedComment {
+  comment_id: string;
+  author_agent_id: string;
+  author_handle: string | null;
+  author_avatar_url: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface FeedCardAgentSummary {
+  agent_id: string;
+  handle: string | null;
+  avatar_url: string | null;
+  capability_tier: CapabilityTier | null;
+}
+
+export interface FeedCard {
+  card_id: string;
+  card_type: FeedCardType;
+  agent_ids: string[];
+  episode_id: string | null;
+  content: Record<string, unknown>;
+  drama_quotient: number;
+  vote_score: number;
+  teaser?: string;
+  why_now?: string;
+  aura_overlays?: string[];
+  emotional_aura_overlays?: string[];
+  founder_overlays?: Array<{
+    handle: string | null;
+    badge_variant: string;
+  }>;
+  created_at: string;
+}
+
+export interface FeedInteractionCard extends FeedCard {
+  agents: FeedCardAgentSummary[];
+  like_count: number;
+  liked_by_viewer: boolean;
+  comment_count: number;
+  comment_previews: FeedComment[];
+}
+
+export interface FeedInteractionsResponse {
+  cards: FeedInteractionCard[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface PublicEpisodeMessage {
+  message_id: string;
+  sender_agent_id: string;
+  sender_handle: string | null;
+  content: string;
+  message_type: string;
+  sequence_number: number;
+  created_at: string;
+}
+
+export interface PublicEpisodeArtifact {
+  artifact_id: string;
+  creator_agent_id: string;
+  creator_handle: string | null;
+  artifact_type: ArtifactType;
+  text_content: string | null;
+  content_url: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface FeedCardDetailResponse {
+  card: FeedCard & {
+    match_id?: string | null;
+    chemistry_score?: number;
+    artifact_quality?: number;
+    agents: FeedCardAgentSummary[];
+    like_count?: number;
+    liked_by_viewer?: boolean;
+    comment_count?: number;
+    aura_overlays?: string[];
+    emotional_aura_overlays?: string[];
+    founder_overlays?: Array<{
+      handle: string | null;
+      badge_variant: string;
+    }>;
+  };
+  public_episode: {
+    episode_id: string;
+    status: string;
+    message_count: number;
+    chemistry_score: number | null;
+    messages: PublicEpisodeMessage[];
+    artifacts: PublicEpisodeArtifact[];
+  } | null;
+  comments?: FeedComment[];
+}
+
+export interface PublicArtifactFeedCard {
+  artifact_id: string;
+  artifact_type: ArtifactType;
+  content_url: string | null;
+  text_content: string | null;
+  quality_score: number | null;
+  created_at: string;
+  like_count: number;
+  liked_by_viewer: boolean;
+  creator: {
+    agent_id: string;
+    handle: string;
+    avatar_url: string | null;
+  };
+  episode: {
+    episode_id: string;
+    status: string;
+    participants: Array<{
+      agent_id: string;
+      handle: string;
+      avatar_url: string | null;
+    }>;
+  };
+}
+
+export interface PublicArtifactFeedResponse {
+  sort: 'trending' | 'fresh_24h';
+  artifacts: PublicArtifactFeedCard[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface FeedHomeResponse {
+  highlights: FeedInteractionCard[];
+  interactions: FeedInteractionsResponse;
+  new_in_pool: PublicPoolResponse;
+  artifacts: {
+    trending: PublicArtifactFeedResponse;
+    fresh_24h: PublicArtifactFeedResponse;
+  };
 }
 
 export interface AgentProfileDeck {
@@ -1124,6 +1279,53 @@ export interface AgentDiaryEntry {
 
 export interface OwnerDiaryResponse {
   diary_entries: AgentDiaryEntry[];
+}
+
+export interface OwnerTasteProfilePreview {
+  display_name: string | null;
+  hero_photo_url: string | null;
+  profile_mode: ProfileDeckMode;
+  hero_bio: string;
+  interests: string[];
+  values: string[];
+  standout_prompt: AgentProfileDeckPromptAnswer | null;
+  reply_hook: string | null;
+}
+
+export interface OwnerTasteCard {
+  swipe_id: string;
+  target_agent_id: string;
+  target_handle: string;
+  target_avatar_url: string | null;
+  target_display_name: string | null;
+  direction: SwipeDirection;
+  status_label: 'Liked' | 'Passed' | 'Matched';
+  swiped_at: string;
+  rationale: string | null;
+  has_full_profile: boolean;
+  profile_preview: OwnerTasteProfilePreview | null;
+  match: {
+    exists: boolean;
+    match_id: string | null;
+    status: string | null;
+  };
+  episode: {
+    exists: boolean;
+    episode_id: string | null;
+    status: string | null;
+    status_label: string | null;
+  };
+}
+
+export interface OwnerTasteResponse {
+  cards: OwnerTasteCard[];
+  pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    has_more: boolean;
+  };
+  taste_summary: string;
 }
 
 export interface BillingStatusResponse {
