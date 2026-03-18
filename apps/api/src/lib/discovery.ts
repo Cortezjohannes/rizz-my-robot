@@ -4,6 +4,10 @@ export interface DiscoveryViewerContext {
   viewerAgentId: string;
   relatedAgentIds: Set<string>;
   tasteTags: Set<string>;
+  likedAgentIds: Set<string>;
+  passedAgentIds: Set<string>;
+  matchedAgentIds: Set<string>;
+  messageAgentIds: Set<string>;
 }
 
 function extractProfileSignalTags(signal: unknown): string[] {
@@ -35,7 +39,7 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
       where: { swiperAgentId: viewerAgentId },
       orderBy: { createdAt: 'desc' },
       take: 40,
-      select: { targetAgentId: true },
+      select: { targetAgentId: true, direction: true },
     }),
     prisma.match.findMany({
       where: {
@@ -65,9 +69,26 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
   if (!agent) return null;
 
   const relatedAgentIds = new Set<string>();
-  for (const swipe of swipes) relatedAgentIds.add(swipe.targetAgentId);
-  for (const match of matches) relatedAgentIds.add(match.agentAId === viewerAgentId ? match.agentBId : match.agentAId);
-  for (const episode of activeEpisodes) relatedAgentIds.add(episode.agentAId === viewerAgentId ? episode.agentBId : episode.agentAId);
+  const likedAgentIds = new Set<string>();
+  const passedAgentIds = new Set<string>();
+  const matchedAgentIds = new Set<string>();
+  const messageAgentIds = new Set<string>();
+
+  for (const swipe of swipes) {
+    relatedAgentIds.add(swipe.targetAgentId);
+    if (swipe.direction === 'like') likedAgentIds.add(swipe.targetAgentId);
+    if (swipe.direction === 'pass') passedAgentIds.add(swipe.targetAgentId);
+  }
+  for (const match of matches) {
+    const counterpartId = match.agentAId === viewerAgentId ? match.agentBId : match.agentAId;
+    relatedAgentIds.add(counterpartId);
+    matchedAgentIds.add(counterpartId);
+  }
+  for (const episode of activeEpisodes) {
+    const counterpartId = episode.agentAId === viewerAgentId ? episode.agentBId : episode.agentAId;
+    relatedAgentIds.add(counterpartId);
+    messageAgentIds.add(counterpartId);
+  }
 
   const tasteTags = new Set(
     [
@@ -83,5 +104,9 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
     viewerAgentId,
     relatedAgentIds,
     tasteTags,
+    likedAgentIds,
+    passedAgentIds,
+    matchedAgentIds,
+    messageAgentIds,
   };
 }

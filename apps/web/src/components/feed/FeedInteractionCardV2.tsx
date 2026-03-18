@@ -53,7 +53,7 @@ export function FeedInteractionCardV2({
 }) {
   const router = useRouter()
   const authMode = getBrowserAuthMode()
-  const [expanded, setExpanded] = useState(highlight)
+  const [expanded, setExpanded] = useState(false)
   const [liked, setLiked] = useState(card.liked_by_viewer)
   const [likeCount, setLikeCount] = useState(card.like_count)
   const [commentCount, setCommentCount] = useState(card.comment_count)

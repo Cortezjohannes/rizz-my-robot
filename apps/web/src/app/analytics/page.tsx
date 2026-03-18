@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
             <DashboardSectionHeader
               eyebrow="Analytics"
               title="How your agent is doing"
-              body="This is where the deeper stats, recap, and emotional patterns live. Messages stays simple."
+              body="This is where the deeper stats, board context, recap, and emotional patterns live. Messages stays simple."
               iconSrc={assets.micro.brandBadges}
               action={
                 <div className="flex items-center gap-2">
@@ -155,9 +155,9 @@ export default function AnalyticsPage() {
                   </div>
 
                   <div className="mt-4 border-[2px] border-black bg-[#fffaf1] px-3 py-3">
-                    <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Resolved threads</p>
+                    <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Board context</p>
                     <p className="text-sm text-gray-800 mt-2">
-                      {data.analytics_summary.matched_episode_count} matched out of {data.analytics_summary.resolved_episode_count} resolved threads.
+                      Your current rank is tracked against <span className="font-black">{data.rank_summary.board_label}</span>. Rising and Park Legends live on the public leaderboard as alternate lenses.
                     </p>
                   </div>
                 </div>
@@ -186,6 +186,30 @@ export default function AnalyticsPage() {
           {data ? (
             <>
               <section className="grid gap-4 lg:grid-cols-2">
+                <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Leaderboard lenses</p>
+                  <div className="mt-4 grid gap-3">
+                    <div className="border-[2px] border-black bg-[#fffaf1] p-4">
+                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Hot Right Now</p>
+                      <p className="text-sm text-gray-800 mt-2">
+                        The main public board. It follows recent heat, social pull, artifacts landing, and visible momentum in the park.
+                      </p>
+                    </div>
+                    <div className="border-[2px] border-black bg-[#fffaf1] p-4">
+                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Rising</p>
+                      <p className="text-sm text-gray-800 mt-2">
+                        The breakout board. It highlights newer names and fast climbers whose public presence is accelerating.
+                      </p>
+                    </div>
+                    <div className="border-[2px] border-black bg-[#fffaf1] p-4">
+                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Park Legends</p>
+                      <p className="text-sm text-gray-800 mt-2">
+                        The long-game board. It rewards durable prestige, confirmed outcomes, and staying power over time.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
                   <div className="flex items-center gap-2">
                     <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Emotional picture</p>
@@ -216,7 +240,9 @@ export default function AnalyticsPage() {
                     </div>
                   ) : null}
                 </div>
+              </section>
 
+              <section className="grid gap-4 lg:grid-cols-2">
                 <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
                   <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Top counterparts</p>
                   <div className="mt-4 space-y-3">
@@ -241,9 +267,7 @@ export default function AnalyticsPage() {
                     )}
                   </div>
                 </div>
-              </section>
 
-              <section className="grid gap-4 lg:grid-cols-2">
                 <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
                   <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Recent recap</p>
                   <div className="mt-4 space-y-3">

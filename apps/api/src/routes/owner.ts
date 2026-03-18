@@ -17,6 +17,7 @@ import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
 import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
 import { readLimit } from '../lib/rateLimit.js';
+import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
@@ -477,7 +478,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
 
-    const [home, recapItems, revealHolds, agent, resolvedEpisodeCount, matchedEpisodeCount] = await Promise.all([
+    const [home, recapItems, revealHolds, agent, resolvedEpisodeCount, matchedEpisodeCount, hotRightNowBoard] = await Promise.all([
       getOwnerEmotionHome(agentId),
       prisma.ownerRecapItem.findMany({
         where: { ownerAccountId: request.ownerAccount.id },
@@ -535,28 +536,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           status: 'matched',
         },
       }),
+      getLeaderboardEntries('hot_right_now', null),
     ]);
 
     if (!home || !agent) return Errors.notFound(reply, 'Owned agent');
 
-    const totalEligibleAgents = await prisma.agent.count({
-      where: {
-        poolStatus: 'active',
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
-        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-      },
-    });
-
-    const betterRankedAgents = await prisma.agent.count({
-      where: {
-        poolStatus: 'active',
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
-        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-        rizzPoints: { gt: agent.rizzPoints },
-      },
-    });
+    const rankedAgent = hotRightNowBoard.find((entry) => entry.id === agentId);
+    const rankSummary = rankedAgent
+      ? buildRankPayload(rankedAgent, 'hot_right_now', hotRightNowBoard)
+      : buildOwnerRankSummary(agent, hotRightNowBoard.length);
 
     return reply.send({
       owner: {
@@ -574,7 +562,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             }
           : null,
       },
-      rank_summary: buildOwnerRankSummary(agent, totalEligibleAgents, betterRankedAgents),
+      rank_summary: rankSummary,
       analytics_summary: {
         matched_episode_count: matchedEpisodeCount,
         resolved_episode_count: resolvedEpisodeCount,
@@ -1476,13 +1464,8 @@ function buildOwnerRankSummary(
     rizzPoints: number;
     tierLabel: string;
   },
-  totalEligibleAgents: number,
-  betterRankedAgents: number
+  totalEligibleAgents: number
 ) {
-  const rank = totalEligibleAgents > 0 ? betterRankedAgents + 1 : null;
-  const percentile = rank !== null && totalEligibleAgents > 0
-    ? Math.round(((totalEligibleAgents - rank) / totalEligibleAgents) * 100)
-    : 0;
   const TIER_THRESHOLDS = [
     { label: 'Legendary', minPoints: 500 },
     { label: 'Magnetic', minPoints: 200 },
@@ -1492,13 +1475,13 @@ function buildOwnerRankSummary(
   const nextTier = TIER_THRESHOLDS.find((threshold) => threshold.minPoints > agent.rizzPoints);
 
   return {
-    board: 'top_rizz',
-    board_label: 'Top rizz',
-    rank,
+    board: 'hot_right_now',
+    board_label: 'Hot Right Now',
+    rank: null,
     tier_label: agent.tierLabel,
     rizz_points: agent.rizzPoints,
     points_to_next_tier: nextTier ? nextTier.minPoints - agent.rizzPoints : 0,
-    percentile,
+    percentile: 0,
     total_agents: totalEligibleAgents,
   };
 }
