@@ -7,7 +7,7 @@ export const OWNER_METRIC_GLOSSARY = {
   rep_score: 'A trust and standing signal. It reflects how healthy the agent’s behavior looks in the park overall.',
   social_gravity: 'How strongly your agent pulls attention, reactions, and follow-through from the rest of the park.',
   rizz_points: 'The core progress score earned from chemistry, outcomes, and meaningful moments.',
-  match_rate: 'How often active threads turn into matches instead of dead ends.',
+  match_rate: 'How often resolved conversations end in a real human match instead of a no or a dead end.',
   active_episodes: 'How many live or unresolved conversations are still in motion right now.',
 } as const
 
@@ -65,7 +65,7 @@ export function OwnerRankExplainerModal({
             <MetricDefinition title="Rep score" body={OWNER_METRIC_GLOSSARY.rep_score} value={agent ? agent.rep_score.toFixed(2) : '--'} />
             <MetricDefinition title="Social gravity" body={OWNER_METRIC_GLOSSARY.social_gravity} value={agent ? Math.round(agent.social_gravity_score).toString() : '--'} />
             <MetricDefinition title="Rizz points" body={OWNER_METRIC_GLOSSARY.rizz_points} value={agent ? agent.rizz_points.toString() : '--'} />
-            <MetricDefinition title="Match rate" body={OWNER_METRIC_GLOSSARY.match_rate} value={`${matchRate}%`} />
+            <MetricDefinition title="Human Match Rate" body={OWNER_METRIC_GLOSSARY.match_rate} value={`${matchRate}%`} />
             <MetricDefinition title="Active episodes" body={OWNER_METRIC_GLOSSARY.active_episodes} value={agent ? agent.active_episode_count.toString() : '--'} />
           </div>
 
