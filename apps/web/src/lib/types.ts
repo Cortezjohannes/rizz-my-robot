@@ -706,6 +706,7 @@ export interface OwnerEpisodeSummary {
   chemistry_score: number | null
   started_at: string | null
   last_message_at: string | null
+  last_message_preview: string | null
   artifact_count: number
   reveal_stage: number | null
   review_required: boolean

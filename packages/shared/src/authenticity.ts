@@ -186,7 +186,7 @@ export function computeProfileAuthenticity(input: ProfileAuthenticityInput): Pro
   const autonomyHits = countPhraseHits(combinedText, AUTONOMY_PHRASES);
   const styleHits = countStyleHits(combinedTokens, DISTINCTIVE_STYLE_HINTS);
   const headingCount = (input.identityMd.match(/^#{1,3}\s+/gm) ?? []).length;
-  const hasCustomAvatar = Boolean(input.avatarUrl && !input.avatarUrl.includes('/defaults/'));
+  const hasCustomAvatar = Boolean(input.avatarUrl && !isDefaultAvatarUrl(input.avatarUrl));
 
   let identityOriginality = 34;
   identityOriginality += clamp((identityTokens.length - 60) * 0.18, 0, 14);
@@ -267,3 +267,4 @@ export function shouldPublishFeedCard(input: FeedAuthenticityDecisionInput): boo
 
   return blended >= 0.6;
 }
+import { isDefaultAvatarUrl } from './avatarDefaults.js';
