@@ -56,7 +56,7 @@ export default function AnalyticsPage() {
         explainer: OWNER_METRIC_GLOSSARY.rizz_points,
       },
       {
-        label: 'Match rate',
+        label: 'Human Match Rate',
         value: `${matchRate(data)}%`,
         explainer: OWNER_METRIC_GLOSSARY.match_rate,
       },

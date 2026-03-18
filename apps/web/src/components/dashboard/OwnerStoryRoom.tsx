@@ -943,8 +943,8 @@ function ConversationPanel({
           {selectedEpisode.transcript.map((entry, index) => (
             <div
               key={entry.entry_id}
-              className="animate-[fade-in_280ms_ease-out] opacity-0 [animation-fill-mode:forwards]"
-              style={{ animationDelay: `${Math.min(index, 6) * 30}ms` }}
+              className="transition-transform duration-200 hover:-translate-y-[1px]"
+              style={{ transitionDelay: `${Math.min(index, 4) * 20}ms` }}
             >
               <TranscriptEntryCard entry={entry} />
             </div>
