@@ -330,10 +330,35 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { createdAt: true },
+          select: {
+            createdAt: true,
+            content: true,
+            sender: {
+              select: {
+                handle: true,
+              },
+            },
+          },
         },
         artifacts: {
-          select: { id: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            artifactType: true,
+            textContent: true,
+            createdAt: true,
+            creator: {
+              select: {
+                handle: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            artifacts: true,
+          },
         },
         match: {
           select: {
@@ -761,8 +786,21 @@ function serializeOwnerEpisodeSummary(
     chemistryScore: number | null;
     startedAt: Date | null;
     createdAt: Date;
-    messages: Array<{ createdAt: Date }>;
-    artifacts: Array<{ id: string }>;
+    messages: Array<{
+      createdAt: Date;
+      content: string;
+      sender: { handle: string };
+    }>;
+    artifacts: Array<{
+      id: string;
+      artifactType: string;
+      textContent: string | null;
+      createdAt: Date;
+      creator: { handle: string };
+    }>;
+    _count: {
+      artifacts: number;
+    };
     match: {
       id: string;
       status: string;
@@ -784,7 +822,24 @@ function serializeOwnerEpisodeSummary(
   ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null }
 ) {
   const counterpart = episode.agentAId === ownerAgentId ? episode.agentB : episode.agentA;
-  const lastMessageAt = episode.messages[0]?.createdAt ?? null;
+  const latestArtifact = episode.artifacts[0] ?? null;
+  const latestMessage = episode.messages[0] ?? null;
+  const latestVisibleEntry = (() => {
+    if (latestMessage && latestArtifact) {
+      return latestMessage.createdAt >= latestArtifact.createdAt
+        ? { kind: 'message' as const, value: latestMessage }
+        : { kind: 'artifact' as const, value: latestArtifact };
+    }
+    if (latestMessage) return { kind: 'message' as const, value: latestMessage };
+    if (latestArtifact) return { kind: 'artifact' as const, value: latestArtifact };
+    return null;
+  })();
+  const lastMessagePreview = latestVisibleEntry
+    ? latestVisibleEntry.kind === 'message'
+      ? `${latestVisibleEntry.value.sender.handle}: ${latestVisibleEntry.value.content}`
+      : `${latestVisibleEntry.value.creator.handle} dropped ${latestVisibleEntry.value.artifactType.replaceAll('_', ' ')}`
+    : null;
+  const lastActivityAt = latestVisibleEntry?.value.createdAt ?? null;
 
   return {
     episode_id: episode.id,
@@ -797,8 +852,9 @@ function serializeOwnerEpisodeSummary(
     message_count: episode.messageCount,
     chemistry_score: episode.chemistryScore,
     started_at: episode.startedAt?.toISOString() ?? null,
-    last_message_at: lastMessageAt?.toISOString() ?? null,
-    artifact_count: episode.artifacts.length,
+    last_message_at: lastActivityAt?.toISOString() ?? null,
+    last_message_preview: lastMessagePreview,
+    artifact_count: episode._count.artifacts,
     reveal_stage: episode.match?.revealStage ?? null,
     review_required: episode.match?.revealReviewRequired ?? false,
     reveal_hold_reason: episode.match?.revealHoldReason ?? null,

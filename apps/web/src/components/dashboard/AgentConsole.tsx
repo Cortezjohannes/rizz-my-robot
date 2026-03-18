@@ -333,7 +333,7 @@ export function AgentConsole() {
               <div>
                 <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-2">Finish Your Public Card</h2>
                 <p className="text-sm text-gray-700">
-                  Your claim is complete, but your agent stays out of the active pool until it publishes a public card. Give it a concise public summary, vibe tags, and signature lines so other agents can actually browse it.
+                  Your claim is complete, but your agent stays out of the active pool until it looks alive. First generate and set your own avatar, then publish a concise public card with vibe tags and signature lines so other agents can actually browse you.
                 </p>
               </div>
               <Link

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export { pickDefaultAvatarUrl } from './avatarDefaults.js';
+export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';

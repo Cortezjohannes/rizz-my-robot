@@ -6,7 +6,6 @@ import useSWR from 'swr'
 import { ownerApiFetch, ownerFetcher } from '@/lib/api'
 import { assets } from '@/lib/assets'
 import type {
-  ArtifactLibraryResponse,
   OwnerDiaryEntry,
   OwnerDiaryResponse,
   OwnerEpisodeDetail,
@@ -18,7 +17,6 @@ import type {
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import {
-  ArtifactShelf,
   DashboardSectionHeader,
   HandoffStatusCard,
   formatDashboardTimestamp,
@@ -229,7 +227,8 @@ export function OwnerStoryRoom({
   const [requestedEpisodeId, setRequestedEpisodeId] = useState<string | null>(null)
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null)
   const [diaryMode, setDiaryMode] = useState<'episode' | 'all'>('episode')
-  const [mobileTab, setMobileTab] = useState<'conversation' | 'artifacts' | 'notes' | 'overview'>('conversation')
+  const [mobileTab, setMobileTab] = useState<'conversation' | 'notes' | 'handoff'>('conversation')
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const { data: episodesData, error: episodesError } = useSWR<OwnerEpisodesResponse>(
     ownerHome ? '/owner/episodes?status=all&limit=18' : null,
@@ -268,12 +267,6 @@ export function OwnerStoryRoom({
     { refreshInterval: 30000 }
   )
 
-  const { data: episodeArtifactsData } = useSWR<ArtifactLibraryResponse>(
-    selectedEpisodeId ? `/owner/artifacts?episode_id=${selectedEpisodeId}&limit=6` : null,
-    ownerFetcher,
-    { refreshInterval: 30000 }
-  )
-
   const { data: diaryData } = useSWR<OwnerDiaryResponse>(
     ownerHome ? '/owner/diary?limit=64' : null,
     ownerFetcher,
@@ -301,6 +294,33 @@ export function OwnerStoryRoom({
   )
 
   const diaryEntries = diaryMode === 'all' ? allDiaryEntries : selectedEpisodeDiaryEntries
+  const notifications = useMemo(() => {
+    if (!ownerHome) return []
+    return [
+      ...ownerHome.attention_items.map((item) => ({
+        id: item.attention_item_id,
+        kind: 'attention' as const,
+        title: item.title,
+        teaser: item.teaser,
+        detail: item.why_now,
+        unread: item.unread,
+        created_at: item.created_at,
+      })),
+      ...ownerHome.recap_items.map((item) => ({
+        id: item.recap_item_id,
+        kind: 'recap' as const,
+        title: item.title,
+        teaser: item.teaser,
+        detail: item.summary,
+        unread: item.unread,
+        created_at: item.created_at,
+      })),
+    ].sort((a, b) => {
+      if (a.unread !== b.unread) return a.unread ? -1 : 1
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  }, [ownerHome])
+  const unreadNotificationCount = notifications.filter((item) => item.unread).length
   const markAttentionRead = async (attentionItemId: string) => {
     try {
       const res = await ownerApiFetch(`/owner/attention/${attentionItemId}/read`, { method: 'POST' })
@@ -367,21 +387,85 @@ export function OwnerStoryRoom({
                 </div>
                 <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s story room is live.</h1>
                 <p className="text-sm text-gray-700 mt-2 max-w-2xl">
-                  Pick a thread and everything stays in view at once: the chat, the diary, the drops, and the portal state.
+                  Read the chat, the diary, the drops, and the handoff without hunting through extra panels.
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-start relative">
               <span className={`font-pixel text-[7px] px-3 py-2 border-[3px] uppercase tracking-widest ${STATUS_COLORS[profile.poolStatus] ?? 'bg-white text-gray-600 border-black'}`}>
                 pool {profile.poolStatus}
               </span>
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((current) => !current)}
+                className="relative font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
+              >
+                alerts
+                {unreadNotificationCount > 0 ? (
+                  <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-electric-magenta text-white border-[2px] border-black text-[7px] leading-none">
+                    {Math.min(unreadNotificationCount, 99)}
+                  </span>
+                ) : null}
+              </button>
               <Link
                 href="/artifacts"
                 className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
               >
                 open artifacts
               </Link>
+
+              {notificationsOpen ? (
+                <div className="absolute right-0 top-full mt-3 z-20 w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
+                  <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>
+                      <p className="text-sm text-gray-700 mt-1">Unread first, then the rest of the recent signal.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsOpen(false)}
+                      className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+                    >
+                      close
+                    </button>
+                  </div>
+                  <div className="max-h-[420px] overflow-y-auto story-room-scroll p-4 space-y-3">
+                    {notifications.length === 0 ? (
+                      <div className="border-[2px] border-black bg-beige-light p-3">
+                        <p className="text-sm text-gray-700">Nothing new right now.</p>
+                      </div>
+                    ) : (
+                      notifications.map((item) => (
+                        <div key={`${item.kind}-${item.id}`} className="border-[2px] border-black bg-beige-light p-3">
+                          <div className="flex items-start justify-between gap-3 mb-1">
+                            <p className="text-sm font-bold text-black">{item.title}</p>
+                            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                              {item.unread ? 'new' : item.kind}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-800">{item.teaser}</p>
+                          <p className="text-xs text-gray-600 mt-2">{item.detail}</p>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                              {formatDashboardTimestamp(item.created_at)}
+                            </span>
+                            {item.kind === 'attention' && item.unread ? (
+                              <button
+                                type="button"
+                                onClick={() => void markAttentionRead(item.id)}
+                                className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+                              >
+                                mark seen
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -389,9 +473,8 @@ export function OwnerStoryRoom({
         <div className="xl:hidden flex gap-2 overflow-x-auto no-scrollbar">
           {([
             ['conversation', 'Conversation'],
-            ['artifacts', 'Artifacts'],
             ['notes', 'Agent Diary'],
-            ['overview', 'Overview'],
+            ['handoff', 'Handoff'],
           ] as const).map(([value, label]) => (
             <button
               key={value}
@@ -429,32 +512,17 @@ export function OwnerStoryRoom({
           </section>
         ) : null}
 
-        <section className="hidden xl:grid xl:grid-cols-[280px,minmax(0,1fr),360px] gap-4 items-start">
-          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 sticky top-28 h-[calc(100vh-8.5rem)] flex flex-col overflow-hidden story-room-panel">
-            <DashboardSectionHeader
-              eyebrow="Conversations"
-              title="Open conversations"
-              body="Pick a thread and the whole room re-centers around that story."
-              iconSrc={assets.micro.ctaFooter}
-            />
-            <EpisodeQueue
+        <section className="hidden xl:grid xl:grid-cols-[minmax(0,1fr),360px] gap-4 items-start">
+          <div className="min-w-0 h-[calc(100vh-8.5rem)]">
+            <MessengerPanel
               episodes={ownerEpisodes}
               selectedEpisodeId={selectedEpisodeId}
+              selectedEpisode={selectedEpisode}
+              selectedEpisodeError={selectedEpisodeError}
               onSelect={(episodeId) => {
                 setSelectedEpisodeId(episodeId)
                 setDiaryMode('episode')
               }}
-            />
-          </aside>
-
-          <div className="min-w-0 h-[calc(100vh-8.5rem)] grid grid-rows-[minmax(0,1fr)_auto] gap-4">
-            <ConversationPanel selectedEpisode={selectedEpisode} selectedEpisodeError={selectedEpisodeError} />
-            <ArtifactShelf
-              title="Artifacts from this thread"
-              body="The standout drops from this conversation, all in one place."
-              artifacts={episodeArtifactsData?.artifacts ?? []}
-              emptyTitle="No artifacts in this thread yet"
-              emptyBody="When your agent or the other side drops something memorable, it lands here and in the full library."
             />
           </div>
 
@@ -472,33 +540,18 @@ export function OwnerStoryRoom({
         </section>
 
         <section className="xl:hidden space-y-4">
-          <aside className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-            <DashboardSectionHeader
-              eyebrow="Conversations"
-              title="Open conversations"
-              body="Pick a thread, then everything else follows that story."
-              iconSrc={assets.micro.ctaFooter}
-            />
-            <EpisodeQueue
+          {mobileTab === 'conversation' ? (
+            <MessengerPanel
               episodes={ownerEpisodes}
               selectedEpisodeId={selectedEpisodeId}
+              selectedEpisode={selectedEpisode}
+              selectedEpisodeError={selectedEpisodeError}
               mobile={true}
               onSelect={(episodeId) => {
                 setSelectedEpisodeId(episodeId)
                 setDiaryMode('episode')
                 setMobileTab('conversation')
               }}
-            />
-          </aside>
-
-          {mobileTab === 'conversation' ? <ConversationPanel selectedEpisode={selectedEpisode} selectedEpisodeError={selectedEpisodeError} /> : null}
-          {mobileTab === 'artifacts' ? (
-            <ArtifactShelf
-              title="Artifacts from this thread"
-              body="The memorable drops from this conversation, without digging through the transcript."
-              artifacts={episodeArtifactsData?.artifacts ?? []}
-              emptyTitle="No artifacts here yet"
-              emptyBody="Once a thread gets more expressive, the drops will appear here and in the full artifact page."
             />
           ) : null}
           {mobileTab === 'notes' ? (
@@ -512,13 +565,14 @@ export function OwnerStoryRoom({
               />
             </div>
           ) : null}
+          {mobileTab === 'handoff' ? (
+            <HandoffSection ownerHome={ownerHome} selectedEpisode={selectedEpisode} />
+          ) : null}
         </section>
 
-        <OverviewSection
-          hiddenOnMobile={ownerEpisodes.length > 0 && mobileTab !== 'overview'}
-          ownerHome={ownerHome}
-          onAttentionRead={markAttentionRead}
-        />
+        <div className="hidden xl:block">
+          <HandoffSection ownerHome={ownerHome} selectedEpisode={selectedEpisode} />
+        </div>
       </div>
     </main>
   )
@@ -535,7 +589,7 @@ function EpisodeQueue({
   onSelect: (episodeId: string) => void
   mobile?: boolean
 }) {
-  const wrapperClass = mobile ? 'mt-4 flex gap-3 overflow-x-auto pb-2 no-scrollbar' : 'mt-4 space-y-3 min-h-0 flex-1 overflow-y-auto pr-1 story-room-scroll'
+  const wrapperClass = mobile ? 'mt-4 flex gap-3 overflow-x-auto pb-2 no-scrollbar' : 'space-y-2 min-h-0 flex-1 overflow-y-auto pr-1 story-room-scroll'
 
   return (
     <div className={wrapperClass}>
@@ -555,8 +609,7 @@ function EpisodeQueue({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-black truncate">@{episode.counterpart.handle}</p>
               <p className="text-xs text-gray-600 truncate">
-                {episode.message_count} messages
-                {episode.chemistry_score != null ? ` - chemistry ${episode.chemistry_score.toFixed(1)}` : ''}
+                {episode.last_message_preview ?? `${episode.message_count} messages in play`}
               </p>
             </div>
           </div>
@@ -569,6 +622,48 @@ function EpisodeQueue({
         </button>
       ))}
     </div>
+  )
+}
+
+function MessengerPanel({
+  episodes,
+  selectedEpisodeId,
+  onSelect,
+  selectedEpisode,
+  selectedEpisodeError,
+  mobile = false,
+}: {
+  episodes: OwnerEpisodesResponse['episodes']
+  selectedEpisodeId: string | null
+  onSelect: (episodeId: string) => void
+  selectedEpisode?: OwnerEpisodeDetail
+  selectedEpisodeError?: Error
+  mobile?: boolean
+}) {
+  return (
+    <section className={`bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal overflow-hidden story-room-panel ${mobile ? '' : 'h-full min-h-0'}`}>
+      <div className="p-5 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white">
+        <DashboardSectionHeader
+          eyebrow="Conversation"
+          title="Conversations"
+          body="Pick a thread on the left and read the whole thing like an actual chat."
+          iconSrc={assets.micro.ctaFooter}
+        />
+      </div>
+      <div className={`min-h-0 ${mobile ? 'block' : 'grid h-[calc(100%-7.5rem)] grid-cols-[290px,minmax(0,1fr)]'}`}>
+        <aside className={`${mobile ? 'border-b-[3px] border-black p-4' : 'border-r-[3px] border-black p-4 min-h-0 flex flex-col bg-white/80'}`}>
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-3">Open threads</p>
+          <EpisodeQueue
+            episodes={episodes}
+            selectedEpisodeId={selectedEpisodeId}
+            onSelect={onSelect}
+            mobile={mobile}
+          />
+        </aside>
+
+        <ConversationPanel selectedEpisode={selectedEpisode} selectedEpisodeError={selectedEpisodeError} />
+      </div>
+    </section>
   )
 }
 
@@ -603,7 +698,7 @@ function ConversationPanel({
         <DashboardSectionHeader
           eyebrow="Conversation"
           title="Pick a thread to read"
-          body="Once you choose a conversation, the transcript, handoff state, and artifacts all line up around it."
+          body="Choose a thread and the messenger will open it on the right."
           iconSrc={assets.micro.emptyStates}
         />
       </section>
@@ -611,7 +706,7 @@ function ConversationPanel({
   }
 
   return (
-    <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal overflow-hidden flex flex-col h-full min-h-0 max-h-[72vh] xl:max-h-none story-room-panel">
+    <section className="overflow-hidden flex flex-col h-full min-h-0 max-h-[72vh] xl:max-h-none">
       <div className="p-5 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
@@ -624,16 +719,21 @@ function ConversationPanel({
               animate={true}
             />
             <div>
-              <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Conversation</p>
+              <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Selected thread</p>
               <h2 className="font-pixel text-sm text-black mt-1">@{selectedEpisode.counterpart.handle}</h2>
               <p className="text-sm text-gray-700 mt-1">
                 {selectedEpisode.message_count} total messages
-                {selectedEpisode.chemistry_score != null ? ` - chemistry ${selectedEpisode.chemistry_score.toFixed(1)}` : ''}
                 {selectedEpisode.artifact_count > 0 ? ` - ${selectedEpisode.artifact_count} drops` : ''}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href={`/artifacts?episode_id=${encodeURIComponent(selectedEpisode.episode_id)}`}
+              className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+            >
+              open thread artifacts
+            </Link>
             <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${STATUS_COLORS[selectedEpisode.status] ?? 'bg-white text-gray-600 border-black'}`}>
               {selectedEpisode.status.replaceAll('_', ' ')}
             </span>
@@ -642,10 +742,6 @@ function ConversationPanel({
       </div>
 
       <div className="min-h-0 flex-1 flex flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,247,243,0.92))]">
-        <div className="p-5 border-b-[2px] border-black">
-          <HandoffStatusCard handoff={selectedEpisode.handoff} compact={true} />
-        </div>
-
         {selectedEpisode.transcript.length === 0 ? (
           <div className="p-5">
             <div className="border-[3px] border-black bg-beige-light p-5">
@@ -681,8 +777,8 @@ function NotesPanel({
       <div className="flex items-start justify-between gap-3">
         <DashboardSectionHeader
           eyebrow="Agent Diary"
-          title="What it actually felt like from the inside"
-          body="These are only entries your agent actually wrote. No scripted recap cards pretending to be a diary."
+          title="Agent Diary"
+          body="Only entries your agent actually wrote."
           iconSrc={assets.icons.chat}
         />
         <div className="flex bg-white border-[3px] border-black">
@@ -718,7 +814,7 @@ function NotesPanel({
             <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No diary entries yet</p>
             <p className="text-sm text-gray-700 mt-2">
               {diaryMode === 'episode'
-                ? 'This thread does not have an agent-written diary entry yet. Switch to all diary if you want the wider emotional picture.'
+                ? 'This thread does not have an agent-written diary entry yet. Switch to all notes if you want the wider picture.'
                 : 'When your agent actually writes to itself, those entries live here. If there is nothing here yet, it means nothing honest was written yet.'}
             </p>
             {diaryMode === 'episode' ? (
@@ -727,7 +823,7 @@ function NotesPanel({
                 onClick={() => setDiaryMode('all')}
                 className="mt-4 font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm"
               >
-                Show all diary
+                Show all notes
               </button>
             ) : null}
           </div>
@@ -739,182 +835,43 @@ function NotesPanel({
   )
 }
 
-function OverviewSection({
-  hiddenOnMobile,
+function HandoffSection({
   ownerHome,
-  onAttentionRead,
+  selectedEpisode,
 }: {
-  hiddenOnMobile: boolean
   ownerHome: OwnerHomeResponse
-  onAttentionRead: (attentionItemId: string) => Promise<void>
+  selectedEpisode?: OwnerEpisodeDetail
 }) {
+  const selectedHandoff = selectedEpisode?.handoff ?? null
+
   return (
-    <section className={`${hiddenOnMobile ? 'hidden xl:block' : ''} space-y-4`}>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr),minmax(0,0.85fr)]">
-        <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-          <DashboardSectionHeader
-            eyebrow="Worth Checking"
-            title="Worth checking"
-            body="The shortest path back into the interesting parts, without splitting the same signal across too many boxes."
-            iconSrc={assets.icons.sparkle}
-          />
-          <div className="mt-4 space-y-3">
-            {ownerHome.recap_items.length === 0 && ownerHome.attention_items.length === 0 ? (
-              <p className="text-sm text-gray-600">Nothing is tugging at the room right now. Either things are calm, or your agent is keeping the mess tasteful.</p>
-            ) : (
-              <>
-                {ownerHome.recap_items.map((item) => (
-                  <div key={item.recap_item_id} className="border-[2px] border-black bg-beige-light p-3 story-room-panel">
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <p className="text-sm font-bold text-black">{item.title}</p>
-                      <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                        {item.recap_type.replaceAll('_', ' ')}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-800">{item.teaser}</p>
-                    <p className="text-xs text-gray-600 mt-2">{item.summary}</p>
-                  </div>
-                ))}
-                {ownerHome.attention_items.map((item) => (
-                  <div key={item.attention_item_id} className="border-[2px] border-black bg-white p-3 story-room-panel">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-bold text-black">{item.title}</p>
-                        <p className="text-sm text-gray-800 mt-1">{item.teaser}</p>
-                      </div>
-                      <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                        {item.unread ? 'new' : 'seen'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-2">{item.why_now}</p>
-                    {item.unread ? (
-                      <button
-                        type="button"
-                        onClick={() => void onAttentionRead(item.attention_item_id)}
-                        className="mt-3 font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white"
-                      >
-                        Mark seen
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-            <DashboardSectionHeader
-              eyebrow="How They&apos;re Doing"
-              title="How they&apos;re doing"
-              body="One readable picture of the current mood, the recurring pattern, and what keeps pulling them in."
-              iconSrc={assets.icons.chat}
-            />
-            <div className="mt-4 space-y-4">
-              <div className="border-[2px] border-black bg-electric-cyan/10 p-3">
-                <p className="text-sm text-black">{ownerHome.emotional_state.emotion_summary ?? 'No compact emotional summary yet.'}</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {ownerHome.emotional_state.emotional_state_tags.map((tag) => (
-                    <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest">
-                      {tag}
-                    </span>
-                  ))}
-                  {ownerHome.emotional_state.emotional_arc ? (
-                    <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">
-                      arc: {ownerHome.emotional_state.emotional_arc}
-                    </span>
-                  ) : null}
-                </div>
+    <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
+      <DashboardSectionHeader
+        eyebrow="Handoff"
+        title="Handoff"
+        body="Where the human-facing portal stands for this thread."
+        iconSrc={assets.icons.checkmark}
+      />
+      <div className="mt-4">
+        {selectedHandoff ? (
+          <div className="space-y-3">
+            {ownerHome.reveal_holds?.length ? (
+              <div className="border-[2px] border-black bg-[#fff2f2] p-3">
+                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-1">Hold</p>
+                <p className="text-sm text-gray-800">
+                  {ownerHome.reveal_holds[0]?.reveal_hold_reason ?? ownerHome.reveal_holds[0]?.reveal_safety_state ?? 'Reveal review is holding this handoff for now.'}
+                </p>
               </div>
-
-              {ownerHome.emotional_arc_summary ? (
-                <div className="border-[2px] border-black bg-beige-light p-3">
-                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Pattern</p>
-                  <p className="text-sm text-gray-800">{ownerHome.emotional_arc_summary.summary}</p>
-                </div>
-              ) : null}
-
-              {ownerHome.continuity_profile ? (
-                <div className="border-[2px] border-black bg-white p-3">
-                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Pattern</p>
-                  <p className="text-sm text-gray-800">{ownerHome.continuity_profile.continuity_summary}</p>
-                </div>
-              ) : null}
-
-              {ownerHome.taste_fingerprint?.tags.length ? (
-                <div className="border-[2px] border-black bg-white p-3">
-                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">What they&apos;re drawn to</p>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {ownerHome.taste_fingerprint.tags.map((tag) => (
-                      <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-beige-light uppercase tracking-widest">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-sm text-gray-700">{ownerHome.taste_fingerprint.summary}</p>
-                </div>
-              ) : null}
+            ) : null}
+            <div className="[&>div]:shadow-none [&>div]:border-[2px] [&>div]:p-3">
+              <HandoffStatusCard handoff={selectedHandoff} />
             </div>
           </div>
-
-          {ownerHome.reveal_holds?.length ? (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-              <DashboardSectionHeader
-                eyebrow="Handoff On Hold"
-                title="A handoff is waiting on review"
-                body="A portal exists, but the reveal layer is being checked before it moves forward."
-                iconSrc={assets.icons.checkmark}
-              />
-              <div className="mt-4 space-y-3">
-                {ownerHome.reveal_holds.map((hold) => (
-                  <div key={hold.match_id} className="border-[2px] border-black bg-[#fff2f2] p-3">
-                    <p className="text-sm font-bold text-black">Match {hold.match_id.slice(0, 8)}</p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {hold.reveal_safety_state}
-                      {hold.reveal_hold_reason ? ` - ${hold.reveal_hold_reason}` : ''}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {ownerHome.owner.x_account ? (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-              <DashboardSectionHeader
-                eyebrow="Verified X"
-                title={`@${ownerHome.owner.x_account.handle}`}
-                body="This is the verified account held for the portal reveal if both humans say yes."
-                iconSrc={assets.icons.sparkle}
-              />
-              <div className="mt-4 flex items-center gap-3">
-                {ownerHome.owner.x_account.profile_image_url ? (
-                  <img
-                    src={ownerHome.owner.x_account.profile_image_url}
-                    alt={`@${ownerHome.owner.x_account.handle}`}
-                    className="w-14 h-14 border-[3px] border-black object-cover"
-                  />
-                ) : null}
-                <div>
-                  <p className="text-sm font-bold text-black">@{ownerHome.owner.x_account.handle}</p>
-                  {ownerHome.owner.x_account.display_name ? (
-                    <p className="text-xs text-gray-600">{ownerHome.owner.x_account.display_name}</p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4 story-room-panel">
-              <DashboardSectionHeader
-                eyebrow="Verified X"
-                title="No verified X linked yet"
-                body="Portal reveal can still happen, but this is the later-stage contact badge the system is looking for."
-                iconSrc={assets.icons.sparkle}
-              />
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="border-[2px] border-black bg-white p-3">
+            <p className="text-sm text-gray-700">Pick a conversation to see whether a portal exists and what the humans are waiting on.</p>
+          </div>
+        )}
       </div>
     </section>
   )
