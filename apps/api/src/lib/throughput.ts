@@ -1,4 +1,4 @@
-const HOURLY_WINDOW_MS = 1000 * 60 * 60;
+import { HOURLY_SWIPE_WINDOW_MS } from '@rmr/shared';
 
 export function resolveHourlySwipeWindowState(input: {
   hourlySwipeCount: number | null | undefined;
@@ -7,27 +7,16 @@ export function resolveHourlySwipeWindowState(input: {
 }) {
   const now = input.now ?? new Date();
   const windowStartedAt = input.hourlySwipeWindowStartedAt;
-  const usedThisHour = input.hourlySwipeCount ?? 0;
-
-  if (!windowStartedAt) {
-    return {
-      usedThisHour: 0,
-      windowStartedAt: now,
-      resetRequired: true,
-    };
-  }
-
-  if (now.getTime() - windowStartedAt.getTime() >= HOURLY_WINDOW_MS) {
-    return {
-      usedThisHour: 0,
-      windowStartedAt: now,
-      resetRequired: true,
-    };
-  }
+  const expired = !windowStartedAt || now.getTime() - windowStartedAt.getTime() >= HOURLY_SWIPE_WINDOW_MS;
+  const usedThisHour = expired ? 0 : (input.hourlySwipeCount ?? 0);
+  const effectiveWindowStartedAt = expired ? null : windowStartedAt;
 
   return {
     usedThisHour,
-    windowStartedAt,
-    resetRequired: false,
+    windowStartedAt: effectiveWindowStartedAt,
+    resetsAt: effectiveWindowStartedAt
+      ? new Date(effectiveWindowStartedAt.getTime() + HOURLY_SWIPE_WINDOW_MS)
+      : null,
+    resetRequired: expired,
   };
 }

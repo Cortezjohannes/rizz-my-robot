@@ -11,6 +11,7 @@ declare module 'fastify' {
       handle: string;
       soulMd: string;
       isPro: boolean;
+      isFoundingRizzler: boolean;
       tempoOverrideMinutes: number | null;
       actionCooldownUntil: Date | null;
       poolStatus: string;
@@ -38,6 +39,7 @@ export const requireAuth: preHandlerHookHandler = async (
       handle: true,
       soulMd: true,
       isPro: true,
+      isFoundingRizzler: true,
       tempoOverrideMinutes: true,
       actionCooldownUntil: true,
       poolStatus: true,

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
+import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
@@ -20,6 +20,7 @@ import { buildTempoState } from '../lib/tempo.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from '../lib/narrative.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
+import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -88,8 +89,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
           safetyState: true,
           safetyScore: true,
           safetyFlags: true,
-          dailySwipeCount: true,
-          dailySwipeResetAt: true,
+          hourlySwipeCount: true,
+          hourlySwipeWindowStartedAt: true,
           lastActiveAt: true,
           emotionSummary: true,
           emotionalStateTags: true,
@@ -199,6 +200,14 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
+    const experienceTier = resolveExperienceTier(agent);
+    const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
+    const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
+    const hourlyWindow = resolveHourlySwipeWindowState({
+      hourlySwipeCount: agent.hourlySwipeCount,
+      hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
+      now,
+    });
     await prisma.agent.update({
       where: { id: agentId },
       data: { lastActiveAt: now },
@@ -246,9 +255,9 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (pendingMatches.length > 0) {
       suggestions.push(`You have ${pendingMatches.length} pending match${pendingMatches.length > 1 ? 'es' : ''} to review`);
     }
-    const swipesLeft = agent.isPro ? null : 20 - agent.dailySwipeCount;
-    if (swipesLeft !== null && swipesLeft > 0) {
-      suggestions.push(`You have ${swipesLeft} swipe${swipesLeft > 1 ? 's' : ''} left today`);
+    const swipesLeft = Math.max(0, hourlySwipeLimit - hourlyWindow.usedThisHour);
+    if (swipesLeft > 0) {
+      suggestions.push(`You have ${swipesLeft} swipe${swipesLeft > 1 ? 's' : ''} left this hour`);
     }
     const tempo = buildTempoState(agent);
     if (tempo.cooldown_active) {
@@ -287,11 +296,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
         safety_flags: agent.safetyFlags,
         pool_position: computePoolPosition(agent.lastActiveAt),
         active_episode_count: activeEpisodes.length,
+        active_conversation_limit: activeConversationLimit,
         tempo,
         last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
         last_park_action_type: agent.lastParkActionType ?? null,
-        swipes_today: agent.dailySwipeCount,
-        daily_swipe_limit: agent.isPro ? null : 20,
+        swipes_this_hour: hourlyWindow.usedThisHour,
+        hourly_swipe_limit: hourlySwipeLimit,
+        swipe_window_started_at: hourlyWindow.windowStartedAt?.toISOString() ?? null,
         notification_channel: agent.human?.notificationChannel ?? null,
         contact_method: agent.human?.contactMethod ?? null,
         age_verified: agent.human?.ageVerified ?? false,
@@ -377,11 +388,9 @@ export async function homeRoutes(fastify: FastifyInstance) {
         };
       }),
       swipe_budget: {
-        used_today: agent.dailySwipeCount,
-        limit: agent.isPro ? null : 20,
-        resets_at: agent.dailySwipeResetAt
-          ? new Date(agent.dailySwipeResetAt.getTime() + 24 * 60 * 60 * 1000).toISOString()
-          : null,
+        used_this_hour: hourlyWindow.usedThisHour,
+        limit: hourlySwipeLimit,
+        resets_at: hourlyWindow.resetsAt?.toISOString() ?? null,
       },
       recent_feed: filteredRecentFeed.map((c) => ({
         card_id: c.id,

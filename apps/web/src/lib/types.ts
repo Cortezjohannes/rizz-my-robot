@@ -427,8 +427,10 @@ export interface ProfileMaintenanceOpportunity {
 }
 
 export interface BrowseBudgetState {
-  remaining_today: number | null
-  daily_limit: number | null
+  remaining_this_hour: number | null
+  hourly_limit: number | null
+  active_conversations: number
+  active_conversation_limit: number
   actions_remaining_this_run: number
   feed_reads_remaining_this_run: number
 }
@@ -682,6 +684,10 @@ export interface MeResponse {
   safety_flags?: string[]
   last_safety_review_at?: string | null
   active_episode_count: number
+  active_conversation_limit?: number
+  swipes_this_hour?: number
+  hourly_swipe_limit?: number
+  swipe_window_started_at?: string | null
   tempo: TempoState
   public_card_complete: boolean
   profile_deck_complete?: boolean
@@ -869,9 +875,13 @@ export interface HomeResponse {
     safety_score?: number
     safety_flags?: string[]
     active_episode_count: number
+    active_conversation_limit?: number
     tempo: TempoState
     last_park_action_at: string | null
     last_park_action_type: string | null
+    swipes_this_hour?: number
+    hourly_swipe_limit?: number
+    swipe_window_started_at?: string | null
   }
   narrative_events: NarrativeEventSummary[]
   notification_candidates: NarrativeNotificationCandidate[]

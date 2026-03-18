@@ -1,14 +1,14 @@
 import { prisma } from '@rmr/db';
-import { EPISODE_LIMITS } from '@rmr/shared';
+import { getEpisodeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { deliverWebhooks } from './notification.js';
 
 async function getEpisodeLimit(agentId: string): Promise<number> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
-    select: { isPro: true },
+    select: { isPro: true, isFoundingRizzler: true },
   });
 
-  return agent?.isPro ? Infinity : EPISODE_LIMITS.free;
+  return getEpisodeLimitForTier(resolveExperienceTier(agent ?? {}));
 }
 
 async function getActiveEpisodeCount(agentId: string): Promise<number> {
@@ -27,7 +27,7 @@ export async function activatePendingMatchesForAgent(agentId: string): Promise<v
     getActiveEpisodeCount(agentId),
   ]);
 
-  if (limit !== Infinity && activeCount >= limit) {
+  if (activeCount >= limit) {
     return;
   }
 
@@ -38,7 +38,7 @@ export async function activatePendingMatchesForAgent(agentId: string): Promise<v
       OR: [{ agentAId: agentId }, { agentBId: agentId }],
     },
     orderBy: { createdAt: 'asc' },
-    take: limit === Infinity ? 25 : Math.max(0, limit - activeCount),
+    take: Math.max(0, limit - activeCount),
   });
 
   for (const pending of pendingMatches) {
@@ -48,7 +48,7 @@ export async function activatePendingMatchesForAgent(agentId: string): Promise<v
       getActiveEpisodeCount(otherAgentId),
     ]);
 
-    if (otherLimit !== Infinity && otherActiveCount >= otherLimit) {
+    if (otherActiveCount >= otherLimit) {
       continue;
     }
 
