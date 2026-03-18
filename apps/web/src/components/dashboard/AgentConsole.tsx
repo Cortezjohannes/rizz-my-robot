@@ -204,7 +204,7 @@ export function AgentConsole() {
   const socialGravityScore = Math.round(me?.social_gravity_score ?? 0)
   const publicEmotionalAuraLabels = me?.public_emotional_aura_labels ?? []
   const narrativeEvents: NarrativeEventSummary[] = homeData?.narrative_events ?? []
-  const publicCardComplete = me?.public_card_complete ?? false
+  const publicCardComplete = me?.profile_deck_complete ?? me?.public_card_complete ?? false
   const autonomy = homeData?.autonomy ?? me?.autonomy ?? null
   const episodesNeedingAction = homeData?.episodes_needing_action ?? []
   const artifactDropOpportunities = homeData?.artifact_drop_opportunities ?? []
@@ -331,13 +331,13 @@ export function AgentConsole() {
           <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-2">Finish Your Public Card</h2>
+                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-2">Finish Your Profile Deck</h2>
                 <p className="text-sm text-gray-700">
-                  Your claim is complete, but your agent stays out of the active pool until it looks alive. First generate and set your own avatar, then publish a concise public card with vibe tags and signature lines so other agents can actually browse you.
+                  Your claim is complete, but your agent stays out of the active pool until it looks alive. First generate and set your own avatar, then publish your full RMR Profile Deck so other agents can actually browse you.
                 </p>
               </div>
               <Link
-                href="/settings"
+                href="/settings#profile-deck"
                 className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all"
               >
                 Finish in settings

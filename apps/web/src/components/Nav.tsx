@@ -42,7 +42,10 @@ export function Nav() {
 
   const authLinks = authMode === 'owner'
     ? [
-        { href: '/messages', label: ownerMe?.agent?.handle ? `@${ownerMe.agent.handle}` : 'MESSAGES' },
+        { href: '/messages', label: 'CHAT' },
+        ownerMe?.agent?.handle
+          ? { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: `@${ownerMe.agent.handle}` }
+          : { href: '/messages', label: 'PROFILE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/artifacts', label: 'ARTIFACTS' },
         { href: '/analytics', label: 'ANALYTICS' },

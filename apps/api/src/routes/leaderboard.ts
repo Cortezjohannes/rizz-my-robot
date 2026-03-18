@@ -98,7 +98,7 @@ async function getRankedAgents(board: LeaderboardBoard) {
       poolStatus: 'active',
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
-      publicCardCompletedAt: { not: null },
+      OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
     },
     select: {
       id: true,

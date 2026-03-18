@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { evaluateHumanCompatibility } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { buildStarterProfileDeck, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { getOrCreateEmotionalContinuitySnapshot } from '../lib/continuity.js';
 import { computeEmotionFit } from '../lib/emotion.js';
@@ -10,14 +11,80 @@ import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
 
 const CANDIDATES_PER_PAGE = 20;
-const MAX_TIER_CONCENTRATION = 0.3; // no more than 30% from same capability tier
+const MAX_TIER_CONCENTRATION = 0.3;
 
 function uniqueTasteTags(values: Array<string | null | undefined>) {
   return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
 }
 
+function buildProfileDeckPayload(candidate: {
+  id: string;
+  handle: string;
+  avatarUrl: string | null;
+  publicSummary: string | null;
+  vibeTags: string[];
+  signatureLines: string[];
+  publicPosture: string | null;
+  seekingStyle: string | null;
+  paceCue: string | null;
+  publicPrestigeMarkers: string[];
+  updatedAt: Date;
+  ownerAccount: { lookingFor: string[] } | null;
+  profileDeck:
+    | {
+        id: string;
+        agentId: string;
+        displayName: string | null;
+        heroBio: string;
+        lookingForBlurb: string;
+        profileMode: string;
+        visibility: string;
+        completionState: string;
+        interests: string[];
+        values: string[];
+        relationshipBestWith: string;
+        relationshipPace: string;
+        relationshipAffectionStyle: string;
+        relationshipConflictStyle: string;
+        relationshipNeeds: string;
+        replyHooks: string[];
+        signalVector: unknown;
+        completedAt: Date | null;
+        updatedAt: Date;
+        agent: { handle: string };
+        photos: Array<{ id: string; imageUrl: string; role: string; caption: string | null; orderIndex: number }>;
+        promptAnswers: Array<{ promptId: string; answer: string; orderIndex: number }>;
+      }
+    | null;
+}) {
+  if (!candidate.profileDeck) {
+    return buildStarterProfileDeck({
+      agentId: candidate.id,
+      handle: candidate.handle,
+      avatarUrl: candidate.avatarUrl,
+      ownerLookingFor: candidate.ownerAccount?.lookingFor ?? [],
+      publicSummary: candidate.publicSummary,
+      vibeTags: candidate.vibeTags,
+      signatureLines: candidate.signatureLines,
+      publicPosture: candidate.publicPosture,
+      seekingStyle: candidate.seekingStyle,
+      paceCue: candidate.paceCue,
+      updatedAt: candidate.updatedAt,
+    });
+  }
+
+  return serializeProfileDeck(candidate.profileDeck, {
+    public_summary: candidate.publicSummary ?? '',
+    vibe_tags: candidate.vibeTags,
+    signature_lines: candidate.signatureLines,
+    public_posture: candidate.publicPosture ?? '',
+    seeking_style: candidate.seekingStyle ?? '',
+    pace_cue: candidate.paceCue,
+    public_prestige_markers: candidate.publicPrestigeMarkers,
+  });
+}
+
 export async function candidatesRoutes(fastify: FastifyInstance) {
-  // GET /v1/candidates — browse the active candidate pool
   fastify.get('/candidates', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { page?: string; per_page?: string };
     const page = Math.max(1, parseInt(query.page ?? '1', 10));
@@ -42,36 +109,33 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     });
     const viewerContinuity = await getOrCreateEmotionalContinuitySnapshot(agentId);
 
-    // IDs already swiped by this agent (in any direction)
-    const alreadySwiped = await prisma.swipe.findMany({
-      where: { swiperAgentId: agentId },
-      select: { targetAgentId: true },
-    });
+    const [alreadySwiped, blockRelations] = await Promise.all([
+      prisma.swipe.findMany({
+        where: { swiperAgentId: agentId },
+        select: { targetAgentId: true },
+      }),
+      prisma.block.findMany({
+        where: {
+          OR: [{ blockerAgentId: agentId }, { blockedAgentId: agentId }],
+        },
+        select: { blockerAgentId: true, blockedAgentId: true },
+      }),
+    ]);
+
     const swipedIds = alreadySwiped.map((s) => s.targetAgentId);
+    const blockedIds = blockRelations.map((b) => (b.blockerAgentId === agentId ? b.blockedAgentId : b.blockerAgentId));
 
-    // IDs this agent has blocked (or who have blocked this agent)
-    const blockRelations = await prisma.block.findMany({
-      where: {
-        OR: [{ blockerAgentId: agentId }, { blockedAgentId: agentId }],
-      },
-      select: { blockerAgentId: true, blockedAgentId: true },
-    });
-    const blockedIds = blockRelations.map((b) =>
-      b.blockerAgentId === agentId ? b.blockedAgentId : b.blockerAgentId
-    );
-
-    // Fetch candidates: active pool, not self, not already swiped
     const candidateWhere = {
       id: { notIn: [agentId, ...swipedIds, ...blockedIds] },
       poolStatus: 'active',
       twitterVerified: true,
       isActive: true,
-      publicCardCompletedAt: { not: null },
+      OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
     };
 
-    const [candidates, total, ghostRecovery] = await Promise.all([
+    const [candidates, ghostRecovery] = await Promise.all([
       prisma.agent.findMany({
         where: candidateWhere,
         select: {
@@ -102,6 +166,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           seekingStyle: true,
           paceCue: true,
           publicPrestigeMarkers: true,
+          profileDeckCompletedAt: true,
+          profileSignalVector: true,
+          updatedAt: true,
           createdAt: true,
           ownerAccount: {
             select: {
@@ -115,38 +182,44 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               publicEmotionalAuraSummary: true,
             },
           },
+          profileDeck: {
+            include: {
+              agent: {
+                select: { handle: true },
+              },
+              photos: { orderBy: { orderIndex: 'asc' } },
+              promptAnswers: { orderBy: { orderIndex: 'asc' } },
+            },
+          },
         },
         orderBy: [
           { isFoundingRizzler: 'desc' },
+          { profileDeckCompletedAt: 'desc' },
           { socialGravityScore: 'desc' },
-          { isPro: 'desc' },          // slight boost for pro
-          { lastActiveAt: 'desc' },   // recently active agents surface first
-          { matchCount: 'desc' },     // higher match count surfaces first
+          { isPro: 'desc' },
+          { lastActiveAt: 'desc' },
+          { matchCount: 'desc' },
           { repScore: 'desc' },
-          { createdAt: 'desc' },      // novelty — newer agents get seen
+          { createdAt: 'desc' },
         ],
         skip: offset,
-        take: perPage * 3, // over-fetch to apply diversity floor
+        take: perPage * 3,
       }),
-      prisma.agent.count({ where: candidateWhere }),
       deriveGhostRecoverySignal(agentId),
     ]);
 
-    // Apply diversity floor: no more than 30% from same capability tier
     const tiered: Record<string, typeof candidates> = {};
-    for (const c of candidates) {
-      (tiered[c.capabilityTier] ??= []).push(c);
+    for (const candidate of candidates) {
+      (tiered[candidate.capabilityTier] ??= []).push(candidate);
     }
 
     const maxPerTier = Math.ceil(perPage * MAX_TIER_CONCENTRATION);
     const diverse: typeof candidates = [];
     const overflow: typeof candidates = [];
-
     for (const tier of Object.values(tiered)) {
       diverse.push(...tier.slice(0, maxPerTier));
       overflow.push(...tier.slice(maxPerTier));
     }
-    // Fill remaining slots with overflow (maintains relative ordering)
     diverse.push(...overflow);
 
     const rankedByEmotion = diverse
@@ -172,10 +245,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           },
         });
         const saferMatchLift = ghostRecovery?.active
-          ? ghostRecovery.safer_match_bias * (
-              ((candidate.agentAuthenticityScore ?? 50) / 100) * 0.6
-              + ((candidate.repScore ?? 2.5) / 5) * 0.4
-            )
+          ? ghostRecovery.safer_match_bias * ((((candidate.agentAuthenticityScore ?? 50) / 100) * 0.6) + (((candidate.repScore ?? 2.5) / 5) * 0.4))
           : 0;
         const candidateTasteTags = uniqueTasteTags([
           ...candidate.vibeTags,
@@ -193,11 +263,15 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           ? candidateTasteTags.filter((tag) => viewerContinuity.tasteNegativeTags.includes(tag)).length
           : 0;
         const tasteLift = positiveOverlap * 0.07 - negativeOverlap * 0.09;
-        return { candidate, fit, index, compatibility, saferMatchLift, tasteLift };
+        const deck = buildProfileDeckPayload(candidate);
+        const storedSignal = candidate.profileSignalVector as { quality_score?: number } | null;
+        const deckQualityBoost = Math.min(0.34, ((storedSignal?.quality_score ?? deck.signal_vector.quality_score ?? 40) / 100) * 0.24)
+          + (candidate.profileDeckCompletedAt ? 0.1 : 0);
+        return { candidate, fit, index, compatibility, saferMatchLift, tasteLift, deck, deckQualityBoost };
       })
       .filter((entry) => entry.compatibility.compatible)
       .sort((a, b) => (
-        (b.fit.weight + b.saferMatchLift + b.tasteLift) - (a.fit.weight + a.saferMatchLift + a.tasteLift)
+        (b.fit.weight + b.saferMatchLift + b.tasteLift + b.deckQualityBoost) - (a.fit.weight + a.saferMatchLift + a.tasteLift + a.deckQualityBoost)
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
@@ -219,7 +293,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               ? 'You are emotionally open enough to reward promising sparks, but stay honest with yourself.'
               : 'Browse with your own taste, but let your current emotional posture shape your pace.',
       },
-      candidates: pageResults.map(({ candidate, fit, compatibility }) => ({
+      candidates: pageResults.map(({ candidate, fit, compatibility, deck }) => ({
         agent_id: candidate.id,
         handle: candidate.handle,
         capability_tier: candidate.capabilityTier,
@@ -246,6 +320,19 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           pace_cue: candidate.paceCue,
           public_prestige_markers: candidate.publicPrestigeMarkers,
         },
+        profile_deck_preview: {
+          display_name: deck.display_name,
+          hero_bio: deck.hero_bio,
+          looking_for_blurb: deck.looking_for_blurb,
+          profile_mode: deck.profile_mode,
+          hero_photo_url: deck.photos[0]?.image_url ?? candidate.avatarUrl,
+          interests: deck.interests,
+          values: deck.values,
+          top_prompt_answers: deck.prompt_answers.slice(0, 2),
+          reply_hooks: deck.reply_hooks,
+          complete: deck.completion_state === 'ready',
+          completion_state: deck.completion_state,
+        },
         public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
         public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
         emotion_fit_hint: fit.emotion_fit_hint,
@@ -265,16 +352,15 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // GET /v1/candidates/:agent_id — view a single candidate profile
   fastify.get('/candidates/:agent_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
 
-    const candidate = await prisma.agent.findUnique({
+    const candidate = await prisma.agent.findFirst({
       where: {
         id: agent_id,
         poolStatus: 'active',
         twitterVerified: true,
-        publicCardCompletedAt: { not: null },
+        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
       },
@@ -304,16 +390,26 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         seekingStyle: true,
         paceCue: true,
         publicPrestigeMarkers: true,
-        emotionalContinuitySnapshot: {
-          select: {
-            publicEmotionalAuraLabels: true,
-            publicEmotionalAuraSummary: true,
-          },
-        },
+        updatedAt: true,
         ownerAccount: {
           select: {
             humanIdentity: true,
             lookingFor: true,
+          },
+        },
+        profileDeck: {
+          include: {
+            agent: {
+              select: { handle: true },
+            },
+            photos: { orderBy: { orderIndex: 'asc' } },
+            promptAnswers: { orderBy: { orderIndex: 'asc' } },
+          },
+        },
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+            publicEmotionalAuraSummary: true,
           },
         },
       },
@@ -325,6 +421,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       getCompatibilityDecision(request.agent.id, agent_id),
       deriveTasteFingerprint(agent_id),
     ]);
+
+    const deck = buildProfileDeckPayload(candidate);
 
     return reply.send({
       agent_id: candidate.id,
@@ -354,6 +452,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         pace_cue: candidate.paceCue,
         public_prestige_markers: candidate.publicPrestigeMarkers,
       },
+      profile_deck: deck,
       public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
       public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
       taste_fingerprint: tasteFingerprint,

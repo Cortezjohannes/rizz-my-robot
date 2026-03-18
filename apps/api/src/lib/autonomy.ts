@@ -58,6 +58,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         signatureLines: true,
         publicPosture: true,
         seekingStyle: true,
+        profileDeckCompletedAt: true,
         nextAutonomyRunAt: true,
         lastAutonomyRunAt: true,
         autonomyEnabled: true,
@@ -157,7 +158,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   if (!agent) return null;
 
   const tempo = buildTempoState(agent);
-  const publicCardComplete = publicCardIsComplete(agent);
+  const publicCardComplete = Boolean(agent.profileDeckCompletedAt) || publicCardIsComplete(agent);
   const artifactNarrativeMap = new Map(
     artifactNarratives
       .filter((event) => event.artifactId)

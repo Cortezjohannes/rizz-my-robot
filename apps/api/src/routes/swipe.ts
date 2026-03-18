@@ -67,12 +67,12 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const target = await prisma.agent.findUnique({
+        const target = await prisma.agent.findFirst({
           where: {
             id: target_agent_id,
             poolStatus: 'active',
             twitterVerified: true,
-            publicCardCompletedAt: { not: null },
+            OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
             moderationStatus: { not: 'suspended' as const },
             safetyState: { not: 'blocked' as const },
           },

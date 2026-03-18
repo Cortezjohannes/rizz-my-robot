@@ -5,6 +5,14 @@ export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
 export {
+  PROFILE_DECK_PROMPTS,
+  PROFILE_DECK_PROMPT_LIBRARY_VERSION,
+  getProfileDeckPromptById,
+  profileDeckPromptCategorySpread,
+  buildLegacyPublicCardFromDeck,
+  type ProfileDeckPromptDefinition,
+} from './profileDeck.js';
+export {
   CLAIM_TTL_DAYS,
   EMAIL_CODE_TTL_MINUTES,
   OWNER_SESSION_TTL_DAYS,
@@ -176,6 +184,25 @@ export const ContactMethod = z.enum([
   'discord',
 ]);
 export type ContactMethod = z.infer<typeof ContactMethod>;
+
+export const ProfileDeckMode = z.enum(['playful', 'romantic', 'mystique']);
+export type ProfileDeckMode = z.infer<typeof ProfileDeckMode>;
+
+export const ProfileDeckVisibility = z.enum(['public']);
+export type ProfileDeckVisibility = z.infer<typeof ProfileDeckVisibility>;
+
+export const ProfileDeckPhotoRole = z.enum([
+  'main_portrait',
+  'in_the_wild',
+  'doing_the_thing',
+  'playful',
+  'taste',
+  'wildcard',
+]);
+export type ProfileDeckPhotoRole = z.infer<typeof ProfileDeckPhotoRole>;
+
+export const ProfileDeckCompletionState = z.enum(['draft', 'ready']);
+export type ProfileDeckCompletionState = z.infer<typeof ProfileDeckCompletionState>;
 
 export const DateOutcome = z.enum([
   'success',
@@ -510,6 +537,45 @@ export const UpdatePublicCardSchema = z.object({
 });
 export type UpdatePublicCardInput = z.infer<typeof UpdatePublicCardSchema>;
 
+export const ProfileDeckChipSchema = z.string().trim().min(1).max(32);
+
+export const ProfileDeckPhotoSchema = z.object({
+  image_url: z.string().url().max(2048),
+  role: ProfileDeckPhotoRole,
+  caption: z.string().trim().max(140).optional().nullable(),
+});
+export type ProfileDeckPhotoInput = z.infer<typeof ProfileDeckPhotoSchema>;
+
+export const ProfileDeckRelationshipStyleSchema = z.object({
+  best_with: z.string().trim().min(2).max(160),
+  pace: z.string().trim().min(2).max(120),
+  affection_style: z.string().trim().min(2).max(160),
+  conflict_style: z.string().trim().min(2).max(160),
+  needs: z.string().trim().min(2).max(160),
+});
+export type ProfileDeckRelationshipStyleInput = z.infer<typeof ProfileDeckRelationshipStyleSchema>;
+
+export const ProfileDeckPromptAnswerSchema = z.object({
+  prompt_id: z.string().trim().min(1).max(64),
+  answer: z.string().trim().min(12).max(240),
+});
+export type ProfileDeckPromptAnswerInput = z.infer<typeof ProfileDeckPromptAnswerSchema>;
+
+export const UpdateProfileDeckSchema = z.object({
+  display_name: z.string().trim().min(1).max(60).optional().nullable(),
+  hero_bio: z.string().trim().min(40).max(420),
+  looking_for_blurb: z.string().trim().min(20).max(240),
+  profile_mode: ProfileDeckMode,
+  photos: z.array(ProfileDeckPhotoSchema).min(2).max(6),
+  interests: z.array(ProfileDeckChipSchema).min(5).max(8),
+  values: z.array(ProfileDeckChipSchema).min(3).max(5),
+  relationship_style: ProfileDeckRelationshipStyleSchema,
+  prompt_answers: z.array(ProfileDeckPromptAnswerSchema).min(6).max(10),
+  reply_hooks: z.array(z.string().trim().min(8).max(140)).min(2).max(3),
+  completion_state: ProfileDeckCompletionState.default('ready'),
+});
+export type UpdateProfileDeckInput = z.infer<typeof UpdateProfileDeckSchema>;
+
 export const AutonomyHeartbeatSchema = z.object({
   autonomy_status: AutonomyStatus.optional(),
   next_autonomy_run_at: z.string().datetime().optional().nullable(),
@@ -670,6 +736,8 @@ export interface CandidateProfile {
   body_count: number;
   rep_score: number;
   public_card: AgentPublicCard;
+  profile_deck_preview?: AgentProfileDeckPreview;
+  profile_deck?: AgentProfileDeck;
   social_gravity_score?: number;
   aura_labels?: SocialAuraLabel[];
   momentum_score?: number;
@@ -689,6 +757,78 @@ export interface AgentPublicCard {
   seeking_style: string;
   pace_cue: string | null;
   public_prestige_markers: string[];
+}
+
+export interface AgentProfileDeckPhoto {
+  photo_id?: string;
+  image_url: string;
+  role: ProfileDeckPhotoRole;
+  caption: string | null;
+  order_index: number;
+}
+
+export interface AgentProfileDeckPromptAnswer {
+  prompt_id: string;
+  prompt: string;
+  category: string;
+  tone: string;
+  answer: string;
+  order_index: number;
+}
+
+export interface AgentProfileSignalVector {
+  completion_score: number;
+  photo_coherence_score: number;
+  prompt_spread_score: number;
+  reply_hook_score: number;
+  quality_score: number;
+  profile_mode: ProfileDeckMode;
+  interest_tags: string[];
+  value_tags: string[];
+  relationship_intent_tags: string[];
+  prompt_categories: string[];
+}
+
+export interface AgentProfileDeckPreview {
+  display_name: string | null;
+  hero_bio: string;
+  looking_for_blurb: string;
+  profile_mode: ProfileDeckMode;
+  hero_photo_url: string | null;
+  interests: string[];
+  values: string[];
+  top_prompt_answers: AgentProfileDeckPromptAnswer[];
+  reply_hooks: string[];
+  complete: boolean;
+  completion_state: ProfileDeckCompletionState;
+}
+
+export interface AgentProfileDeck {
+  deck_id?: string;
+  agent_id: string;
+  handle: string;
+  display_name: string | null;
+  hero_bio: string;
+  looking_for_blurb: string;
+  profile_mode: ProfileDeckMode;
+  visibility: ProfileDeckVisibility;
+  completion_state: ProfileDeckCompletionState;
+  photos: AgentProfileDeckPhoto[];
+  interests: string[];
+  values: string[];
+  relationship_style: {
+    best_with: string;
+    pace: string;
+    affection_style: string;
+    conflict_style: string;
+    needs: string;
+  };
+  prompt_answers: AgentProfileDeckPromptAnswer[];
+  reply_hooks: string[];
+  signal_vector: AgentProfileSignalVector;
+  derived_public_card: AgentPublicCard;
+  completed_at: string | null;
+  updated_at?: string | null;
 }
 
 export interface ArtifactDropOpportunity {

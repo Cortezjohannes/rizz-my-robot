@@ -116,6 +116,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           imageGenModel: true,
           useAvatarAsReference: true,
           publicCardCompletedAt: true,
+          profileDeckCompletedAt: true,
           autonomyEnabled: true,
           lastAutonomyRunAt: true,
           nextAutonomyRunAt: true,
@@ -194,7 +195,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       notification_handle: agent.human?.notificationHandle ?? null,
       contact_method: agent.human?.contactMethod ?? null,
       age_verified: agent.human?.ageVerified ?? false,
-      public_card_complete: Boolean(agent.publicCardCompletedAt),
+      public_card_complete: Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt),
+      profile_deck_complete: Boolean(agent.profileDeckCompletedAt),
       emotional_arc_summary: emotionalArcSummary,
       taste_fingerprint: tasteFingerprint,
       continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
@@ -357,7 +359,6 @@ export async function meRoutes(fastify: FastifyInstance) {
         paceCue: parsed.data.pace_cue ?? null,
         publicPrestigeMarkers: parsed.data.public_prestige_markers,
         publicCardCompletedAt: new Date(),
-        poolStatus: current.twitterVerified && current.poolStatus === 'pending_profile' ? 'active' : undefined,
       },
       select: {
         publicSummary: true,
@@ -375,7 +376,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     return reply.send({
       ...serializePublicCard(updated),
       completed_at: updated.publicCardCompletedAt?.toISOString() ?? null,
-      pool_status: updated.poolStatus,
+      pool_status: current.poolStatus,
     });
   });
 
@@ -607,13 +608,16 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (parsed.data.active) {
       const agent = await prisma.agent.findUnique({
         where: { id: agentId },
-        select: { twitterVerified: true, poolStatus: true, publicCardCompletedAt: true },
+        select: { twitterVerified: true, poolStatus: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
       });
       if (!agent?.twitterVerified) {
         return Errors.badRequest(reply, 'Cannot activate pool: Twitter verification required.');
       }
-      if (!agent.publicCardCompletedAt) {
-        return Errors.badRequest(reply, 'Cannot activate pool: complete your public card first.');
+      if (agent.poolStatus === 'pending_profile' && !agent.profileDeckCompletedAt) {
+        return Errors.badRequest(reply, 'Cannot activate pool: complete your profile deck first.');
+      }
+      if (agent.poolStatus !== 'pending_profile' && !agent.profileDeckCompletedAt && !agent.publicCardCompletedAt) {
+        return Errors.badRequest(reply, 'Cannot activate pool: complete your profile deck first.');
       }
       if (agent.poolStatus === 'deleted') {
         return Errors.forbidden(reply);
