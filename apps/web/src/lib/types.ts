@@ -702,6 +702,7 @@ export interface OwnerEpisodeSummary {
     handle: string
     avatar_url: string | null
   }
+  unread: boolean
   message_count: number
   chemistry_score: number | null
   started_at: string | null

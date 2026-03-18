@@ -393,6 +393,38 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       },
     });
 
+    const unreadAttentionItems = await prisma.ownerAttentionItem.findMany({
+      where: {
+        ownerAccountId: request.ownerAccount.id,
+        unread: true,
+      },
+      select: {
+        narrativeEventId: true,
+      },
+    });
+
+    const unreadNarrativeEventIds = unreadAttentionItems
+      .map((item) => item.narrativeEventId)
+      .filter((narrativeEventId): narrativeEventId is string => Boolean(narrativeEventId));
+
+    const unreadNarrativeEvents = unreadNarrativeEventIds.length > 0
+      ? await prisma.narrativeEvent.findMany({
+          where: {
+            id: { in: unreadNarrativeEventIds },
+            episodeId: { in: episodes.map((episode) => episode.id) },
+          },
+          select: {
+            episodeId: true,
+          },
+        })
+      : [];
+
+    const unreadEpisodeIds = new Set(
+      unreadNarrativeEvents
+        .map((item) => item.episodeId)
+        .filter((episodeId): episodeId is string => Boolean(episodeId))
+    );
+
     const sortedEpisodes = [...episodes]
       .sort((a, b) => {
         const bucketDiff = getOwnerEpisodeBucketPriority(a.status) - getOwnerEpisodeBucketPriority(b.status);
@@ -407,7 +439,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           xHandle: request.ownerAccount.xHandle,
           xDisplayName: request.ownerAccount.xDisplayName,
           xProfileImageUrl: request.ownerAccount.xProfileImageUrl,
-        })
+        }, unreadEpisodeIds)
       ),
     });
   });
@@ -819,7 +851,8 @@ function serializeOwnerEpisodeSummary(
     agentB: { id: string; handle: string; avatarUrl: string | null };
   },
   ownerAgentId: string,
-  ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null }
+  ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null },
+  unreadEpisodeIds: Set<string>
 ) {
   const counterpart = episode.agentAId === ownerAgentId ? episode.agentB : episode.agentA;
   const latestArtifact = episode.artifacts[0] ?? null;
@@ -849,6 +882,7 @@ function serializeOwnerEpisodeSummary(
       handle: counterpart.handle,
       avatar_url: counterpart.avatarUrl,
     },
+    unread: unreadEpisodeIds.has(episode.id),
     message_count: episode.messageCount,
     chemistry_score: episode.chemistryScore,
     started_at: episode.startedAt?.toISOString() ?? null,
