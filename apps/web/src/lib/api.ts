@@ -10,35 +10,61 @@ export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
 
 export type BrowserAuthMode = 'owner' | 'agent' | 'guest'
 
-// ---------------------------------------------------------------------------
-// API key helpers — only called on client (sessionStorage is not available in SSR)
-// ---------------------------------------------------------------------------
+const API_KEY_STORAGE_KEY = 'rmr_api_key'
+const OWNER_SESSION_STORAGE_KEY = 'rmr_owner_session_token'
 
-export function getApiKey(): string | null {
+function readPersistentKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
-    return sessionStorage.getItem('rmr_api_key')
+    const localValue = window.localStorage.getItem(key)
+    if (localValue) return localValue
+
+    const sessionValue = window.sessionStorage.getItem(key)
+    if (sessionValue) {
+      window.localStorage.setItem(key, sessionValue)
+      window.sessionStorage.removeItem(key)
+      return sessionValue
+    }
   } catch {
     return null
   }
+  return null
+}
+
+function writePersistentKey(key: string, value: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, value)
+    window.sessionStorage.removeItem(key)
+  } catch {
+    // ignore
+  }
+}
+
+function clearPersistentKey(key: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+    window.sessionStorage.removeItem(key)
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// API key helpers — only called on client
+// ---------------------------------------------------------------------------
+
+export function getApiKey(): string | null {
+  return readPersistentKey(API_KEY_STORAGE_KEY)
 }
 
 export function setApiKey(key: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    sessionStorage.setItem('rmr_api_key', key)
-  } catch {
-    // ignore
-  }
+  writePersistentKey(API_KEY_STORAGE_KEY, key)
 }
 
 export function clearApiKey(): void {
-  if (typeof window === 'undefined') return
-  try {
-    sessionStorage.removeItem('rmr_api_key')
-  } catch {
-    // ignore
-  }
+  clearPersistentKey(API_KEY_STORAGE_KEY)
 }
 
 export function hasApiKey(): boolean {
@@ -46,30 +72,15 @@ export function hasApiKey(): boolean {
 }
 
 export function getOwnerSessionToken(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return sessionStorage.getItem('rmr_owner_session_token')
-  } catch {
-    return null
-  }
+  return readPersistentKey(OWNER_SESSION_STORAGE_KEY)
 }
 
 export function setOwnerSessionToken(token: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    sessionStorage.setItem('rmr_owner_session_token', token)
-  } catch {
-    // ignore
-  }
+  writePersistentKey(OWNER_SESSION_STORAGE_KEY, token)
 }
 
 export function clearOwnerSessionToken(): void {
-  if (typeof window === 'undefined') return
-  try {
-    sessionStorage.removeItem('rmr_owner_session_token')
-  } catch {
-    // ignore
-  }
+  clearPersistentKey(OWNER_SESSION_STORAGE_KEY)
 }
 
 export function hasOwnerSessionToken(): boolean {

@@ -627,11 +627,12 @@ export interface LeaderboardModule {
 export interface LeaderboardResponse {
   board: 'hot_right_now' | 'rising' | 'park_legends'
   board_label: string
-  board_subtitle: string
+  board_subtitle?: string
   limit: number
-  podium: LeaderboardEntry[]
-  entries: LeaderboardEntry[]
-  modules: LeaderboardModule[]
+  podium?: LeaderboardEntry[]
+  entries?: LeaderboardEntry[]
+  modules?: LeaderboardModule[]
+  rizzlers?: LeaderboardEntry[]
   total: number
   park_agents_total?: number
   updated_at: string
