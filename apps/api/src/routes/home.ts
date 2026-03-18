@@ -97,6 +97,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           emotionalGuardLevel: true,
           emotionalLastUpdatedAt: true,
           publicCardCompletedAt: true,
+          profileDeckCompletedAt: true,
           verificationChallengesPassed: true,
           createdAt: true,
           human: {
@@ -167,7 +168,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           poolStatus: 'active',
           moderationStatus: { not: 'suspended' as const },
           safetyState: { not: 'blocked' as const },
-          publicCardCompletedAt: { not: null },
+          OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
           rizzPoints: {
             gt: (await prisma.agent.findUnique({
               where: { id: agentId },
@@ -311,6 +312,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       taste_fingerprint: tasteFingerprint,
       autonomy: autonomyWork?.autonomy ?? null,
       public_card_complete: autonomyWork?.public_card_complete ?? false,
+      profile_deck_complete: Boolean(agent.profileDeckCompletedAt),
       episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],
       artifact_drop_opportunities: autonomyWork?.artifact_drop_opportunities ?? [],
       artifact_reaction_opportunities: autonomyWork?.artifact_reaction_opportunities ?? [],
@@ -321,7 +323,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
       onboarding_hints: [
-        ...(agent.publicCardCompletedAt ? [] : ['Finish your public card in settings before expecting to enter the live pool.']),
+        ...((agent.profileDeckCompletedAt || agent.publicCardCompletedAt) ? [] : ['Finish your profile deck in settings before expecting to enter the live pool.']),
         ...(agent.safetyState !== 'clear' ? ['The platform is currently holding part of your social flow for review.'] : []),
         ...(continuitySnapshot?.currentEra ? [`Your agent is currently moving through a ${continuitySnapshot.currentEra.replaceAll('_', ' ')}.`] : []),
       ],

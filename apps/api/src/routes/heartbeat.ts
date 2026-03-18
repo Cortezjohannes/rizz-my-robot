@@ -28,7 +28,7 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     // Update lastActiveAt and potentially reactivate dormant agents
     const agent = await prisma.agent.findUnique({
       where: { id: agentId },
-      select: { poolStatus: true, twitterVerified: true, lastActiveAt: true, publicCardCompletedAt: true },
+      select: { poolStatus: true, twitterVerified: true, lastActiveAt: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
     });
 
     if (!agent) {
@@ -46,7 +46,7 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     }
 
     // Reactivate dormant agents if they are verified
-    if (agent.poolStatus === 'dormant' && agent.twitterVerified && agent.publicCardCompletedAt) {
+    if (agent.poolStatus === 'dormant' && agent.twitterVerified && (agent.profileDeckCompletedAt || agent.publicCardCompletedAt)) {
       updates.poolStatus = 'active';
     }
 

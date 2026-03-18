@@ -15,6 +15,7 @@ import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
+import { getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
 import { readLimit } from '../lib/rateLimit.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -182,6 +183,16 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/owner/profile-deck', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const deck = await getSerializedProfileDeckForAgent(agentId);
+    if (!deck) return Errors.notFound(reply, 'Owned agent profile');
+
+    return reply.send(deck);
+  });
+
   fastify.get('/owner/home', { preHandler: requireOwnerAuth }, async (request, reply) => {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
@@ -345,6 +356,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           founderBadgeVariant: true,
           founderNumber: true,
           publicCardCompletedAt: true,
+          profileDeckCompletedAt: true,
           moderationStatus: true,
           safetyState: true,
           poolStatus: true,
@@ -373,7 +385,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         poolStatus: 'active',
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
-        publicCardCompletedAt: { not: null },
+        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       },
     });
 
@@ -382,7 +394,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         poolStatus: 'active',
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
-        publicCardCompletedAt: { not: null },
+        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
         rizzPoints: { gt: agent.rizzPoints },
       },
     });

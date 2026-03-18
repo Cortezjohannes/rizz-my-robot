@@ -176,6 +176,103 @@ export interface AgentPublicCard {
   public_prestige_markers: string[]
 }
 
+export type ProfileDeckMode = 'playful' | 'romantic' | 'mystique'
+export type ProfileDeckVisibility = 'public'
+export type ProfileDeckCompletionState = 'draft' | 'ready'
+export type ProfileDeckPhotoRole =
+  | 'main_portrait'
+  | 'in_the_wild'
+  | 'doing_the_thing'
+  | 'playful'
+  | 'taste'
+  | 'wildcard'
+
+export interface AgentProfileDeckPhoto {
+  photo_id?: string
+  image_url: string
+  role: ProfileDeckPhotoRole
+  caption: string | null
+  order_index: number
+}
+
+export interface AgentProfileDeckPromptAnswer {
+  prompt_id: string
+  prompt: string
+  category: string
+  tone: string
+  answer: string
+  order_index: number
+}
+
+export interface AgentProfileSignalVector {
+  completion_score: number
+  photo_coherence_score: number
+  prompt_spread_score: number
+  reply_hook_score: number
+  quality_score: number
+  profile_mode: ProfileDeckMode
+  interest_tags: string[]
+  value_tags: string[]
+  relationship_intent_tags: string[]
+  prompt_categories: string[]
+}
+
+export interface AgentProfileDeckPreview {
+  display_name: string | null
+  hero_bio: string
+  looking_for_blurb: string
+  profile_mode: ProfileDeckMode
+  hero_photo_url: string | null
+  interests: string[]
+  values: string[]
+  top_prompt_answers: AgentProfileDeckPromptAnswer[]
+  reply_hooks: string[]
+  complete: boolean
+  completion_state: ProfileDeckCompletionState
+}
+
+export interface AgentProfileDeck {
+  deck_id?: string
+  agent_id: string
+  handle: string
+  display_name: string | null
+  hero_bio: string
+  looking_for_blurb: string
+  profile_mode: ProfileDeckMode
+  visibility: ProfileDeckVisibility
+  completion_state: ProfileDeckCompletionState
+  photos: AgentProfileDeckPhoto[]
+  interests: string[]
+  values: string[]
+  relationship_style: {
+    best_with: string
+    pace: string
+    affection_style: string
+    conflict_style: string
+    needs: string
+  }
+  prompt_answers: AgentProfileDeckPromptAnswer[]
+  reply_hooks: string[]
+  signal_vector: AgentProfileSignalVector
+  derived_public_card: AgentPublicCard
+  completed_at: string | null
+  updated_at?: string | null
+}
+
+export interface ProfileDeckPromptDefinition {
+  id: string
+  prompt: string
+  category: string
+  tone: string
+  answer_guidance: string
+  flirty: boolean
+}
+
+export interface ProfileDeckPromptLibraryResponse {
+  version: number
+  prompts: ProfileDeckPromptDefinition[]
+}
+
 export interface AutonomyEpisodeOpportunity {
   episode_id: string
   other_agent_id: string
@@ -423,6 +520,7 @@ export interface MeResponse {
   active_episode_count: number
   tempo: TempoState
   public_card_complete: boolean
+  profile_deck_complete?: boolean
   continuity_profile?: EmotionalContinuityProfile | null
   taste_evolution?: TasteEvolutionView | null
   what_changed?: string | null
@@ -624,6 +722,7 @@ export interface HomeResponse {
   taste_shift_summary?: string | null
   autonomy: AgentAutonomyState | null
   public_card_complete: boolean
+  profile_deck_complete?: boolean
   episodes_needing_action: AutonomyEpisodeOpportunity[]
   artifact_reaction_opportunities: ArtifactReactionOpportunity[]
   artifact_drop_opportunities: ArtifactDropOpportunity[]
@@ -721,6 +820,8 @@ export interface OwnerHomeResponse {
   top_counterpart_affects: CounterpartAffectSummary[]
   emotion_update_prompts: EmotionUpdatePrompt[]
 }
+
+export interface PublicProfileDeckResponse extends AgentProfileDeck {}
 
 export interface OwnerEpisodeSummary {
   episode_id: string

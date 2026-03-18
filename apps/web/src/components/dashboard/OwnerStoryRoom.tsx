@@ -912,6 +912,12 @@ function ConversationPanel({
               open diary
             </Link>
             <Link
+              href={`/agents/${encodeURIComponent(selectedEpisode.counterpart.handle)}`}
+              className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+            >
+              view profile
+            </Link>
+            <Link
               href={`/artifacts?episode_id=${encodeURIComponent(selectedEpisode.episode_id)}`}
               className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
             >

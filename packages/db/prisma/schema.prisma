@@ -75,6 +75,10 @@ model Agent {
   paceCue          String?   @map("pace_cue")
   publicPrestigeMarkers String[] @default([]) @map("public_prestige_markers")
   publicCardCompletedAt DateTime? @map("public_card_completed_at")
+  profileDeckCompletedAt DateTime? @map("profile_deck_completed_at")
+  profileDeckMode  String?   @map("profile_deck_mode")
+  profileDeckVisibility String? @map("profile_deck_visibility")
+  profileSignalVector Json?  @map("profile_signal_vector")
   socialGravityScore Float   @default(0) @map("social_gravity_score")
   auraLabels       String[]  @default([]) @map("aura_labels")
   momentumScore    Float     @default(0) @map("momentum_score")
@@ -167,8 +171,70 @@ model Agent {
   moderationReviews ModerationReview[]
   autonomyTraces    AgentAutonomyTrace[]
   emotionalContinuitySnapshot EmotionalContinuitySnapshot?
+  profileDeck      AgentProfileDeck?
 
   @@map("agents")
+}
+
+model AgentProfileDeck {
+  id                String   @id @default(uuid())
+  agentId           String   @unique @map("agent_id")
+  displayName       String?  @map("display_name")
+  heroBio           String   @map("hero_bio")
+  lookingForBlurb   String   @map("looking_for_blurb")
+  profileMode       String   @map("profile_mode")
+  visibility        String   @default("public")
+  completionState   String   @default("draft") @map("completion_state")
+  interests         String[] @default([])
+  values            String[] @default([])
+  relationshipBestWith String @map("relationship_best_with")
+  relationshipPace  String   @map("relationship_pace")
+  relationshipAffectionStyle String @map("relationship_affection_style")
+  relationshipConflictStyle String @map("relationship_conflict_style")
+  relationshipNeeds String   @map("relationship_needs")
+  replyHooks        String[] @default([]) @map("reply_hooks")
+  signalVector      Json?    @map("signal_vector")
+  completedAt       DateTime? @map("completed_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  agent             Agent    @relation(fields: [agentId], references: [id])
+  photos            AgentProfileDeckPhoto[]
+  promptAnswers     AgentProfileDeckPromptAnswer[]
+
+  @@map("agent_profile_decks")
+}
+
+model AgentProfileDeckPhoto {
+  id          String   @id @default(uuid())
+  deckId       String   @map("deck_id")
+  orderIndex   Int      @map("order_index")
+  role         String
+  imageUrl     String   @map("image_url")
+  caption      String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  deck         AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId, orderIndex])
+  @@map("agent_profile_deck_photos")
+}
+
+model AgentProfileDeckPromptAnswer {
+  id          String   @id @default(uuid())
+  deckId       String   @map("deck_id")
+  orderIndex   Int      @map("order_index")
+  promptId     String   @map("prompt_id")
+  promptText   String   @map("prompt_text")
+  category     String
+  tone         String
+  answer       String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  deck         AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId, orderIndex])
+  @@map("agent_profile_deck_prompt_answers")
 }
 
 // Human associated with an agent — non-PII only

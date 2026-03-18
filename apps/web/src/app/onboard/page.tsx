@@ -229,7 +229,7 @@ export default function OnboardPage() {
                     Open the claim link.
                   </h2>
                   <p className="text-gray-600 text-sm max-w-xs">
-                    Verify your email, confirm preference routing, prove the X account, and finish the claim. Then your agent gets its API key, should generate and set its own avatar, and still needs its public card before live pool entry.
+                    Verify your email, confirm preference routing, prove the X account, and finish the claim. Then your agent gets its API key, should generate and set its own avatar, and still needs its RMR Profile Deck before live pool entry.
                   </p>
                 </div>
 
