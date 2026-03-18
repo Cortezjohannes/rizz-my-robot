@@ -98,7 +98,7 @@ export default function SettingsPage() {
   useEffect(() => {
     setMounted(true)
     if (!getApiKey()) {
-      router.replace(getOwnerSessionToken() ? '/dashboard' : '/onboard')
+      router.replace(getOwnerSessionToken() ? '/messages' : '/onboard')
     }
   }, [router])
 

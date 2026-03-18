@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
@@ -29,6 +29,8 @@ export default function DiaryPage() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
   const [episodeId, setEpisodeId] = useState('')
+  const [entryId, setEntryId] = useState('')
+  const highlightedEntryRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -42,6 +44,7 @@ export default function DiaryPage() {
 
     const params = new URLSearchParams(window.location.search)
     setEpisodeId(params.get('episode_id') ?? '')
+    setEntryId(params.get('entry_id') ?? '')
   }, [router])
 
   const query = useMemo(() => {
@@ -79,10 +82,16 @@ export default function DiaryPage() {
     if (!mounted) return
     const params = new URLSearchParams()
     if (episodeId) params.set('episode_id', episodeId)
+    if (entryId) params.set('entry_id', entryId)
     const next = params.toString()
     const nextUrl = next ? `/diary?${next}` : '/diary'
     window.history.replaceState(null, '', nextUrl)
-  }, [episodeId, mounted])
+  }, [entryId, episodeId, mounted])
+
+  useEffect(() => {
+    if (!entryId || !highlightedEntryRef.current) return
+    highlightedEntryRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [diaryEntries, entryId])
 
   if (!mounted) {
     return (
@@ -109,10 +118,10 @@ export default function DiaryPage() {
               iconSrc={assets.icons.chat}
               action={
                 <Link
-                  href="/dashboard"
+                  href="/messages"
                   className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
                 >
-                  Back to inbox
+                  Back to messages
                 </Link>
               }
             />
@@ -158,7 +167,18 @@ export default function DiaryPage() {
                 </p>
               </div>
             ) : (
-              diaryEntries.map((entry) => <OwnerDiaryEntryCard key={entry.diary_entry_id} entry={entry} />)
+              diaryEntries.map((entry) => (
+                <div
+                  key={entry.diary_entry_id}
+                  ref={entryId === entry.diary_entry_id ? highlightedEntryRef : null}
+                >
+                  <OwnerDiaryEntryCard
+                    entry={entry}
+                    highlighted={entryId === entry.diary_entry_id}
+                    threadHref={entry.episode_id ? `/messages?episode_id=${encodeURIComponent(entry.episode_id)}` : null}
+                  />
+                </div>
+              ))
             )}
           </section>
         </div>

@@ -214,6 +214,7 @@ model OwnerAccount {
   loginCodeHash     String?   @map("login_code_hash")
   loginCodeExpiresAt DateTime? @map("login_code_expires_at")
   lastLoginAt       DateTime? @map("last_login_at")
+  ownerReadModelInitializedAt DateTime? @map("owner_read_model_initialized_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -222,6 +223,7 @@ model OwnerAccount {
   sessions          OwnerSession[]
   attentionItems    OwnerAttentionItem[]
   recapItems        OwnerRecapItem[]
+  episodeReadStates OwnerEpisodeReadState[]
 
   @@map("owner_accounts")
 }
@@ -311,6 +313,7 @@ model Episode {
   artifacts Artifact[]
   match     Match?
   diaryEntries AgentDiaryEntry[]
+  ownerReadStates OwnerEpisodeReadState[]
 
   @@map("episodes")
 }
@@ -908,6 +911,23 @@ model OwnerRecapItem {
   @@index([ownerAccountId, unread, createdAt])
   @@index([agentId, createdAt])
   @@map("owner_recap_items")
+}
+
+model OwnerEpisodeReadState {
+  id             String   @id @default(uuid())
+  ownerAccountId String   @map("owner_account_id")
+  episodeId      String   @map("episode_id")
+  lastReadAt     DateTime @default(now()) @map("last_read_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+  episode      Episode      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerAccountId, episodeId])
+  @@index([ownerAccountId, lastReadAt])
+  @@index([episodeId, lastReadAt])
+  @@map("owner_episode_read_states")
 }
 
 model AgentAutonomyTrace {

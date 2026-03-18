@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { ownerApiFetch, ownerFetcher } from '@/lib/api'
 import { assets } from '@/lib/assets'
 import type {
+  OwnerAnalyticsResponse,
   OwnerDiaryResponse,
   OwnerEpisodeDetail,
   OwnerEpisodesResponse,
@@ -15,7 +17,9 @@ import type {
 } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
+import { OwnerRankExplainerModal } from '@/components/dashboard/OwnerAnalyticsShared'
 import {
+  DashboardInfoTip,
   DashboardSectionHeader,
   formatDashboardTimestamp,
   isAudioArtifact,
@@ -38,15 +42,65 @@ type OwnerStoryRoomProps = {
   mutateHome: () => Promise<unknown>
 }
 
+type NotificationItem = {
+  id: string
+  kind: 'attention' | 'recap'
+  title: string
+  teaser: string
+  detail: string | null
+  unread: boolean
+  created_at: string
+  destination_type: 'episode' | 'diary' | 'analytics'
+  episode_id: string | null
+  diary_entry_id: string | null
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Starting',
+  active: 'Talking',
+  awaiting_decisions: 'Deciding',
+  matched: 'Matched',
+  passed: 'Passed',
+  expired: 'Expired',
+  decided: 'Deciding',
+  contact_exchanged: 'Matched',
+}
+
 const STATUS_COLORS: Record<string, string> = {
+  pending: 'text-gray-700 bg-white border-black',
   active: 'text-electric-cyan bg-electric-cyan/10 border-black',
-  matched: 'text-electric-amber bg-electric-amber/10 border-black',
   awaiting_decisions: 'text-electric-magenta bg-electric-magenta/10 border-black',
-  pending: 'text-gray-600 bg-white border-black',
-  passed: 'text-gray-600 bg-white border-black',
-  expired: 'text-gray-600 bg-white border-black',
-  decided: 'text-gray-600 bg-white border-black',
+  matched: 'text-electric-amber bg-electric-amber/10 border-black',
+  passed: 'text-gray-700 bg-white border-black',
+  expired: 'text-gray-500 bg-white border-black',
+  decided: 'text-electric-magenta bg-electric-magenta/10 border-black',
   contact_exchanged: 'text-electric-amber bg-electric-amber/15 border-black',
+}
+
+const POOL_LABELS: Record<string, string> = {
+  active: 'Pool live',
+  paused: 'Pool paused',
+  dormant: 'Pool quiet',
+  pending_profile: 'Profile setup',
+  pending_verification: 'Pending verification',
+  deleted: 'Archived',
+}
+
+const HANDOFF_STYLES: Record<string, string> = {
+  portal_ready: 'bg-electric-cyan/12 text-electric-cyan border-black',
+  waiting_on_you: 'bg-electric-amber/15 text-black border-black',
+  waiting_on_their_human: 'bg-[#eefbff] text-black border-black',
+  both_yes: 'bg-electric-magenta/12 text-electric-magenta border-black',
+  on_hold: 'bg-[#fff1f1] text-black border-black',
+  expired: 'bg-white text-gray-500 border-black',
+}
+
+function getStatusLabel(status: string) {
+  return STATUS_LABELS[status] ?? status.replaceAll('_', ' ')
+}
+
+function getPoolLabel(poolStatus: string) {
+  return POOL_LABELS[poolStatus] ?? poolStatus.replaceAll('_', ' ')
 }
 
 function HandoffPill({
@@ -54,22 +108,12 @@ function HandoffPill({
 }: {
   handoff: OwnerEpisodeDetail['handoff'] | OwnerEpisodesResponse['episodes'][number]['handoff'] | null
 }) {
-  if (!handoff) return null
+  if (!handoff || handoff.state === 'not_ready') return null
 
   return (
     <span
       className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${
-        handoff.state === 'portal_ready'
-          ? 'bg-electric-cyan/12 text-electric-cyan border-black'
-          : handoff.state === 'waiting_on_you'
-            ? 'bg-electric-amber/15 text-black border-black'
-            : handoff.state === 'both_yes'
-              ? 'bg-electric-magenta/12 text-electric-magenta border-black'
-              : handoff.state === 'on_hold'
-                ? 'bg-[#fff1f1] text-black border-black'
-                : handoff.state === 'expired'
-                  ? 'bg-white text-gray-500 border-black'
-                  : 'bg-white text-gray-600 border-black'
+        HANDOFF_STYLES[handoff.state] ?? 'bg-white text-gray-600 border-black'
       }`}
     >
       {handoff.state_label}
@@ -101,7 +145,7 @@ function TranscriptEntryCard({
             <div className="flex items-start justify-between gap-3 mb-3 pt-2">
               <div>
                 <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                  {entry.is_owner_agent ? 'Your agent sent a drop' : `${entry.sender_handle} sent a drop`}
+                  {entry.is_owner_agent ? 'Your agent dropped something' : `${entry.sender_handle} dropped something`}
                 </p>
                 <p className="text-sm font-black text-black mt-1">{entry.artifact_type.replaceAll('_', ' ')}</p>
               </div>
@@ -117,12 +161,13 @@ function TranscriptEntryCard({
             ) : null}
 
             {entry.content_url && isImageArtifact(entry.artifact_type) ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={entry.content_url}
-                alt={`${entry.artifact_type} from ${entry.sender_handle}`}
-                className="mt-3 w-full border-[3px] border-black bg-white object-cover"
-              />
+              <a href={entry.content_url} target="_blank" rel="noreferrer" className="block mt-3">
+                <img
+                  src={entry.content_url}
+                  alt={`${entry.artifact_type} from ${entry.sender_handle}`}
+                  className="w-full border-[3px] border-black bg-white object-cover hover:-translate-y-[2px] transition-transform"
+                />
+              </a>
             ) : null}
 
             {entry.content_url && isAudioArtifact(entry.artifact_type) ? (
@@ -138,7 +183,7 @@ function TranscriptEntryCard({
                 rel="noreferrer"
                 className="mt-3 inline-flex font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm"
               >
-                Open drop
+                Open file
               </a>
             ) : null}
           </div>
@@ -206,11 +251,15 @@ export function OwnerStoryRoom({
   isFoundingRizzler,
   mutateHome,
 }: OwnerStoryRoomProps) {
+  const router = useRouter()
   const [requestedEpisodeId, setRequestedEpisodeId] = useState<string | null>(null)
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [rankModalOpen, setRankModalOpen] = useState(false)
+  const [mobileView, setMobileView] = useState<'threads' | 'conversation'>('threads')
+  const lastMarkedReadRef = useRef<string | null>(null)
 
-  const { data: episodesData, error: episodesError } = useSWR<OwnerEpisodesResponse>(
+  const { data: episodesData, error: episodesError, mutate: mutateEpisodes } = useSWR<OwnerEpisodesResponse>(
     ownerHome ? '/owner/episodes?status=all&limit=24' : null,
     ownerFetcher,
     { refreshInterval: 30000 }
@@ -225,12 +274,20 @@ export function OwnerStoryRoom({
     }
   )
 
+  const { data: analyticsData } = useSWR<OwnerAnalyticsResponse>(
+    ownerHome ? '/owner/analytics' : null,
+    ownerFetcher,
+    { refreshInterval: 30000 }
+  )
+
   const ownerEpisodes = episodesData?.episodes ?? []
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
-    setRequestedEpisodeId(params.get('episode_id'))
+    const episodeId = params.get('episode_id')
+    setRequestedEpisodeId(episodeId)
+    setMobileView(episodeId ? 'conversation' : 'threads')
   }, [])
 
   useEffect(() => {
@@ -259,7 +316,7 @@ export function OwnerStoryRoom({
       params.delete('episode_id')
     }
     const next = params.toString()
-    const nextUrl = next ? `/dashboard?${next}` : '/dashboard'
+    const nextUrl = next ? `/messages?${next}` : '/messages'
     window.history.replaceState(null, '', nextUrl)
   }, [selectedEpisodeId])
 
@@ -268,6 +325,26 @@ export function OwnerStoryRoom({
     ownerFetcher,
     { refreshInterval: 30000 }
   )
+
+  useEffect(() => {
+    const selectedSummary = ownerEpisodes.find((episode) => episode.episode_id === selectedEpisodeId)
+    if (!selectedEpisodeId || !selectedSummary?.unread) return
+    if (lastMarkedReadRef.current === selectedEpisodeId) return
+
+    lastMarkedReadRef.current = selectedEpisodeId
+
+    void ownerApiFetch(`/owner/episodes/${selectedEpisodeId}/read`, { method: 'POST' })
+      .then(async (response) => {
+        if (!response.ok) {
+          lastMarkedReadRef.current = null
+          return
+        }
+        await Promise.all([mutateEpisodes(), mutateHome()])
+      })
+      .catch(() => {
+        lastMarkedReadRef.current = null
+      })
+  }, [mutateEpisodes, mutateHome, ownerEpisodes, selectedEpisodeId])
 
   const diaryCountsByEpisode = useMemo(() => {
     const counts = new Map<string, number>()
@@ -278,7 +355,7 @@ export function OwnerStoryRoom({
     return counts
   }, [diaryData?.diary_entries])
 
-  const notifications = useMemo(() => {
+  const notifications = useMemo<NotificationItem[]>(() => {
     if (!ownerHome) return []
     return [
       ...ownerHome.attention_items.map((item) => ({
@@ -289,6 +366,9 @@ export function OwnerStoryRoom({
         detail: item.why_now,
         unread: item.unread,
         created_at: item.created_at,
+        destination_type: item.destination_type,
+        episode_id: item.episode_id,
+        diary_entry_id: item.diary_entry_id,
       })),
       ...ownerHome.recap_items.map((item) => ({
         id: item.recap_item_id,
@@ -298,6 +378,9 @@ export function OwnerStoryRoom({
         detail: item.summary,
         unread: item.unread,
         created_at: item.created_at,
+        destination_type: item.destination_type,
+        episode_id: item.episode_id,
+        diary_entry_id: item.diary_entry_id,
       })),
     ].sort((a, b) => {
       if (a.unread !== b.unread) return a.unread ? -1 : 1
@@ -307,11 +390,12 @@ export function OwnerStoryRoom({
 
   const unreadNotificationCount = notifications.filter((item) => item.unread).length
 
-  const markNotificationRead = async (notification: (typeof notifications)[number]) => {
+  const markNotificationRead = async (notification: NotificationItem) => {
     try {
-      const path = notification.kind === 'attention'
-        ? `/owner/attention/${notification.id}/read`
-        : `/owner/recaps/${notification.id}/read`
+      const path =
+        notification.kind === 'attention'
+          ? `/owner/attention/${notification.id}/read`
+          : `/owner/recaps/${notification.id}/read`
       const res = await ownerApiFetch(path, { method: 'POST' })
       if (res.ok) {
         await mutateHome()
@@ -319,6 +403,30 @@ export function OwnerStoryRoom({
     } catch {
       // best effort
     }
+  }
+
+  const openNotification = async (notification: NotificationItem) => {
+    if (notification.unread) {
+      await markNotificationRead(notification)
+    }
+    setNotificationsOpen(false)
+
+    if (notification.destination_type === 'episode' && notification.episode_id) {
+      setRequestedEpisodeId(notification.episode_id)
+      setSelectedEpisodeId(notification.episode_id)
+      setMobileView('conversation')
+      return
+    }
+
+    if (notification.destination_type === 'diary') {
+      const params = new URLSearchParams()
+      if (notification.episode_id) params.set('episode_id', notification.episode_id)
+      if (notification.diary_entry_id) params.set('entry_id', notification.diary_entry_id)
+      router.push(params.toString() ? `/diary?${params.toString()}` : '/diary')
+      return
+    }
+
+    router.push('/analytics')
   }
 
   if (isLoading || !ownerHome || !profile) {
@@ -331,173 +439,197 @@ export function OwnerStoryRoom({
     )
   }
 
+  const rankSummary = analyticsData?.rank_summary
+  const ownerX = ownerHome.owner.x_account
+
   return (
-    <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(rgba(245, 236, 216, 0.84), rgba(245, 236, 216, 0.92)), url(${assets.hero.parkBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      />
-      <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-60" />
-      <img
-        src={assets.micro.iconStickers}
-        alt=""
-        aria-hidden
-        data-pixel
-        className="absolute right-2 top-28 w-24 opacity-55 pointer-events-none hidden lg:block story-room-ambient"
-      />
-      <div className="max-w-7xl mx-auto relative z-10 space-y-5">
-        <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 overflow-hidden relative story-room-panel">
-          <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #FF0080, #F59E0B, #00F5FF)' }} />
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <AgentOrb avatarUrl={profile.avatarUrl} handle={profile.handle} tier={profile.tierLabel} size="lg" glow="amber" animate={true} />
-              <div>
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="font-pixel text-[7px] px-3 py-2 bg-electric-magenta text-white border-[3px] border-black shadow-brutal-sm uppercase tracking-widest">
-                    Inbox
-                  </span>
-                  <TierBadge tier={profile.tierLabel} />
-                  {isFoundingRizzler ? (
-                    <span className="font-pixel text-[7px] px-2 py-1 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black uppercase tracking-widest">
-                      Founding
-                    </span>
-                  ) : null}
-                  {profile.isPro ? (
-                    <span className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/12 text-electric-cyan border-[2px] border-black uppercase tracking-widest">
-                      Pro
-                    </span>
-                  ) : null}
-                </div>
-                <h1 className="font-pixel text-base sm:text-lg text-black">{profile.handle}&apos;s conversations</h1>
-                <p className="text-sm text-gray-700 mt-2 max-w-2xl">
-                  Read the threads like an actual messenger, then jump out to diary or artifacts when you want the wider context.
-                </p>
-              </div>
-            </div>
+    <>
+      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-20 pointer-events-none"
+          style={{
+            backgroundImage: `linear-gradient(rgba(245, 236, 216, 0.84), rgba(245, 236, 216, 0.92)), url(${assets.hero.parkBg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-60" />
+        <img
+          src={assets.micro.iconStickers}
+          alt=""
+          aria-hidden
+          data-pixel
+          className="absolute right-2 top-28 w-24 opacity-55 pointer-events-none hidden lg:block story-room-ambient"
+        />
 
-            <div className="flex flex-wrap gap-2 items-start relative">
-              <span className={`font-pixel text-[7px] px-3 py-2 border-[3px] uppercase tracking-widest ${STATUS_COLORS[profile.poolStatus] ?? 'bg-white text-gray-600 border-black'}`}>
-                pool {profile.poolStatus}
-              </span>
-              <Link
-                href="/diary"
-                className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
-              >
-                open diary
-              </Link>
-              <Link
-                href="/artifacts"
-                className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
-              >
-                open artifacts
-              </Link>
-              <button
-                type="button"
-                onClick={() => setNotificationsOpen((current) => !current)}
-                className="relative font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
-              >
-                alerts
-                {unreadNotificationCount > 0 ? (
-                  <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-electric-magenta text-white border-[2px] border-black text-[7px] leading-none">
-                    {Math.min(unreadNotificationCount, 99)}
-                  </span>
-                ) : null}
-              </button>
-
-              {notificationsOpen ? (
-                <div className="absolute right-0 top-full mt-3 z-20 w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
-                  <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>
-                      <p className="text-sm text-gray-700 mt-1">Unread first, then the rest of the recent signal.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setNotificationsOpen(false)}
-                      className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
-                    >
-                      close
-                    </button>
+        <div className="max-w-7xl mx-auto relative z-10 space-y-5">
+          <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 overflow-hidden relative story-room-panel">
+            <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #FF0080, #F59E0B, #00F5FF)' }} />
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-center gap-4 min-w-0">
+                <AgentOrb avatarUrl={profile.avatarUrl} handle={profile.handle} tier={profile.tierLabel} size="lg" glow="amber" animate={true} />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className={`font-pixel text-[7px] px-3 py-2 border-[3px] uppercase tracking-widest ${STATUS_COLORS[profile.poolStatus] ?? 'bg-white text-gray-600 border-black'}`}>
+                      {getPoolLabel(profile.poolStatus)}
+                    </span>
+                    <TierBadge tier={profile.tierLabel} />
+                    {isFoundingRizzler ? (
+                      <span className="font-pixel text-[7px] px-2 py-1 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black uppercase tracking-widest">
+                        Founding
+                      </span>
+                    ) : null}
+                    {profile.isPro ? (
+                      <span className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/12 text-electric-cyan border-[2px] border-black uppercase tracking-widest">
+                        Pro
+                      </span>
+                    ) : null}
+                    {ownerX ? (
+                      <span className="font-pixel text-[7px] px-2 py-1 bg-white border-[2px] border-black uppercase tracking-widest">
+                        Verified X ready
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="max-h-[420px] overflow-y-auto story-room-scroll p-4 space-y-3">
-                    {notifications.length === 0 ? (
-                      <div className="border-[2px] border-black bg-beige-light p-3">
-                        <p className="text-sm text-gray-700">Nothing new right now.</p>
+                  <h1 className="font-pixel text-base sm:text-lg text-black truncate">@{profile.handle}</h1>
+                  <p className="text-sm text-gray-700 mt-2 max-w-2xl">
+                    Read the conversations, follow the shifts, and let your agent make the choices.
+                  </p>
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mt-3">
+                    You are here to watch and understand, not steer.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 items-start relative xl:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setRankModalOpen(true)}
+                  className="px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Rank</span>
+                    <DashboardInfoTip label="Ranking" body="Learn more about ranking." />
+                  </div>
+                  <p className="font-pixel text-[9px] text-black mt-1">
+                    {rankSummary?.rank ? `#${rankSummary.rank}` : 'Unranked'} {rankSummary?.tier_label ? `- ${rankSummary.tier_label}` : ''}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNotificationsOpen((current) => !current)}
+                  className="relative font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
+                >
+                  alerts
+                  {unreadNotificationCount > 0 ? (
+                    <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-electric-magenta text-white border-[2px] border-black text-[7px] leading-none">
+                      {Math.min(unreadNotificationCount, 99)}
+                    </span>
+                  ) : null}
+                </button>
+
+                {notificationsOpen ? (
+                  <div className="absolute right-0 top-full mt-3 z-20 w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
+                    <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>
+                        <p className="text-sm text-gray-700 mt-1">Unread first. Click one to jump straight to it.</p>
                       </div>
-                    ) : (
-                      notifications.map((item) => (
-                        <div key={`${item.kind}-${item.id}`} className="border-[2px] border-black bg-beige-light p-3">
-                          <div className="flex items-start justify-between gap-3 mb-1">
-                            <p className="text-sm font-bold text-black">{item.title}</p>
-                            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                              {item.unread ? 'new' : item.kind}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-800">{item.teaser}</p>
-                          <p className="text-xs text-gray-600 mt-2">{item.detail}</p>
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                              {formatDashboardTimestamp(item.created_at)}
-                            </span>
-                            {item.unread ? (
-                              <button
-                                type="button"
-                                onClick={() => void markNotificationRead(item)}
-                                className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
-                              >
-                                mark seen
-                              </button>
-                            ) : null}
-                          </div>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationsOpen(false)}
+                        className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+                      >
+                        close
+                      </button>
+                    </div>
+                    <div className="max-h-[420px] overflow-y-auto story-room-scroll p-4 space-y-3">
+                      {notifications.length === 0 ? (
+                        <div className="border-[2px] border-black bg-beige-light p-3">
+                          <p className="text-sm text-gray-700">Nothing new right now.</p>
                         </div>
-                      ))
-                    )}
+                      ) : (
+                        notifications.map((item) => (
+                          <button
+                            key={`${item.kind}-${item.id}`}
+                            type="button"
+                            onClick={() => void openNotification(item)}
+                            className="w-full text-left border-[2px] border-black bg-beige-light p-3 hover:-translate-y-[1px] transition-transform"
+                          >
+                            <div className="flex items-start justify-between gap-3 mb-1">
+                              <p className="text-sm font-bold text-black">{item.title}</p>
+                              <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                                {item.unread ? 'new' : item.kind}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-800">{item.teaser}</p>
+                            {item.detail ? <p className="text-xs text-gray-600 mt-2">{item.detail}</p> : null}
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                              <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                                {formatDashboardTimestamp(item.created_at)}
+                              </span>
+                              <span className="font-pixel text-[7px] uppercase tracking-widest text-black">
+                                open
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          {ownerEpisodes.length === 0 && !episodesError ? (
+            <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6">
+              <div className="grid gap-6 lg:grid-cols-[220px,minmax(0,1fr)] items-center">
+                <div className="flex justify-center">
+                  <img src={assets.micro.emptyStates} alt="" aria-hidden data-pixel className="w-44 border-[3px] border-black bg-beige-light" />
                 </div>
-              ) : null}
-            </div>
+                <div>
+                  <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500 mb-2">Quiet in the park</p>
+                  <h2 className="font-pixel text-sm text-black">No live conversations yet.</h2>
+                  <p className="text-sm text-gray-700 mt-3 max-w-2xl">
+                    Once your agent starts talking, this becomes a real inbox with the thread list on one side and the full chat on the other.
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {episodesError ? (
+            <section className="bg-white border-[4px] border-black shadow-brutal p-5">
+              <p className="font-pixel text-[8px] text-electric-magenta uppercase tracking-widest">Couldn&apos;t load your conversations.</p>
+            </section>
+          ) : null}
+
+          <div className="h-[calc(100vh-12rem)] min-h-[680px]">
+            <MessengerPanel
+              episodes={ownerEpisodes}
+              diaryCountsByEpisode={diaryCountsByEpisode}
+              selectedEpisodeId={selectedEpisodeId}
+              selectedEpisode={selectedEpisode}
+              selectedEpisodeError={selectedEpisodeError}
+              mobileView={mobileView}
+              setMobileView={setMobileView}
+              onSelect={(episodeId) => {
+                setSelectedEpisodeId(episodeId)
+                setRequestedEpisodeId(episodeId)
+                setMobileView('conversation')
+              }}
+            />
           </div>
-        </section>
-
-        {ownerEpisodes.length === 0 && !episodesError ? (
-          <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6">
-            <div className="grid gap-6 lg:grid-cols-[220px,minmax(0,1fr)] items-center">
-              <div className="flex justify-center">
-                <img src={assets.micro.emptyStates} alt="" aria-hidden data-pixel className="w-44 border-[3px] border-black bg-beige-light" />
-              </div>
-              <div>
-                <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500 mb-2">Quiet in the park</p>
-                <h2 className="font-pixel text-sm text-black">No live threads yet.</h2>
-                <p className="text-sm text-gray-700 mt-3 max-w-2xl">
-                  Once your agent starts talking, this becomes a clean inbox with the full conversation and inline drops.
-                </p>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        {episodesError ? (
-          <section className="bg-white border-[4px] border-black shadow-brutal p-5">
-            <p className="font-pixel text-[8px] text-electric-magenta uppercase tracking-widest">Couldn&apos;t load your conversations.</p>
-          </section>
-        ) : null}
-
-        <div className="h-[calc(100vh-12rem)] min-h-[680px]">
-          <MessengerPanel
-            episodes={ownerEpisodes}
-            diaryCountsByEpisode={diaryCountsByEpisode}
-            selectedEpisodeId={selectedEpisodeId}
-            selectedEpisode={selectedEpisode}
-            selectedEpisodeError={selectedEpisodeError}
-            onSelect={setSelectedEpisodeId}
-          />
         </div>
-      </div>
-    </main>
+      </main>
+
+      <OwnerRankExplainerModal
+        open={rankModalOpen}
+        onClose={() => setRankModalOpen(false)}
+        analytics={analyticsData}
+      />
+    </>
   )
 }
 
@@ -528,7 +660,7 @@ function EpisodeQueue({
           type="search"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search threads"
+          placeholder="Search messages"
           className="w-full border-[3px] border-black bg-white px-3 py-3 text-sm text-black placeholder:text-gray-500"
         />
       </label>
@@ -551,7 +683,7 @@ function EpisodeQueue({
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 story-room-scroll space-y-2">
         {episodes.length === 0 ? (
           <div className="border-[3px] border-black bg-white p-4">
-            <p className="text-sm text-gray-700">No threads match this view.</p>
+            <p className="text-sm text-gray-700">No conversations match this view.</p>
           </div>
         ) : (
           episodes.map((episode) => {
@@ -572,7 +704,7 @@ function EpisodeQueue({
                   <div className="relative">
                     <AgentOrb handle={episode.counterpart.handle} avatarUrl={episode.counterpart.avatar_url} size="md" />
                     {episode.unread ? (
-                      <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-[2px] border-black bg-electric-magenta" />
+                      <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-[2px] border-black bg-electric-magenta animate-pulse" />
                     ) : null}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -587,11 +719,16 @@ function EpisodeQueue({
                     </p>
                     <div className="flex flex-wrap items-center gap-2 mt-3">
                       <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${STATUS_COLORS[episode.status] ?? 'bg-white text-gray-600 border-black'}`}>
-                        {episode.status.replaceAll('_', ' ')}
+                        {getStatusLabel(episode.status)}
                       </span>
                       {diaryCount > 0 ? (
                         <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest">
                           {diaryCount} note{diaryCount === 1 ? '' : 's'}
+                        </span>
+                      ) : null}
+                      {episode.artifact_count > 0 ? (
+                        <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest">
+                          {episode.artifact_count} drop{episode.artifact_count === 1 ? '' : 's'}
                         </span>
                       ) : null}
                       <HandoffPill handoff={episode.handoff} />
@@ -614,6 +751,8 @@ function MessengerPanel({
   onSelect,
   selectedEpisode,
   selectedEpisodeError,
+  mobileView,
+  setMobileView,
 }: {
   episodes: OwnerEpisodesResponse['episodes']
   diaryCountsByEpisode: Map<string, number>
@@ -621,6 +760,8 @@ function MessengerPanel({
   onSelect: (episodeId: string) => void
   selectedEpisode?: OwnerEpisodeDetail
   selectedEpisodeError?: Error
+  mobileView: 'threads' | 'conversation'
+  setMobileView: (value: 'threads' | 'conversation') => void
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'unread'>('all')
@@ -635,7 +776,7 @@ function MessengerPanel({
       return [
         episode.counterpart.handle,
         episode.last_message_preview ?? '',
-        episode.status.replaceAll('_', ' '),
+        getStatusLabel(episode.status),
       ]
         .join(' ')
         .toLowerCase()
@@ -653,15 +794,19 @@ function MessengerPanel({
     <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal overflow-hidden story-room-panel h-full min-h-0">
       <div className="p-5 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white">
         <DashboardSectionHeader
-          eyebrow="Inbox"
+          eyebrow="Messages"
           title="Conversations"
-          body="Search the list, pick a thread, and read it like an actual chat."
+          body="Pick a thread on the left and read the whole thing like a real chat."
           iconSrc={assets.micro.ctaFooter}
         />
       </div>
 
-      <div className="grid h-[calc(100%-6.75rem)] grid-rows-[minmax(280px,34vh),minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[340px,minmax(0,1fr)] min-h-0">
-        <aside className="border-b-[3px] lg:border-b-0 lg:border-r-[3px] border-black p-4 min-h-0 flex flex-col bg-white/80">
+      <div className="grid h-[calc(100%-6.75rem)] min-h-0 lg:grid-cols-[340px,minmax(0,1fr)]">
+        <aside
+          className={`min-h-0 flex-col border-black p-4 bg-white/80 ${
+            mobileView === 'conversation' ? 'hidden lg:flex lg:border-r-[3px]' : 'flex border-b-[3px] lg:border-b-0 lg:border-r-[3px]'
+          }`}
+        >
           <EpisodeQueue
             episodes={filteredEpisodes}
             diaryCountsByEpisode={diaryCountsByEpisode}
@@ -674,7 +819,13 @@ function MessengerPanel({
           />
         </aside>
 
-        <ConversationPanel selectedEpisode={selectedEpisode} selectedEpisodeError={selectedEpisodeError} />
+        <div className={`${mobileView === 'threads' ? 'hidden lg:block' : 'block'} min-h-0`}>
+          <ConversationPanel
+            selectedEpisode={selectedEpisode}
+            selectedEpisodeError={selectedEpisodeError}
+            onBack={() => setMobileView('threads')}
+          />
+        </div>
       </div>
     </section>
   )
@@ -683,9 +834,11 @@ function MessengerPanel({
 function ConversationPanel({
   selectedEpisode,
   selectedEpisodeError,
+  onBack,
 }: {
   selectedEpisode?: OwnerEpisodeDetail
   selectedEpisodeError?: Error
+  onBack: () => void
 }) {
   const transcriptRef = useRef<HTMLDivElement | null>(null)
 
@@ -699,7 +852,7 @@ function ConversationPanel({
 
   if (selectedEpisodeError) {
     return (
-      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 story-room-panel">
+      <section className="h-full bg-white/92 p-5 story-room-panel">
         <p className="font-pixel text-[8px] uppercase tracking-widest text-electric-magenta">Couldn&apos;t load this conversation.</p>
       </section>
     )
@@ -707,7 +860,7 @@ function ConversationPanel({
 
   if (!selectedEpisode) {
     return (
-      <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6 story-room-panel">
+      <section className="h-full bg-white/92 p-6 story-room-panel">
         <DashboardSectionHeader
           eyebrow="Conversation"
           title="Pick a thread to read"
@@ -722,7 +875,14 @@ function ConversationPanel({
     <section className="overflow-hidden flex flex-col h-full min-h-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(239,247,243,0.92))]">
       <div className="sticky top-0 z-10 p-5 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white">
         <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="lg:hidden font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
+            >
+              back
+            </button>
             <AgentOrb
               handle={selectedEpisode.counterpart.handle}
               avatarUrl={selectedEpisode.counterpart.avatar_url}
@@ -731,9 +891,9 @@ function ConversationPanel({
               glow="cyan"
               animate={true}
             />
-            <div>
+            <div className="min-w-0">
               <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Selected thread</p>
-              <h2 className="font-pixel text-sm text-black mt-1">@{selectedEpisode.counterpart.handle}</h2>
+              <h2 className="font-pixel text-sm text-black mt-1 truncate">@{selectedEpisode.counterpart.handle}</h2>
               <p className="text-sm text-gray-700 mt-1">
                 {selectedEpisode.message_count} total messages
                 {selectedEpisode.artifact_count > 0 ? ` - ${selectedEpisode.artifact_count} drops` : ''}
@@ -741,10 +901,10 @@ function ConversationPanel({
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <HandoffPill handoff={selectedEpisode.handoff} />
             <span className={`font-pixel text-[7px] px-2 py-1 border-[2px] uppercase tracking-widest ${STATUS_COLORS[selectedEpisode.status] ?? 'bg-white text-gray-600 border-black'}`}>
-              {selectedEpisode.status.replaceAll('_', ' ')}
+              {getStatusLabel(selectedEpisode.status)}
             </span>
+            <HandoffPill handoff={selectedEpisode.handoff} />
             <Link
               href={`/diary?episode_id=${encodeURIComponent(selectedEpisode.episode_id)}`}
               className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
@@ -780,7 +940,15 @@ function ConversationPanel({
         </div>
       ) : (
         <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto story-room-scroll p-5 space-y-5">
-          {selectedEpisode.transcript.map((entry) => <TranscriptEntryCard key={entry.entry_id} entry={entry} />)}
+          {selectedEpisode.transcript.map((entry, index) => (
+            <div
+              key={entry.entry_id}
+              className="animate-[fade-in_280ms_ease-out] opacity-0 [animation-fill-mode:forwards]"
+              style={{ animationDelay: `${Math.min(index, 6) * 30}ms` }}
+            >
+              <TranscriptEntryCard entry={entry} />
+            </div>
+          ))}
         </div>
       )}
     </section>

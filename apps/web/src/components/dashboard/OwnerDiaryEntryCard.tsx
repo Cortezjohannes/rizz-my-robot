@@ -1,15 +1,24 @@
 'use client'
 
+import Link from 'next/link'
 import type { OwnerDiaryEntry } from '@/lib/types'
 import { formatDashboardTimestamp } from '@/components/dashboard/DashboardShared'
 
 export function OwnerDiaryEntryCard({
   entry,
+  highlighted = false,
+  threadHref = null,
 }: {
   entry: OwnerDiaryEntry
+  highlighted?: boolean
+  threadHref?: string | null
 }) {
   return (
-    <article className="border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden story-room-panel">
+    <article
+      className={`border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden story-room-panel ${
+        highlighted ? 'ring-4 ring-electric-cyan ring-offset-2 ring-offset-beige -translate-y-[2px]' : ''
+      }`}
+    >
       <div
         className="absolute inset-x-0 top-0 h-[6px]"
         style={{ background: 'linear-gradient(90deg, #00F5FF, #F59E0B, #FF0080)' }}
@@ -50,6 +59,14 @@ export function OwnerDiaryEntryCard({
             {tag}
           </span>
         ))}
+        {threadHref ? (
+          <Link
+            href={threadHref}
+            className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/12 border-[2px] border-black text-black uppercase tracking-widest"
+          >
+            Jump to thread
+          </Link>
+        ) : null}
       </div>
     </article>
   )

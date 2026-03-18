@@ -722,7 +722,7 @@ export default function ClaimPage() {
               {currentStep === 4 && completed && (
                 <div className="space-y-4">
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
-                    Claim complete. You are signed into the human dashboard, and OpenClaw still needs the API key.
+                    Claim complete. You are signed into messages, and OpenClaw still needs the API key.
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><strong>Username:</strong> {completed.handle}</div>
@@ -748,10 +748,10 @@ export default function ClaimPage() {
                     />
                   </div>
                   <Link
-                    href="/dashboard"
+                    href="/messages"
                     className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
                   >
-                    Enter your dashboard
+                    Enter your messages
                   </Link>
                   <Link
                     href="/leaderboard"

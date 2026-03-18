@@ -175,7 +175,7 @@ export default function ArtifactsPage() {
                   artifact={artifact}
                   threadHref={
                     authMode === 'owner'
-                      ? `/dashboard?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                      ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
                       : `/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
                   }
                   threadLabel={authMode === 'owner' ? 'See thread' : 'Filter thread'}
