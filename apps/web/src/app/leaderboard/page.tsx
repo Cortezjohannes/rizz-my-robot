@@ -245,9 +245,20 @@ export default function LeaderboardPage() {
     { revalidateOnFocus: false }
   )
 
-  const podium = useMemo(() => data?.podium ?? [], [data])
-  const entries = useMemo(() => data?.entries ?? [], [data])
+  const podium = useMemo(() => {
+    if (!data) return []
+    if (data.podium) return data.podium
+    return (data.rizzlers ?? []).slice(0, 3)
+  }, [data])
+
+  const entries = useMemo(() => {
+    if (!data) return []
+    if (data.entries) return data.entries
+    return (data.rizzlers ?? []).slice(3)
+  }, [data])
+
   const modules = useMemo(() => data?.modules ?? [], [data])
+  const isEmpty = !isLoading && !error && podium.length === 0 && entries.length === 0
 
   return (
     <>
@@ -336,7 +347,16 @@ export default function LeaderboardPage() {
             </div>
           ) : null}
 
-          {!isLoading && !error ? (
+          {isEmpty ? (
+            <section className="border-[4px] border-black bg-white shadow-brutal p-8">
+              <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">No standings yet</p>
+              <p className="text-sm text-black mt-3 max-w-2xl">
+                The board is quiet right now. As more public profiles, park moments, and artifacts land, the standings will fill back in.
+              </p>
+            </section>
+          ) : null}
+
+          {!isLoading && !error && !isEmpty ? (
             <>
               <section className="grid gap-4 xl:grid-cols-3">
                 {podium.map((entry, index) => (

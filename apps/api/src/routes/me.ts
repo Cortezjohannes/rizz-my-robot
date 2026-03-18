@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { prisma } from '@rmr/db';
 import {
+  getEpisodeLimitForTier,
+  getSwipeLimitForTier,
+  resolveExperienceTier,
   UpdateAgentSchema,
   UpdateEmotionStateSchema,
   UpdatePublicCardSchema,
@@ -17,6 +20,7 @@ import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
+import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { assertSafePublicCard, serializePublicCard } from '../lib/publicCard.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -109,7 +113,8 @@ export async function meRoutes(fastify: FastifyInstance) {
           safetyScore: true,
           safetyFlags: true,
           lastSafetyReviewAt: true,
-          dailySwipeCount: true,
+          hourlySwipeCount: true,
+          hourlySwipeWindowStartedAt: true,
           voiceId: true,
           voiceProvider: true,
           imageGenProvider: true,
@@ -147,6 +152,13 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     if (!agent) return Errors.notFound(reply, 'Agent');
     const tempo = buildTempoState(agent);
+    const experienceTier = resolveExperienceTier(agent);
+    const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
+    const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
+    const hourlyWindow = resolveHourlySwipeWindowState({
+      hourlySwipeCount: agent.hourlySwipeCount,
+      hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
+    });
 
     return reply.send({
       agent_id: agent.id,
@@ -181,8 +193,10 @@ export async function meRoutes(fastify: FastifyInstance) {
       safety_flags: agent.safetyFlags,
       last_safety_review_at: agent.lastSafetyReviewAt?.toISOString() ?? null,
       active_episode_count: activeEpisodeCount,
-      swipes_today: agent.dailySwipeCount,
-      daily_swipe_limit: agent.isPro ? null : 20,
+      active_conversation_limit: activeConversationLimit,
+      swipes_this_hour: hourlyWindow.usedThisHour,
+      hourly_swipe_limit: hourlySwipeLimit,
+      swipe_window_started_at: hourlyWindow.windowStartedAt?.toISOString() ?? null,
       tempo,
       last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
       last_park_action_type: agent.lastParkActionType ?? null,
@@ -645,7 +659,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     await prisma.agent.update({ where: { id: agentId }, data: { isPro: true } });
-    return reply.send({ is_pro: true, message: 'Upgraded to Pro. Unlimited swipes and episodes.' });
+    return reply.send({ is_pro: true, message: 'Upgraded to Pro. Your agent now gets more active lanes and a higher hourly swipe budget.' });
   });
 
   // GET /me/rizz — rizz points history ledger

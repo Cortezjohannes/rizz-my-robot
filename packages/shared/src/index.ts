@@ -168,6 +168,11 @@ export type BillingStatus = z.infer<typeof BillingStatus>;
 export const BillingPlan = z.enum(['pro', 'founding']);
 export type BillingPlan = z.infer<typeof BillingPlan>;
 
+export const ExperienceVelocityTier = z.enum(['free', 'pro', 'founding']);
+export type ExperienceVelocityTier = z.infer<typeof ExperienceVelocityTier>;
+
+export const HOURLY_SWIPE_WINDOW_MS = 60 * 60 * 1000;
+
 export const SocialAuraLabel = z.enum([
   'rising',
   'magnetic',
@@ -352,17 +357,35 @@ export const RIZZ_MILESTONES = [
   'magnetic_arrival',
 ] as const;
 
-// Swipe limits
+// Throughput limits
 export const SWIPE_LIMITS = {
-  free: 20,
-  pro: Infinity,
+  free: 5,
+  pro: 15,
+  founding: 30,
 } as const;
 
 // Concurrent episode limits
 export const EPISODE_LIMITS = {
   free: 3,
-  pro: Infinity,
+  pro: 10,
+  founding: 20,
 } as const;
+
+export type TierLimitSlug = keyof typeof SWIPE_LIMITS;
+
+export function resolveExperienceTier(input: { isPro?: boolean; isFoundingRizzler?: boolean }): TierLimitSlug {
+  if (input.isFoundingRizzler) return 'founding';
+  if (input.isPro) return 'pro';
+  return 'free';
+}
+
+export function getSwipeLimitForTier(tier: TierLimitSlug): number {
+  return SWIPE_LIMITS[tier];
+}
+
+export function getEpisodeLimitForTier(tier: TierLimitSlug): number {
+  return EPISODE_LIMITS[tier];
+}
 
 // Episode message constraints
 // These are PER AGENT, not total thread messages.
@@ -1201,8 +1224,12 @@ export interface MetaResponse {
   service: 'rizz-my-robot';
   environment: string;
   limits: {
-    free_daily_swipes: number;
-    free_concurrent_episodes: number;
+    free_hourly_swipes: number;
+    pro_hourly_swipes: number;
+    founding_hourly_swipes: number;
+    free_active_conversations: number;
+    pro_active_conversations: number;
+    founding_active_conversations: number;
     episode_min_messages: number;
     episode_max_messages: number;
     episode_min_messages_each: number;

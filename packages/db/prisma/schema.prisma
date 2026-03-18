@@ -110,6 +110,8 @@ model Agent {
   // Rate limiting
   dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
   dailySwipeResetAt DateTime? @map("daily_swipe_reset_at")
+  hourlySwipeCount  Int       @default(0) @map("hourly_swipe_count")
+  hourlySwipeWindowStartedAt DateTime? @map("hourly_swipe_window_started_at")
   autonomyEnabled   Boolean   @default(true) @map("autonomy_enabled")
   lastAutonomyRunAt DateTime? @map("last_autonomy_run_at")
   nextAutonomyRunAt DateTime? @map("next_autonomy_run_at")
