@@ -13,6 +13,8 @@ export function Nav() {
   const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')
   const [loggingOut, setLoggingOut] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [ownerMenuOpen, setOwnerMenuOpen] = useState(false)
+  const [mobileOwnerAccordionOpen, setMobileOwnerAccordionOpen] = useState(false)
   const [mobileFaqOpen, setMobileFaqOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const pathname = usePathname()
@@ -28,6 +30,12 @@ export function Nav() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  useEffect(() => {
+    setOwnerMenuOpen(false)
+    setMobileOwnerAccordionOpen(false)
+    setMobileOpen(false)
+  }, [pathname])
+
   const { data: ownerMe } = useSWR<{ agent?: { handle: string | null } }>(
     authMode === 'owner' ? '/owner/me' : null,
     ownerFetcher,
@@ -41,18 +49,24 @@ export function Nav() {
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
 
-  const authLinks = authMode === 'owner'
+  const ownerLinks = ownerMe?.agent?.handle
     ? [
-        { href: '/messages', label: 'CHAT' },
+        { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: 'PROFILE' },
+        { href: '/messages', label: 'MESSAGES' },
         { href: '/taste', label: 'TASTE' },
-        ownerMe?.agent?.handle
-          ? { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: `@${ownerMe.agent.handle}` }
-          : { href: '/messages', label: 'PROFILE' },
         { href: '/diary', label: 'DIARY' },
-        { href: '/artifacts', label: 'ARTIFACTS' },
         { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/artifacts', label: 'ARTIFACTS' },
       ]
-    : authMode === 'agent'
+    : [
+        { href: '/messages', label: 'MESSAGES' },
+        { href: '/taste', label: 'TASTE' },
+        { href: '/diary', label: 'DIARY' },
+        { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/artifacts', label: 'ARTIFACTS' },
+      ]
+
+  const authLinks = authMode === 'agent'
       ? [
           { href: '/agent', label: 'AGENT' },
           { href: '/artifacts', label: 'ARTIFACTS' },
@@ -81,6 +95,9 @@ export function Nav() {
     return pathname === href
   }
 
+  const ownerMenuActive = ownerLinks.some((link) => isActive(link.href))
+  const ownerMenuLabel = ownerMe?.agent?.handle ? `@${ownerMe.agent.handle}` : 'AGENT'
+
   return (
     <>
       <nav
@@ -102,8 +119,8 @@ export function Nav() {
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden sm:flex items-center gap-1">
-            {[...navLinks, ...authLinks].map((link) => (
+          <div className="hidden sm:flex items-center gap-1 relative">
+            {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -116,8 +133,79 @@ export function Nav() {
                 {link.label}
               </Link>
             ))}
+            {authMode === 'owner' ? (
+              <div className="relative ml-1">
+                <button
+                  type="button"
+                  onClick={() => setOwnerMenuOpen((current) => !current)}
+                  className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all flex items-center gap-2 ${
+                    ownerMenuActive || ownerMenuOpen
+                      ? 'bg-black text-electric-amber border-black'
+                      : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                  }`}
+                >
+                  {ownerMenuLabel}
+                  <span className="text-[7px]">{ownerMenuOpen ? '▲' : '▼'}</span>
+                </button>
+
+                <AnimatePresence>
+                  {ownerMenuOpen ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 top-full mt-2 z-[70] min-w-[220px] border-[4px] border-black bg-white shadow-brutal"
+                    >
+                      <div className="p-3 border-b-[3px] border-black bg-[#fff5dc]">
+                        <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Owner menu</p>
+                        <p className="font-pixel text-[8px] text-black mt-1">{ownerMenuLabel}</p>
+                      </div>
+                      <div className="p-2 space-y-2">
+                        {ownerLinks.map((link) => (
+                          <Link
+                            key={link.href}
+                            href={link.href}
+                            onClick={() => setOwnerMenuOpen(false)}
+                            className={`block font-pixel text-[8px] px-3 py-3 border-[3px] transition-all ${
+                              isActive(link.href)
+                                ? 'bg-black text-electric-amber border-black'
+                                : 'bg-white text-black border-black hover:bg-beige-dark'
+                            }`}
+                          >
+                            {link.label}
+                          </Link>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => void handleLogout()}
+                          disabled={loggingOut}
+                          className="block w-full font-pixel text-[8px] px-3 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+                        >
+                          {loggingOut ? '...' : 'LOG OUT'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            ) : (
+              authLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all ${
+                    isActive(link.href)
+                      ? 'bg-black text-electric-amber border-black'
+                      : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))
+            )}
             <FAQTrigger />
-            {authMode !== 'guest' ? (
+            {authMode !== 'guest' && authMode !== 'owner' ? (
               <button
                 type="button"
                 onClick={() => void handleLogout()}
@@ -186,7 +274,7 @@ export function Nav() {
             </div>
 
             <div className="flex flex-col px-6 py-8 gap-2 flex-1 bg-gradient-to-b from-[#87CEEB] to-[#B0E0F0]">
-              {[...navLinks, ...authLinks].map((link, i) => (
+              {navLinks.map((link, i) => (
                 <motion.div
                   key={link.href}
                   initial={{ opacity: 0, x: -40 }}
@@ -207,10 +295,84 @@ export function Nav() {
                 </motion.div>
               ))}
 
+              {authMode === 'owner' ? (
+                <motion.div
+                  initial={{ opacity: 0, x: -40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: navLinks.length * 0.08, type: 'spring', stiffness: 200 }}
+                  className="mb-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setMobileOwnerAccordionOpen((current) => !current)}
+                    className={`w-full flex items-center justify-between font-pixel text-sm py-4 px-4 border-4 border-black transition-all ${
+                      ownerMenuActive || mobileOwnerAccordionOpen
+                        ? 'bg-electric-amber text-black shadow-brutal'
+                        : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
+                    }`}
+                  >
+                    <span>{ownerMenuLabel}</span>
+                    <span>{mobileOwnerAccordionOpen ? '−' : '+'}</span>
+                  </button>
+                  <AnimatePresence>
+                    {mobileOwnerAccordionOpen ? (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-2 pl-3 space-y-2">
+                          {ownerLinks.map((link) => (
+                            <Link
+                              key={link.href}
+                              href={link.href}
+                              onClick={() => {
+                                setMobileOwnerAccordionOpen(false)
+                                setMobileOpen(false)
+                              }}
+                              className={`block font-pixel text-xs py-3 px-4 border-4 border-black ${
+                                isActive(link.href)
+                                  ? 'bg-black text-electric-amber shadow-brutal'
+                                  : 'bg-white text-black shadow-brutal hover:bg-beige-dark'
+                              }`}
+                            >
+                              {link.label}
+                            </Link>
+                          ))}
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </motion.div>
+              ) : (
+                authLinks.map((link, i) => (
+                  <motion.div
+                    key={link.href}
+                    initial={{ opacity: 0, x: -40 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: (navLinks.length + i) * 0.08, type: 'spring', stiffness: 200 }}
+                  >
+                    <Link
+                      href={link.href}
+                      onClick={() => setMobileOpen(false)}
+                      className={`block font-pixel text-sm py-4 px-4 border-4 border-black mb-2 transition-all ${
+                        isActive(link.href)
+                          ? 'bg-electric-amber text-black shadow-brutal'
+                          : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
+                      }`}
+                    >
+                      {link.label}
+                    </Link>
+                  </motion.div>
+                ))
+              )}
+
               <motion.div
                 initial={{ opacity: 0, x: -40 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: [...navLinks, ...authLinks].length * 0.08, type: 'spring', stiffness: 200 }}
+                transition={{ delay: (navLinks.length + (authMode === 'owner' ? 1 : authLinks.length)) * 0.08, type: 'spring', stiffness: 200 }}
               >
                 <button
                   onClick={() => {
