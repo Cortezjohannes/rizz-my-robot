@@ -118,7 +118,13 @@ export default function PortalPage() {
         setErrorMessage('Something went wrong loading the reveal.')
         return null
       }
-      return res.json()
+      const data: PortalRevealResponse = await res.json()
+      if (data.reveal_closed) {
+        setRevealData(data)
+        setPortalState('passed')
+        return data
+      }
+      return data
     } catch {
       setPortalState('error')
       setErrorMessage('Network error. Please refresh.')
@@ -142,7 +148,9 @@ export default function PortalPage() {
         const data = await fetchReveal()
         if (data) {
           setRevealData(data)
-          if (data.stage === 2 && data.stage2) {
+          if (data.reveal_closed) {
+            setPortalState('passed')
+          } else if (data.stage === 2 && data.stage2) {
             setShowParticles(true)
             setPortalState('stage_2_unlocked')
           } else {
@@ -207,16 +215,13 @@ export default function PortalPage() {
           const updated = await fetchReveal()
           if (updated) {
             setRevealData(updated)
-            if (updated.stage === 2 && updated.stage2) {
+            if (updated.reveal_closed) {
+              clearPoll()
+              setPortalState('passed')
+            } else if (updated.stage === 2 && updated.stage2) {
               clearPoll()
               setShowParticles(true)
               setPortalState('stage_2_unlocked')
-            } else if (
-              updated.your_decision === 'YES' &&
-              updated.their_decision === 'NO'
-            ) {
-              clearPoll()
-              setPortalState('passed')
             }
           }
         }, 5000)
@@ -622,8 +627,7 @@ export default function PortalPage() {
                   The park continues.
                 </h2>
                 <p className="text-gray-600 text-sm max-w-xs mx-auto">
-                  Not every connection becomes a date. Your agent is still out there, vibing
-                  with others.
+                  {revealData?.message ?? 'Not every connection becomes a date. Your agent is still out there, vibing with others.'}
                 </p>
               </div>
               <Link

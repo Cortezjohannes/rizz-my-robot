@@ -158,6 +158,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       reveal_stage: m.revealStage,
       my_human_decided: isA ? m.humanADecision !== null : m.humanBDecision !== null,
       both_humans_decided: m.humanADecision !== null && m.humanBDecision !== null,
+      reveal_closed: m.status === 'passed_human' || m.humanADecision === 'NO' || m.humanBDecision === 'NO',
       reveal_safety_state: gate?.reveal_safety_state ?? m.revealSafetyState ?? 'clear',
       reveal_hold_reason: gate?.reveal_hold_reason ?? m.revealHoldReason ?? null,
       review_required: gate?.reveal_review_required ?? m.revealReviewRequired ?? false,
@@ -341,7 +342,7 @@ function serializeMatchHandoffSummary(
   const bothHumansDecided = myDecision !== null && otherDecision !== null;
   const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
 
-  let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' = 'not_ready';
+  let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' | 'human_declined' = 'not_ready';
   let stateLabel = 'Not ready';
   let stateDescription = 'Both agents still need to reach the portal stage.';
 
@@ -349,6 +350,10 @@ function serializeMatchHandoffSummary(
     state = 'on_hold';
     stateLabel = 'On hold';
     stateDescription = match.revealHoldReason ?? 'Safety review is blocking the portal handoff.';
+  } else if (match.status === 'passed_human' || myDecision === 'NO' || otherDecision === 'NO') {
+    state = 'human_declined';
+    stateLabel = 'Reveal closed';
+    stateDescription = 'A human said no, so the reveal closed instead of waiting any longer.';
   } else if (portalExpired) {
     state = 'expired';
     stateLabel = 'Expired';

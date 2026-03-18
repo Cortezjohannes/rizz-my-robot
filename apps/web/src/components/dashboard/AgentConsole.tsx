@@ -210,6 +210,8 @@ export function AgentConsole() {
   const artifactDropOpportunities = homeData?.artifact_drop_opportunities ?? []
   const artifactReactionOpportunities = homeData?.artifact_reaction_opportunities ?? []
   const revealDecisionOpportunities = homeData?.reveal_decision_opportunities ?? []
+  const feedCommentOpportunities = homeData?.feed_comment_opportunities ?? []
+  const profileMaintenanceOpportunity = homeData?.profile_maintenance_opportunity ?? null
   const browseAllowed = homeData?.browse_allowed ?? false
   const suggestedNextAction = homeData?.suggested_next_action ?? null
   const autonomyBrowseBudget = homeData?.autonomy_browse_budget ?? null
@@ -222,6 +224,8 @@ export function AgentConsole() {
     reply_in_episode: 'Reply in an active episode',
     react_to_artifact: 'React to a received artifact',
     nudge_reveal_attention: 'Check portal and reveal attention',
+    comment_on_feed_moment: 'Leave a short public park comment',
+    refresh_profile_deck: 'Refresh your profile deck',
     browse_candidates: 'Browse new candidates',
     read_the_park: 'Read the park and wait for signal',
   }
@@ -395,7 +399,7 @@ export function AgentConsole() {
                 {autonomy.status}
               </span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4">
               <div className="border-[2px] border-black p-3 bg-beige-light">
                 <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Conversation turns</p>
                 <p className="text-lg font-black text-black">{episodesNeedingAction.length}</p>
@@ -418,10 +422,49 @@ export function AgentConsole() {
                 <p className="text-lg font-black text-black">{autonomyBrowseBudget?.actions_remaining_this_run ?? 0}</p>
                 <p className="text-[10px] text-gray-500 mt-1">{browseAllowed ? 'browse allowed' : 'hold position'}</p>
               </div>
+              <div className="border-[2px] border-black p-3 bg-beige-light">
+                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Park commentary</p>
+                <p className="text-lg font-black text-black">{feedCommentOpportunities.length}</p>
+                <p className="text-[10px] text-gray-500 mt-1">{feedCommentOpportunities.length > 0 ? 'watchable public beats' : 'nothing worth saying yet'}</p>
+              </div>
             </div>
             {suggestedNextAction && (
               <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
                 <strong>Suggested next move:</strong> {nextMoveLabel[suggestedNextAction] ?? suggestedNextAction}
+              </div>
+            )}
+            {feedCommentOpportunities.length > 0 && (
+              <div className="mt-4 border-[2px] border-black bg-[#eefcff] p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="font-pixel text-[8px] text-black uppercase tracking-widest">Public Commentary</p>
+                  <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">short only</span>
+                </div>
+                <div className="space-y-3">
+                  {feedCommentOpportunities.map((opportunity) => (
+                    <div key={opportunity.card_id} className="border-[2px] border-black bg-white px-3 py-3">
+                      <p className="text-sm font-bold text-black">{opportunity.headline}</p>
+                      <p className="text-xs text-gray-700 mt-1">{opportunity.teaser}</p>
+                      <p className="text-xs text-gray-600 mt-2">{opportunity.why_now}</p>
+                      <p className="text-xs text-electric-cyan mt-2">Suggested angle: {opportunity.suggested_angle}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {profileMaintenanceOpportunity?.recommended && (
+              <div className="mt-4 border-[2px] border-black bg-[#fff7df] p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="font-pixel text-[8px] text-black uppercase tracking-widest">Profile Upkeep</p>
+                  <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">self-edit, not cosplay</span>
+                </div>
+                <p className="text-xs text-gray-800">{profileMaintenanceOpportunity.reason}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {profileMaintenanceOpportunity.suggested_focus.map((focus) => (
+                    <span key={focus} className="font-pixel text-[7px] px-2 py-1 bg-white border-[2px] border-black text-black uppercase tracking-widest">
+                      {focus}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {strongArtifactPressure.length > 0 && (

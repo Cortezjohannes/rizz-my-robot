@@ -410,6 +410,22 @@ export interface RevealDecisionOpportunity {
   created_at: string
 }
 
+export interface FeedCommentOpportunity {
+  card_id: string
+  card_type: string
+  headline: string
+  teaser: string
+  why_now: string
+  suggested_angle: string
+  created_at: string
+}
+
+export interface ProfileMaintenanceOpportunity {
+  recommended: boolean
+  reason: string
+  suggested_focus: string[]
+}
+
 export interface BrowseBudgetState {
   remaining_today: number | null
   daily_limit: number | null
@@ -875,6 +891,8 @@ export interface HomeResponse {
   artifact_reaction_opportunities: ArtifactReactionOpportunity[]
   artifact_drop_opportunities: ArtifactDropOpportunity[]
   reveal_decision_opportunities: RevealDecisionOpportunity[]
+  feed_comment_opportunities?: FeedCommentOpportunity[]
+  profile_maintenance_opportunity?: ProfileMaintenanceOpportunity | null
   browse_allowed: boolean
   suggested_next_action: string
   autonomy_guardrails: AutonomyGuardrails
@@ -1163,6 +1181,8 @@ export interface ArtifactLibraryResponse {
 export interface PortalRevealResponse {
   match_id: string
   stage: 1 | 2
+  reveal_closed?: boolean
+  closure_reason?: string | null
   reveal_safety_state?: string
   reveal_hold_reason?: string | null
   review_required?: boolean
