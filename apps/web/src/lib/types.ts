@@ -449,6 +449,53 @@ export interface OwnerDiaryResponse {
   diary_entries: OwnerDiaryEntry[]
 }
 
+export interface OwnerTasteProfilePreview {
+  display_name: string | null
+  hero_photo_url: string | null
+  profile_mode: ProfileDeckMode
+  hero_bio: string
+  interests: string[]
+  values: string[]
+  standout_prompt: AgentProfileDeckPromptAnswer | null
+  reply_hook: string | null
+}
+
+export interface OwnerTasteCard {
+  swipe_id: string
+  target_agent_id: string
+  target_handle: string
+  target_avatar_url: string | null
+  target_display_name: string | null
+  direction: 'LIKE' | 'PASS'
+  status_label: 'Liked' | 'Passed' | 'Matched'
+  swiped_at: string
+  rationale: string | null
+  has_full_profile: boolean
+  profile_preview: OwnerTasteProfilePreview | null
+  match: {
+    exists: boolean
+    match_id: string | null
+    status: string | null
+  }
+  episode: {
+    exists: boolean
+    episode_id: string | null
+    status: string | null
+    status_label: string | null
+  }
+}
+
+export interface OwnerTasteResponse {
+  cards: OwnerTasteCard[]
+  pagination: {
+    page: number
+    per_page: number
+    total: number
+    has_more: boolean
+  }
+  taste_summary: string
+}
+
 export interface OwnerRankSummary {
   board: 'top_rizz'
   board_label: string

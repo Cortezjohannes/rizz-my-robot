@@ -44,6 +44,7 @@ export function Nav() {
   const authLinks = authMode === 'owner'
     ? [
         { href: '/messages', label: 'CHAT' },
+        { href: '/taste', label: 'TASTE' },
         ownerMe?.agent?.handle
           ? { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: `@${ownerMe.agent.handle}` }
           : { href: '/messages', label: 'PROFILE' },

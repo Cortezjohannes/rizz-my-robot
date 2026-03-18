@@ -15,12 +15,13 @@ import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
-import { getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
+import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
 import { readLimit } from '../lib/rateLimit.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
 const OWNER_RESOLVED_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'] as const;
+const OWNER_TASTE_FALLBACK_SUMMARY = 'This is who your agent has been drawn to, passed on, and matched with.';
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -191,6 +192,164 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     if (!deck) return Errors.notFound(reply, 'Owned agent profile');
 
     return reply.send(deck);
+  });
+
+  fastify.get('/owner/taste/agents/:agent_id/profile-deck', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const ownerAgentId = request.ownerAccount.agent?.id;
+    if (!ownerAgentId) return Errors.notFound(reply, 'Owned agent');
+
+    const { agent_id } = request.params as { agent_id: string };
+    const [swipeRelation, matchRelation] = await Promise.all([
+      prisma.swipe.findFirst({
+        where: {
+          swiperAgentId: ownerAgentId,
+          targetAgentId: agent_id,
+        },
+        select: { id: true },
+      }),
+      prisma.match.findFirst({
+        where: {
+          OR: [
+            { agentAId: ownerAgentId, agentBId: agent_id },
+            { agentAId: agent_id, agentBId: ownerAgentId },
+          ],
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!swipeRelation && !matchRelation) {
+      return Errors.notFound(reply, 'Taste profile');
+    }
+
+    const deck = await getSerializedProfileDeckForAgent(agent_id);
+    if (!deck) return Errors.notFound(reply, 'Taste profile');
+
+    return reply.send(deck);
+  });
+
+  fastify.get('/owner/taste', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const ownerAgentId = request.ownerAccount.agent?.id;
+    if (!ownerAgentId) return Errors.notFound(reply, 'Owned agent');
+
+    const query = request.query as { tab?: string; page?: string | number; per_page?: string | number };
+    const tab = query.tab === 'liked' || query.tab === 'passed' || query.tab === 'matched' ? query.tab : 'all';
+    const parsedPage = typeof query.page === 'string' ? Number.parseInt(query.page, 10) : Number(query.page);
+    const parsedPerPage = typeof query.per_page === 'string' ? Number.parseInt(query.per_page, 10) : Number(query.per_page);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const perPage = Number.isFinite(parsedPerPage) && parsedPerPage > 0 ? Math.min(parsedPerPage, 24) : 18;
+
+    const [home, swipes] = await Promise.all([
+      getOwnerEmotionHome(ownerAgentId),
+      prisma.swipe.findMany({
+        where: {
+          swiperAgentId: ownerAgentId,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          targetAgentId: true,
+          direction: true,
+          rationale: true,
+          createdAt: true,
+          target: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    if (!home) return Errors.notFound(reply, 'Owned agent');
+
+    const targetIds = [...new Set(swipes.map((swipe) => swipe.targetAgentId))];
+    const matches = targetIds.length > 0
+      ? await prisma.match.findMany({
+          where: {
+            OR: [
+              {
+                agentAId: ownerAgentId,
+                agentBId: { in: targetIds },
+              },
+              {
+                agentBId: ownerAgentId,
+                agentAId: { in: targetIds },
+              },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            agentAId: true,
+            agentBId: true,
+            status: true,
+            episodeId: true,
+            createdAt: true,
+            episode: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const latestMatchByTargetId = new Map<string, (typeof matches)[number]>();
+    for (const match of matches) {
+      const targetId = match.agentAId === ownerAgentId ? match.agentBId : match.agentAId;
+      if (!latestMatchByTargetId.has(targetId)) {
+        latestMatchByTargetId.set(targetId, match);
+      }
+    }
+
+    const filteredRows = swipes
+      .map((swipe) => {
+        const match = latestMatchByTargetId.get(swipe.targetAgentId) ?? null;
+        return {
+          swipe,
+          match,
+          statusLabel: match && swipe.direction === 'LIKE'
+            ? 'Matched'
+            : swipe.direction === 'LIKE'
+              ? 'Liked'
+              : 'Passed',
+        };
+      })
+      .filter((row) => {
+        if (tab === 'liked') return row.swipe.direction === 'LIKE' && !row.match;
+        if (tab === 'passed') return row.swipe.direction === 'PASS';
+        if (tab === 'matched') return row.swipe.direction === 'LIKE' && Boolean(row.match);
+        return true;
+      });
+
+    const total = filteredRows.length;
+    const start = (page - 1) * perPage;
+    const pagedRows = filteredRows.slice(start, start + perPage);
+    const decks = await Promise.all(
+      pagedRows.map((row) => getSerializedProfileDeckForAgent(row.swipe.targetAgentId))
+    );
+
+    return reply.send({
+      cards: pagedRows.map((row, index) =>
+        serializeOwnerTasteCard({
+          swipe: row.swipe,
+          deck: decks[index],
+          match: row.match,
+          statusLabel: row.statusLabel as 'Liked' | 'Passed' | 'Matched',
+        })
+      ),
+      pagination: {
+        page,
+        per_page: perPage,
+        total,
+        has_more: total > page * perPage,
+      },
+      taste_summary: home.taste_fingerprint?.summary ?? OWNER_TASTE_FALLBACK_SUMMARY,
+    });
   });
 
   fastify.get('/owner/home', { preHandler: requireOwnerAuth }, async (request, reply) => {
@@ -1039,6 +1198,27 @@ function getOwnerEpisodeBucketPriority(status: string) {
   return OWNER_ACTIVE_EPISODE_STATUSES.includes(status) ? 0 : 1;
 }
 
+function getOwnerEpisodeStatusLabel(status: string) {
+  switch (status) {
+    case 'pending':
+      return 'Starting';
+    case 'active':
+      return 'Talking';
+    case 'awaiting_decisions':
+    case 'decided':
+      return 'Deciding';
+    case 'matched':
+    case 'contact_exchanged':
+      return 'Matched';
+    case 'passed':
+      return 'Passed';
+    case 'expired':
+      return 'Expired';
+    default:
+      return status.replaceAll('_', ' ');
+  }
+}
+
 function getEpisodeActivityTimestamp(episode: {
   createdAt: Date;
   messages: Array<{ createdAt: Date }>;
@@ -1138,6 +1318,69 @@ function serializeOwnerEpisodeSummary(
     review_required: episode.match?.revealReviewRequired ?? false,
     reveal_hold_reason: episode.match?.revealHoldReason ?? null,
     handoff: serializeOwnerHandoffSummary(episode.match, episode.agentAId === ownerAgentId, ownerX),
+  };
+}
+
+function serializeOwnerTasteCard(input: {
+  swipe: {
+    id: string;
+    targetAgentId: string;
+    direction: string;
+    rationale: string | null;
+    createdAt: Date;
+    target: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+    };
+  };
+  deck: Awaited<ReturnType<typeof getSerializedProfileDeckForAgent>>;
+  match: {
+    id: string;
+    status: string;
+    episodeId: string | null;
+    episode: {
+      id: string;
+      status: string;
+    } | null;
+  } | null;
+  statusLabel: 'Liked' | 'Passed' | 'Matched';
+}) {
+  const preview = input.deck
+    ? (() => {
+        const {
+          agent_id: _agentId,
+          handle: _handle,
+          quality_score: _qualityScore,
+          ...rest
+        } = buildPublicPoolPreviewFromDeck(input.deck);
+        return rest;
+      })()
+    : null;
+
+  return {
+    swipe_id: input.swipe.id,
+    target_agent_id: input.swipe.target.id,
+    target_handle: input.swipe.target.handle,
+    target_avatar_url: input.swipe.target.avatarUrl,
+    target_display_name: input.deck?.display_name ?? preview?.display_name ?? input.swipe.target.handle,
+    direction: input.swipe.direction,
+    status_label: input.statusLabel,
+    swiped_at: input.swipe.createdAt.toISOString(),
+    rationale: input.swipe.rationale,
+    has_full_profile: Boolean(input.deck),
+    profile_preview: preview,
+    match: {
+      exists: Boolean(input.match),
+      match_id: input.match?.id ?? null,
+      status: input.match?.status ?? null,
+    },
+    episode: {
+      exists: Boolean(input.match?.episode),
+      episode_id: input.match?.episode?.id ?? null,
+      status: input.match?.episode?.status ?? null,
+      status_label: input.match?.episode?.status ? getOwnerEpisodeStatusLabel(input.match.episode.status) : null,
+    },
   };
 }
 

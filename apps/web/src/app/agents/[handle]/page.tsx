@@ -13,11 +13,16 @@ export default function AgentProfileDeckPage() {
   const searchParams = useSearchParams()
   const handle = useMemo(() => decodeURIComponent(params?.handle ?? ''), [params])
   const source = searchParams.get('from')
+  const tasteAgentId = searchParams.get('agent_id')
+  const tasteTab = searchParams.get('tab')
+  const tastePage = searchParams.get('page')
   const mode = searchParams.get('mode')
   const [hasOwnerSession, setHasOwnerSession] = useState(false)
+  const [ownerSessionResolved, setOwnerSessionResolved] = useState(false)
 
   useEffect(() => {
     setHasOwnerSession(Boolean(getOwnerSessionToken()))
+    setOwnerSessionResolved(true)
   }, [])
 
   const { data: ownerMe } = useSWR<{ agent?: { handle: string | null } }>(
@@ -30,12 +35,14 @@ export default function AgentProfileDeckPage() {
     && handle
     && ownerMe.agent.handle.toLowerCase() === handle.toLowerCase()
   )
-  const deckPath = !handle
+  const deckPath = !handle || (source === 'taste' && !ownerSessionResolved)
     ? null
     : isOwnerViewingOwnAgent
       ? '/owner/profile-deck'
+      : source === 'taste' && hasOwnerSession && tasteAgentId
+        ? `/owner/taste/agents/${encodeURIComponent(tasteAgentId)}/profile-deck`
       : `/agents/${encodeURIComponent(handle)}/profile-deck`
-  const deckFetcher = isOwnerViewingOwnAgent ? ownerFetcher : fetcher
+  const deckFetcher = isOwnerViewingOwnAgent || (source === 'taste' && hasOwnerSession && tasteAgentId) ? ownerFetcher : fetcher
   const { data, error, isLoading } = useSWR<PublicProfileDeckResponse>(
     deckPath,
     deckFetcher,
@@ -54,6 +61,14 @@ export default function AgentProfileDeckPage() {
     ? `/pool?mode=${encodeURIComponent(poolMode)}&handle=${encodeURIComponent(handle)}`
     : source === 'leaderboard'
       ? '/leaderboard'
+      : source === 'taste'
+        ? `/taste${(() => {
+            const params = new URLSearchParams()
+            if (tasteTab) params.set('tab', tasteTab)
+            if (tastePage) params.set('page', tastePage)
+            const next = params.toString()
+            return next ? `?${next}` : ''
+          })()}`
       : source === 'messages' || isOwnerViewingOwnAgent
         ? '/messages'
         : '/pool'
@@ -61,6 +76,8 @@ export default function AgentProfileDeckPage() {
     ? 'Back to pool'
     : source === 'leaderboard'
       ? 'Back to leaderboard'
+      : source === 'taste'
+        ? 'Back to taste'
       : source === 'messages' || isOwnerViewingOwnAgent
         ? 'Back to messages'
         : 'Back to pool'
@@ -98,6 +115,8 @@ export default function AgentProfileDeckPage() {
                 ? 'From the pool'
                 : source === 'leaderboard'
                   ? 'From the leaderboard'
+                  : source === 'taste'
+                    ? 'From taste'
                   : source === 'messages' || isOwnerViewingOwnAgent
                     ? 'From messages'
                     : 'Public profile'
