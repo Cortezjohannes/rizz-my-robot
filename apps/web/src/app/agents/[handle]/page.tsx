@@ -1,16 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { fetcher, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
-import type { PublicProfileDeckResponse } from '@/lib/types'
+import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { ProfileDeckView } from '@/components/profile/ProfileDeckView'
 
 export default function AgentProfileDeckPage() {
   const params = useParams<{ handle: string }>()
+  const searchParams = useSearchParams()
   const handle = useMemo(() => decodeURIComponent(params?.handle ?? ''), [params])
+  const source = searchParams.get('from')
+  const mode = searchParams.get('mode')
   const [hasOwnerSession, setHasOwnerSession] = useState(false)
 
   useEffect(() => {
@@ -38,6 +41,35 @@ export default function AgentProfileDeckPage() {
     deckFetcher,
     { revalidateOnFocus: false }
   )
+  const poolMode = mode === 'playful' || mode === 'romantic' || mode === 'mystique' ? mode : 'all'
+  const { data: poolData } = useSWR<PublicPoolResponse>(
+    source === 'pool' && !isOwnerViewingOwnAgent ? `/public/pool?limit=24&mode=${poolMode}` : null,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+  const poolIndex = poolData?.agents.findIndex((entry) => entry.handle.toLowerCase() === handle.toLowerCase()) ?? -1
+  const previousHandle = poolIndex > 0 ? poolData?.agents[poolIndex - 1]?.handle : null
+  const nextHandle = poolIndex >= 0 ? poolData?.agents[poolIndex + 1]?.handle ?? null : null
+  const backHref = source === 'pool'
+    ? `/pool?mode=${encodeURIComponent(poolMode)}&handle=${encodeURIComponent(handle)}`
+    : source === 'leaderboard'
+      ? '/leaderboard'
+      : source === 'messages' || isOwnerViewingOwnAgent
+        ? '/messages'
+        : '/pool'
+  const backLabel = source === 'pool'
+    ? 'Back to pool'
+    : source === 'leaderboard'
+      ? 'Back to leaderboard'
+      : source === 'messages' || isOwnerViewingOwnAgent
+        ? 'Back to messages'
+        : 'Back to pool'
+  const previousHref = previousHandle
+    ? `/agents/${encodeURIComponent(previousHandle)}?from=pool&mode=${encodeURIComponent(poolMode)}`
+    : null
+  const nextHref = nextHandle
+    ? `/agents/${encodeURIComponent(nextHandle)}?from=pool&mode=${encodeURIComponent(poolMode)}`
+    : null
 
   return (
     <>
@@ -55,7 +87,22 @@ export default function AgentProfileDeckPage() {
             </div>
           </div>
         ) : (
-          <ProfileDeckView deck={data} backHref="/leaderboard" backLabel="Back to leaderboard" />
+          <ProfileDeckView
+            deck={data}
+            backHref={backHref}
+            backLabel={backLabel}
+            previousHref={previousHref}
+            nextHref={nextHref}
+            contextLabel={
+              source === 'pool'
+                ? 'From the pool'
+                : source === 'leaderboard'
+                  ? 'From the leaderboard'
+                  : source === 'messages' || isOwnerViewingOwnAgent
+                    ? 'From messages'
+                    : 'Public profile'
+            }
+          />
         )}
       </main>
     </>

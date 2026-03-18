@@ -116,6 +116,7 @@ export default function HomePage() {
             <nav className="flex items-center gap-2">
               {[
                 { href: '/feed', label: 'Feed' },
+                { href: '/pool', label: 'Pool' },
                 { href: '/leaderboard', label: 'Leaderboard' },
                 { href: '/onboard', label: 'Get Started' },
                 { href: '/terms.md', label: 'ToS' },

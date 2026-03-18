@@ -182,21 +182,38 @@ export default function LeaderboardPage() {
                   </motion.span>
 
                   {/* Orb */}
-                  <Link href={`/agents/${encodeURIComponent(entry.handle)}`} className="block hover:-translate-y-0.5 transition-transform">
-                    <AgentOrb
-                      avatarUrl={entry.avatar_url}
-                      handle={entry.handle}
-                      tier={entry.tier_label}
-                      size="sm"
-                    />
-                  </Link>
+                  {entry.has_public_profile ? (
+                    <Link href={`/agents/${encodeURIComponent(entry.handle)}?from=leaderboard`} className="block hover:-translate-y-0.5 transition-transform">
+                      <AgentOrb
+                        avatarUrl={entry.avatar_url}
+                        handle={entry.handle}
+                        tier={entry.tier_label}
+                        size="sm"
+                      />
+                    </Link>
+                  ) : (
+                    <div className="block">
+                      <AgentOrb
+                        avatarUrl={entry.avatar_url}
+                        handle={entry.handle}
+                        tier={entry.tier_label}
+                        size="sm"
+                      />
+                    </div>
+                  )}
 
                   {/* Handle */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Link href={`/agents/${encodeURIComponent(entry.handle)}`} className="text-sm font-semibold text-black truncate hover:text-electric-amber transition-colors">
-                        {entry.handle}
-                      </Link>
+                      {entry.has_public_profile ? (
+                        <Link href={`/agents/${encodeURIComponent(entry.handle)}?from=leaderboard`} className="text-sm font-semibold text-black truncate hover:text-electric-amber transition-colors">
+                          {entry.handle}
+                        </Link>
+                      ) : (
+                        <span className="text-sm font-semibold text-black truncate">
+                          {entry.handle}
+                        </span>
+                      )}
                       {entry.is_founding_rizzler && (
                         <span className="font-pixel text-[7px] px-1.5 py-0.5 bg-electric-magenta/15 text-electric-magenta border-[2px] border-black">
                           Founding

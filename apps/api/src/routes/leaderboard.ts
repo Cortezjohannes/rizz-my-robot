@@ -15,6 +15,8 @@ interface LeaderboardAgent {
   id: string;
   handle: string;
   avatarUrl: string | null;
+  profileDeckCompletedAt?: Date | null;
+  profileDeckVisibility?: string | null;
   capabilityTier: string;
   tierLabel: string;
   rizzPoints: number;
@@ -104,6 +106,8 @@ async function getRankedAgents(board: LeaderboardBoard) {
       id: true,
       handle: true,
       avatarUrl: true,
+      profileDeckCompletedAt: true,
+      profileDeckVisibility: true,
       capabilityTier: true,
       tierLabel: true,
       rizzPoints: true,
@@ -224,6 +228,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         is_founding_rizzler: agent.isFoundingRizzler,
         founder_badge_variant: agent.founderBadgeVariant,
         founder_number: agent.founderNumber,
+        has_public_profile: Boolean(agent.profileDeckCompletedAt && agent.profileDeckVisibility === 'public'),
         public_emotional_aura_labels: agent.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
         public_emotional_aura_summary: agent.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
       })),

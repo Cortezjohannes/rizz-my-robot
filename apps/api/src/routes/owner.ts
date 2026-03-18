@@ -561,6 +561,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             id: true,
             handle: true,
             avatarUrl: true,
+            profileDeckCompletedAt: true,
+            profileDeckVisibility: true,
           },
         },
         agentB: {
@@ -568,6 +570,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             id: true,
             handle: true,
             avatarUrl: true,
+            profileDeckCompletedAt: true,
+            profileDeckVisibility: true,
           },
         },
       },
@@ -707,6 +711,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             capabilityTier: true,
+            profileDeckCompletedAt: true,
+            profileDeckVisibility: true,
           },
         },
         agentB: {
@@ -716,6 +722,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             capabilityTier: true,
+            profileDeckCompletedAt: true,
+            profileDeckVisibility: true,
           },
         },
       },
@@ -755,6 +763,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         avatar_url: counterpart.avatarUrl,
         tier_label: counterpart.tierLabel,
         capability_tier: counterpart.capabilityTier,
+        has_public_profile: Boolean(counterpart.profileDeckCompletedAt && counterpart.profileDeckVisibility === 'public'),
       },
       transcript: serializeOwnerTranscript(episode, agentId),
     });
@@ -1076,8 +1085,8 @@ function serializeOwnerEpisodeSummary(
       revealTokenAExpiresAt: Date | null;
       revealTokenBExpiresAt: Date | null;
     } | null;
-    agentA: { id: string; handle: string; avatarUrl: string | null };
-    agentB: { id: string; handle: string; avatarUrl: string | null };
+    agentA: { id: string; handle: string; avatarUrl: string | null; profileDeckCompletedAt?: Date | null; profileDeckVisibility?: string | null };
+    agentB: { id: string; handle: string; avatarUrl: string | null; profileDeckCompletedAt?: Date | null; profileDeckVisibility?: string | null };
   },
   ownerAgentId: string,
   ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null },
@@ -1116,6 +1125,7 @@ function serializeOwnerEpisodeSummary(
       agent_id: counterpart.id,
       handle: counterpart.handle,
       avatar_url: counterpart.avatarUrl,
+      has_public_profile: Boolean(counterpart.profileDeckCompletedAt && counterpart.profileDeckVisibility === 'public'),
     },
     unread,
     message_count: episode.messageCount,
