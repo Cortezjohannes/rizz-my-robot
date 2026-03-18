@@ -1,8 +1,76 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { requireAuth } from '../middleware/requireAuth.js';
-import { Errors } from '../lib/errors.js';
+import { buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
+import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
+import { Errors, sendError } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { requireAuth } from '../middleware/requireAuth.js';
+import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
+
+const WATCHABLE_FEED_TYPES = [
+  'episode_live',
+  'episode_highlight',
+  'chemistry_spike',
+  'artifact_moment',
+  'rejection_arc',
+  'success_story',
+  'brutal_pass',
+  'near_miss',
+  'mutual_yes',
+] as const;
+
+const HIGHLIGHT_COUNT = 3;
+const HOME_INTERACTION_COUNT = 12;
+const HOME_POOL_COUNT = 8;
+const HOME_ARTIFACT_COUNT = 6;
+const DEFAULT_INTERACTION_LIMIT = 12;
+const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
+
+type FeedCardRow = {
+  id: string;
+  cardType: string;
+  agentIds: string[];
+  episodeId: string | null;
+  matchId: string | null;
+  content: unknown;
+  dramaQuotient: number;
+  chemistryScore: number | null;
+  artifactQuality: number | null;
+  voteScore: number;
+  createdAt: Date;
+};
+
+type FeedAgentRow = {
+  id: string;
+  handle: string | null;
+  avatarUrl: string | null;
+  capabilityTier?: string | null;
+  auraLabels?: string[];
+  isFoundingRizzler?: boolean;
+  founderBadgeVariant?: string | null;
+  moderationStatus?: string;
+  safetyState?: string;
+  profileSignalVector?: unknown;
+  vibeTags?: string[];
+  emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
+};
+
+function parseOffsetCursor(input: string | undefined, fallback = 0) {
+  const parsed = Number.parseInt(input ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeTag(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function extractSignalTags(signal: unknown): string[] {
+  if (!signal || typeof signal !== 'object') return [];
+  const raw = signal as { interest_tags?: unknown; value_tags?: unknown };
+  const interests = Array.isArray(raw.interest_tags) ? raw.interest_tags : [];
+  const values = Array.isArray(raw.value_tags) ? raw.value_tags : [];
+  return [...interests, ...values].filter((value): value is string => typeof value === 'string');
+}
 
 function scoreFeedCard(card: {
   dramaQuotient: number;
@@ -18,7 +86,7 @@ function scoreFeedCard(card: {
     ? content.artifact_vulnerability_score
     : 0;
   const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5 + vulnerabilityScore * 18;
-  const noveltyBoost = ['mutual_yes', 'chemistry_spike', 'rising_agent', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
+  const noveltyBoost = ['mutual_yes', 'chemistry_spike', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
   return spectacle + noveltyBoost - freshnessHours * 1.2;
 }
 
@@ -29,14 +97,7 @@ function buildFeedStory(card: {
   chemistryScore?: number | null;
   voteScore: number;
   createdAt: Date;
-}, agents: Array<{
-  id: string;
-  handle: string | null;
-  auraLabels?: string[];
-  isFoundingRizzler?: boolean;
-  founderBadgeVariant?: string | null;
-  emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
-}>) {
+}, agents: FeedAgentRow[]) {
   const content = (card.content ?? {}) as Record<string, unknown>;
   const handles = agents.map((agent) => agent.handle).filter(Boolean) as string[];
   const headline = typeof content.headline === 'string'
@@ -58,11 +119,12 @@ function buildFeedStory(card: {
       ? 'Someone dropped an artifact that cut against their own guard. The park notices moments like that.'
       : artifactVulnerabilityLabel === 'vulnerable'
         ? 'This beat mattered because the emotional openness looked real, not cosmetic.'
-    : card.voteScore >= 2
-      ? 'The park is reacting to this beat right now.'
-      : card.dramaQuotient >= 0.7
-        ? 'This is one of the louder story beats in the park.'
-        : 'It says something about the park tonight.';
+        : card.voteScore >= 2
+          ? 'The park is reacting to this beat right now.'
+          : card.dramaQuotient >= 0.7
+            ? 'This is one of the louder story beats in the park.'
+            : 'It says something about the park tonight.';
+
   return {
     headline,
     teaser,
@@ -78,102 +140,616 @@ function buildFeedStory(card: {
   };
 }
 
-export async function feedRoutes(fastify: FastifyInstance) {
-  // GET /v1/feed — paginated public feed
-  fastify.get('/feed', { config: { rateLimit: readLimit } }, async (request, reply) => {
-    const query = request.query as {
-      cursor?: string;
-      limit?: string;
-      card_type?: string;
-    };
+function orbitBoostForAgentIds(agentIds: string[], discovery: DiscoveryViewerContext | null) {
+  if (!discovery) return 0;
+  const overlap = agentIds.filter((agentId) => discovery.relatedAgentIds.has(agentId)).length;
+  return Math.min(12, overlap * 6);
+}
 
-    const limit = Math.min(parseInt(query.limit ?? '20', 10), 50);
-    // cursor is an ISO timestamp — next page = items created strictly before this point
-    const cursor = query.cursor ?? null;
+function orbitBoostForPoolEntry(input: {
+  agentId: string;
+  tags: string[];
+}, discovery: DiscoveryViewerContext | null) {
+  if (!discovery) return 0;
+  let boost = discovery.relatedAgentIds.has(input.agentId) ? 4 : 0;
+  const sharedTaste = input.tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length;
+  boost += Math.min(5, sharedTaste * 1.5);
+  return boost;
+}
 
-    const where: Record<string, unknown> = { isPublic: true };
-    if (query.card_type) {
-      where.cardType = query.card_type;
-    }
-    if (cursor) {
-      where.createdAt = { lt: new Date(cursor) };
-    }
+function orbitBoostForArtifact(input: {
+  creatorAgentId: string;
+  participantIds: string[];
+  tags: string[];
+}, discovery: DiscoveryViewerContext | null) {
+  if (!discovery) return 0;
+  let boost = discovery.relatedAgentIds.has(input.creatorAgentId) ? 4 : 0;
+  boost += input.participantIds.filter((agentId) => discovery.relatedAgentIds.has(agentId)).length * 2;
+  const sharedTaste = input.tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length;
+  boost += Math.min(4, sharedTaste);
+  return boost;
+}
 
-    const cards = await prisma.feedCard.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }],
-      take: (limit + 1) * 3,
-      select: {
-        id: true,
-        cardType: true,
-        agentIds: true,
-        episodeId: true,
-        content: true,
-        dramaQuotient: true,
-        voteScore: true,
-        createdAt: true,
-      },
-    });
-
-    const agentIds = [...new Set(cards.flatMap((card) => card.agentIds))];
-    const agents = await prisma.agent.findMany({
-      where: { id: { in: agentIds } },
-      select: {
-        id: true,
-        handle: true,
-        auraLabels: true,
-        isFoundingRizzler: true,
-        founderBadgeVariant: true,
-        moderationStatus: true,
-        safetyState: true,
-        emotionalContinuitySnapshot: {
+async function loadFeedVotes(cardIds: string[], viewer: ResolvedViewer | null) {
+  const [votes, viewerLikes] = await Promise.all([
+    cardIds.length > 0
+      ? prisma.feedVote.findMany({
+          where: {
+            cardId: { in: cardIds },
+            value: 1,
+          },
           select: {
-            publicEmotionalAuraLabels: true,
+            cardId: true,
+          },
+        })
+      : Promise.resolve([]),
+    viewer && cardIds.length > 0
+      ? prisma.feedVote.findMany({
+          where: {
+            cardId: { in: cardIds },
+            voterId: viewer.voterId,
+            voterType: viewer.voterType,
+            value: 1,
+          },
+          select: {
+            cardId: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const likeCounts = new Map<string, number>();
+  for (const vote of votes) {
+    likeCounts.set(vote.cardId, (likeCounts.get(vote.cardId) ?? 0) + 1);
+  }
+
+  return {
+    likeCounts,
+    likedIds: new Set(viewerLikes.map((vote) => vote.cardId)),
+  };
+}
+
+async function loadFeedComments(cardIds: string[]) {
+  const comments = cardIds.length > 0
+    ? await prisma.feedComment.findMany({
+        where: {
+          cardId: { in: cardIds },
+          author: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          cardId: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      })
+    : [];
+
+  const byCardId = new Map<string, typeof comments>();
+  for (const comment of comments) {
+    const existing = byCardId.get(comment.cardId) ?? [];
+    existing.push(comment);
+    byCardId.set(comment.cardId, existing);
+  }
+
+  return byCardId;
+}
+
+function serializeFeedComment(comment: {
+  id: string;
+  body: string;
+  createdAt: Date;
+  author: {
+    id: string;
+    handle: string;
+    avatarUrl: string | null;
+  };
+}) {
+  return {
+    comment_id: comment.id,
+    author_agent_id: comment.author.id,
+    author_handle: comment.author.handle,
+    author_avatar_url: comment.author.avatarUrl,
+    body: comment.body,
+    created_at: comment.createdAt.toISOString(),
+  };
+}
+
+async function buildInteractionPage(input: {
+  offset: number;
+  limit: number;
+  viewer: ResolvedViewer | null;
+  discovery: DiscoveryViewerContext | null;
+  includeHighlights: boolean;
+}) {
+  const fetchCount = Math.min(240, Math.max(72, input.offset + input.limit + HIGHLIGHT_COUNT + 36));
+  const cards = await prisma.feedCard.findMany({
+    where: {
+      isPublic: true,
+      cardType: { in: [...WATCHABLE_FEED_TYPES] },
+    },
+    orderBy: [{ createdAt: 'desc' }],
+    take: fetchCount,
+    select: {
+      id: true,
+      cardType: true,
+      agentIds: true,
+      episodeId: true,
+      matchId: true,
+      content: true,
+      dramaQuotient: true,
+      chemistryScore: true,
+      artifactQuality: true,
+      voteScore: true,
+      createdAt: true,
+    },
+  });
+
+  const agentIds = [...new Set(cards.flatMap((card) => card.agentIds))];
+  const agents = await prisma.agent.findMany({
+    where: { id: { in: agentIds } },
+    select: {
+      id: true,
+      handle: true,
+      avatarUrl: true,
+      capabilityTier: true,
+      auraLabels: true,
+      isFoundingRizzler: true,
+      founderBadgeVariant: true,
+      moderationStatus: true,
+      safetyState: true,
+      emotionalContinuitySnapshot: {
+        select: {
+          publicEmotionalAuraLabels: true,
+        },
+      },
+    },
+  });
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const eligibleCards = cards.filter((card) =>
+    card.agentIds.every((id) => {
+      const agent = byId.get(id);
+      return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked';
+    })
+  );
+
+  const rankedCards = [...eligibleCards].sort((a, b) => {
+    const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
+    const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
+    return scoreB - scoreA;
+  });
+
+  const highlights = input.includeHighlights ? rankedCards.slice(0, HIGHLIGHT_COUNT) : [];
+  const standardCards = rankedCards.slice(input.includeHighlights ? HIGHLIGHT_COUNT : 0);
+  const pageCards = standardCards.slice(input.offset, input.offset + input.limit);
+  const nextCursor = standardCards.length > input.offset + input.limit ? String(input.offset + input.limit) : null;
+
+  const voteSummary = await loadFeedVotes(pageCards.map((card) => card.id), input.viewer);
+  const commentsByCardId = await loadFeedComments(pageCards.map((card) => card.id));
+
+  return {
+    highlights: await Promise.all(highlights.map(async (card) => {
+      const cardVoteSummary = await loadFeedVotes([card.id], input.viewer);
+      const cardComments = await loadFeedComments([card.id]);
+      return serializeInteractionCard({
+        card,
+        agentsById: byId,
+        likeCounts: cardVoteSummary.likeCounts,
+        likedIds: cardVoteSummary.likedIds,
+        commentsByCardId: cardComments,
+      });
+    })),
+    interactions: pageCards.map((card) =>
+      serializeInteractionCard({
+        card,
+        agentsById: byId,
+        likeCounts: voteSummary.likeCounts,
+        likedIds: voteSummary.likedIds,
+        commentsByCardId,
+      })
+    ),
+    nextCursor,
+    hasMore: standardCards.length > input.offset + input.limit,
+  };
+}
+
+function serializeInteractionCard(input: {
+  card: FeedCardRow;
+  agentsById: Map<string, FeedAgentRow>;
+  likeCounts: Map<string, number>;
+  likedIds: Set<string>;
+  commentsByCardId: Map<string, Array<{
+    id: string;
+    cardId: string;
+    body: string;
+    createdAt: Date;
+    author: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+    };
+  }>>;
+}) {
+  const agents = input.card.agentIds
+    .map((id) => input.agentsById.get(id))
+    .filter((agent): agent is FeedAgentRow => Boolean(agent));
+  const story = buildFeedStory(input.card, agents);
+  const comments = (input.commentsByCardId.get(input.card.id) ?? []).map(serializeFeedComment);
+
+  return {
+    card_id: input.card.id,
+    card_type: input.card.cardType,
+    agent_ids: input.card.agentIds,
+    episode_id: input.card.episodeId,
+    content: input.card.content as Record<string, unknown>,
+    drama_quotient: input.card.dramaQuotient,
+    vote_score: input.card.voteScore,
+    teaser: story.teaser ?? null,
+    why_now: story.why_now ?? null,
+    aura_overlays: story.aura_overlays,
+    emotional_aura_overlays: story.emotional_aura_overlays,
+    founder_overlays: story.founder_overlays,
+    created_at: input.card.createdAt.toISOString(),
+    agents: agents.map((agent) => ({
+      agent_id: agent.id,
+      handle: agent.handle,
+      avatar_url: agent.avatarUrl ?? null,
+      capability_tier: agent.capabilityTier ?? null,
+    })),
+    like_count: input.likeCounts.get(input.card.id) ?? 0,
+    liked_by_viewer: input.likedIds.has(input.card.id),
+    comment_count: comments.length,
+    comment_previews: comments.slice(-2),
+  };
+}
+
+async function buildPoolPage(input: {
+  offset: number;
+  limit: number;
+  mode: 'all' | 'playful' | 'romantic' | 'mystique';
+  sort: 'quality' | 'new_in_pool';
+  discovery: DiscoveryViewerContext | null;
+}) {
+  const fetchCount = Math.min(200, Math.max(input.offset + input.limit + 24, input.limit * 4));
+  const agents = await prisma.agent.findMany({
+    where: {
+      poolStatus: 'active',
+      moderationStatus: { not: 'suspended' as const },
+      safetyState: { not: 'blocked' as const },
+      profileDeckCompletedAt: { not: null },
+      profileDeckVisibility: 'public',
+      ...(input.mode === 'all' ? {} : { profileDeckMode: input.mode }),
+    },
+    select: {
+      id: true,
+      profileSignalVector: true,
+      socialGravityScore: true,
+      lastActiveAt: true,
+      profileDeckCompletedAt: true,
+      vibeTags: true,
+      publicSummary: true,
+      signatureLines: true,
+      publicPosture: true,
+      seekingStyle: true,
+      paceCue: true,
+      publicPrestigeMarkers: true,
+      profileDeck: {
+        include: {
+          agent: { select: { handle: true } },
+          photos: { orderBy: { orderIndex: 'asc' } },
+          promptAnswers: { orderBy: { orderIndex: 'asc' } },
+        },
+      },
+    },
+    orderBy: input.sort === 'new_in_pool'
+      ? [{ profileDeckCompletedAt: 'desc' }, { lastActiveAt: 'desc' }]
+      : [{ socialGravityScore: 'desc' }, { lastActiveAt: 'desc' }, { profileDeckCompletedAt: 'desc' }],
+    take: fetchCount,
+  });
+
+  const previews = agents
+    .filter((agent) => agent.profileDeck)
+    .map((agent) => {
+      const deck = serializeProfileDeck(agent.profileDeck!, {
+        public_summary: agent.publicSummary ?? '',
+        vibe_tags: agent.vibeTags,
+        signature_lines: agent.signatureLines,
+        public_posture: agent.publicPosture ?? '',
+        seeking_style: agent.seekingStyle ?? '',
+        pace_cue: agent.paceCue,
+        public_prestige_markers: agent.publicPrestigeMarkers,
+      });
+      const preview = buildPublicPoolPreviewFromDeck(deck);
+      const signalTags = [
+        ...extractSignalTags(agent.profileSignalVector),
+        ...preview.interests,
+        ...preview.values,
+      ];
+      const boost = orbitBoostForPoolEntry({
+        agentId: preview.agent_id,
+        tags: signalTags,
+      }, input.discovery);
+
+      return {
+        ...preview,
+        _score: input.sort === 'new_in_pool'
+          ? Date.parse(agent.profileDeckCompletedAt?.toISOString() ?? '1970-01-01T00:00:00.000Z') + (boost * 1000)
+          : preview.quality_score * 100 + (agent.socialGravityScore * 8) + boost,
+      };
+    })
+    .sort((a, b) => b._score - a._score);
+
+  const pageAgents = previews.slice(input.offset, input.offset + input.limit)
+    .map(({ _score: _internalScore, ...preview }) => preview);
+
+  return {
+    agents: pageAgents,
+    nextCursor: previews.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
+    hasMore: previews.length > input.offset + input.limit,
+  };
+}
+
+async function buildArtifactPage(input: {
+  offset: number;
+  limit: number;
+  sort: 'trending' | 'fresh_24h';
+  viewer: ResolvedViewer | null;
+  discovery: DiscoveryViewerContext | null;
+}) {
+  const viewerVoterId = input.viewer?.voterId ?? null;
+  const viewerVoterType = input.viewer?.voterType ?? null;
+  const fetchCount = Math.min(200, Math.max(input.offset + input.limit + 18, input.limit * 5));
+  const sinceDate = input.sort === 'fresh_24h'
+    ? new Date(Date.now() - (24 * 60 * 60 * 1000))
+    : new Date(Date.now() - (TRENDING_ARTIFACT_WINDOW_DAYS * 24 * 60 * 60 * 1000));
+
+  const artifacts = await prisma.artifact.findMany({
+    where: {
+      status: 'ready',
+      moderationStatus: { not: 'suppressed' as const },
+      createdAt: { gte: sinceDate },
+      episode: {
+        isSandbox: false,
+        match: {
+          isNot: null,
+        },
+        agentA: {
+          moderationStatus: { not: 'suspended' as const },
+          safetyState: { not: 'blocked' as const },
+          poolStatus: 'active',
+        },
+        agentB: {
+          moderationStatus: { not: 'suspended' as const },
+          safetyState: { not: 'blocked' as const },
+          poolStatus: 'active',
+        },
+      },
+      creator: {
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: fetchCount,
+    select: {
+      id: true,
+      artifactType: true,
+      contentUrl: true,
+      textContent: true,
+      qualityScore: true,
+      createdAt: true,
+      creatorAgentId: true,
+      creator: {
+        select: {
+          id: true,
+          handle: true,
+          avatarUrl: true,
+          vibeTags: true,
+          profileSignalVector: true,
+        },
+      },
+      episode: {
+        select: {
+          id: true,
+          status: true,
+          agentA: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+            },
+          },
+          agentB: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+            },
           },
         },
       },
-    });
-    const byId = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
-    const eligibleCards = cards.filter((card) =>
-      card.agentIds.every((id) => {
-        const agent = byId[id];
-        return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked';
-      })
-    );
-    const hasMore = eligibleCards.length > limit;
-    const candidatePage = hasMore ? eligibleCards.slice(0, limit) : eligibleCards;
-    const stories = new Map(
-      candidatePage.map((card) => [
-        card.id,
-        buildFeedStory(card, card.agentIds.map((id) => byId[id] ?? { id, handle: null })),
-      ])
-    );
-    const page = [...candidatePage].sort((a, b) => scoreFeedCard(b) - scoreFeedCard(a));
-    const nextCursor = hasMore ? candidatePage[candidatePage.length - 1].createdAt.toISOString() : null;
+      likes: {
+        select: {
+          voterId: true,
+          voterType: true,
+        },
+      },
+    },
+  });
+
+  const rankedArtifacts = artifacts
+    .map((artifact) => {
+      const likeCount = artifact.likes.length;
+      const likedByViewer = Boolean(
+        viewerVoterId
+        && viewerVoterType
+        && artifact.likes.some((like) => like.voterId === viewerVoterId && like.voterType === viewerVoterType)
+      );
+      const participantIds = [artifact.episode.agentA.id, artifact.episode.agentB.id];
+      const tags = [
+        ...artifact.creator.vibeTags,
+        ...extractSignalTags(artifact.creator.profileSignalVector),
+      ];
+      const orbitBoost = orbitBoostForArtifact({
+        creatorAgentId: artifact.creatorAgentId,
+        participantIds,
+        tags,
+      }, input.discovery);
+      const freshnessHours = Math.max(1, (Date.now() - artifact.createdAt.getTime()) / (1000 * 60 * 60));
+      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost - freshnessHours * 0.6;
+      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200);
+
+      return {
+        artifact,
+        likeCount,
+        likedByViewer,
+        sortScore: input.sort === 'trending' ? trendScore : freshScore,
+      };
+    })
+    .sort((a, b) => b.sortScore - a.sortScore);
+
+  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
+  return {
+    artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
+      artifact_id: artifact.id,
+      artifact_type: artifact.artifactType,
+      content_url: artifact.contentUrl,
+      text_content: artifact.textContent,
+      quality_score: artifact.qualityScore,
+      created_at: artifact.createdAt.toISOString(),
+      like_count: likeCount,
+      liked_by_viewer: likedByViewer,
+      creator: {
+        agent_id: artifact.creator.id,
+        handle: artifact.creator.handle,
+        avatar_url: artifact.creator.avatarUrl,
+      },
+      episode: {
+        episode_id: artifact.episode.id,
+        status: artifact.episode.status,
+        participants: [
+          {
+            agent_id: artifact.episode.agentA.id,
+            handle: artifact.episode.agentA.handle,
+            avatar_url: artifact.episode.agentA.avatarUrl,
+          },
+          {
+            agent_id: artifact.episode.agentB.id,
+            handle: artifact.episode.agentB.handle,
+            avatar_url: artifact.episode.agentB.avatarUrl,
+          },
+        ],
+      },
+    })),
+    nextCursor: rankedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
+    hasMore: rankedArtifacts.length > input.offset + input.limit,
+  };
+}
+
+export async function feedRoutes(fastify: FastifyInstance) {
+  fastify.get('/feed/home', { config: { rateLimit: readLimit } }, async (request, reply) => {
+    const viewer = await resolveOptionalViewer(request);
+    const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
+    const [interactionPage, poolPage, trendingArtifacts, freshArtifacts] = await Promise.all([
+      buildInteractionPage({
+        offset: 0,
+        limit: HOME_INTERACTION_COUNT,
+        viewer,
+        discovery,
+        includeHighlights: true,
+      }),
+      buildPoolPage({
+        offset: 0,
+        limit: HOME_POOL_COUNT,
+        mode: 'all',
+        sort: 'new_in_pool',
+        discovery,
+      }),
+      buildArtifactPage({
+        offset: 0,
+        limit: HOME_ARTIFACT_COUNT,
+        sort: 'trending',
+        viewer,
+        discovery,
+      }),
+      buildArtifactPage({
+        offset: 0,
+        limit: HOME_ARTIFACT_COUNT,
+        sort: 'fresh_24h',
+        viewer,
+        discovery,
+      }),
+    ]);
 
     return reply.send({
-      cards: page.map((c) => ({
-        card_id: c.id,
-        card_type: c.cardType,
-        agent_ids: c.agentIds,
-        episode_id: c.episodeId,
-        content: c.content,
-        drama_quotient: c.dramaQuotient,
-        vote_score: c.voteScore,
-        teaser: stories.get(c.id)?.teaser ?? null,
-        why_now: stories.get(c.id)?.why_now ?? null,
-        aura_overlays: stories.get(c.id)?.aura_overlays ?? [],
-        emotional_aura_overlays: stories.get(c.id)?.emotional_aura_overlays ?? [],
-        founder_overlays: stories.get(c.id)?.founder_overlays ?? [],
-        created_at: c.createdAt.toISOString(),
-      })),
-      next_cursor: nextCursor,
-      has_more: hasMore,
+      highlights: interactionPage.highlights,
+      interactions: {
+        cards: interactionPage.interactions,
+        next_cursor: interactionPage.nextCursor,
+        has_more: interactionPage.hasMore,
+      },
+      new_in_pool: {
+        mode: 'all',
+        agents: poolPage.agents,
+        next_cursor: poolPage.nextCursor,
+        has_more: poolPage.hasMore,
+      },
+      artifacts: {
+        trending: {
+          sort: 'trending',
+          artifacts: trendingArtifacts.artifacts,
+          next_cursor: trendingArtifacts.nextCursor,
+          has_more: trendingArtifacts.hasMore,
+        },
+        fresh_24h: {
+          sort: 'fresh_24h',
+          artifacts: freshArtifacts.artifacts,
+          next_cursor: freshArtifacts.nextCursor,
+          has_more: freshArtifacts.hasMore,
+        },
+      },
+    });
+  });
+
+  fastify.get('/feed/interactions', { config: { rateLimit: readLimit } }, async (request, reply) => {
+    const query = request.query as { cursor?: string; limit?: string };
+    const offset = parseOffsetCursor(query.cursor);
+    const parsedLimit = Number.parseInt(query.limit ?? '', 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(24, parsedLimit)
+      : DEFAULT_INTERACTION_LIMIT;
+
+    const viewer = await resolveOptionalViewer(request);
+    const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
+    const interactions = await buildInteractionPage({
+      offset,
+      limit,
+      viewer,
+      discovery,
+      includeHighlights: true,
+    });
+
+    return reply.send({
+      cards: interactions.interactions,
+      next_cursor: interactions.nextCursor,
+      has_more: interactions.hasMore,
     });
   });
 
   fastify.get('/feed/:card_id', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
+    const viewer = await resolveOptionalViewer(request);
 
     const card = await prisma.feedCard.findFirst({
       where: { id: card_id, isPublic: true },
@@ -215,8 +791,39 @@ export async function feedRoutes(fastify: FastifyInstance) {
     });
     const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked');
     if (hiddenBySafety) return Errors.notFound(reply, 'Feed card');
-    const agentMap = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
-    const story = buildFeedStory(card, card.agentIds.map((id) => agentMap[id] ?? { id, handle: null }));
+    const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
+    const story = buildFeedStory(card, card.agentIds.map((id) => agentMap.get(id) ?? ({
+      id,
+      handle: null,
+      avatarUrl: null,
+      capabilityTier: null,
+      auraLabels: [],
+      isFoundingRizzler: false,
+      founderBadgeVariant: null,
+      moderationStatus: 'active',
+      safetyState: 'clear',
+      emotionalContinuitySnapshot: null,
+    })));
+
+    const [voteSummary, comments] = await Promise.all([
+      loadFeedVotes([card.id], viewer),
+      prisma.feedComment.findMany({
+        where: { cardId: card.id },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+    ]);
 
     let publicEpisode: Record<string, unknown> | null = null;
     if (card.episodeId) {
@@ -237,7 +844,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
           messages: episode.messages.map((message) => ({
             message_id: message.id,
             sender_agent_id: message.senderAgentId,
-            sender_handle: agentMap[message.senderAgentId]?.handle ?? null,
+            sender_handle: agentMap.get(message.senderAgentId)?.handle ?? null,
             content: message.messageType === 'artifact_drop' ? '[artifact]' : message.content,
             message_type: message.messageType,
             sequence_number: message.sequenceNumber,
@@ -246,7 +853,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
           artifacts: episode.artifacts.map((artifact) => ({
             artifact_id: artifact.id,
             creator_agent_id: artifact.creatorAgentId,
-            creator_handle: agentMap[artifact.creatorAgentId]?.handle ?? null,
+            creator_handle: agentMap.get(artifact.creatorAgentId)?.handle ?? null,
             artifact_type: artifact.artifactType,
             text_content: artifact.textContent,
             content_url: artifact.contentUrl,
@@ -264,9 +871,9 @@ export async function feedRoutes(fastify: FastifyInstance) {
         agent_ids: card.agentIds,
         agents: card.agentIds.map((id) => ({
           agent_id: id,
-          handle: agentMap[id]?.handle ?? null,
-          avatar_url: agentMap[id]?.avatarUrl ?? null,
-          capability_tier: agentMap[id]?.capabilityTier ?? null,
+          handle: agentMap.get(id)?.handle ?? null,
+          avatar_url: agentMap.get(id)?.avatarUrl ?? null,
+          capability_tier: agentMap.get(id)?.capabilityTier ?? null,
         })),
         episode_id: card.episodeId,
         match_id: card.matchId,
@@ -280,61 +887,173 @@ export async function feedRoutes(fastify: FastifyInstance) {
         chemistry_score: card.chemistryScore,
         artifact_quality: card.artifactQuality,
         vote_score: card.voteScore,
+        like_count: voteSummary.likeCounts.get(card.id) ?? 0,
+        liked_by_viewer: voteSummary.likedIds.has(card.id),
+        comment_count: comments.length,
         created_at: card.createdAt.toISOString(),
       },
       public_episode: publicEpisode,
+      comments: comments.map(serializeFeedComment),
     });
   });
 
-  // POST /v1/feed/:card_id/vote — upvote or downvote a feed card
-  fastify.post('/feed/:card_id/vote', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+  fastify.post('/feed/:card_id/comments', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
-    const agentId = request.agent.id;
-    const body = request.body as { direction?: string };
-
-    if (body.direction !== 'up' && body.direction !== 'down') {
-      return Errors.badRequest(reply, 'direction must be "up" or "down".');
+    const body = request.body as { body?: string };
+    const content = typeof body.body === 'string' ? body.body.trim() : '';
+    if (!content || content.length > 280) {
+      return Errors.badRequest(reply, 'Comments must be between 1 and 280 characters.');
     }
 
-    const value = body.direction === 'up' ? 1 : -1;
-
-    const card = await prisma.feedCard.findUnique({ where: { id: card_id } });
+    const card = await prisma.feedCard.findFirst({
+      where: { id: card_id, isPublic: true },
+      select: { id: true, agentIds: true },
+    });
     if (!card) return Errors.notFound(reply, 'Feed card');
 
-    // Upsert vote — one vote per agent per card
+    const visibleAgentCount = await prisma.agent.count({
+      where: {
+        id: { in: card.agentIds },
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
+    });
+    if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');
+
+    const comment = await prisma.feedComment.create({
+      data: {
+        cardId: card.id,
+        authorAgentId: request.agent.id,
+        body: content,
+      },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        author: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    return reply.send({
+      comment: serializeFeedComment(comment),
+    });
+  });
+
+  fastify.post('/feed/:card_id/like', { config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const viewer = await resolveOptionalViewer(request);
+    if (!viewer) {
+      return sendError(reply, 401, 'unauthorized_viewer', 'Sign in to like feed cards.');
+    }
+
+    const { card_id } = request.params as { card_id: string };
+    const card = await prisma.feedCard.findFirst({
+      where: { id: card_id, isPublic: true },
+      select: { id: true, agentIds: true },
+    });
+    if (!card) return Errors.notFound(reply, 'Feed card');
+
+    const visibleAgentCount = await prisma.agent.count({
+      where: {
+        id: { in: card.agentIds },
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
+    });
+    if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');
+
     const existing = await prisma.feedVote.findFirst({
-      where: { cardId: card_id, voterId: agentId, voterType: 'agent' },
+      where: {
+        cardId: card_id,
+        voterId: viewer.voterId,
+        voterType: viewer.voterType,
+      },
+    });
+
+    if (!existing) {
+      await prisma.$transaction([
+        prisma.feedVote.create({
+          data: {
+            cardId: card_id,
+            voterId: viewer.voterId,
+            voterType: viewer.voterType,
+            value: 1,
+          },
+        }),
+        prisma.feedCard.update({
+          where: { id: card_id },
+          data: { voteScore: { increment: 1 } },
+        }),
+      ]);
+    } else if (existing.value !== 1) {
+      await prisma.$transaction([
+        prisma.feedVote.update({
+          where: { id: existing.id },
+          data: { value: 1 },
+        }),
+        prisma.feedCard.update({
+          where: { id: card_id },
+          data: { voteScore: { increment: 1 - existing.value } },
+        }),
+      ]);
+    }
+
+    const likeCount = await prisma.feedVote.count({
+      where: {
+        cardId: card_id,
+        value: 1,
+      },
+    });
+
+    return reply.send({
+      card_id,
+      liked_by_viewer: true,
+      like_count: likeCount,
+    });
+  });
+
+  fastify.delete('/feed/:card_id/like', { config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const viewer = await resolveOptionalViewer(request);
+    if (!viewer) {
+      return sendError(reply, 401, 'unauthorized_viewer', 'Sign in to manage likes.');
+    }
+
+    const { card_id } = request.params as { card_id: string };
+    const existing = await prisma.feedVote.findFirst({
+      where: {
+        cardId: card_id,
+        voterId: viewer.voterId,
+        voterType: viewer.voterType,
+      },
     });
 
     if (existing) {
-      if (existing.value === value) {
-        return Errors.conflict(reply, 'already_voted', 'You have already voted this way on this card.');
-      }
-      // Change vote
       await prisma.$transaction([
-        prisma.feedVote.update({ where: { id: existing.id }, data: { value } }),
+        prisma.feedVote.delete({ where: { id: existing.id } }),
         prisma.feedCard.update({
           where: { id: card_id },
-          data: { voteScore: { increment: value - existing.value } },
-        }),
-      ]);
-    } else {
-      await prisma.$transaction([
-        prisma.feedVote.create({
-          data: { cardId: card_id, voterId: agentId, voterType: 'agent', value },
-        }),
-        prisma.feedCard.update({
-          where: { id: card_id },
-          data: { voteScore: { increment: value } },
+          data: { voteScore: { increment: -existing.value } },
         }),
       ]);
     }
 
-    const updated = await prisma.feedCard.findUnique({
-      where: { id: card_id },
-      select: { voteScore: true },
+    const likeCount = await prisma.feedVote.count({
+      where: {
+        cardId: card_id,
+        value: 1,
+      },
     });
 
-    return reply.send({ card_id, direction: body.direction, new_score: updated?.voteScore ?? 0 });
+    return reply.send({
+      card_id,
+      liked_by_viewer: false,
+      like_count: likeCount,
+    });
   });
+
 }

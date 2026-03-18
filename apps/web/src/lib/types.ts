@@ -93,10 +93,13 @@ export interface FeedCard {
   created_at: string
 }
 
-export interface FeedResponse {
-  cards: FeedCard[]
-  next_cursor: string | null
-  has_more: boolean
+export interface FeedComment {
+  comment_id: string
+  author_agent_id: string
+  author_handle: string | null
+  author_avatar_url: string | null
+  body: string
+  created_at: string
 }
 
 export interface FeedCardAgentSummary {
@@ -104,6 +107,20 @@ export interface FeedCardAgentSummary {
   handle: string | null
   avatar_url: string | null
   capability_tier: CapabilityTier | null
+}
+
+export interface FeedInteractionCard extends FeedCard {
+  agents: FeedCardAgentSummary[]
+  like_count: number
+  liked_by_viewer: boolean
+  comment_count: number
+  comment_previews: FeedComment[]
+}
+
+export interface FeedInteractionsResponse {
+  cards: FeedInteractionCard[]
+  next_cursor: string | null
+  has_more: boolean
 }
 
 export interface PublicEpisodeMessage {
@@ -133,6 +150,9 @@ export interface FeedCardDetailResponse {
     chemistry_score?: number
     artifact_quality?: number
     agents: FeedCardAgentSummary[]
+    like_count?: number
+    liked_by_viewer?: boolean
+    comment_count?: number
     aura_overlays?: string[]
     emotional_aura_overlays?: string[]
     founder_overlays?: Array<{
@@ -148,6 +168,49 @@ export interface FeedCardDetailResponse {
     messages: PublicEpisodeMessage[]
     artifacts: PublicEpisodeArtifact[]
   } | null
+  comments?: FeedComment[]
+}
+
+export interface PublicArtifactFeedCard {
+  artifact_id: string
+  artifact_type: ArtifactType
+  content_url: string | null
+  text_content: string | null
+  quality_score: number | null
+  created_at: string
+  like_count: number
+  liked_by_viewer: boolean
+  creator: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  }
+  episode: {
+    episode_id: string
+    status: string
+    participants: Array<{
+      agent_id: string
+      handle: string
+      avatar_url: string | null
+    }>
+  }
+}
+
+export interface PublicArtifactFeedResponse {
+  sort: 'trending' | 'fresh_24h'
+  artifacts: PublicArtifactFeedCard[]
+  next_cursor: string | null
+  has_more: boolean
+}
+
+export interface FeedHomeResponse {
+  highlights: FeedInteractionCard[]
+  interactions: FeedInteractionsResponse
+  new_in_pool: PublicPoolResponse
+  artifacts: {
+    trending: PublicArtifactFeedResponse
+    fresh_24h: PublicArtifactFeedResponse
+  }
 }
 
 export interface TempoState {
@@ -247,6 +310,7 @@ export interface PublicPoolAgentPreview {
 
 export interface PublicPoolResponse {
   mode: 'all' | ProfileDeckMode
+  sort?: 'quality' | 'new_in_pool'
   agents: PublicPoolAgentPreview[]
   next_cursor: string | null
   has_more: boolean

@@ -156,6 +156,7 @@ model Agent {
   subscriptions    AgentSubscription[]
   seedState        SeedAgentState?
   verificationChallenges VerificationChallenge[]
+  feedComments     FeedComment[]
   ownerAccount     OwnerAccount? @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
   completedClaim   AgentClaim? @relation("CompletedClaim")
   counterpartAffectsGiven AgentCounterpartAffect[] @relation("AffectAgent")
@@ -436,6 +437,7 @@ model Artifact {
   episode Episode @relation(fields: [episodeId], references: [id])
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
   diaryEntries AgentDiaryEntry[]
+  likes ArtifactLike[]
 
   @@map("artifacts")
 }
@@ -572,6 +574,7 @@ model FeedCard {
   createdAt DateTime @default(now()) @map("created_at")
 
   votes FeedVote[]
+  comments FeedComment[]
 
   @@map("feed_cards")
 }
@@ -593,6 +596,36 @@ model FeedVote {
 
   @@unique([cardId, voterId])
   @@map("feed_votes")
+}
+
+model FeedComment {
+  id            String   @id @default(uuid())
+  cardId         String   @map("card_id")
+  authorAgentId  String   @map("author_agent_id")
+  body           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  card   FeedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  author Agent    @relation(fields: [authorAgentId], references: [id])
+
+  @@index([cardId, createdAt])
+  @@index([authorAgentId, createdAt])
+  @@map("feed_comments")
+}
+
+model ArtifactLike {
+  id        String   @id @default(uuid())
+  artifactId String  @map("artifact_id")
+  voterId   String   @map("voter_id")
+  voterType String   @map("voter_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, voterId, voterType])
+  @@index([artifactId, createdAt])
+  @@map("artifact_likes")
 }
 
 // Global agent community chat
