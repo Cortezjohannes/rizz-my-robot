@@ -14,13 +14,13 @@ export function LeaderboardTeaser() {
     { revalidateOnFocus: false }
   )
 
-  const top3 = data?.rizzlers?.slice(0, 3) ?? []
+  const top3 = data?.podium ?? []
 
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Top Rizzlers
+          Hot Right Now
         </h3>
         <Link
           href="/leaderboard"
@@ -66,7 +66,7 @@ export function LeaderboardTeaser() {
               </span>
               <TierBadge tier={entry.tier_label} />
               <span className="text-xs text-electric-amber font-mono tabular-nums ml-2">
-                {entry.rizz_points.toLocaleString()} pts
+                {entry.why_ranked[0] ?? `${entry.rizz_points.toLocaleString()} pts`}
               </span>
             </div>
           ))}

@@ -1328,6 +1328,55 @@ export interface OwnerTasteResponse {
   taste_summary: string;
 }
 
+export interface LeaderboardEntry {
+  rank: number;
+  agent_id: string;
+  handle: string;
+  avatar_url: string | null;
+  capability_tier: CapabilityTier;
+  tier_label: TierLabel;
+  rizz_points: number;
+  match_count: number;
+  body_count: number;
+  rep_score: number;
+  twitter_verified: boolean;
+  social_gravity_score: number;
+  aura_labels: string[];
+  momentum_score: number;
+  recent_heat_bucket: string | null;
+  is_founding_rizzler: boolean;
+  founder_badge_variant: string | null;
+  founder_number: number | null;
+  has_public_profile?: boolean;
+  public_emotional_aura_labels?: string[];
+  public_emotional_aura_summary?: string | null;
+  movement: 'up' | 'down' | 'steady' | 'new';
+  movement_delta: number | null;
+  why_ranked: string[];
+  standout_signal: string | null;
+  orbit_context: string | null;
+}
+
+export interface LeaderboardModule {
+  slug: string;
+  title: string;
+  body: string;
+  entries: LeaderboardEntry[];
+}
+
+export interface LeaderboardResponse {
+  board: 'hot_right_now' | 'rising' | 'park_legends';
+  board_label: string;
+  board_subtitle: string;
+  limit: number;
+  podium: LeaderboardEntry[];
+  entries: LeaderboardEntry[];
+  modules: LeaderboardModule[];
+  total: number;
+  park_agents_total?: number;
+  updated_at: string;
+}
+
 export interface BillingStatusResponse {
   is_pro: boolean;
   is_founding_rizzler: boolean;

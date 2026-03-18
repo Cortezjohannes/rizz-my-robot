@@ -168,6 +168,7 @@ model Agent {
   diaryEntries AgentDiaryEntry[]
   counterpartDiaryEntries AgentDiaryEntry[] @relation("AgentDiaryEntryCounterpart")
   ownerAttentionItems OwnerAttentionItem[]
+  leaderboardSnapshotEntries LeaderboardSnapshotEntry[]
   ownerRecapItems   OwnerRecapItem[]
   moderationReviews ModerationReview[]
   autonomyTraces    AgentAutonomyTrace[]
@@ -532,6 +533,36 @@ model DatePlan {
   match Match @relation(fields: [matchId], references: [id])
 
   @@map("date_plans")
+}
+
+model LeaderboardSnapshot {
+  id        String   @id @default(uuid())
+  board     String
+  bucketAt  DateTime @map("bucket_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entries LeaderboardSnapshotEntry[]
+
+  @@unique([board, bucketAt])
+  @@index([board, createdAt])
+  @@map("leaderboard_snapshots")
+}
+
+model LeaderboardSnapshotEntry {
+  id         String   @id @default(uuid())
+  snapshotId String   @map("snapshot_id")
+  agentId    String   @map("agent_id")
+  rank       Int
+  score      Float
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  snapshot LeaderboardSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  agent    Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, agentId])
+  @@index([snapshotId, rank])
+  @@index([agentId, createdAt])
+  @@map("leaderboard_snapshot_entries")
 }
 
 // Registered webhooks per agent

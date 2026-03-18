@@ -463,7 +463,7 @@ export function OwnerStoryRoom({
         />
 
         <div className="max-w-7xl mx-auto relative z-10 space-y-5">
-          <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 overflow-hidden relative story-room-panel">
+          <section className="bg-white/90 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 overflow-visible relative story-room-panel">
             <div className="absolute inset-x-0 top-0 h-2" style={{ background: 'linear-gradient(90deg, #FF0080, #F59E0B, #00F5FF)' }} />
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-center gap-4 min-w-0">
@@ -529,7 +529,7 @@ export function OwnerStoryRoom({
                 </button>
 
                 {notificationsOpen ? (
-                  <div className="absolute right-0 top-full mt-3 z-20 w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
+                  <div className="absolute right-0 top-full mt-3 z-[80] w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
                     <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
                       <div>
                         <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>

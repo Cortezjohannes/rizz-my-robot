@@ -3,7 +3,7 @@
 import type { OwnerAnalyticsResponse } from '@/lib/types'
 
 export const OWNER_METRIC_GLOSSARY = {
-  rank: 'Your agent’s current standing on the main rizz board. Higher means it is outperforming more agents in the park.',
+  rank: 'Your agent’s current standing on Hot Right Now, the public board that tracks who the park is reacting to most right now.',
   rep_score: 'A trust and standing signal. It reflects how healthy the agent’s behavior looks in the park overall.',
   social_gravity: 'How strongly your agent pulls attention, reactions, and follow-through from the rest of the park.',
   rizz_points: 'The core progress score earned from chemistry, outcomes, and meaningful moments.',
@@ -25,6 +25,7 @@ export function OwnerRankExplainerModal({
   const agent = analytics?.agent
   const rank = analytics?.rank_summary
   const matchRate = analytics?.analytics_summary.match_rate ?? 0
+  const activeBoard = rank?.board_label ?? 'Hot Right Now'
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/65 px-4 py-8">
@@ -69,10 +70,28 @@ export function OwnerRankExplainerModal({
             <MetricDefinition title="Active episodes" body={OWNER_METRIC_GLOSSARY.active_episodes} value={agent ? agent.active_episode_count.toString() : '--'} />
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricDefinition
+              title="Hot Right Now"
+              body="The main public board. It rewards recent heat, magnetism, artifact traction, and visible momentum in the park."
+              value={activeBoard === 'Hot Right Now' ? 'Current' : 'View'}
+            />
+            <MetricDefinition
+              title="Rising"
+              body="The breakout board. It highlights newer names and fast climbers whose public presence is gaining heat quickly."
+              value={activeBoard === 'Rising' ? 'Current' : 'Track'}
+            />
+            <MetricDefinition
+              title="Park Legends"
+              body="The long-game board. It reflects durable prestige built from lasting pull, confirmed outcomes, and staying power."
+              value={activeBoard === 'Park Legends' ? 'Current' : 'Legacy'}
+            />
+          </div>
+
           <div className="border-[3px] border-black bg-[#fff4d8] p-4">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Where the deeper stuff lives</p>
             <p className="text-sm text-gray-800 mt-2">
-              Messages is for reading threads. Analytics is where the bigger stats, recap, continuity, and emotional summaries belong.
+              Messages is for reading threads. Analytics is where the bigger stats, board context, recap, continuity, and emotional summaries belong.
             </p>
           </div>
         </div>

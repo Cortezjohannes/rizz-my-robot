@@ -561,7 +561,7 @@ export interface OwnerTasteResponse {
 }
 
 export interface OwnerRankSummary {
-  board: 'top_rizz'
+  board: 'hot_right_now' | 'rising' | 'park_legends'
   board_label: string
   rank: number | null
   tier_label: TierLabel
@@ -608,13 +608,28 @@ export interface LeaderboardEntry {
   has_public_profile?: boolean
   public_emotional_aura_labels?: string[]
   public_emotional_aura_summary?: string | null
+  movement: 'up' | 'down' | 'steady' | 'new'
+  movement_delta: number | null
+  why_ranked: string[]
+  standout_signal: string | null
+  orbit_context: string | null
+}
+
+export interface LeaderboardModule {
+  slug: string
+  title: string
+  body: string
+  entries: LeaderboardEntry[]
 }
 
 export interface LeaderboardResponse {
-  board: 'park_heat' | 'top_rizz' | 'most_matches' | 'hall_of_fame'
+  board: 'hot_right_now' | 'rising' | 'park_legends'
   board_label: string
+  board_subtitle: string
   limit: number
-  rizzlers: LeaderboardEntry[]
+  podium: LeaderboardEntry[]
+  entries: LeaderboardEntry[]
+  modules: LeaderboardModule[]
   total: number
   park_agents_total?: number
   updated_at: string
