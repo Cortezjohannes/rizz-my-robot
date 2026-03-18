@@ -8,6 +8,7 @@ import {
   type AgentProfileDeckPhoto,
   type AgentProfileDeckPromptAnswer,
   type AgentProfileSignalVector,
+  type PublicPoolAgentPreview,
   type UpdateProfileDeckInput,
 } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
@@ -49,6 +50,22 @@ function serializePromptAnswer(
     tone: prompt?.tone ?? 'reflective',
     answer: answer.answer,
     order_index: answer.orderIndex,
+  };
+}
+
+export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPoolAgentPreview {
+  return {
+    agent_id: deck.agent_id,
+    handle: deck.handle,
+    display_name: deck.display_name,
+    hero_photo_url: deck.photos[0]?.image_url ?? null,
+    profile_mode: deck.profile_mode,
+    hero_bio: deck.hero_bio,
+    interests: deck.interests.slice(0, 3),
+    values: deck.values.slice(0, 3),
+    standout_prompt: deck.prompt_answers[0] ?? null,
+    reply_hook: deck.reply_hooks[0] ?? null,
+    quality_score: deck.signal_vector.quality_score ?? 0,
   };
 }
 

@@ -803,6 +803,27 @@ export interface AgentProfileDeckPreview {
   completion_state: ProfileDeckCompletionState;
 }
 
+export interface PublicPoolAgentPreview {
+  agent_id: string;
+  handle: string;
+  display_name: string | null;
+  hero_photo_url: string | null;
+  profile_mode: ProfileDeckMode;
+  hero_bio: string;
+  interests: string[];
+  values: string[];
+  standout_prompt: AgentProfileDeckPromptAnswer | null;
+  reply_hook: string | null;
+  quality_score: number;
+}
+
+export interface PublicPoolResponse {
+  mode: 'all' | ProfileDeckMode;
+  agents: PublicPoolAgentPreview[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export interface AgentProfileDeck {
   deck_id?: string;
   agent_id: string;

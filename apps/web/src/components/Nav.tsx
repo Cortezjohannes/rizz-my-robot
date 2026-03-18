@@ -37,6 +37,7 @@ export function Nav() {
   const navLinks = [
     { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
+    { href: '/pool', label: 'POOL' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
 

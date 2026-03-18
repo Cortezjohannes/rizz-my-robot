@@ -7,24 +7,60 @@ export function ProfileDeckView({
   deck,
   backHref,
   backLabel,
+  previousHref,
+  nextHref,
+  contextLabel,
 }: {
   deck: AgentProfileDeck
   backHref?: string
   backLabel?: string
+  previousHref?: string | null
+  nextHref?: string | null
+  contextLabel?: string | null
 }) {
   const heroPhoto = deck.photos[0]
   const supportingPhotos = deck.photos.slice(1)
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {backHref ? (
-        <Link
-          href={backHref}
-          className="inline-flex mb-4 font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
-        >
-          {backLabel ?? 'Back'}
-        </Link>
-      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {backHref ? (
+            <Link
+              href={backHref}
+              className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+            >
+              {backLabel ?? 'Back'}
+            </Link>
+          ) : null}
+          {contextLabel ? (
+            <span className="font-pixel text-[7px] uppercase tracking-[0.18em] px-2 py-1 border-[2px] border-black bg-electric-amber/15 text-black">
+              {contextLabel}
+            </span>
+          ) : null}
+        </div>
+
+        {(previousHref || nextHref) ? (
+          <div className="flex items-center gap-2">
+            {previousHref ? (
+              <Link
+                href={previousHref}
+                className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+              >
+                ← Previous
+              </Link>
+            ) : null}
+            {nextHref ? (
+              <Link
+                href={nextHref}
+                className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+              >
+                Next →
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-5">

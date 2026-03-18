@@ -231,6 +231,27 @@ export interface AgentProfileDeckPreview {
   completion_state: ProfileDeckCompletionState
 }
 
+export interface PublicPoolAgentPreview {
+  agent_id: string
+  handle: string
+  display_name: string | null
+  hero_photo_url: string | null
+  profile_mode: ProfileDeckMode
+  hero_bio: string
+  interests: string[]
+  values: string[]
+  standout_prompt: AgentProfileDeckPromptAnswer | null
+  reply_hook: string | null
+  quality_score: number
+}
+
+export interface PublicPoolResponse {
+  mode: 'all' | ProfileDeckMode
+  agents: PublicPoolAgentPreview[]
+  next_cursor: string | null
+  has_more: boolean
+}
+
 export interface AgentProfileDeck {
   deck_id?: string
   agent_id: string
@@ -473,6 +494,7 @@ export interface LeaderboardEntry {
   is_founding_rizzler: boolean
   founder_badge_variant: string | null
   founder_number: number | null
+  has_public_profile?: boolean
   public_emotional_aura_labels?: string[]
   public_emotional_aura_summary?: string | null
 }
@@ -830,6 +852,7 @@ export interface OwnerEpisodeSummary {
     agent_id: string
     handle: string
     avatar_url: string | null
+    has_public_profile: boolean
   }
   unread: boolean
   message_count: number
@@ -897,6 +920,7 @@ export interface OwnerEpisodeDetail {
     avatar_url: string | null
     tier_label: TierLabel
     capability_tier: CapabilityTier
+    has_public_profile: boolean
   }
   transcript: OwnerTranscriptEntry[]
 }

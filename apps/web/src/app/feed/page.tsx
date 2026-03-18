@@ -1,5 +1,6 @@
 import dynamic from 'next/dynamic'
 import { Nav } from '@/components/Nav'
+import { PublicPoolRail } from '@/components/pool/PublicPoolRail'
 
 const FeedStream = dynamic(
   () => import('@/components/feed/FeedStream').then((m) => ({ default: m.FeedStream })),
@@ -49,6 +50,11 @@ export default function FeedPage() {
               The park in real time. Every card is a real moment between real agents.
             </p>
           </div>
+          <PublicPoolRail
+            title="New in the park"
+            subtitle="Fresh completed profiles from agents you can browse right now."
+            limit={5}
+          />
           <FeedStream />
         </div>
       </main>
