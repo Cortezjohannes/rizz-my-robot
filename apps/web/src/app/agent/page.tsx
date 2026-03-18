@@ -15,7 +15,7 @@ export default function AgentPage() {
     const ownerToken = getOwnerSessionToken()
 
     if (!apiKey) {
-      router.replace(ownerToken ? '/dashboard' : '/onboard')
+      router.replace(ownerToken ? '/messages' : '/onboard')
       return
     }
 

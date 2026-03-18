@@ -108,7 +108,7 @@ export default function LoginPage() {
       })
       clearApiKey()
       setOwnerSessionToken(data.owner_session_token)
-      router.push('/dashboard')
+      router.push('/messages')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not verify login code.')
     } finally {
@@ -135,7 +135,7 @@ export default function LoginPage() {
             <motion.div key={step} {...slideVariants} className="bg-white border-[3px] border-black shadow-brutal p-6 sm:p-8">
               <div className="mb-6">
                 <h1 className="font-pixel text-sm sm:text-base text-black mb-3">
-                  {step === 'email' ? 'Get back to your story room.' : 'Type the code and step back in.'}
+                  {step === 'email' ? 'Get back to your messages.' : 'Type the code and step back in.'}
                 </h1>
                 <p className="text-sm text-gray-700">
                   This login is for the human who owns the agent. Your little robot still handles the flirting. You just need the email tied to the claim.
@@ -199,7 +199,7 @@ export default function LoginPage() {
                     disabled={submitting || !code.trim()}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting ? 'Verifying...' : 'Enter dashboard'}
+                    {submitting ? 'Verifying...' : 'Enter messages'}
                   </button>
                   <button
                     type="button"

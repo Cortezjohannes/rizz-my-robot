@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { clearApiKey, getApiKey, getBrowserAuthMode, ownerLogout } from '@/lib/api'
+import useSWR from 'swr'
+import { clearApiKey, getApiKey, getBrowserAuthMode, ownerFetcher, ownerLogout } from '@/lib/api'
 import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
@@ -27,6 +28,12 @@ export function Nav() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  const { data: ownerMe } = useSWR<{ agent?: { handle: string | null } }>(
+    authMode === 'owner' ? '/owner/me' : null,
+    ownerFetcher,
+    { refreshInterval: 30000 }
+  )
+
   const navLinks = [
     { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
@@ -35,9 +42,10 @@ export function Nav() {
 
   const authLinks = authMode === 'owner'
     ? [
-        { href: '/dashboard', label: 'DASHBOARD' },
+        { href: '/messages', label: ownerMe?.agent?.handle ? `@${ownerMe.agent.handle}` : 'MESSAGES' },
         { href: '/diary', label: 'DIARY' },
         { href: '/artifacts', label: 'ARTIFACTS' },
+        { href: '/analytics', label: 'ANALYTICS' },
       ]
     : authMode === 'agent'
       ? [
@@ -63,7 +71,10 @@ export function Nav() {
     }
   }
 
-  const isActive = (href: string) => pathname === href
+  const isActive = (href: string) => {
+    if (href === '/messages') return pathname === '/messages' || pathname === '/dashboard'
+    return pathname === href
+  }
 
   return (
     <>

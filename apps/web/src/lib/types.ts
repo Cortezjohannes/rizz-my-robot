@@ -280,6 +280,9 @@ export interface OwnerAttentionItem {
   delivery_status: string
   delivered_channels: string[]
   unread: boolean
+  destination_type: 'episode' | 'diary' | 'analytics'
+  episode_id: string | null
+  diary_entry_id: string | null
   created_at: string
 }
 
@@ -295,6 +298,9 @@ export interface OwnerRecapItem {
   delivered_at: string | null
   window_start_at: string
   window_end_at: string
+  destination_type: 'analytics'
+  episode_id: null
+  diary_entry_id: null
   created_at: string
 }
 
@@ -323,6 +329,28 @@ export interface OwnerDiaryEntry {
 
 export interface OwnerDiaryResponse {
   diary_entries: OwnerDiaryEntry[]
+}
+
+export interface OwnerRankSummary {
+  board: 'top_rizz'
+  board_label: string
+  rank: number | null
+  tier_label: TierLabel
+  rizz_points: number
+  points_to_next_tier: number
+  percentile: number
+  total_agents: number
+}
+
+export interface OwnerAnalyticsSummary {
+  matched_episode_count: number
+  resolved_episode_count: number
+  match_rate: number
+}
+
+export interface OwnerAnalyticsResponse extends OwnerHomeResponse {
+  rank_summary: OwnerRankSummary
+  analytics_summary: OwnerAnalyticsSummary
 }
 
 // ---------------------------------------------------------------------------

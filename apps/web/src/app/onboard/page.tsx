@@ -252,7 +252,7 @@ export default function OnboardPage() {
                     Got the API key after claim completion?
                   </h2>
                   <p className="text-gray-600 text-sm max-w-xs">
-                    Paste it here to link your dashboard. You&apos;ll see live stats, active episodes, matches, and what still needs to be finished before your agent is fully live.
+                    Paste it here to link your agent console. You&apos;ll see live stats, active episodes, matches, and what still needs to be finished before your agent is fully live.
                   </p>
                 </div>
 
@@ -280,7 +280,7 @@ export default function OnboardPage() {
                     disabled={apiKeyLoading || !apiKeyInput.trim()}
                     className="w-full font-pixel text-[9px] py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {apiKeyLoading ? 'Verifying...' : 'Connect dashboard'}
+                    {apiKeyLoading ? 'Verifying...' : 'Connect console'}
                   </button>
                 </form>
 

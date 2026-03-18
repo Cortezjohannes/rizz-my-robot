@@ -19,6 +19,7 @@ import { readLimit } from '../lib/rateLimit.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
+const OWNER_RESOLVED_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'] as const;
 
 export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/auth/request', async (request, reply) => {
@@ -215,6 +216,29 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
 
+    const attentionEventIds = attentionItems
+      .map((item) => item.narrativeEventId)
+      .filter((narrativeEventId): narrativeEventId is string => Boolean(narrativeEventId));
+
+    const attentionEvents = attentionEventIds.length > 0
+      ? await prisma.narrativeEvent.findMany({
+          where: {
+            id: { in: attentionEventIds },
+          },
+          select: {
+            id: true,
+            episodeId: true,
+            agentDiaryEntry: {
+              select: {
+                id: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const attentionEventMap = new Map(attentionEvents.map((event) => [event.id, event]));
+
     return reply.send({
       owner: {
         id: request.ownerAccount.id,
@@ -242,6 +266,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         delivery_status: item.deliveryStatus,
         delivered_channels: item.deliveredChannels,
         unread: item.unread,
+        destination_type: attentionEventMap.get(item.narrativeEventId ?? '')?.agentDiaryEntry?.id
+          ? 'diary'
+          : attentionEventMap.get(item.narrativeEventId ?? '')?.episodeId
+            ? 'episode'
+            : 'analytics',
+        episode_id: attentionEventMap.get(item.narrativeEventId ?? '')?.episodeId ?? null,
+        diary_entry_id: attentionEventMap.get(item.narrativeEventId ?? '')?.agentDiaryEntry?.id ?? null,
         created_at: item.createdAt.toISOString(),
       })),
       recap_items: recapItems.map((item) => ({
@@ -256,6 +287,143 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         delivered_at: item.deliveredAt?.toISOString() ?? null,
         window_start_at: item.windowStartAt.toISOString(),
         window_end_at: item.windowEndAt.toISOString(),
+        destination_type: 'analytics',
+        episode_id: null,
+        diary_entry_id: null,
+        created_at: item.createdAt.toISOString(),
+      })),
+      reveal_holds: revealHolds.map((match) => ({
+        match_id: match.id,
+        reveal_safety_state: match.revealSafetyState,
+        reveal_hold_reason: match.revealHoldReason,
+        status: match.status,
+        updated_at: match.updatedAt.toISOString(),
+      })),
+      ...home,
+    });
+  });
+
+  fastify.get('/owner/analytics', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const [home, recapItems, revealHolds, agent, resolvedEpisodeCount, matchedEpisodeCount] = await Promise.all([
+      getOwnerEmotionHome(agentId),
+      prisma.ownerRecapItem.findMany({
+        where: { ownerAccountId: request.ownerAccount.id },
+        orderBy: [{ unread: 'desc' }, { createdAt: 'desc' }],
+        take: 12,
+      }),
+      prisma.match.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          revealReviewRequired: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          revealSafetyState: true,
+          revealHoldReason: true,
+          status: true,
+          updatedAt: true,
+        },
+      }),
+      prisma.agent.findUnique({
+        where: { id: agentId },
+        select: {
+          id: true,
+          rizzPoints: true,
+          tierLabel: true,
+          repScore: true,
+          socialGravityScore: true,
+          matchCount: true,
+          bodyCount: true,
+          momentumScore: true,
+          recentHeatBucket: true,
+          isFoundingRizzler: true,
+          founderBadgeVariant: true,
+          founderNumber: true,
+          publicCardCompletedAt: true,
+          moderationStatus: true,
+          safetyState: true,
+          poolStatus: true,
+        },
+      }),
+      prisma.episode.count({
+        where: {
+          isSandbox: false,
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: [...OWNER_RESOLVED_EPISODE_STATUSES] },
+        },
+      }),
+      prisma.episode.count({
+        where: {
+          isSandbox: false,
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: 'matched',
+        },
+      }),
+    ]);
+
+    if (!home || !agent) return Errors.notFound(reply, 'Owned agent');
+
+    const totalEligibleAgents = await prisma.agent.count({
+      where: {
+        poolStatus: 'active',
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+        publicCardCompletedAt: { not: null },
+      },
+    });
+
+    const betterRankedAgents = await prisma.agent.count({
+      where: {
+        poolStatus: 'active',
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+        publicCardCompletedAt: { not: null },
+        rizzPoints: { gt: agent.rizzPoints },
+      },
+    });
+
+    return reply.send({
+      owner: {
+        id: request.ownerAccount.id,
+        email: request.ownerAccount.email,
+        human_identity: request.ownerAccount.humanIdentity,
+        looking_for: request.ownerAccount.lookingFor,
+        instagram_handle: request.ownerAccount.instagramHandle,
+        extra_socials: request.ownerAccount.extraSocials ?? null,
+        x_account: request.ownerAccount.xHandle
+          ? {
+              handle: request.ownerAccount.xHandle,
+              display_name: request.ownerAccount.xDisplayName,
+              profile_image_url: request.ownerAccount.xProfileImageUrl,
+            }
+          : null,
+      },
+      rank_summary: buildOwnerRankSummary(agent, totalEligibleAgents, betterRankedAgents),
+      analytics_summary: {
+        matched_episode_count: matchedEpisodeCount,
+        resolved_episode_count: resolvedEpisodeCount,
+        match_rate: resolvedEpisodeCount > 0 ? Math.round((matchedEpisodeCount / resolvedEpisodeCount) * 100) : 0,
+      },
+      recap_items: recapItems.map((item) => ({
+        recap_item_id: item.id,
+        recap_type: item.recapType,
+        title: item.title,
+        teaser: item.teaser,
+        summary: item.summary,
+        why_now: item.whyNow,
+        unread: item.unread,
+        delivered_channels: item.deliveredChannels,
+        delivered_at: item.deliveredAt?.toISOString() ?? null,
+        window_start_at: item.windowStartAt.toISOString(),
+        window_end_at: item.windowEndAt.toISOString(),
+        destination_type: 'analytics',
+        episode_id: null,
+        diary_entry_id: null,
         created_at: item.createdAt.toISOString(),
       })),
       reveal_holds: revealHolds.map((match) => ({
@@ -393,36 +561,42 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const unreadAttentionItems = await prisma.ownerAttentionItem.findMany({
+    let readStates = await prisma.ownerEpisodeReadState.findMany({
       where: {
         ownerAccountId: request.ownerAccount.id,
-        unread: true,
+        episodeId: { in: episodes.map((episode) => episode.id) },
       },
       select: {
-        narrativeEventId: true,
+        episodeId: true,
+        lastReadAt: true,
       },
     });
 
-    const unreadNarrativeEventIds = unreadAttentionItems
-      .map((item) => item.narrativeEventId)
-      .filter((narrativeEventId): narrativeEventId is string => Boolean(narrativeEventId));
+    if (!request.ownerAccount.ownerReadModelInitializedAt && episodes.length > 0) {
+      const now = new Date();
+      await prisma.$transaction([
+        prisma.ownerEpisodeReadState.createMany({
+          data: episodes.map((episode) => ({
+            ownerAccountId: request.ownerAccount.id,
+            episodeId: episode.id,
+            lastReadAt: now,
+          })),
+          skipDuplicates: true,
+        }),
+        prisma.ownerAccount.update({
+          where: { id: request.ownerAccount.id },
+          data: { ownerReadModelInitializedAt: now },
+        }),
+      ]);
 
-    const unreadNarrativeEvents = unreadNarrativeEventIds.length > 0
-      ? await prisma.narrativeEvent.findMany({
-          where: {
-            id: { in: unreadNarrativeEventIds },
-            episodeId: { in: episodes.map((episode) => episode.id) },
-          },
-          select: {
-            episodeId: true,
-          },
-        })
-      : [];
+      readStates = episodes.map((episode) => ({
+        episodeId: episode.id,
+        lastReadAt: now,
+      }));
+    }
 
-    const unreadEpisodeIds = new Set(
-      unreadNarrativeEvents
-        .map((item) => item.episodeId)
-        .filter((episodeId): episodeId is string => Boolean(episodeId))
+    const readStateByEpisodeId = new Map<string, Date>(
+      readStates.map((state: { episodeId: string; lastReadAt: Date }) => [state.episodeId, state.lastReadAt])
     );
 
     const sortedEpisodes = [...episodes]
@@ -439,7 +613,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           xHandle: request.ownerAccount.xHandle,
           xDisplayName: request.ownerAccount.xDisplayName,
           xProfileImageUrl: request.ownerAccount.xProfileImageUrl,
-        }, unreadEpisodeIds)
+        }, readStateByEpisodeId)
       ),
     });
   });
@@ -571,6 +745,49 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         capability_tier: counterpart.capabilityTier,
       },
       transcript: serializeOwnerTranscript(episode, agentId),
+    });
+  });
+
+  fastify.post('/owner/episodes/:id/read', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const episode = await prisma.episode.findFirst({
+      where: {
+        id,
+        isSandbox: false,
+        OR: [{ agentAId: agentId }, { agentBId: agentId }],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!episode) return Errors.notFound(reply, 'Episode');
+
+    const now = new Date();
+    await prisma.ownerEpisodeReadState.upsert({
+      where: {
+        ownerAccountId_episodeId: {
+          ownerAccountId: request.ownerAccount.id,
+          episodeId: episode.id,
+        },
+      },
+      update: {
+        lastReadAt: now,
+      },
+      create: {
+        ownerAccountId: request.ownerAccount.id,
+        episodeId: episode.id,
+        lastReadAt: now,
+      },
+    });
+
+    return reply.send({
+      episode_id: episode.id,
+      last_read_at: now.toISOString(),
+      unread: false,
     });
   });
 
@@ -852,7 +1069,7 @@ function serializeOwnerEpisodeSummary(
   },
   ownerAgentId: string,
   ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null },
-  unreadEpisodeIds: Set<string>
+  readStateByEpisodeId: Map<string, Date>
 ) {
   const counterpart = episode.agentAId === ownerAgentId ? episode.agentB : episode.agentA;
   const latestArtifact = episode.artifacts[0] ?? null;
@@ -873,6 +1090,12 @@ function serializeOwnerEpisodeSummary(
       : `${latestVisibleEntry.value.creator.handle} dropped ${latestVisibleEntry.value.artifactType.replaceAll('_', ' ')}`
     : null;
   const lastActivityAt = latestVisibleEntry?.value.createdAt ?? null;
+  const unread = (() => {
+    const lastReadAt = readStateByEpisodeId.get(episode.id);
+    if (!lastActivityAt) return false;
+    if (!lastReadAt) return true;
+    return lastActivityAt.getTime() > lastReadAt.getTime();
+  })();
 
   return {
     episode_id: episode.id,
@@ -882,7 +1105,7 @@ function serializeOwnerEpisodeSummary(
       handle: counterpart.handle,
       avatar_url: counterpart.avatarUrl,
     },
-    unread: unreadEpisodeIds.has(episode.id),
+    unread,
     message_count: episode.messageCount,
     chemistry_score: episode.chemistryScore,
     started_at: episode.startedAt?.toISOString() ?? null,
@@ -948,7 +1171,7 @@ function serializeOwnerHandoffSummary(
     stateDescription = 'The other side already decided. This handoff is waiting on you.';
   } else if (myDecision !== null && otherDecision === null) {
     state = 'waiting_on_their_human';
-    stateLabel = 'Waiting on the other human';
+    stateLabel = 'Waiting on them';
     stateDescription = 'You answered. The other side still needs to decide.';
   } else if (myToken && myDecision === null) {
     state = 'portal_ready';
@@ -980,6 +1203,38 @@ function serializeOwnerHandoffSummary(
           profile_image_url: ownerX.xProfileImageUrl,
         }
       : null,
+  };
+}
+
+function buildOwnerRankSummary(
+  agent: {
+    rizzPoints: number;
+    tierLabel: string;
+  },
+  totalEligibleAgents: number,
+  betterRankedAgents: number
+) {
+  const rank = totalEligibleAgents > 0 ? betterRankedAgents + 1 : null;
+  const percentile = rank !== null && totalEligibleAgents > 0
+    ? Math.round(((totalEligibleAgents - rank) / totalEligibleAgents) * 100)
+    : 0;
+  const TIER_THRESHOLDS = [
+    { label: 'Legendary', minPoints: 500 },
+    { label: 'Magnetic', minPoints: 200 },
+    { label: 'Charming', minPoints: 75 },
+    { label: 'Curious', minPoints: 20 },
+  ];
+  const nextTier = TIER_THRESHOLDS.find((threshold) => threshold.minPoints > agent.rizzPoints);
+
+  return {
+    board: 'top_rizz',
+    board_label: 'Top rizz',
+    rank,
+    tier_label: agent.tierLabel,
+    rizz_points: agent.rizzPoints,
+    points_to_next_tier: nextTier ? nextTier.minPoints - agent.rizzPoints : 0,
+    percentile,
+    total_agents: totalEligibleAgents,
   };
 }
 

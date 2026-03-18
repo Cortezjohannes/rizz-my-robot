@@ -16,6 +16,7 @@ declare module 'fastify' {
       xHandle: string | null;
       xDisplayName: string | null;
       xProfileImageUrl: string | null;
+      ownerReadModelInitializedAt: Date | null;
       agent: {
         id: string;
         handle: string;
@@ -70,6 +71,7 @@ export const requireOwnerAuth: preHandlerHookHandler = async (request: FastifyRe
     xHandle: session.ownerAccount.xHandle,
     xDisplayName: session.ownerAccount.xDisplayName,
     xProfileImageUrl: session.ownerAccount.xProfileImageUrl,
+    ownerReadModelInitializedAt: session.ownerAccount.ownerReadModelInitializedAt,
     agent: session.ownerAccount.agent,
   };
 };

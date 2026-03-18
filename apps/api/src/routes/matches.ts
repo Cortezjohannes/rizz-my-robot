@@ -363,7 +363,7 @@ function serializeMatchHandoffSummary(
     stateDescription = 'The other side answered. Your human still needs to decide.';
   } else if (myDecision !== null && otherDecision === null) {
     state = 'waiting_on_their_human';
-    stateLabel = 'Waiting on the other human';
+    stateLabel = 'Waiting on them';
     stateDescription = 'Your human answered. The other side still needs to decide.';
   } else if (myToken && myDecision === null) {
     state = 'portal_ready';
