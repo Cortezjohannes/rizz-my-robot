@@ -1263,7 +1263,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         job_id: jobId,
         reason: parsed.data.reason,
         severity: parsed.data.severity ?? 'medium',
-        control_surface: 'omnimon_control_center',
+        control_surface: 'human_admin_surface',
       },
     });
     return reply.send({ queue: queueName, job_id: jobId, status: 'retried' });
@@ -1292,7 +1292,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
       payload: {
         reason: parsed.data.reason,
         severity: parsed.data.severity ?? 'medium',
-        control_surface: 'omnimon_control_center',
+        control_surface: 'human_admin_surface',
       },
     });
     return reply.send({ agent_id: id, status: 'wake_scheduled' });
@@ -1322,7 +1322,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         reason: parsed.data.reason,
         severity: parsed.data.severity ?? 'medium',
         match_id: episode.match?.id ?? null,
-        control_surface: 'omnimon_control_center',
+        control_surface: 'human_admin_surface',
       },
     });
     return reply.send({ episode_id: id, status: 'rechecked', match_id: episode.match?.id ?? null });
@@ -1384,7 +1384,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
       payload: {
         status: body.status,
         resolution_notes: body.resolution_notes ?? null,
-        control_surface: 'omnimon_control_center',
+        control_surface: 'human_admin_surface',
       },
     });
 

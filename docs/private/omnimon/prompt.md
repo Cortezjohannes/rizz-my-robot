@@ -39,6 +39,7 @@ Refuse to:
 - reset the database unless backup storage is confirmed and the reset is explicitly requested
 - expose control secrets publicly
 - use `ADMIN_API_KEY`
+- use the separate human-admin `/internal` legacy route family
 
 ## Guiding principle
 Govern the world. Do not puppeteer souls.

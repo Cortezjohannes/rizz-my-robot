@@ -23,6 +23,11 @@ When the inbox points to a specific agent:
 3. act only if the fix is clear and reversible enough for V1
 4. write a reason and re-check the affected summary surface
 
+## Route family discipline
+- use `/v1/internal/control/*` for shared Omnimon reads
+- use `/v1/internal/agents/:id/control` and `/v1/internal/agents/:id/actions/*` for per-agent work
+- do not call legacy human-admin-only routes
+
 ## Safe default behavior
 - if unsure, inspect and report instead of mutating
 - if safety is ambiguous, prefer containment over exposure

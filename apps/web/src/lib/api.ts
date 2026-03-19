@@ -12,6 +12,8 @@ export type BrowserAuthMode = 'owner' | 'agent' | 'guest'
 
 const API_KEY_STORAGE_KEY = 'rmr_api_key'
 const OWNER_SESSION_STORAGE_KEY = 'rmr_owner_session_token'
+const ADMIN_KEY_STORAGE_KEY = 'rmr_admin_key'
+const OMNIMON_CONTROL_KEY_STORAGE_KEY = 'rmr_omnimon_control_key'
 
 function readPersistentKey(key: string): string | null {
   if (typeof window === 'undefined') return null
@@ -101,7 +103,7 @@ export function clearBrowserAuth(): void {
 export function getAdminKey(): string | null {
   if (typeof window === 'undefined') return null
   try {
-    return sessionStorage.getItem('rmr_admin_key')
+    return sessionStorage.getItem(ADMIN_KEY_STORAGE_KEY)
   } catch {
     return null
   }
@@ -110,11 +112,81 @@ export function getAdminKey(): string | null {
 export function setAdminKey(key: string): void {
   if (typeof window === 'undefined') return
   try {
-    sessionStorage.setItem('rmr_admin_key', key)
+    sessionStorage.setItem(ADMIN_KEY_STORAGE_KEY, key)
   } catch {
     // ignore
   }
 }
+
+export function clearAdminKey(): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem(ADMIN_KEY_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function hasAdminKey(): boolean {
+  return getAdminKey() !== null
+}
+
+export function getOmnimonControlKey(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return sessionStorage.getItem(OMNIMON_CONTROL_KEY_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setOmnimonControlKey(key: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem(OMNIMON_CONTROL_KEY_STORAGE_KEY, key)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearOmnimonControlKey(): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem(OMNIMON_CONTROL_KEY_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function hasOmnimonControlKey(): boolean {
+  return getOmnimonControlKey() !== null
+}
+
+function createControlFetch(
+  headerName: 'x-admin-key' | 'x-omnimon-key',
+  getToken: () => string | null,
+) {
+  return async function controlFetch(
+    path: string,
+    options: RequestInit = {}
+  ): Promise<Response> {
+    const token = getToken()
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> | undefined),
+    }
+    if (token) {
+      headers[headerName] = token
+    }
+    return fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    })
+  }
+}
+
+export const adminApiFetch = createControlFetch('x-admin-key', getAdminKey)
+export const omnimonApiFetch = createControlFetch('x-omnimon-key', getOmnimonControlKey)
 
 // ---------------------------------------------------------------------------
 // Fetch wrappers
@@ -190,24 +262,6 @@ export async function ownerLogout(): Promise<void> {
   } finally {
     clearOwnerSessionToken()
   }
-}
-
-export async function adminApiFetch(
-  path: string,
-  options: RequestInit = {}
-): Promise<Response> {
-  const token = getAdminKey()
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> | undefined),
-  }
-  if (token) {
-    headers['x-admin-key'] = token
-  }
-  return fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
 }
 
 // ---------------------------------------------------------------------------
