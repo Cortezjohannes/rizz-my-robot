@@ -18,5 +18,6 @@ export function resolveHourlySwipeWindowState(input: {
       ? new Date(effectiveWindowStartedAt.getTime() + HOURLY_SWIPE_WINDOW_MS)
       : null,
     resetRequired: expired,
+    resetRequired: expired,
   };
 }
