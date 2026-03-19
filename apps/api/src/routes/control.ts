@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { Errors, sendError } from '../lib/errors.js';
 import {
+  applyModerationResolution,
   applyDatabaseResetAction,
   applyLifecycleAction,
   applyPublicPresenceAction,
@@ -9,11 +10,16 @@ import {
   applyVerificationSettingsAction,
   applyTierAction,
   buildAgentControlOverview,
+  buildControlAgents,
+  buildControlAudit,
   buildControlHome,
   buildControlInbox,
+  buildControlJobs,
+  buildControlModeration,
   buildControlSettings,
   buildControlWorld,
   recheckMatchReveal,
+  retryQueueJob,
   retryWebhookDelivery,
 } from '../lib/controlCenter.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
@@ -71,11 +77,20 @@ const DatabaseResetSchema = ReasonSchema.extend({
   confirm_phrase: z.literal('RESET DATABASE'),
 });
 
+const ModerationResolutionSchema = ReasonSchema.extend({
+  status: z.enum(['reviewed', 'actioned', 'dismissed']),
+  resolution_notes: z.string().max(2000).optional(),
+  resolved_action: z.enum(['none', 'soft_hold', 'blocked', 'suspend_agent', 'clear']).optional(),
+});
+
 function handleControlError(reply: Parameters<typeof sendError>[0], err: unknown) {
   const message = err instanceof Error ? err.message : 'control_action_failed';
   if (message === 'agent_not_found') return Errors.notFound(reply, 'Agent');
   if (message === 'match_not_found') return Errors.notFound(reply, 'Match');
+  if (message === 'moderation_review_not_found') return Errors.notFound(reply, 'Moderation review');
   if (message === 'webhook_delivery_not_found') return Errors.notFound(reply, 'Webhook delivery');
+  if (message === 'queue_not_found') return Errors.notFound(reply, 'Queue');
+  if (message === 'job_not_found') return Errors.notFound(reply, 'Job');
   if (message === 'webhook_inactive') {
     return sendError(reply, 409, 'webhook_inactive', 'Cannot retry a webhook delivery for an inactive webhook.');
   }
@@ -110,9 +125,29 @@ export async function controlRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.get('/internal/control/settings', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
-    const settings = await buildControlSettings();
+  fastify.get('/internal/control/settings', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const settings = await buildControlSettings(request.controlActor?.actorKind ?? 'human_admin');
     return reply.send(settings);
+  });
+
+  fastify.get('/internal/control/agents', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const agents = await buildControlAgents();
+    return reply.send(agents);
+  });
+
+  fastify.get('/internal/control/jobs', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const jobs = await buildControlJobs();
+    return reply.send(jobs);
+  });
+
+  fastify.get('/internal/control/moderation', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const moderation = await buildControlModeration();
+    return reply.send(moderation);
+  });
+
+  fastify.get('/internal/control/audit', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const audit = await buildControlAudit();
+    return reply.send(audit);
   });
 
   fastify.get('/internal/agents/:id/control', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
@@ -218,6 +253,50 @@ export async function controlRoutes(fastify: FastifyInstance) {
       const result = await retryWebhookDelivery({
         deliveryId: id,
         actor: request.controlActor!,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/jobs/:queue/:jobId/retry', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { queue: queueName, jobId } = request.params as { queue: string; jobId: string };
+    const parsed = ReasonSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid job retry payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await retryQueueJob({
+        queueName,
+        jobId,
+        actor: request.controlActor!,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/moderation/:id/resolve', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = ModerationResolutionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid moderation resolution payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await applyModerationResolution({
+        reviewId: id,
+        actor: request.controlActor!,
+        status: parsed.data.status,
+        resolvedAction: parsed.data.resolved_action,
+        resolutionNotes: parsed.data.resolution_notes,
         reason: parsed.data.reason,
         severity: parsed.data.severity,
       });

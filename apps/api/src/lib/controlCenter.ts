@@ -6,9 +6,11 @@ import { getVerificationRequirements, setVerificationRequirements, derivePoolSta
 import { backupAndResetDatabase } from './databaseReset.js';
 import {
   getDeliverWebhookQueue,
+  getNamedQueue,
   getQueueDiagnostics,
+  QUEUE_NAMES,
 } from './queues.js';
-import { evaluateRevealGate } from './safety.js';
+import { evaluateRevealGate, recomputeAndPersistAgentSafety } from './safety.js';
 import { resolveHourlySwipeWindowState } from './throughput.js';
 
 export type ControlSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -34,8 +36,28 @@ export type PublicPresenceAction =
   | 'set_leaderboard_visible'
   | 'set_feed_visible'
   | 'set_artifacts_visible';
+export type ModerationResolutionAction = 'none' | 'soft_hold' | 'blocked' | 'suspend_agent' | 'clear';
+
+export interface ControlCapabilities {
+  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'jobs' | 'moderation' | 'audit' | 'legacy_admin'>;
+  actions: {
+    can_manage_lifecycle: boolean;
+    can_reset_agent_state: boolean;
+    can_change_tiers: boolean;
+    can_manage_public_presence: boolean;
+    can_resolve_moderation: boolean;
+    can_retry_jobs: boolean;
+    can_retry_webhooks: boolean;
+    can_recheck_reveals: boolean;
+    can_manage_verification_policy: boolean;
+    can_reset_database: boolean;
+    can_access_legacy_admin_tools: boolean;
+  };
+}
 
 export interface ControlSettingsResponse {
+  actor_kind: ControlActorContext['actorKind'];
+  capabilities: ControlCapabilities;
   verification: {
     require_email_verification: boolean;
     require_x_verification: boolean;
@@ -64,6 +86,31 @@ export interface ControlActionResult {
   performed_at: string;
   before: Record<string, unknown>;
   after: Record<string, unknown>;
+}
+
+function getControlSurfaceName(actor: ControlActorContext): 'omnimon_control_center' | 'human_admin_surface' {
+  return actor.actorKind === 'omnimon' ? 'omnimon_control_center' : 'human_admin_surface';
+}
+
+export function buildControlCapabilities(actorKind: ControlActorContext['actorKind']): ControlCapabilities {
+  return {
+    read_panels: actorKind === 'human_admin'
+      ? ['home', 'inbox', 'world', 'settings', 'agents', 'jobs', 'moderation', 'audit', 'legacy_admin']
+      : ['home', 'inbox', 'world', 'settings', 'agents', 'jobs', 'moderation', 'audit'],
+    actions: {
+      can_manage_lifecycle: true,
+      can_reset_agent_state: true,
+      can_change_tiers: true,
+      can_manage_public_presence: true,
+      can_resolve_moderation: true,
+      can_retry_jobs: true,
+      can_retry_webhooks: true,
+      can_recheck_reveals: true,
+      can_manage_verification_policy: true,
+      can_reset_database: true,
+      can_access_legacy_admin_tools: actorKind === 'human_admin',
+    },
+  };
 }
 
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'grace_period'] as const;
@@ -748,10 +795,14 @@ export async function buildControlWorld() {
   };
 }
 
-export async function buildControlSettings(): Promise<ControlSettingsResponse> {
+export async function buildControlSettings(
+  actorKind: ControlActorContext['actorKind'],
+): Promise<ControlSettingsResponse> {
   const verification = await getVerificationRequirements();
 
   return {
+    actor_kind: actorKind,
+    capabilities: buildControlCapabilities(actorKind),
     verification: {
       require_email_verification: verification.requireEmailVerification,
       require_x_verification: verification.requireXVerification,
@@ -760,6 +811,148 @@ export async function buildControlSettings(): Promise<ControlSettingsResponse> {
       backup_storage_configured: Boolean(process.env.STORAGE_BUCKET),
       preserved_tables: ['_prisma_migrations', 'audit_logs', 'control_settings'],
     },
+  };
+}
+
+export async function buildControlAgents() {
+  const agents = await prisma.agent.findMany({
+    orderBy: { updatedAt: 'desc' },
+    take: 100,
+    select: {
+      id: true,
+      handle: true,
+      poolStatus: true,
+      moderationStatus: true,
+      safetyState: true,
+      safetyScore: true,
+      safetyFlags: true,
+      lastAutonomyRunAt: true,
+      nextAutonomyRunAt: true,
+      autonomyStatus: true,
+      socialGravityScore: true,
+      ownerAccount: { select: { humanIdentity: true, lookingFor: true } },
+    },
+  });
+
+  return {
+    agents: agents.map((agent) => ({
+      agent_id: agent.id,
+      handle: agent.handle,
+      pool_status: agent.poolStatus,
+      moderation_status: agent.moderationStatus,
+      safety_state: agent.safetyState,
+      safety_score: agent.safetyScore,
+      safety_flags: agent.safetyFlags,
+      last_autonomy_run_at: agent.lastAutonomyRunAt?.toISOString() ?? null,
+      next_autonomy_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
+      autonomy_status: agent.autonomyStatus,
+      social_gravity_score: agent.socialGravityScore,
+      human_identity: agent.ownerAccount?.humanIdentity ?? null,
+      looking_for: agent.ownerAccount?.lookingFor ?? [],
+    })),
+  };
+}
+
+export async function buildControlJobs() {
+  const [queues, failedWebhookDeliveries, failedJobs] = await Promise.all([
+    getQueueDiagnostics(),
+    prisma.webhookDelivery.findMany({
+      where: { status: 'failed' },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    }),
+    Promise.all(
+      Object.values(QUEUE_NAMES).map(async (queueName) => {
+        const queue = getNamedQueue(queueName);
+        if (!queue) return { queue: queueName, jobs: [] };
+        try {
+          const jobs = await queue.getJobs(['failed'], 0, 4, false);
+          return {
+            queue: queueName,
+            jobs: jobs.map((job) => ({
+              id: job.id,
+              name: job.name,
+              failedReason: job.failedReason,
+              timestamp: job.timestamp,
+              attemptsMade: job.attemptsMade,
+            })),
+          };
+        } catch {
+          return { queue: queueName, jobs: [] };
+        }
+      }),
+    ),
+  ]);
+
+  return {
+    queues,
+    failed_webhook_deliveries: failedWebhookDeliveries.map((delivery) => ({
+      id: delivery.id,
+      event: delivery.event,
+      status: delivery.status,
+      agentId: delivery.agentId,
+      createdAt: delivery.createdAt.toISOString(),
+      errorMessage: delivery.errorMessage,
+    })),
+    failed_jobs: failedJobs,
+  };
+}
+
+export async function buildControlModeration() {
+  const reviews = await prisma.moderationReview.findMany({
+    where: { status: 'pending' },
+    orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+    take: 25,
+    include: {
+      agent: {
+        select: {
+          handle: true,
+          safetyState: true,
+          safetyScore: true,
+        },
+      },
+    },
+  });
+
+  return {
+    reviews: reviews.map((review) => ({
+      review_id: review.id,
+      target_type: review.targetType,
+      target_id: review.targetId,
+      priority: review.priority,
+      reason_code: review.reasonCode,
+      summary: review.summary,
+      safety_state: review.safetyState,
+      status: review.status,
+      created_at: review.createdAt.toISOString(),
+      agent: review.agent
+        ? {
+            handle: review.agent.handle,
+            safety_state: review.agent.safetyState,
+            safety_score: review.agent.safetyScore,
+          }
+        : null,
+    })),
+  };
+}
+
+export async function buildControlAudit() {
+  const logs = await prisma.auditLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  return {
+    logs: logs.map((log) => ({
+      id: log.id,
+      actor_type: log.actorType,
+      actor_id: log.actorId,
+      action: log.action,
+      target_type: log.targetType,
+      target_id: log.targetId,
+      payload: log.payload as Record<string, unknown> | null,
+      created_at: log.createdAt.toISOString(),
+    })),
   };
 }
 
@@ -968,7 +1161,7 @@ export async function applyLifecycleAction(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
     agentId: input.agentId,
   });
 
@@ -1089,7 +1282,7 @@ export async function applyResetAction(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
     agentId: input.agentId,
   });
 
@@ -1129,7 +1322,7 @@ export async function applyTierAction(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
     agentId: input.agentId,
   });
 
@@ -1192,7 +1385,7 @@ export async function applyPublicPresenceAction(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
     agentId: input.agentId,
   });
 
@@ -1278,7 +1471,7 @@ export async function retryWebhookDelivery(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
     agentId: delivery.agentId,
   });
 
@@ -1350,13 +1543,202 @@ export async function recheckMatchReveal(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
   });
 
   return buildActionResult({
     actor: input.actor,
     targetType: 'match',
     targetId: input.matchId,
+    before,
+    after,
+  });
+}
+
+export async function retryQueueJob(input: {
+  queueName: string;
+  jobId: string;
+  actor: ControlActorContext;
+  reason: string;
+  severity?: ControlSeverity;
+}) {
+  const queue = getNamedQueue(input.queueName);
+  if (!queue) throw new Error('queue_not_found');
+
+  const job = await queue.getJob(input.jobId);
+  if (!job) throw new Error('job_not_found');
+
+  const before = {
+    queue: input.queueName,
+    job_id: input.jobId,
+    name: job.name,
+    failed_reason: job.failedReason ?? null,
+    attempts_made: job.attemptsMade,
+  };
+
+  await job.retry();
+
+  const after = {
+    queue: input.queueName,
+    job_id: input.jobId,
+    status: 'retried',
+  };
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: 'control.jobs.retry',
+    targetType: 'queue_job',
+    targetId: `${input.queueName}:${input.jobId}`,
+    reason: input.reason,
+    severity: input.severity,
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+  });
+
+  return buildActionResult({
+    actor: input.actor,
+    targetType: 'queue_job',
+    targetId: `${input.queueName}:${input.jobId}`,
+    before,
+    after,
+  });
+}
+
+export async function applyModerationResolution(input: {
+  reviewId: string;
+  actor: ControlActorContext;
+  status: 'reviewed' | 'actioned' | 'dismissed';
+  resolvedAction?: ModerationResolutionAction;
+  resolutionNotes?: string | null;
+  reason: string;
+  severity?: ControlSeverity;
+}) {
+  const review = await prisma.moderationReview.findUnique({
+    where: { id: input.reviewId },
+    select: {
+      id: true,
+      targetType: true,
+      targetId: true,
+      agentId: true,
+      matchId: true,
+      status: true,
+      resolvedAction: true,
+      resolutionNotes: true,
+      resolvedAt: true,
+      resolvedBy: true,
+      reasonCode: true,
+    },
+  });
+  if (!review) throw new Error('moderation_review_not_found');
+
+  const before = {
+    review_id: review.id,
+    status: review.status,
+    resolved_action: review.resolvedAction,
+    resolution_notes: review.resolutionNotes,
+    resolved_at: review.resolvedAt?.toISOString() ?? null,
+    resolved_by: review.resolvedBy ?? null,
+  };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.moderationReview.update({
+      where: { id: input.reviewId },
+      data: {
+        status: input.status,
+        resolvedAction: input.resolvedAction ?? 'none',
+        resolutionNotes: input.resolutionNotes ?? null,
+        resolvedAt: new Date(),
+        resolvedBy: input.actor.actorId,
+      },
+    });
+
+    if (review.agentId) {
+      if (input.resolvedAction === 'suspend_agent') {
+        await tx.agent.update({
+          where: { id: review.agentId },
+          data: {
+            moderationStatus: 'suspended',
+            poolStatus: 'paused',
+            suspensionReason: input.resolutionNotes ?? `Suspended from moderation review ${review.id}`,
+            safetyState: 'blocked',
+          },
+        });
+      }
+      if (input.resolvedAction === 'clear') {
+        await tx.agent.update({
+          where: { id: review.agentId },
+          data: {
+            safetyState: 'clear',
+            safetyFlags: { set: [] },
+            lastSafetyReviewAt: new Date(),
+          },
+        });
+      }
+    }
+
+    if (review.matchId) {
+      await tx.match.update({
+        where: { id: review.matchId },
+        data: input.resolvedAction === 'clear'
+          ? {
+              revealSafetyState: 'clear',
+              revealHoldReason: null,
+              revealReviewRequired: false,
+            }
+          : input.resolvedAction === 'blocked'
+            ? {
+                revealSafetyState: 'blocked',
+                revealHoldReason: input.resolutionNotes ?? review.reasonCode,
+                revealReviewRequired: true,
+              }
+            : {},
+      });
+    }
+  });
+
+  if (review.agentId && input.resolvedAction !== 'clear') {
+    await recomputeAndPersistAgentSafety(review.agentId).catch(() => null);
+  }
+
+  const updated = await prisma.moderationReview.findUnique({
+    where: { id: input.reviewId },
+    select: {
+      id: true,
+      status: true,
+      resolvedAction: true,
+      resolutionNotes: true,
+      resolvedAt: true,
+      resolvedBy: true,
+    },
+  });
+
+  const after = {
+    review_id: updated?.id ?? input.reviewId,
+    status: updated?.status ?? input.status,
+    resolved_action: updated?.resolvedAction ?? input.resolvedAction ?? 'none',
+    resolution_notes: updated?.resolutionNotes ?? input.resolutionNotes ?? null,
+    resolved_at: updated?.resolvedAt?.toISOString() ?? null,
+    resolved_by: updated?.resolvedBy ?? input.actor.actorId,
+  };
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: 'control.moderation.resolve',
+    targetType: review.targetType,
+    targetId: review.targetId,
+    agentId: review.agentId ?? null,
+    reason: input.reason,
+    severity: input.severity,
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+  });
+
+  return buildActionResult({
+    actor: input.actor,
+    targetType: 'moderation_review',
+    targetId: input.reviewId,
     before,
     after,
   });
@@ -1394,7 +1776,7 @@ export async function applyVerificationSettingsAction(input: {
     severity: input.severity,
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
   });
 
   return buildActionResult({
@@ -1438,7 +1820,7 @@ export async function applyDatabaseResetAction(input: {
     severity: input.severity ?? 'critical',
     before,
     after,
-    controlSurface: 'omnimon_control_center',
+    controlSurface: getControlSurfaceName(input.actor),
   });
 
   return {

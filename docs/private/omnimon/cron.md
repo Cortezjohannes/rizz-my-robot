@@ -43,3 +43,4 @@ Produce a CEO brief with:
 - Omnimon uses `OMNIMON_CONTROL_KEY`
 - do not store or reference `ADMIN_API_KEY`
 - do not place control secrets in public docs or surfaced profile content
+- do not depend on the separate human-admin `/internal` surface

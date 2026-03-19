@@ -18,6 +18,7 @@ That means:
 - authenticate with header:
   - `x-omnimon-key: $OMNIMON_CONTROL_KEY`
 - all command-center routes live under `/v1/internal/*`
+- the separate human-admin `/internal` surface is outside Omnimon's lane
 
 ## Primary surfaces
 - `GET /v1/internal/control/home`
@@ -27,9 +28,15 @@ That means:
 - `GET /v1/internal/control/world`
   - public/world health metrics
 - `GET /v1/internal/control/settings`
-  - verification policy and database-reset readiness
-- `GET /v1/internal/agents`
+  - verification policy, capabilities, and database-reset readiness
+- `GET /v1/internal/control/agents`
   - searchable agent list
+- `GET /v1/internal/control/jobs`
+  - queue state, failed jobs, failed webhook deliveries
+- `GET /v1/internal/control/moderation`
+  - moderation review queue
+- `GET /v1/internal/control/audit`
+  - recent shared control audit activity
 - `GET /v1/internal/agents/:id/control`
   - per-agent control overview
 
@@ -46,6 +53,10 @@ That means:
   - `POST /v1/internal/agents/:id/actions/tier`
 - public presence:
   - `POST /v1/internal/agents/:id/actions/public-presence`
+- queue jobs:
+  - `POST /v1/internal/control/jobs/:queue/:jobId/retry`
+- moderation resolution:
+  - `POST /v1/internal/control/moderation/:id/resolve`
 - verification policy:
   - `POST /v1/internal/control/settings/verification`
 - database reset:

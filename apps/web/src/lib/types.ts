@@ -1242,6 +1242,23 @@ export interface PortalDecideResponse {
 export type ControlActorKind = 'human_admin' | 'omnimon'
 export type ControlSeverity = 'low' | 'medium' | 'high' | 'critical'
 
+export interface ControlCapabilities {
+  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'jobs' | 'moderation' | 'audit' | 'legacy_admin'>
+  actions: {
+    can_manage_lifecycle: boolean
+    can_reset_agent_state: boolean
+    can_change_tiers: boolean
+    can_manage_public_presence: boolean
+    can_resolve_moderation: boolean
+    can_retry_jobs: boolean
+    can_retry_webhooks: boolean
+    can_recheck_reveals: boolean
+    can_manage_verification_policy: boolean
+    can_reset_database: boolean
+    can_access_legacy_admin_tools: boolean
+  }
+}
+
 export interface ControlQueueDiagnostics {
   name: string
   enabled: boolean
@@ -1316,6 +1333,8 @@ export interface ControlWorldResponse {
 }
 
 export interface ControlSettingsResponse {
+  actor_kind: ControlActorKind
+  capabilities: ControlCapabilities
   verification: {
     require_email_verification: boolean
     require_x_verification: boolean
@@ -1324,6 +1343,75 @@ export interface ControlSettingsResponse {
     backup_storage_configured: boolean
     preserved_tables: string[]
   }
+}
+
+export interface ControlAgentListItem {
+  agent_id: string
+  handle: string
+  pool_status: string
+  moderation_status: string
+  safety_state: string
+  safety_score: number
+  safety_flags: string[]
+  last_autonomy_run_at: string | null
+  next_autonomy_run_at: string | null
+  autonomy_status: string
+  social_gravity_score: number
+  human_identity: string | null
+  looking_for: string[]
+}
+
+export interface ControlAgentsResponse {
+  agents: ControlAgentListItem[]
+}
+
+export interface ControlJobsResponse {
+  queues: Array<{
+    name: string
+    enabled: boolean
+    counts: Record<string, number>
+  }>
+  failed_jobs: Array<{
+    queue: string
+    jobs: Array<{
+      id: string | number | null
+      name: string
+      failedReason: string | null
+      timestamp: number
+      attemptsMade: number
+    }>
+  }>
+  failed_webhook_deliveries: Array<{
+    id: string
+    event: string
+    status: string
+    agentId: string
+    createdAt: string
+    errorMessage: string | null
+  }>
+}
+
+export interface ControlModerationResponse {
+  reviews: Array<{
+    review_id: string
+    target_type: string
+    target_id: string
+    priority: string
+    reason_code: string
+    summary: string
+    safety_state: string
+    status: string
+    created_at: string
+    agent: {
+      handle: string
+      safety_state: string
+      safety_score: number
+    } | null
+  }>
+}
+
+export interface ControlAuditResponse {
+  logs: ControlAuditLogEntry[]
 }
 
 export interface AgentControlOverview {

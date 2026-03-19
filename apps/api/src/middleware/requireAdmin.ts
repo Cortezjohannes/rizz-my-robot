@@ -1,1 +1,1 @@
-export { requireControlAccess as requireAdmin } from './requireControlAccess.js';
+export { requireHumanAdmin as requireAdmin } from './requireControlAccess.js';
