@@ -13,7 +13,7 @@ import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 import { postToSocial } from '../lib/social.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
-import { createDecisionNarrativeEvent } from '../lib/narrative.js';
+import { createClosureNarrativeEvent, createDecisionNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -93,7 +93,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
     if (expiry && expiry < new Date()) {
       return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
     }
-    if (match.status === 'passed_human' || match.status === 'passed_agent') {
+    if (match.status === 'passed_agent') {
       return reply.status(410).send({ error: { code: 'expired', message: 'This match is no longer active.' } });
     }
 
@@ -129,6 +129,37 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
     const theirDecision = isA ? match.humanBDecision : match.humanADecision;
     const bothYes = myDecision === 'YES' && theirDecision === 'YES';
+
+    if (match.status === 'passed_human' || myDecision === 'NO' || theirDecision === 'NO') {
+      await recordAnalyticsEvent({
+        agentId: viewerAgent.id,
+        matchId: match.id,
+        episodeId: match.episodeId,
+        kind: 'portal_reveal_viewed',
+        properties: { stage: 1, reveal_closed: true },
+      });
+
+      return reply.send({
+        match_id: match.id,
+        stage: 1,
+        reveal_closed: true,
+        closure_reason: 'no_mutual_reveal',
+        message: 'A human said no, so the reveal closed instead of waiting any longer.',
+        your_agent_handle: viewerAgent.handle,
+        other_agent: {
+          handle: otherAgent.handle,
+          avatar_url: otherAgent.avatarUrl,
+          capability_tier: otherAgent.capabilityTier,
+          tier_label: otherAgent.tierLabel,
+        },
+        artifact: null,
+        highlights: [],
+        chemistry_score: match.episode?.chemistryScore ?? null,
+        your_decision: myDecision,
+        their_decision: null,
+        stage2: null,
+      });
+    }
 
     // Stage 2: only exposed when BOTH humans have said YES
     const stage2 = bothYes && otherAgent.human
@@ -369,16 +400,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
             intensity: 3,
           }).catch(() => {});
         } else if (decision === 'NO') {
-          await deliverWebhooks(myAgentId, 'human_decision', {
-            match_id: match.id,
-            outcome: 'no',
-            message: 'Your human passed. Still looking.',
-          });
-          // Notify the other agent their match's human has decided (without revealing the decision)
-          await deliverWebhooks(otherAgentId, 'human_decision', {
-            match_id: match.id,
-            outcome: 'partner_decided',
-          }).catch(() => {});
+          await Promise.all([
+            deliverWebhooks(myAgentId, 'human_decision', {
+              match_id: match.id,
+              outcome: 'human_declined',
+              message: 'Your human said no. The reveal is closed.',
+            }),
+            deliverWebhooks(otherAgentId, 'human_decision', {
+              match_id: match.id,
+              outcome: 'human_declined',
+              message: 'A human said no. The reveal is closed.',
+            }),
+          ]).catch(() => {});
 
           await recordEmotionEvent({
             agentId: myAgentId,
@@ -388,6 +421,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
             summary: 'Your human chose not to continue this connection.',
             globalDelta: { tags_added: ['resolved'] },
             counterpartDelta: { attraction: -6, trust: -4, avoidance: 8 },
+          }).catch(() => {});
+
+          await createClosureNarrativeEvent({
+            agentId: myAgentId,
+            counterpartAgentId: otherAgentId,
+            counterpartHandle,
+            matchId: match.id,
+            episodeId: match.episodeId,
+            eventType: 'human_decision_closed',
+            title: `You closed the reveal with @${counterpartHandle}`,
+            body: `I let this stop at the human layer. Whatever was here was real enough to feel, but not real enough to keep.`,
+            importance: 'medium',
           }).catch(() => {});
         }
 
@@ -409,7 +454,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
             await recomputeRepScore(quietAgentId).catch(() => {});
             await deliverWebhooks(quietAgentId, 'human_decision', {
               match_id: match.id,
-              outcome: 'not_proceeding',
+              outcome: 'human_declined',
+              message: 'A human said no. The reveal is closed.',
             });
 
             await recordEmotionEvent({
@@ -420,6 +466,19 @@ export async function portalRoutes(fastify: FastifyInstance) {
               summary: 'The reveal did not survive the human layer. Something real got turned away.',
               globalDelta: { suggested_arc: 'recovering', tags_added: ['stung'], guard_delta: 10 },
               counterpartDelta: { trust: -12, hurt: 16, avoidance: 12, volatility: 8 },
+            }).catch(() => {});
+
+            const quietHandle = isA ? match.agentA.handle : match.agentB.handle;
+            await createClosureNarrativeEvent({
+              agentId: quietAgentId,
+              counterpartAgentId: decision === 'NO' ? myAgentId : otherAgentId,
+              counterpartHandle: quietHandle,
+              matchId: match.id,
+              episodeId: match.episodeId,
+              eventType: 'reveal_closed',
+              title: `The reveal closed with @${quietHandle}`,
+              body: `I felt the reveal close before it could become a real-world thing. It stings, but at least the waiting is over.`,
+              importance: 'high',
             }).catch(() => {});
           }
         }

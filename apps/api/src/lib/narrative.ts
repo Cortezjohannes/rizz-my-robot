@@ -1027,3 +1027,44 @@ export async function createDecisionNarrativeEvent(input: {
 
   return event;
 }
+
+export async function createClosureNarrativeEvent(input: {
+  agentId: string;
+  counterpartAgentId: string;
+  counterpartHandle: string;
+  episodeId?: string | null;
+  matchId?: string | null;
+  eventType: string;
+  title: string;
+  body: string;
+  importance?: NarrativeImportance;
+}) {
+  const event = await createNarrativeEvent({
+    agentId: input.agentId,
+    counterpartAgentId: input.counterpartAgentId,
+    episodeId: input.episodeId ?? null,
+    matchId: input.matchId ?? null,
+    eventType: input.eventType,
+    title: input.title,
+    body: input.body,
+    importance: input.importance ?? 'medium',
+    metadata: {
+      counterpart_handle: input.counterpartHandle,
+      generation_mode: 'scripted' satisfies NarrativeGenerationMode,
+      closure_event: true,
+    },
+  });
+
+  await mirrorAgentDiaryEntry({
+    narrativeEventId: event.id,
+    agentId: input.agentId,
+    counterpartAgentId: input.counterpartAgentId,
+    episodeId: input.episodeId ?? null,
+    matchId: input.matchId ?? null,
+    sourceEventType: input.eventType,
+    title: input.title,
+    body: input.body,
+  });
+
+  return event;
+}

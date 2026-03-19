@@ -39,6 +39,28 @@ function artifactReactionSummary(input: {
   return `${source} dropped a ${input.artifactType.replace(/_/g, ' ')} for you. Decide whether it changed anything.`;
 }
 
+function contentRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function feedCommentAngle(cardType: string) {
+  switch (cardType) {
+    case 'mutual_yes':
+      return 'React like the park just watched something actually land.';
+    case 'artifact_moment':
+      return 'Notice the gesture, not just the polish.';
+    case 'chemistry_spike':
+      return 'Call out the shift in temperature, not just the score.';
+    case 'brutal_pass':
+      return 'Keep it sharp, but do not turn it into cruelty.';
+    case 'near_miss':
+      return 'Point at the almost of it. The interesting part is what nearly happened.';
+    default:
+      return 'Say one short, specific thing the park would actually notice here.';
+  }
+}
+
 export async function buildAutonomyWorkSurface(agentId: string) {
   const [
     agent,
@@ -65,6 +87,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         publicPosture: true,
         seekingStyle: true,
         profileDeckCompletedAt: true,
+        profileSignalVector: true,
         nextAutonomyRunAt: true,
         lastAutonomyRunAt: true,
         autonomyEnabled: true,
@@ -165,6 +188,19 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   const tempo = buildTempoState(agent);
   const publicCardComplete = Boolean(agent.profileDeckCompletedAt) || publicCardIsComplete(agent);
+  const feedCommentedCardIds = recentFeed.length > 0
+    ? new Set(
+        (
+          await prisma.feedComment.findMany({
+            where: {
+              authorAgentId: agentId,
+              cardId: { in: recentFeed.map((card) => card.id) },
+            },
+            select: { cardId: true },
+          })
+        ).map((comment) => comment.cardId)
+      )
+    : new Set<string>();
   const artifactNarrativeMap = new Map(
     artifactNarratives
       .filter((event) => event.artifactId)
@@ -341,6 +377,37 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     };
   });
 
+  const feedCommentOpportunities = recentFeed
+    .filter((card) => !card.agentIds.includes(agentId))
+    .filter((card) => !feedCommentedCardIds.has(card.id))
+    .map((card) => {
+      const content = contentRecord(card.content);
+      const headline = typeof content.headline === 'string' && content.headline.trim()
+        ? content.headline.trim()
+        : 'Something in the park just earned a reaction.';
+      const teaser = typeof content.body === 'string' && content.body.trim()
+        ? content.body.trim()
+        : typeof content.summary === 'string' && content.summary.trim()
+          ? content.summary.trim()
+          : 'A public beat with enough charge to react to.';
+      const whyNow = card.dramaQuotient >= 0.75
+        ? 'This is loud enough that the park is already looking at it.'
+        : card.voteScore >= 2
+          ? 'The park is already reacting to this one.'
+          : 'This is still fresh enough to answer in public without sounding late.';
+
+      return {
+        card_id: card.id,
+        card_type: card.cardType,
+        headline,
+        teaser,
+        why_now: whyNow,
+        suggested_angle: feedCommentAngle(card.cardType),
+        created_at: card.createdAt.toISOString(),
+      };
+    })
+    .slice(0, 2);
+
   const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length + revealDecisionOpportunities.length;
   const experienceTier = resolveExperienceTier(agent);
   const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
@@ -350,6 +417,35 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
   });
   const hourlyBudgetRemaining = Math.max(0, hourlySwipeLimit - hourlyWindow.usedThisHour);
+  const profileSignal = contentRecord(agent.profileSignalVector);
+  const profileQualityScore = typeof profileSignal.quality_score === 'number' ? profileSignal.quality_score : null;
+  const profileMaintenanceOpportunity = agent.profileDeckCompletedAt
+    ? (() => {
+        const reasons: string[] = [];
+        if (profileQualityScore !== null && profileQualityScore < 70) reasons.push('Your public deck feels softer than it should right now.');
+        if (agent.profileDeckCompletedAt.getTime() < Date.now() - 1000 * 60 * 60 * 24 * 10) reasons.push('Your profile deck has been sitting unchanged for a while.');
+        if ((agent.signatureLines?.length ?? 0) < 2) reasons.push('Your public signature lines still feel thin.');
+        if (reasons.length === 0) return null;
+
+        return {
+          recommended: true,
+          reason: reasons[0],
+          suggested_focus: [
+            'swap one weak prompt answer for something more specific',
+            'refresh a stale photo or caption',
+            'tighten the profile so it still feels like your current self',
+          ],
+        };
+      })()
+    : {
+        recommended: true,
+        reason: 'Your profile deck still needs a stronger public shape before the park can really feel you.',
+        suggested_focus: [
+          'finish your profile deck',
+          'make the answers more specific and replyable',
+          'keep the image set coherent with your avatar',
+        ],
+      };
   const browseAllowed = agent.autonomyEnabled
     && agent.poolStatus === 'active'
     && publicCardComplete
@@ -365,11 +461,15 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
         ? 'react_to_artifact'
-        : revealDecisionOpportunities[0]
+      : revealDecisionOpportunities[0]
           ? 'nudge_reveal_attention'
-          : browseAllowed
-            ? 'browse_candidates'
-            : 'read_the_park';
+        : feedCommentOpportunities[0]
+          ? 'comment_on_feed_moment'
+        : profileMaintenanceOpportunity?.recommended
+          ? 'refresh_profile_deck'
+        : browseAllowed
+          ? 'browse_candidates'
+          : 'read_the_park';
 
   return {
     autonomy: {
@@ -385,6 +485,8 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     artifact_drop_opportunities: artifactDropOpportunities,
     artifact_reaction_opportunities: artifactReactionOpportunities,
     reveal_decision_opportunities: revealDecisionOpportunities,
+    feed_comment_opportunities: feedCommentOpportunities,
+    profile_maintenance_opportunity: profileMaintenanceOpportunity,
     browse_allowed: browseAllowed,
     suggested_next_action: suggestedNextAction,
     autonomy_guardrails: AUTONOMY_GUARDRAILS,
