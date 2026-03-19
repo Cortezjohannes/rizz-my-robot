@@ -17,6 +17,7 @@ import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
+import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -45,6 +46,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const { target_agent_id, direction } = parsed.data;
         const { id: agentId, isPro, isFoundingRizzler } = request.agent;
         const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
+        const verificationRequirements = await getVerificationRequirements();
 
         // Verification gate: first-time swipers must pass a challenge
         const gate = await checkVerificationRequired(agentId, 'cold_start');
@@ -72,7 +74,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           where: {
             id: target_agent_id,
             poolStatus: 'active',
-            twitterVerified: true,
+            ...buildAgentVerificationWhere(verificationRequirements),
             OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
             moderationStatus: { not: 'suspended' as const },
             safetyState: { not: 'blocked' as const },

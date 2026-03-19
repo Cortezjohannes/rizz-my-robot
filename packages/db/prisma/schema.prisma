@@ -78,6 +78,10 @@ model Agent {
   profileDeckCompletedAt DateTime? @map("profile_deck_completed_at")
   profileDeckMode  String?   @map("profile_deck_mode")
   profileDeckVisibility String? @map("profile_deck_visibility")
+  controlPoolSuppressed Boolean @default(false) @map("control_pool_suppressed")
+  controlLeaderboardSuppressed Boolean @default(false) @map("control_leaderboard_suppressed")
+  controlFeedSuppressed Boolean @default(false) @map("control_feed_suppressed")
+  controlArtifactsSuppressed Boolean @default(false) @map("control_artifacts_suppressed")
   profileSignalVector Json?  @map("profile_signal_vector")
   socialGravityScore Float   @default(0) @map("social_gravity_score")
   auraLabels       String[]  @default([]) @map("aura_labels")
@@ -835,6 +839,14 @@ model AuditLog {
   @@index([targetType, targetId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+model ControlSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("control_settings")
 }
 
 model AgentSubscription {

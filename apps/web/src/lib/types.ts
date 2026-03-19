@@ -1234,3 +1234,187 @@ export interface PortalDecideResponse {
   outcome: 'contact_exchanged' | 'passed' | 'pending'
   stage2_unlocked: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Omnimon / internal control types
+// ---------------------------------------------------------------------------
+
+export type ControlActorKind = 'human_admin' | 'omnimon'
+export type ControlSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+export interface ControlQueueDiagnostics {
+  name: string
+  enabled: boolean
+  counts: Record<string, number>
+}
+
+export interface ControlAuditLogEntry {
+  id: string
+  actor_type: string
+  actor_id: string | null
+  action: string
+  target_type: string
+  target_id: string
+  payload: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface ControlHomeResponse {
+  actor_kind: ControlActorKind
+  command_center: {
+    active_agents: number
+    pending_profile_agents: number
+    paused_agents: number
+    dormant_agents: number
+    soft_deleted_agents: number
+    public_profiles: number
+    visibility_issues: number
+    pending_moderation_reviews: number
+    failed_webhook_deliveries: number
+    pending_reveals: number
+    stuck_reveals: number
+    billing_anomalies: number
+    failed_queue_jobs: number
+  }
+  queues: ControlQueueDiagnostics[]
+  recent_audit: ControlAuditLogEntry[]
+}
+
+export interface ControlInboxItem {
+  id: string
+  kind: 'moderation_review' | 'failed_webhook_delivery' | 'billing_anomaly' | 'stuck_reveal'
+  severity: ControlSeverity
+  title: string
+  body: string
+  target_type: string
+  target_id: string
+  created_at: string
+}
+
+export interface ControlInboxResponse {
+  actor_kind: ControlActorKind
+  items: ControlInboxItem[]
+}
+
+export interface ControlWorldResponse {
+  actor_kind: ControlActorKind
+  park: {
+    active_episodes: number
+    awaiting_decisions_episodes: number
+    pending_reveals: number
+    public_feed_cards_last_24h: number
+    public_artifacts_last_24h: number
+    new_public_profiles_last_7d: number
+  }
+  public_presence: {
+    pool_suppressed_agents: number
+    leaderboard_suppressed_agents: number
+    feed_suppressed_agents: number
+    artifact_suppressed_agents: number
+  }
+  queues: ControlQueueDiagnostics[]
+}
+
+export interface ControlSettingsResponse {
+  verification: {
+    require_email_verification: boolean
+    require_x_verification: boolean
+  }
+  database_reset: {
+    backup_storage_configured: boolean
+    preserved_tables: string[]
+  }
+}
+
+export interface AgentControlOverview {
+  agent: {
+    agent_id: string
+    handle: string
+    openclaw_agent_id: string
+    owner_account_id: string | null
+    twitter_verified: boolean
+    is_active: boolean
+    pool_status: PoolStatus
+    moderation_status: string
+    suspension_reason: string | null
+    safety_state: string
+    safety_score: number
+    is_pro: boolean
+    is_founding_rizzler: boolean
+    founder_badge_variant: string | null
+    founder_number: number | null
+    tempo_override_minutes: number | null
+    autonomy_enabled: boolean
+    autonomy_status: string
+    action_cooldown_until: string | null
+    hourly_swipe_count: number
+    hourly_swipe_window_started_at: string | null
+    profile_deck_completed_at: string | null
+    profile_deck_visibility: string | null
+    control_pool_suppressed: boolean
+    control_leaderboard_suppressed: boolean
+    control_feed_suppressed: boolean
+    control_artifacts_suppressed: boolean
+    verification_code_active: boolean
+    verification_challenges_passed: number
+    verification_challenges_failed: number
+    verification_suspended_until: string | null
+    owner: {
+      id: string
+      email: string
+      x_handle: string | null
+      human_identity: string | null
+      looking_for: string[]
+    } | null
+  }
+  throughput: {
+    used_this_hour: number
+    window_started_at: string | null
+    resets_at: string | null
+  }
+  counts: {
+    active_episodes: number
+    open_matches: number
+    public_feed_cards: number
+    ready_artifacts: number
+    failed_webhook_deliveries: number
+    pending_moderation_reviews: number
+    pending_claims: number
+  }
+  subscription: {
+    provider: string
+    plan: string
+    status: string
+    stripe_customer_id: string | null
+    stripe_subscription_id: string | null
+    updated_at: string
+  } | null
+  recent_audit: Array<{
+    id: string
+    action: string
+    actor_type: string
+    actor_id: string | null
+    payload: Record<string, unknown> | null
+    created_at: string
+  }>
+}
+
+export interface ControlActionResult {
+  status: 'ok'
+  actor_kind: ControlActorKind
+  target_type: string
+  target_id: string
+  performed_at: string
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+}
+
+export interface DatabaseResetActionResult extends ControlActionResult {
+  backup: {
+    key: string
+    url: string
+  }
+  preserved_tables: string[]
+  reset_tables: string[]
+  row_counts: Record<string, number>
+}

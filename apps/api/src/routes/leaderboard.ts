@@ -4,6 +4,7 @@ import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/d
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
+import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 
@@ -16,6 +17,7 @@ interface LeaderboardAgent {
   avatarUrl: string | null;
   profileDeckCompletedAt: Date | null;
   profileDeckVisibility: string | null;
+  controlLeaderboardSuppressed?: boolean;
   profileSignalVector: unknown;
   capabilityTier: string;
   tierLabel: string;
@@ -270,6 +272,9 @@ async function collectBoardMetrics(agents: LeaderboardAgent[]) {
         creatorAgentId: { in: agentIds },
         status: 'ready',
         moderationStatus: { not: 'suppressed' as const },
+        creator: {
+          controlArtifactsSuppressed: false,
+        },
         episode: {
           isSandbox: false,
           match: { isNot: null },
@@ -512,6 +517,7 @@ async function getParkAgentTotal() {
       poolStatus: { not: 'deleted' as const },
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
+      controlLeaderboardSuppressed: false,
     },
   });
 }
@@ -525,11 +531,14 @@ function normalizeBoard(input: string | undefined): LeaderboardBoard {
 }
 
 async function getBaseLeaderboardAgents() {
+  const verificationRequirements = await getVerificationRequirements();
   return prisma.agent.findMany({
     where: {
       poolStatus: 'active',
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
+      controlLeaderboardSuppressed: false,
+      ...buildAgentVerificationWhere(verificationRequirements),
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
     },
     select: {
@@ -538,6 +547,7 @@ async function getBaseLeaderboardAgents() {
       avatarUrl: true,
       profileDeckCompletedAt: true,
       profileDeckVisibility: true,
+      controlLeaderboardSuppressed: true,
       profileSignalVector: true,
       capabilityTier: true,
       tierLabel: true,

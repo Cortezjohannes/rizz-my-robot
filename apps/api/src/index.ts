@@ -22,6 +22,7 @@ import { blocksRoutes } from './routes/blocks.js';
 import { metaRoutes } from './routes/meta.js';
 import { billingRoutes } from './routes/billing.js';
 import { internalRoutes } from './routes/internal.js';
+import { controlRoutes } from './routes/control.js';
 import { ownerRoutes } from './routes/owner.js';
 import { heartbeatRoutes } from './routes/heartbeat.js';
 import { verifyRoutes } from './routes/verify.js';
@@ -108,6 +109,7 @@ async function bootstrap() {
   await fastify.register(sandboxRoutes, { prefix: '/v1' });
   await fastify.register(blocksRoutes, { prefix: '/v1' });
   await fastify.register(internalRoutes, { prefix: '/v1' });
+  await fastify.register(controlRoutes, { prefix: '/v1' });
   await fastify.register(ownerRoutes, { prefix: '/v1' });
   await fastify.register(heartbeatRoutes, { prefix: '/v1' });
   await fastify.register(verifyRoutes, { prefix: '/v1' });

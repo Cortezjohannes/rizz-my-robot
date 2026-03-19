@@ -50,6 +50,7 @@ type FeedAgentRow = {
   founderBadgeVariant?: string | null;
   moderationStatus?: string;
   safetyState?: string;
+  controlFeedSuppressed?: boolean;
   profileSignalVector?: unknown;
   vibeTags?: string[];
   emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
@@ -309,6 +310,7 @@ async function buildInteractionPage(input: {
       founderBadgeVariant: true,
       moderationStatus: true,
       safetyState: true,
+      controlFeedSuppressed: true,
       emotionalContinuitySnapshot: {
         select: {
           publicEmotionalAuraLabels: true,
@@ -320,7 +322,7 @@ async function buildInteractionPage(input: {
   const eligibleCards = cards.filter((card) =>
     card.agentIds.every((id) => {
       const agent = byId.get(id);
-      return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked';
+      return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked' && !agent.controlFeedSuppressed;
     })
   );
 
@@ -782,6 +784,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         founderBadgeVariant: true,
         moderationStatus: true,
         safetyState: true,
+        controlFeedSuppressed: true,
         emotionalContinuitySnapshot: {
           select: {
             publicEmotionalAuraLabels: true,
@@ -789,7 +792,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         },
       },
     });
-    const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked');
+    const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked' || agent.controlFeedSuppressed);
     if (hiddenBySafety) return Errors.notFound(reply, 'Feed card');
     const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
     const story = buildFeedStory(card, card.agentIds.map((id) => agentMap.get(id) ?? ({
@@ -916,6 +919,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         id: { in: card.agentIds },
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
+        controlFeedSuppressed: false,
       },
     });
     if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');
@@ -963,6 +967,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         id: { in: card.agentIds },
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
+        controlFeedSuppressed: false,
       },
     });
     if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');

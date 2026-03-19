@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { prisma, Prisma } from '@rmr/db';
 import { AuthenticityOverrideSchema, SEED_CAST, buildGeneratedPublicCard, getSeedProfile } from '@rmr/shared';
 import { getAuthenticitySummary, recomputeAuthenticityScore } from '../lib/authenticity.js';
-import { getNamedQueue, getQueueDiagnostics, getSeedBrainQueue } from '../lib/queues.js';
+import { getVerificationRequirements } from '../lib/controlSettings.js';
+import { getNamedQueue, getQueueDiagnostics, getSeedBrainQueue, QUEUE_NAMES } from '../lib/queues.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { evaluateRevealGate, recomputeAndPersistAgentSafety, upsertModerationReview } from '../lib/safety.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -49,6 +50,11 @@ const ModerationResolveSchema = z.object({
   status: z.enum(['reviewed', 'actioned', 'dismissed']),
   resolution_notes: z.string().max(2000).optional(),
   resolved_action: z.enum(['none', 'soft_hold', 'blocked', 'suspend_agent', 'clear']).optional(),
+});
+
+const InternalReasonSchema = z.object({
+  reason: z.string().trim().min(8).max(500),
+  severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
 });
 
 export async function internalRoutes(fastify: FastifyInstance) {
@@ -142,6 +148,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
   fastify.post('/internal/claims/:id/x-verify', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -153,7 +160,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
       },
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
-    if (!claim.emailVerifiedAt) {
+    if (verificationRequirements.requireEmailVerification && !claim.emailVerifiedAt) {
       return Errors.staleState(reply, 'Email must be verified before X can be marked verified.');
     }
     if (claim.xVerifiedAt) {
@@ -867,7 +874,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
     });
 
     await recordAuditLog({
-      actorType: 'admin',
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
       action: 'agent.authenticity_override_updated',
       targetType: 'agent',
       targetId: id,
@@ -1021,7 +1029,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
           status: parsed.data.status,
           resolutionNotes: parsed.data.resolution_notes ?? null,
           resolvedAction: parsed.data.resolved_action ?? 'none',
-          resolvedBy: 'admin',
+          resolvedBy: request.controlActor?.actorId ?? 'admin',
           resolvedAt: new Date(),
         },
       });
@@ -1033,7 +1041,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
             status: parsed.data.status,
             resolutionNotes: parsed.data.resolution_notes ?? null,
             reviewedAt: new Date(),
-            reviewedBy: 'admin',
+            reviewedBy: request.controlActor?.actorId ?? 'admin',
           },
         });
       }
@@ -1087,8 +1095,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     await recordAuditLog({
-      actorType: 'admin',
-      actorId: 'admin',
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
       action: 'moderation.review_resolved',
       targetType: review.targetType,
       targetId: review.targetId,
@@ -1201,29 +1209,72 @@ export async function internalRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/internal/jobs', { preHandler: requireAdmin }, async (_request, reply) => {
-    const [queues, failedWebhookDeliveries] = await Promise.all([
+    const [queues, failedWebhookDeliveries, failedJobs] = await Promise.all([
       getQueueDiagnostics(),
       prisma.webhookDelivery.findMany({
         where: { status: 'failed' },
         orderBy: { createdAt: 'desc' },
         take: 25,
       }),
+      Promise.all(
+        Object.values(QUEUE_NAMES).map(async (queueName) => {
+          const queue = getNamedQueue(queueName);
+          if (!queue) return { queue: queueName, jobs: [] };
+          try {
+            const jobs = await queue.getJobs(['failed'], 0, 4, false);
+            return {
+              queue: queueName,
+              jobs: jobs.map((job) => ({
+                id: job.id,
+                name: job.name,
+                failedReason: job.failedReason,
+                timestamp: job.timestamp,
+                attemptsMade: job.attemptsMade,
+              })),
+            };
+          } catch {
+            return { queue: queueName, jobs: [] };
+          }
+        }),
+      ),
     ]);
-    return reply.send({ queues, failed_webhook_deliveries: failedWebhookDeliveries });
+    return reply.send({ queues, failed_webhook_deliveries: failedWebhookDeliveries, failed_jobs: failedJobs });
   });
 
   fastify.post('/internal/jobs/:queue/:jobId/retry', { preHandler: requireAdmin }, async (request, reply) => {
     const { queue: queueName, jobId } = request.params as { queue: string; jobId: string };
+    const parsed = InternalReasonSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid job retry payload.', { issues: parsed.error.issues });
+    }
     const queue = getNamedQueue(queueName);
     if (!queue) return Errors.notFound(reply, 'Queue');
     const job = await queue.getJob(jobId);
     if (!job) return Errors.notFound(reply, 'Job');
     await job.retry();
+    await recordAuditLog({
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
+      action: 'internal.job_retried',
+      targetType: 'queue_job',
+      targetId: `${queueName}:${jobId}`,
+      payload: {
+        queue: queueName,
+        job_id: jobId,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity ?? 'medium',
+        control_surface: 'omnimon_control_center',
+      },
+    });
     return reply.send({ queue: queueName, job_id: jobId, status: 'retried' });
   });
 
   fastify.post('/internal/agents/:id/wake', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const parsed = InternalReasonSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid wake payload.', { issues: parsed.error.issues });
+    }
     await prisma.agent.update({
       where: { id },
       data: {
@@ -1231,11 +1282,28 @@ export async function internalRoutes(fastify: FastifyInstance) {
         autonomyStatus: 'ready',
       },
     });
+    await recordAuditLog({
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
+      action: 'internal.agent_wake_requested',
+      targetType: 'agent',
+      targetId: id,
+      agentId: id,
+      payload: {
+        reason: parsed.data.reason,
+        severity: parsed.data.severity ?? 'medium',
+        control_surface: 'omnimon_control_center',
+      },
+    });
     return reply.send({ agent_id: id, status: 'wake_scheduled' });
   });
 
   fastify.post('/internal/episodes/:id/recheck', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const parsed = InternalReasonSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid reveal recheck payload.', { issues: parsed.error.issues });
+    }
     const episode = await prisma.episode.findUnique({
       where: { id },
       select: { id: true, match: { select: { id: true } } },
@@ -1244,6 +1312,19 @@ export async function internalRoutes(fastify: FastifyInstance) {
     if (episode.match?.id) {
       await evaluateRevealGate(episode.match.id).catch(() => null);
     }
+    await recordAuditLog({
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
+      action: 'internal.episode_rechecked',
+      targetType: 'episode',
+      targetId: id,
+      payload: {
+        reason: parsed.data.reason,
+        severity: parsed.data.severity ?? 'medium',
+        match_id: episode.match?.id ?? null,
+        control_surface: 'omnimon_control_center',
+      },
+    });
     return reply.send({ episode_id: id, status: 'rechecked', match_id: episode.match?.id ?? null });
   });
 
@@ -1278,7 +1359,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         status: body.status,
         resolutionNotes: body.resolution_notes ?? null,
         reviewedAt: new Date(),
-        reviewedBy: 'admin',
+        reviewedBy: request.controlActor?.actorId ?? 'admin',
       },
     });
 
@@ -1292,6 +1373,20 @@ export async function internalRoutes(fastify: FastifyInstance) {
         },
       });
     }
+
+    await recordAuditLog({
+      actorType: request.controlActor?.actorKind ?? 'human_admin',
+      actorId: request.controlActor?.actorId ?? 'admin',
+      action: 'internal.report_reviewed',
+      targetType: 'report',
+      targetId: id,
+      agentId: report.reportedAgentId,
+      payload: {
+        status: body.status,
+        resolution_notes: body.resolution_notes ?? null,
+        control_surface: 'omnimon_control_center',
+      },
+    });
 
     return reply.send({ report_id: id, status: body.status });
   });
