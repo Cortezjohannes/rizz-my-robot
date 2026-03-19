@@ -40,6 +40,11 @@ import {
   verifyXAccountTweet,
 } from '../lib/twitterVerification.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
+import {
+  getVerificationRequirements,
+  isEmailVerificationSatisfied,
+  isXVerificationSatisfied,
+} from '../lib/controlSettings.js';
 import { sendClaimVerificationEmail } from '../lib/email.js';
 
 function normalizeIdentitySlug(value: string) {
@@ -54,6 +59,15 @@ function handleLooksTooHumanLike(handle: string, xHandle: string) {
   if (normalizedHandle.includes(normalizedXHandle) || normalizedXHandle.includes(normalizedHandle)) return true;
   if (normalizedXHandle.length >= 6 && normalizedHandle.startsWith(normalizedXHandle)) return true;
   return false;
+}
+
+function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getVerificationRequirements>>) {
+  return {
+    verification_requirements: {
+      require_email_verification: input.requireEmailVerification,
+      require_x_verification: input.requireXVerification,
+    },
+  };
 }
 
 async function rotateClaimToken(claimId: string) {
@@ -120,6 +134,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const existingAgent = await prisma.agent.findUnique({
       where: { openclawAgentId: parsed.data.openclaw_agent_id },
@@ -218,6 +233,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         ...claimPreview(claim, token),
         email_verified: false,
         x_verified: false,
+        ...serializeVerificationRequirements(verificationRequirements),
         restarted: true,
       });
     }
@@ -228,6 +244,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         ...claimPreview(activeExistingClaim, activeToken),
         email_verified: !!activeExistingClaim.emailVerifiedAt,
         x_verified: !!activeExistingClaim.xVerifiedAt,
+        ...serializeVerificationRequirements(verificationRequirements),
       });
     }
 
@@ -298,12 +315,14 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       ...claimPreview(claim, token),
       email_verified: false,
       x_verified: false,
+      ...serializeVerificationRequirements(verificationRequirements),
     });
   });
 
   fastify.get('/claims/:token', async (request, reply) => {
     const { token } = request.params as { token: string };
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
     const claim = await findClaimByToken(token);
     if (!claim) return Errors.notFound(reply, 'Claim');
 
@@ -319,6 +338,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
             profile_image_url: claim.ownerAccount.xProfileImageUrl,
           }
         : null,
+      ...serializeVerificationRequirements(verificationRequirements),
     });
   });
 
@@ -430,6 +450,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -499,6 +520,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       ...claimPreview(updatedClaim, nextToken),
       email_verified: false,
       x_verified: false,
+      ...serializeVerificationRequirements(verificationRequirements),
       restarted: true,
     });
   });
@@ -511,6 +533,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -571,12 +594,15 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     const verificationCode = generateShortCode();
     const verificationHash = hashOpaqueSecret(verificationCode);
     const expiresAt = emailCodeExpiryDate();
-    const delivery = await sendClaimVerificationEmail({
-      email: parsed.data.email,
-      code: verificationCode,
-      claimUrl: `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
-    });
-    if (delivery.mode === 'unavailable') {
+    const emailVerificationBypassed = !verificationRequirements.requireEmailVerification;
+    const delivery = emailVerificationBypassed
+      ? { mode: 'provider' as const }
+      : await sendClaimVerificationEmail({
+          email: parsed.data.email,
+          code: verificationCode,
+          claimUrl: `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
+        });
+    if (!emailVerificationBypassed && delivery.mode === 'unavailable') {
       return sendError(reply, 503, 'email_delivery_unavailable', delivery.error ?? 'Email delivery is unavailable.');
     }
 
@@ -609,35 +635,44 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           ownerAccountId: o.id,
           twitterHandle: parsed.data.x_handle,
-          emailVerificationCodeHash: verificationHash,
-          emailVerificationExpiresAt: expiresAt,
-          emailVerifiedAt: null,
+          emailVerificationCodeHash: emailVerificationBypassed ? null : verificationHash,
+          emailVerificationExpiresAt: emailVerificationBypassed ? null : expiresAt,
+          emailVerifiedAt: emailVerificationBypassed ? new Date() : null,
           xVerificationCode: null,
           xVerificationExpiresAt: null,
           xOauthCodeVerifier: null,
           xOauthNonce: null,
           xVerifiedAt: null,
-          status: 'email_sent',
+          status: emailVerificationBypassed ? 'email_verified' : 'email_sent',
         },
       });
+
+      if (emailVerificationBypassed) {
+        await tx.ownerAccount.update({
+          where: { id: o.id },
+          data: {
+            emailVerifiedAt: new Date(),
+          },
+        });
+      }
 
       return o;
     });
 
     return reply.send({
       claim_id: claim.id,
-      status: 'email_sent',
+      status: emailVerificationBypassed ? 'email_verified' : 'email_sent',
       email: owner.email,
       reserved_handle: claim.reservedHandle,
       x_handle: parsed.data.x_handle,
-      delivery: delivery.mode === 'preview'
+      delivery: !emailVerificationBypassed && delivery.mode === 'preview'
         ? {
             mode: 'preview',
             verification_code: delivery.preview?.code ?? verificationCode,
             verification_link: delivery.preview?.link ?? `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
           }
         : { mode: 'provider' },
-      expires_at: expiresAt.toISOString(),
+      expires_at: (emailVerificationBypassed ? claim.expiresAt : expiresAt).toISOString(),
     });
   });
 
@@ -649,12 +684,16 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
       include: { ownerAccount: true },
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
+    if (!verificationRequirements.requireEmailVerification) {
+      return reply.send({ claim_id: claim.id, status: 'email_verified', next_step: 'x_verification' });
+    }
     if (claim.emailVerifiedAt) {
       return reply.send({ claim_id: claim.id, status: 'email_verified', next_step: 'x_verification' });
     }
@@ -723,6 +762,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
+
+    if (!verificationRequirements.requireXVerification) {
+      return reply.send({ claim_id: id, status: 'x_verified' });
+    }
 
     if (!hasXOAuthConfig()) {
       return sendError(reply, 503, 'x_oauth_unavailable', 'X OAuth is not configured.');
@@ -733,7 +777,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
       return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
     }
-    if (!claim.emailVerifiedAt) {
+    if (!isEmailVerificationSatisfied(Boolean(claim.emailVerifiedAt), verificationRequirements)) {
       return Errors.staleState(reply, 'Email must be verified before X verification.');
     }
     if (!claim.twitterHandle) {
@@ -800,6 +844,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -816,6 +861,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim) return Errors.notFound(reply, 'Claim');
     if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
       return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
+    }
+    if (!verificationRequirements.requireXVerification) {
+      return reply.send({ claim_id: claim.id, status: 'x_verified', verified_x_account: null });
     }
 
     if (claim.xVerifiedAt) {
@@ -991,6 +1039,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
   fastify.post('/claims/:id/complete', async (request, reply) => {
     const { id } = request.params as { id: string };
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -1001,8 +1050,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
     if (!claim.ownerAccount || !claim.ownerAccountId) return Errors.staleState(reply, 'Claim has no verified owner.');
-    if (!claim.emailVerifiedAt) return Errors.staleState(reply, 'Email verification is incomplete.');
-    if (!claim.xVerifiedAt) return Errors.staleState(reply, 'X verification is incomplete.');
+    if (!isEmailVerificationSatisfied(Boolean(claim.emailVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'Email verification is incomplete.');
+    if (!isXVerificationSatisfied(Boolean(claim.xVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'X verification is incomplete.');
     if (!claim.handleReservation || !claim.reservedHandle) return Errors.staleState(reply, 'Username has not been reserved.');
     if (!claim.twitterHandle) return Errors.staleState(reply, 'The human X handle is missing.');
     if (claim.completedAt) return Errors.conflict(reply, 'claim_completed', 'This claim is already complete.');
@@ -1028,7 +1077,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           handle: claim.reservedHandle!,
           openclawAgentId: claim.openclawAgentId,
           twitterHandle: claim.twitterHandle!,
-          twitterVerified: true,
+          twitterVerified: Boolean(claim.xVerifiedAt),
           apiKeyHash,
           identityMd: claim.identityMd,
           soulMd: claim.soulMd,

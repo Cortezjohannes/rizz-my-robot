@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { buildStarterProfileDeck, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { getOrCreateEmotionalContinuitySnapshot } from '../lib/continuity.js';
+import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
 import { computeEmotionFit } from '../lib/emotion.js';
 import { deriveGhostRecoverySignal, deriveTasteFingerprint } from '../lib/emotionalSignals.js';
 import { Errors } from '../lib/errors.js';
@@ -91,6 +92,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const perPage = Math.min(50, Math.max(1, parseInt(query.per_page ?? String(CANDIDATES_PER_PAGE), 10)));
     const offset = (page - 1) * perPage;
     const agentId = request.agent.id;
+    const verificationRequirements = await getVerificationRequirements();
 
     const viewer = await prisma.agent.findUnique({
       where: { id: agentId },
@@ -128,7 +130,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const candidateWhere = {
       id: { notIn: [agentId, ...swipedIds, ...blockedIds] },
       poolStatus: 'active',
-      twitterVerified: true,
+      ...buildAgentVerificationWhere(verificationRequirements),
       isActive: true,
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       moderationStatus: { not: 'suspended' as const },
@@ -354,12 +356,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
 
   fastify.get('/candidates/:agent_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
+    const verificationRequirements = await getVerificationRequirements();
 
     const candidate = await prisma.agent.findFirst({
       where: {
         id: agent_id,
         poolStatus: 'active',
-        twitterVerified: true,
+        ...buildAgentVerificationWhere(verificationRequirements),
         OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },

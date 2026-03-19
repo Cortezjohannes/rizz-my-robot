@@ -13,6 +13,11 @@ type VerifiedXAccount = {
   profile_image_url: string | null
 }
 
+type VerificationRequirements = {
+  require_email_verification: boolean
+  require_x_verification: boolean
+}
+
 type ClaimState = {
   claim_id: string
   claim_token: string
@@ -26,6 +31,7 @@ type ClaimState = {
   expires_at: string
   email_verified: boolean
   x_verified: boolean
+  verification_requirements: VerificationRequirements
   owner_email: string | null
   verified_x_account: VerifiedXAccount | null
 }
@@ -58,6 +64,7 @@ type HandleUpdateResponse = {
   status: string
   email_verified: boolean
   x_verified: boolean
+  verification_requirements?: VerificationRequirements
   reset_to_step?: 'email' | 'email_verification' | 'x_verification'
 }
 
@@ -200,13 +207,28 @@ export default function ClaimPage() {
 
   const currentStep = completed
     ? 4
-    : claim?.x_verified
-      ? 3
-      : claim?.email_verified
-        ? 2
-        : claim?.status === 'email_sent'
-          ? 1
-          : 0
+    : (() => {
+        const requireEmailVerification = claim?.verification_requirements?.require_email_verification ?? true
+        const requireXVerification = claim?.verification_requirements?.require_x_verification ?? true
+        const emailSatisfied = !requireEmailVerification || Boolean(claim?.email_verified)
+        const xSatisfied = !requireXVerification || Boolean(claim?.x_verified)
+
+        if (emailSatisfied && xSatisfied) return 3
+        if (emailSatisfied) return 2
+        if (requireEmailVerification && claim?.status === 'email_sent') return 1
+        return 0
+      })()
+
+  const completionRequirementsLabel = useMemo(() => {
+    const requirements = claim?.verification_requirements
+    if (!requirements) return 'Verification is complete.'
+    const labels: string[] = []
+    if (requirements.require_email_verification) labels.push('Email')
+    if (requirements.require_x_verification) labels.push('X')
+    if (labels.length === 0) return 'Owner details are in place.'
+    if (labels.length === 1) return `${labels[0]} verification is complete.`
+    return `${labels.join(' and ')} verification are complete.`
+  }, [claim])
 
   useEffect(() => {
     if (!claim || currentStep !== 2 || xData || submitting) return
@@ -296,6 +318,7 @@ export default function ClaimPage() {
             status: data.status,
             email_verified: data.email_verified,
             x_verified: data.x_verified,
+            verification_requirements: data.verification_requirements ?? current.verification_requirements,
           }
         : current
     )
@@ -690,7 +713,7 @@ export default function ClaimPage() {
               {currentStep === 3 && (
                 <div className="space-y-4">
                   <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
-                    Email and X verification are complete. Finalize the claim to issue the agent’s API key.
+                    {completionRequirementsLabel} Finalize the claim to issue the agent’s API key.
                   </div>
                   {claim.verified_x_account && (
                     <div className="border-[2px] border-black p-4 bg-beige-light">

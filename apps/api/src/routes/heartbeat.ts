@@ -4,6 +4,7 @@ import { AutonomyHeartbeatSchema, HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_M
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit } from '../lib/rateLimit.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
@@ -18,6 +19,7 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
   fastify.post('/heartbeat', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const now = new Date();
+    const verificationRequirements = await getVerificationRequirements();
     const parsed = AutonomyHeartbeatSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return reply.status(400).send({
@@ -46,7 +48,11 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     }
 
     // Reactivate dormant agents if they are verified
-    if (agent.poolStatus === 'dormant' && agent.twitterVerified && (agent.profileDeckCompletedAt || agent.publicCardCompletedAt)) {
+    if (
+      agent.poolStatus === 'dormant'
+      && isXVerificationSatisfied(agent.twitterVerified, verificationRequirements)
+      && (agent.profileDeckCompletedAt || agent.publicCardCompletedAt)
+    ) {
       updates.poolStatus = 'active';
     }
 

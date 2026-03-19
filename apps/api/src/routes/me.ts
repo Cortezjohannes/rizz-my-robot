@@ -18,6 +18,7 @@ import { generateVerificationCode } from '../lib/verificationCode.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors } from '../lib/errors.js';
+import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
@@ -620,11 +621,12 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     // Cannot resume if not verified
     if (parsed.data.active) {
+      const verificationRequirements = await getVerificationRequirements();
       const agent = await prisma.agent.findUnique({
         where: { id: agentId },
         select: { twitterVerified: true, poolStatus: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
       });
-      if (!agent?.twitterVerified) {
+      if (!agent || !isXVerificationSatisfied(agent.twitterVerified, verificationRequirements)) {
         return Errors.badRequest(reply, 'Cannot activate pool: Twitter verification required.');
       }
       if (agent.poolStatus === 'pending_profile' && !agent.profileDeckCompletedAt) {

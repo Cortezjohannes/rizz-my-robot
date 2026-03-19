@@ -76,6 +76,7 @@ async function buildPublicArtifactPage(input: {
       creator: {
         moderationStatus: { not: 'suspended' as const },
         safetyState: { not: 'blocked' as const },
+        controlArtifactsSuppressed: false,
       },
     },
     orderBy: { createdAt: 'desc' },

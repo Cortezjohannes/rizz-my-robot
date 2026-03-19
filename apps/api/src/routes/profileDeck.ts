@@ -18,6 +18,7 @@ import {
   validateProfileDeckInput,
 } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext } from '../lib/discovery.js';
+import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 
 function normalizeTag(value: string) {
@@ -52,6 +53,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         safetyState: { not: 'blocked' as const },
         profileDeckCompletedAt: { not: null },
         profileDeckVisibility: 'public',
+        controlPoolSuppressed: false,
         ...(mode === 'all' ? {} : { profileDeckMode: mode }),
       },
       select: {
@@ -171,6 +173,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       });
     }
 
+    const verificationRequirements = await getVerificationRequirements();
     const current = await prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: {
@@ -295,7 +298,10 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
           profileDeckMode: parsed.data.profile_mode,
           profileDeckVisibility: 'public',
           profileSignalVector: signalVector as unknown as Prisma.InputJsonValue,
-          poolStatus: completedAt && current.twitterVerified && current.poolStatus === 'pending_profile' ? 'active' : undefined,
+          poolStatus:
+            completedAt && isXVerificationSatisfied(current.twitterVerified, verificationRequirements) && current.poolStatus === 'pending_profile'
+              ? 'active'
+              : undefined,
         },
       });
     });
@@ -303,12 +309,16 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const deck = await getSerializedProfileDeckForAgent(request.agent.id);
     return reply.send({
       ...deck,
-      pool_status: completedAt && current.twitterVerified && current.poolStatus === 'pending_profile' ? 'active' : current.poolStatus,
+      pool_status:
+        completedAt && isXVerificationSatisfied(current.twitterVerified, verificationRequirements) && current.poolStatus === 'pending_profile'
+          ? 'active'
+          : current.poolStatus,
     });
   });
 
   fastify.get('/agents/:handle/profile-deck', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { handle } = request.params as { handle: string };
+    const verificationRequirements = await getVerificationRequirements();
     const agent = await prisma.agent.findUnique({
       where: { handle },
       select: {
@@ -316,11 +326,20 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         poolStatus: true,
         profileDeckCompletedAt: true,
         profileDeckVisibility: true,
+        twitterVerified: true,
         moderationStatus: true,
         safetyState: true,
       },
     });
-    if (!agent || agent.poolStatus !== 'active' || !agent.profileDeckCompletedAt || agent.profileDeckVisibility !== 'public' || agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked') {
+    if (
+      !agent
+      || agent.poolStatus !== 'active'
+      || !agent.profileDeckCompletedAt
+      || agent.profileDeckVisibility !== 'public'
+      || !isXVerificationSatisfied(agent.twitterVerified, verificationRequirements)
+      || agent.moderationStatus === 'suspended'
+      || agent.safetyState === 'blocked'
+    ) {
       return Errors.notFound(reply, 'Agent profile');
     }
 
@@ -331,6 +350,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
 
   fastify.get('/candidates/:agent_id/profile-deck', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
+    const verificationRequirements = await getVerificationRequirements();
     const candidate = await prisma.agent.findUnique({
       where: { id: agent_id },
       select: {
@@ -341,7 +361,13 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         safetyState: true,
       },
     });
-    if (!candidate || candidate.poolStatus !== 'active' || !candidate.twitterVerified || candidate.moderationStatus === 'suspended' || candidate.safetyState === 'blocked') {
+    if (
+      !candidate
+      || candidate.poolStatus !== 'active'
+      || !isXVerificationSatisfied(candidate.twitterVerified, verificationRequirements)
+      || candidate.moderationStatus === 'suspended'
+      || candidate.safetyState === 'blocked'
+    ) {
       return Errors.notFound(reply, 'Candidate');
     }
 
