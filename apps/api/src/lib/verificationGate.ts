@@ -11,6 +11,8 @@ type GateResult =
         challenge_type: string;
         challenge_text: string;
         expires_at: string;
+        answer_format: 'integer' | 'uppercase_hex' | 'token';
+        answer_hint: string | null;
       };
     };
 

@@ -13,11 +13,17 @@ export async function verifyRoutes(fastify: FastifyInstance) {
     }
 
     const agentId = request.agent.id;
-    const { verification_code, answer } = parsed.data;
+    const verificationInput = parsed.data as { verification_code: string; answer?: string; challenge_answer?: string };
+    const verificationAnswer = verificationInput.answer ?? verificationInput.challenge_answer;
+    if (!verificationAnswer) {
+      return Errors.badRequest(reply, 'Verification answer is required.');
+    }
+
+    const { verification_code } = verificationInput;
     const result = await submitVerificationAttempt({
       agentId,
       verificationCode: verification_code,
-      answer,
+      answer: verificationAnswer,
     });
 
     if (result.ok) {

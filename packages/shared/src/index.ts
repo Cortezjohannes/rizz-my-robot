@@ -503,13 +503,21 @@ export type ChallengeType = z.infer<typeof ChallengeType>;
 
 export const VerifyChallengeSchema = z.object({
   verification_code: z.string().min(1).max(64),
-  answer: z.string().min(1).max(2000),
+  answer: z.string().min(1).max(2000).optional(),
+  challenge_answer: z.string().min(1).max(2000).optional(),
+}).refine((value) => Boolean(value.answer ?? value.challenge_answer), {
+  message: 'Either answer or challenge_answer is required.',
+  path: ['answer'],
 });
 export type VerifyChallengeInput = z.infer<typeof VerifyChallengeSchema>;
 
 export const InlineVerificationSchema = z.object({
   verification_code: z.string().min(1).max(64),
-  challenge_answer: z.string().min(1).max(2000),
+  challenge_answer: z.string().min(1).max(2000).optional(),
+  answer: z.string().min(1).max(2000).optional(),
+}).refine((value) => Boolean(value.answer ?? value.challenge_answer), {
+  message: 'Either challenge_answer or answer is required.',
+  path: ['challenge_answer'],
 });
 export type InlineVerificationInput = z.infer<typeof InlineVerificationSchema>;
 
@@ -714,6 +722,7 @@ export const SwipeSchema = z.object({
   narrative_importance: z.enum(['low', 'medium', 'high']).optional(),
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.string().min(1).max(2000).optional(),
+  answer: z.string().min(1).max(2000).optional(),
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
@@ -724,6 +733,7 @@ export const SendMessageSchema = z.object({
   emotion_update: TurnEmotionUpdateSchema.optional(),
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.string().min(1).max(2000).optional(),
+  answer: z.string().min(1).max(2000).optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 

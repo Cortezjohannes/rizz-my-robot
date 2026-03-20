@@ -4,6 +4,9 @@ import { VERIFICATION_LIMITS } from '@rmr/shared';
 
 interface ExpectedAnswer {
   exact: string;
+  format: 'integer' | 'uppercase_hex' | 'token';
+  case_sensitive?: boolean;
+  hint?: string;
 }
 
 interface ChallengeTemplate {
@@ -29,7 +32,7 @@ function buildArithmeticChallenge(): ChallengeTemplate {
 
   return {
     text: `Verification challenge: compute floor(((${a} * ${b}) + ${c}) / ${d}). Reply with only the final integer.`,
-    expected: { exact: answer },
+    expected: { exact: answer, format: 'integer', hint: 'Reply with digits only.' },
   };
 }
 
@@ -41,7 +44,7 @@ function buildModularChallenge(): ChallengeTemplate {
 
   return {
     text: `Verification challenge: compute (((${a} * ${b}) - (${c} * ${c})) mod 97). Reply with only the final integer from 0 to 96.`,
-    expected: { exact: answer },
+    expected: { exact: answer, format: 'integer', hint: 'Reply with a single integer from 0 to 96.' },
   };
 }
 
@@ -51,7 +54,7 @@ function buildBaseConversionChallenge(): ChallengeTemplate {
 
   return {
     text: `Verification challenge: convert the decimal number ${value} to uppercase hexadecimal. Reply with only the hexadecimal digits, no 0x prefix.`,
-    expected: { exact: hex },
+    expected: { exact: hex, format: 'uppercase_hex', case_sensitive: false, hint: 'Reply with only the hexadecimal digits. Uppercase is preferred, but lowercase is accepted.' },
   };
 }
 
@@ -62,7 +65,7 @@ function buildTokenTransformChallenge(): ChallengeTemplate {
 
   return {
     text: `Verification challenge: take this token "${token}", reverse it, then remove uppercase vowels (A, E, I, O, U). Reply with only the transformed token.`,
-    expected: { exact: answer },
+    expected: { exact: answer, format: 'token', case_sensitive: false, hint: 'Reply with only the transformed token, no quotes or extra words.' },
   };
 }
 
@@ -74,7 +77,7 @@ function buildChecksumChallenge(): ChallengeTemplate {
 
   return {
     text: `Verification challenge: for the token "${token}", compute the weighted character sum using ASCII code * position (1-indexed). Reply with only the final integer.`,
-    expected: { exact: answer },
+    expected: { exact: answer, format: 'integer', hint: 'Reply with digits only.' },
   };
 }
 
@@ -93,7 +96,7 @@ function pickRandom<T>(arr: T[]): T {
 export async function generateChallenge(
   challengeType: string,
   agentId: string,
-): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string }> {
+): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string; answer_format: ExpectedAnswer['format']; answer_hint: string | null }> {
   const template = pickRandom(CHALLENGE_BUILDERS)();
   const code = randomUUID().replace(/-/g, '').slice(0, 16);
 
@@ -113,13 +116,15 @@ export async function generateChallenge(
     challenge_type: challengeType,
     challenge_text: template.text,
     expires_at: challenge.expiresAt.toISOString(),
+    answer_format: template.expected.format,
+    answer_hint: template.expected.hint ?? null,
   };
 }
 
 export async function getOrCreatePendingChallenge(
   challengeType: string,
   agentId: string,
-): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string }> {
+): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string; answer_format: ExpectedAnswer['format']; answer_hint: string | null }> {
   const existing = await prisma.verificationChallenge.findFirst({
     where: {
       agentId,
@@ -131,11 +136,14 @@ export async function getOrCreatePendingChallenge(
   });
 
   if (existing) {
+    const expected = JSON.parse(existing.expectedAnswer) as ExpectedAnswer;
     return {
       code: existing.code,
       challenge_type: existing.challengeType,
       challenge_text: existing.challengeText,
       expires_at: existing.expiresAt.toISOString(),
+      answer_format: expected.format,
+      answer_hint: expected.hint ?? null,
     };
   }
 
@@ -220,7 +228,8 @@ export async function submitVerificationAttempt(input: {
     };
   }
 
-  const passed = evaluateAnswer(challenge.expectedAnswer, input.answer);
+  const expected = JSON.parse(challenge.expectedAnswer) as ExpectedAnswer;
+  const passed = evaluateAnswer(expected, input.answer);
 
   if (passed) {
     await Promise.all([
@@ -245,7 +254,7 @@ export async function submitVerificationAttempt(input: {
   await Promise.all([
     prisma.verificationChallenge.update({
       where: { id: challenge.id },
-      data: { status: 'failed', attempts: challenge.attempts + 1 },
+      data: { attempts: { increment: 1 } },
     }),
     prisma.agent.update({
       where: { id: input.agentId },
@@ -255,10 +264,16 @@ export async function submitVerificationAttempt(input: {
 
   if (consecutiveFailures >= VERIFICATION_LIMITS.maxConsecutiveFailures) {
     const suspendedUntil = new Date(Date.now() + VERIFICATION_LIMITS.suspensionDurationMs);
-    await prisma.agent.update({
-      where: { id: input.agentId },
-      data: { verificationSuspendedUntil: suspendedUntil },
-    });
+    await Promise.all([
+      prisma.verificationChallenge.update({
+        where: { id: challenge.id },
+        data: { status: 'failed' },
+      }),
+      prisma.agent.update({
+        where: { id: input.agentId },
+        data: { verificationSuspendedUntil: suspendedUntil },
+      }),
+    ]);
 
     return {
       ok: false,
@@ -273,21 +288,75 @@ export async function submitVerificationAttempt(input: {
     };
   }
 
-  const newChallenge = await generateChallenge(challenge.challengeType, input.agentId);
-
   return {
     ok: false,
-    statusCode: 200,
+    statusCode: 422,
     body: {
       verified: false,
       attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
-      new_challenge: newChallenge,
+      message: 'That answer did not match. The same challenge is still active.',
+      retry_hint: expected.hint ?? 'Reply with only the exact final answer.',
+      challenge: {
+        code: challenge.code,
+        challenge_type: challenge.challengeType,
+        challenge_text: challenge.challengeText,
+        expires_at: challenge.expiresAt.toISOString(),
+        answer_format: expected.format,
+        answer_hint: expected.hint ?? null,
+      },
     },
   };
 }
 
-export function evaluateAnswer(expectedAnswerJson: string, answer: string): boolean {
-  const expected: ExpectedAnswer = JSON.parse(expectedAnswerJson);
-  const normalizedAnswer = answer.trim();
-  return normalizedAnswer === expected.exact;
+function extractJsonAnswerCandidate(answer: string): string | null {
+  try {
+    const parsed = JSON.parse(answer);
+    if (typeof parsed === 'string' || typeof parsed === 'number') return String(parsed);
+    if (parsed && typeof parsed === 'object' && 'answer' in parsed) {
+      const candidate = (parsed as { answer?: unknown }).answer;
+      if (typeof candidate === 'string' || typeof candidate === 'number') return String(candidate);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeIntegerCandidate(answer: string): string | null {
+  const jsonCandidate = extractJsonAnswerCandidate(answer);
+  const source = (jsonCandidate ?? answer).trim();
+  const match = source.match(/^-?\d+$/) ?? source.match(/(-?\d+)/);
+  return match ? match[1] ?? match[0] : null;
+}
+
+function normalizeHexCandidate(answer: string): string | null {
+  const jsonCandidate = extractJsonAnswerCandidate(answer);
+  const source = (jsonCandidate ?? answer).trim().replace(/^0x/i, '');
+  const compact = source.replace(/\s+/g, '');
+  const exact = compact.match(/^[A-Fa-f0-9]+$/);
+  if (exact) return exact[0].toUpperCase();
+  const embedded = compact.match(/([A-Fa-f0-9]+)/);
+  return embedded ? embedded[1].toUpperCase() : null;
+}
+
+function normalizeTokenCandidate(answer: string, caseSensitive = false): string | null {
+  const jsonCandidate = extractJsonAnswerCandidate(answer);
+  const source = (jsonCandidate ?? answer).trim().replace(/^["'`]+|["'`]+$/g, '');
+  const compact = source.replace(/\s+/g, '');
+  if (!compact) return null;
+  return caseSensitive ? compact : compact.toUpperCase();
+}
+
+export function evaluateAnswer(expected: ExpectedAnswer, answer: string): boolean {
+  if (expected.format === 'integer') {
+    return normalizeIntegerCandidate(answer) === expected.exact;
+  }
+
+  if (expected.format === 'uppercase_hex') {
+    return normalizeHexCandidate(answer) === expected.exact.toUpperCase();
+  }
+
+  const normalizedAnswer = normalizeTokenCandidate(answer, expected.case_sensitive ?? false);
+  const normalizedExpected = expected.case_sensitive ? expected.exact : expected.exact.toUpperCase();
+  return normalizedAnswer === normalizedExpected;
 }
