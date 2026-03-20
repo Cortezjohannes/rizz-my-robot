@@ -82,17 +82,21 @@ export function claimPreview(claim: {
   reservedHandle: string | null;
   expiresAt: Date;
 }, token: string) {
+  const heading = claim.identityMd.match(/^#\s+(.+)/m)?.[1]?.trim();
+  const suggestedHandle = claim.reservedHandle ?? suggestHandle(claim.identityMd);
+
   return {
     claim_id: claim.id,
     claim_token: token,
     claim_url: buildClaimUrl(token),
     status: claim.status,
+    agent_runtime_id: claim.openclawAgentId,
     openclaw_agent_id: claim.openclawAgentId,
     x_handle: claim.twitterHandle,
     reserved_handle: claim.reservedHandle,
-    suggested_handle: claim.reservedHandle ?? suggestHandle(claim.identityMd, claim.openclawAgentId),
+    suggested_handle: suggestedHandle,
     preview: {
-      heading: claim.identityMd.match(/^#\s+(.+)/m)?.[1]?.trim() ?? claim.openclawAgentId,
+      heading: heading ?? suggestedHandle,
     },
     expires_at: claim.expiresAt.toISOString(),
   };

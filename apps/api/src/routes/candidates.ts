@@ -15,6 +15,7 @@ import { readLimit } from '../lib/rateLimit.js';
 
 const CANDIDATES_PER_PAGE = 20;
 const MAX_TIER_CONCENTRATION = 0.3;
+const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
 
 function uniqueTasteTags(values: Array<string | null | undefined>) {
   return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
@@ -243,6 +244,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       isActive: true,
       controlPoolSuppressed: false,
       systemEntityKind: null,
+      ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
@@ -480,6 +482,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               moderationStatus: { not: 'suspended' as const },
               safetyState: { not: 'blocked' as const },
               systemEntityKind: null,
+              ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
             }),
       },
       select: {
