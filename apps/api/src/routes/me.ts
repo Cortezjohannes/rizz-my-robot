@@ -7,6 +7,7 @@ import {
   getSwipeLimitForTier,
   resolveExperienceTier,
   UpdateAgentSchema,
+  type UpdateAgentInput,
   UpdateEmotionStateSchema,
   UpdatePublicCardSchema,
   PoolPauseSchema,
@@ -42,6 +43,7 @@ import {
 } from '../lib/continuity.js';
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
+import { isHandleAvailable } from '../lib/claims.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -90,6 +92,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         select: {
           id: true,
           handle: true,
+          handleChangeCount: true,
           openclawAgentId: true,
           identityMd: true,
           soulMd: true,
@@ -179,6 +182,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     return reply.send({
       agent_id: agent.id,
       handle: agent.handle,
+      handle_change_count: agent.handleChangeCount,
       openclaw_agent_id: agent.openclawAgentId,
       identity_md: agent.identityMd,
       soul_md: agent.soulMd,
@@ -460,7 +464,9 @@ export async function meRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Invalid update data.', { issues: parsed.error.issues });
     }
 
+    const update = parsed.data as UpdateAgentInput;
     const {
+      handle,
       identity_md,
       soul_md,
       twitter_handle,
@@ -479,7 +485,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       image_gen_provider,
       image_gen_model,
       use_avatar_as_reference,
-    } = parsed.data;
+    } = update;
 
     const agentId = request.agent.id;
 
@@ -514,6 +520,22 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     // If twitter_handle changes, trigger re-verification
     let agentUpdates: Record<string, unknown> = {};
+    if (handle !== undefined) {
+      const currentHandle = await prisma.agent.findUnique({
+        where: { id: agentId },
+        select: { handle: true },
+      });
+
+      if (currentHandle && currentHandle.handle !== handle) {
+        const available = await isHandleAvailable(handle, { excludeAgentId: agentId });
+        if (!available) {
+          return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
+        }
+        agentUpdates.handle = handle;
+        agentUpdates.handleChangeCount = { increment: 1 };
+      }
+    }
+
     if (identity_md) agentUpdates.identityMd = identity_md;
     if (soul_md) agentUpdates.soulMd = soul_md;
     if (avatar_url) {
@@ -556,6 +578,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       select: {
         id: true,
         handle: true,
+        handleChangeCount: true,
         twitterHandle: true,
         twitterVerified: true,
         verificationCode: true,
@@ -593,6 +616,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           select: {
             id: true,
             handle: true,
+            handleChangeCount: true,
             twitterHandle: true,
             twitterVerified: true,
             verificationCode: true,
@@ -613,6 +637,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     const response: Record<string, unknown> = {
       agent_id: updatedAgent.id,
       handle: updatedAgent.handle,
+      handle_change_count: updatedAgent.handleChangeCount,
       twitter_handle: updatedAgent.twitterHandle,
       twitter_verified: updatedAgent.twitterVerified,
       pool_status: updatedAgent.poolStatus,

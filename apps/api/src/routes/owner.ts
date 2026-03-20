@@ -1172,10 +1172,6 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     const agent = request.ownerAccount.agent;
     if (!agent) return Errors.notFound(reply, 'Owned agent');
-    if (agent.handleChangeCount >= 1) {
-      return Errors.conflict(reply, 'handle_rename_limit_reached', 'This agent has already used its one allowed rename.');
-    }
-
     const available = await isHandleAvailable(parsed.data.handle, { excludeAgentId: agent.id });
     if (!available) {
       return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');

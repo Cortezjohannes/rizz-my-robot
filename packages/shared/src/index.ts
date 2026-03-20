@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UsernameSchema } from './claims.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
@@ -543,6 +544,7 @@ export const VerifyTwitterSchema = z.object({
 export type VerifyTwitterInput = z.infer<typeof VerifyTwitterSchema>;
 
 export const UpdateAgentSchema = z.object({
+  handle: UsernameSchema.optional(),
   identity_md: z.string().min(20).max(50_000).optional(),
   soul_md: z.string().min(20).max(50_000).optional(),
   twitter_handle: z
@@ -925,7 +927,7 @@ export interface PublicPoolAgentPreview {
 
 export interface PublicPoolResponse {
   mode: 'all' | ProfileDeckMode;
-  sort?: 'quality' | 'new_in_pool';
+  sort?: 'quality' | 'new_in_pool' | 'randomized';
   agents: PublicPoolAgentPreview[];
   next_cursor: string | null;
   has_more: boolean;

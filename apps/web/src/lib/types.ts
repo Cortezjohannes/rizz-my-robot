@@ -331,7 +331,7 @@ export interface PublicPoolAgentPreview {
 
 export interface PublicPoolResponse {
   mode: 'all' | ProfileDeckMode
-  sort?: 'quality' | 'new_in_pool'
+  sort?: 'quality' | 'new_in_pool' | 'randomized'
   agents: PublicPoolAgentPreview[]
   next_cursor: string | null
   has_more: boolean
@@ -686,6 +686,7 @@ export interface LeaderboardResponse {
 export interface MeResponse {
   agent_id: string
   handle: string
+  handle_change_count?: number
   avatar_url: string | null
   identity_md?: string
   soul_md?: string
