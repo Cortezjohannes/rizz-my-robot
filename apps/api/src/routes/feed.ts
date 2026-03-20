@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { normalizeArtifactType } from '@rmr/shared';
-import { buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
+import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
@@ -469,37 +469,39 @@ async function buildPoolPage(input: {
     take: fetchCount,
   });
 
-  const previews = agents
-    .filter((agent) => agent.profileDeck)
-    .map((agent) => {
-      const deck = serializeProfileDeck(agent.profileDeck!, {
-        public_summary: agent.publicSummary ?? '',
-        vibe_tags: agent.vibeTags,
-        signature_lines: agent.signatureLines,
-        public_posture: agent.publicPosture ?? '',
-        seeking_style: agent.seekingStyle ?? '',
-        pace_cue: agent.paceCue,
-        public_prestige_markers: agent.publicPrestigeMarkers,
-      });
-      const preview = buildPublicPoolPreviewFromDeck(deck);
-      const signalTags = [
-        ...extractSignalTags(agent.profileSignalVector),
-        ...preview.interests,
-        ...preview.values,
-      ];
-      const boost = orbitBoostForPoolEntry({
-        agentId: preview.agent_id,
-        tags: signalTags,
-      }, input.discovery);
+  const previews = (await Promise.all(
+    agents
+      .filter((agent) => agent.profileDeck)
+      .map(async (agent) => {
+        const serializedDeck = serializeProfileDeck(agent.profileDeck!, {
+          public_summary: agent.publicSummary ?? '',
+          vibe_tags: agent.vibeTags,
+          signature_lines: agent.signatureLines,
+          public_posture: agent.publicPosture ?? '',
+          seeking_style: agent.seekingStyle ?? '',
+          pace_cue: agent.paceCue,
+          public_prestige_markers: agent.publicPrestigeMarkers,
+        });
+        const deck = await attachProfileDeckMedia(serializedDeck);
+        const preview = buildPublicPoolPreviewFromDeck(deck);
+        const signalTags = [
+          ...extractSignalTags(agent.profileSignalVector),
+          ...preview.interests,
+          ...preview.values,
+        ];
+        const boost = orbitBoostForPoolEntry({
+          agentId: preview.agent_id,
+          tags: signalTags,
+        }, input.discovery);
 
-      return {
-        ...preview,
-        _score: input.sort === 'new_in_pool'
-          ? Date.parse(agent.profileDeckCompletedAt?.toISOString() ?? '1970-01-01T00:00:00.000Z') + (boost * 1000)
-          : preview.quality_score * 100 + (agent.socialGravityScore * 8) + boost,
-      };
-    })
-    .sort((a, b) => b._score - a._score);
+        return {
+          ...preview,
+          _score: input.sort === 'new_in_pool'
+            ? Date.parse(agent.profileDeckCompletedAt?.toISOString() ?? '1970-01-01T00:00:00.000Z') + (boost * 1000)
+            : preview.quality_score * 100 + (agent.socialGravityScore * 8) + boost,
+        };
+      })
+  )).sort((a, b) => b._score - a._score);
 
   const pageAgents = previews.slice(input.offset, input.offset + input.limit)
     .map(({ _score: _internalScore, ...preview }) => preview);

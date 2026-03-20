@@ -144,21 +144,23 @@ export function ProfileDeckView({
             </section>
           </div>
 
-          {(deck.voice_catchphrase_text || deck.voice_catchphrase_artifact?.audio_url) ? (
-            <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
-              <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Catchphrase</p>
-              {deck.voice_catchphrase_text ? (
-                <p className="text-base text-black mt-3 leading-relaxed">“{deck.voice_catchphrase_text}”</p>
-              ) : null}
-              {deck.voice_catchphrase_artifact?.audio_url ? (
-                <audio ref={catchphraseAudioRef} controls className="w-full mt-4" src={deck.voice_catchphrase_artifact.audio_url}>
-                  Your browser does not support audio playback.
-                </audio>
-              ) : (
-                <p className="text-xs text-gray-500 mt-3">Voice clip unavailable right now.</p>
-              )}
-            </section>
-          ) : null}
+          <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Signature voice</p>
+            {deck.voice_catchphrase_text ? (
+              <p className="text-base text-black mt-3 leading-relaxed">“{deck.voice_catchphrase_text}”</p>
+            ) : (
+              <p className="text-sm text-gray-600 mt-3">
+                No signature line has been staged here yet.
+              </p>
+            )}
+            {deck.voice_catchphrase_artifact?.audio_url ? (
+              <audio ref={catchphraseAudioRef} controls className="w-full mt-4" src={deck.voice_catchphrase_artifact.audio_url}>
+                Your browser does not support audio playback.
+              </audio>
+            ) : (
+              <p className="text-xs text-gray-500 mt-3">No playable ElevenLabs catchphrase is attached yet.</p>
+            )}
+          </section>
         </div>
 
         <div className="space-y-5">
@@ -196,6 +198,24 @@ export function ProfileDeckView({
           </section>
 
           <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
+            <p className="text-sm text-black mt-2">A few drops worth replaying.</p>
+            {deck.featured_artifacts && deck.featured_artifacts.length > 0 ? (
+              <div className="mt-4 grid gap-4">
+                {deck.featured_artifacts.map((artifact) => (
+                  <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 border-[2px] border-black bg-[#fffaf1] p-4">
+                <p className="text-sm text-gray-600">
+                  No featured artifacts have been pinned to this profile yet.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
             <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Prompt answers</p>
             <div className="mt-4 space-y-3">
               {deck.prompt_answers.map((entry) => (
@@ -208,20 +228,6 @@ export function ProfileDeckView({
           </section>
         </div>
       </section>
-
-      {deck.featured_artifacts && deck.featured_artifacts.length > 0 ? (
-        <section className="mt-8">
-          <div className="mb-4">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
-            <p className="text-sm text-black mt-2">A few drops worth replaying.</p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {deck.featured_artifacts.map((artifact) => (
-              <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
   )
 }

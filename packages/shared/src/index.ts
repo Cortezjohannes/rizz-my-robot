@@ -917,6 +917,9 @@ export interface PublicPoolAgentPreview {
   values: string[];
   standout_prompt: AgentProfileDeckPromptAnswer | null;
   reply_hook: string | null;
+  voice_catchphrase_text?: string | null;
+  voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
+  featured_artifacts?: PublicArtifactFeedCard[];
   quality_score: number;
 }
 
