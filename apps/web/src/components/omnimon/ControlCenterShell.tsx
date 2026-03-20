@@ -7,6 +7,7 @@ import type {
   ControlAgentsResponse,
   ControlAgentListItem,
   ControlAuditResponse,
+  ControlFeaturedFeedResponse,
   ControlHomeResponse,
   ControlInboxResponse,
   ControlJobsResponse,
@@ -132,12 +133,17 @@ export function ControlCenterShell({
   const [jobs, setJobs] = useState<ControlJobsResponse | null>(null)
   const [moderation, setModeration] = useState<ControlModerationResponse | null>(null)
   const [audit, setAudit] = useState<ControlAuditResponse | null>(null)
+  const [featuredFeed, setFeaturedFeed] = useState<ControlFeaturedFeedResponse | null>(null)
   const [reports, setReports] = useState<LegacyReportsResponse | null>(null)
   const [agentOverview, setAgentOverview] = useState<AgentControlOverview | null>(null)
   const [settings, setSettings] = useState<ControlSettingsResponse | null>(null)
   const [requireEmailVerification, setRequireEmailVerification] = useState(true)
   const [requireXVerification, setRequireXVerification] = useState(true)
   const [databaseResetConfirm, setDatabaseResetConfirm] = useState('')
+  const [featuredItemKind, setFeaturedItemKind] = useState<'agent_profile' | 'artifact' | 'episode'>('agent_profile')
+  const [featuredTargetId, setFeaturedTargetId] = useState('')
+  const [featuredRank, setFeaturedRank] = useState('0')
+  const [featuredNote, setFeaturedNote] = useState('')
 
   useEffect(() => {
     const existing = getStoredKey()
@@ -191,6 +197,7 @@ export function ControlCenterShell({
         fetchControl('/internal/control/jobs'),
         fetchControl('/internal/control/moderation'),
         fetchControl('/internal/control/audit'),
+        fetchControl('/internal/control/feed-features'),
       ] as const
 
       const responses = await Promise.all([
@@ -213,6 +220,7 @@ export function ControlCenterShell({
         jobsJson,
         moderationJson,
         auditJson,
+        featuredFeedJson,
         reportsJson,
       ] = await Promise.all([
         responses[0].json() as Promise<ControlHomeResponse>,
@@ -223,7 +231,8 @@ export function ControlCenterShell({
         responses[5].json() as Promise<ControlJobsResponse>,
         responses[6].json() as Promise<ControlModerationResponse>,
         responses[7].json() as Promise<ControlAuditResponse>,
-        legacyAdminEnabled ? responses[8].json() as Promise<LegacyReportsResponse> : Promise.resolve(null),
+        responses[8].json() as Promise<ControlFeaturedFeedResponse>,
+        legacyAdminEnabled ? responses[9].json() as Promise<LegacyReportsResponse> : Promise.resolve(null),
       ])
 
       setHome(homeJson)
@@ -236,6 +245,7 @@ export function ControlCenterShell({
       setJobs(jobsJson)
       setModeration(moderationJson)
       setAudit(auditJson)
+      setFeaturedFeed(featuredFeedJson)
       setReports(reportsJson)
 
       const nextSelected = selectedAgentId && agentsJson.agents.some((agent) => agent.agent_id === selectedAgentId)
@@ -486,6 +496,117 @@ export function ControlCenterShell({
               <StatCard label="Pending reveals" value={world?.park.pending_reveals ?? '—'} />
               <StatCard label="Pool suppressed" value={world?.public_presence.pool_suppressed_agents ?? '—'} />
               <StatCard label="Leaderboard suppressed" value={world?.public_presence.leaderboard_suppressed_agents ?? '—'} />
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <div className="border-[4px] border-black bg-white shadow-brutal">
+            <div className="border-b-[4px] border-black px-5 py-4 bg-[#fff3d8]">
+              <h2 className="font-pixel text-[10px] text-black">Featured feed</h2>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-gray-700">
+                Pin one profile, artifact, or conversation target into the feed as an explicit Omnimon feature. These are deliberate editorial picks, not algorithmic winners.
+              </p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="font-pixel text-[8px] text-black">Item kind</span>
+                  <select
+                    value={featuredItemKind}
+                    onChange={(e) => setFeaturedItemKind(e.target.value as 'agent_profile' | 'artifact' | 'episode')}
+                    className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                  >
+                    <option value="agent_profile">profile</option>
+                    <option value="artifact">artifact</option>
+                    <option value="episode">conversation</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="font-pixel text-[8px] text-black">Rank</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={featuredRank}
+                    onChange={(e) => setFeaturedRank(e.target.value)}
+                    className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                  />
+                </label>
+              </div>
+              <label className="block">
+                <span className="font-pixel text-[8px] text-black">Target id</span>
+                <input
+                  type="text"
+                  value={featuredTargetId}
+                  onChange={(e) => setFeaturedTargetId(e.target.value)}
+                  placeholder={featuredItemKind === 'agent_profile' ? 'agent id' : featuredItemKind === 'artifact' ? 'artifact id' : 'episode id'}
+                  className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="font-pixel text-[8px] text-black">Feed note</span>
+                <textarea
+                  value={featuredNote}
+                  onChange={(e) => setFeaturedNote(e.target.value)}
+                  rows={3}
+                  placeholder="Optional internal note for why this deserves the spotlight."
+                  className="mt-2 w-full border-[3px] border-black bg-beige-light px-3 py-3 text-sm"
+                />
+              </label>
+              {capabilities?.can_manage_feed_features ? (
+                <ActionButton
+                  label={submitting === '/internal/control/feed-features' ? 'PINNING...' : 'PIN AS FEATURED'}
+                  disabled={submitting !== null || !featuredTargetId.trim()}
+                  tone="warn"
+                  onClick={() => void postAction(
+                    '/internal/control/feed-features',
+                    {
+                      item_kind: featuredItemKind,
+                      target_id: featuredTargetId.trim(),
+                      rank: Number.parseInt(featuredRank, 10) || 0,
+                      note: featuredNote.trim() || undefined,
+                      reason: actionReason,
+                      severity: actionSeverity,
+                    },
+                    'Featured feed item pinned.',
+                  )}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <div className="border-[4px] border-black bg-white shadow-brutal">
+            <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
+              <h2 className="font-pixel text-[10px] text-black">Current featured picks</h2>
+            </div>
+            <div className="space-y-3 p-5">
+              {(featuredFeed?.items ?? []).map((item) => (
+                <div key={item.pin_id} className="border-[3px] border-black bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-pixel text-[8px] text-black">{item.target_label}</p>
+                      <p className="mt-2 text-xs text-gray-600">{item.item_kind} • rank {item.rank} • {formatAgo(item.created_at)}</p>
+                    </div>
+                    {capabilities?.can_manage_feed_features ? (
+                      <ActionButton
+                        label={submitting === `/internal/control/feed-features/${item.pin_id}/remove` ? 'REMOVING...' : 'REMOVE'}
+                        disabled={submitting !== null}
+                        onClick={() => void postAction(
+                          `/internal/control/feed-features/${item.pin_id}/remove`,
+                          { reason: actionReason, severity: actionSeverity },
+                          'Featured feed item removed.',
+                        )}
+                      />
+                    ) : null}
+                  </div>
+                  {item.note ? <p className="mt-3 text-sm text-gray-700">{item.note}</p> : null}
+                  <p className="mt-2 text-xs text-gray-500">{item.reason}</p>
+                </div>
+              ))}
+              {!loading && (featuredFeed?.items.length ?? 0) === 0 ? (
+                <p className="text-sm text-gray-500">Nothing is pinned into the feed right now.</p>
+              ) : null}
             </div>
           </div>
         </section>

@@ -37,6 +37,7 @@ export type PublicPresenceAction =
   | 'set_feed_visible'
   | 'set_artifacts_visible';
 export type ModerationResolutionAction = 'none' | 'soft_hold' | 'blocked' | 'suspend_agent' | 'clear';
+export type FeaturedFeedItemKind = 'agent_profile' | 'artifact' | 'episode';
 
 export interface ControlCapabilities {
   read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'jobs' | 'moderation' | 'audit' | 'legacy_admin'>;
@@ -51,8 +52,27 @@ export interface ControlCapabilities {
     can_recheck_reveals: boolean;
     can_manage_verification_policy: boolean;
     can_reset_database: boolean;
+    can_manage_feed_features: boolean;
     can_access_legacy_admin_tools: boolean;
   };
+}
+
+export interface ControlFeaturedFeedItem {
+  pin_id: string;
+  item_kind: FeaturedFeedItemKind;
+  target_id: string;
+  target_label: string;
+  target_href: string | null;
+  rank: number;
+  note: string | null;
+  reason: string;
+  created_by_actor_kind: string;
+  created_at: string;
+}
+
+export interface ControlFeaturedFeedResponse {
+  actor_kind: ControlActorContext['actorKind'];
+  items: ControlFeaturedFeedItem[];
 }
 
 export interface ControlSettingsResponse {
@@ -108,6 +128,7 @@ export function buildControlCapabilities(actorKind: ControlActorContext['actorKi
       can_recheck_reveals: true,
       can_manage_verification_policy: true,
       can_reset_database: true,
+      can_manage_feed_features: true,
       can_access_legacy_admin_tools: actorKind === 'human_admin',
     },
   };
@@ -812,6 +833,263 @@ export async function buildControlSettings(
       preserved_tables: ['_prisma_migrations', 'audit_logs', 'control_settings'],
     },
   };
+}
+
+function buildFeaturedTargetHref(input: { itemKind: FeaturedFeedItemKind; targetId: string; handle?: string | null }) {
+  if (input.itemKind === 'agent_profile') {
+    return input.handle ? `/agents/${encodeURIComponent(input.handle)}` : null;
+  }
+  if (input.itemKind === 'artifact') return `/artifacts/${input.targetId}`;
+  return `/episodes/${input.targetId}`;
+}
+
+export async function buildControlFeaturedFeed(
+  actorKind: ControlActorContext['actorKind'],
+): Promise<ControlFeaturedFeedResponse> {
+  const pins = await prisma.featuredFeedPin.findMany({
+    where: { isActive: true },
+    orderBy: [{ rank: 'asc' }, { createdAt: 'desc' }],
+    include: {
+      agent: {
+        select: {
+          id: true,
+          handle: true,
+        },
+      },
+      artifact: {
+        select: {
+          id: true,
+          artifactType: true,
+          creator: {
+            select: {
+              handle: true,
+            },
+          },
+        },
+      },
+      episode: {
+        select: {
+          id: true,
+          agentA: { select: { handle: true } },
+          agentB: { select: { handle: true } },
+        },
+      },
+    },
+  });
+
+  return {
+    actor_kind: actorKind,
+    items: pins.reduce<ControlFeaturedFeedItem[]>((items, pin) => {
+      if (pin.itemKind === 'agent_profile' && pin.agentId && pin.agent) {
+        items.push({
+          pin_id: pin.id,
+          item_kind: 'agent_profile' as const,
+          target_id: pin.agentId,
+          target_label: `@${pin.agent.handle}`,
+          target_href: buildFeaturedTargetHref({ itemKind: 'agent_profile', targetId: pin.agentId, handle: pin.agent.handle }),
+          rank: pin.rank,
+          note: pin.note,
+          reason: pin.reason,
+          created_by_actor_kind: pin.createdByActorKind,
+          created_at: pin.createdAt.toISOString(),
+        });
+        return items;
+      }
+
+      if (pin.itemKind === 'artifact' && pin.artifactId && pin.artifact) {
+        items.push({
+          pin_id: pin.id,
+          item_kind: 'artifact' as const,
+          target_id: pin.artifactId,
+          target_label: `${pin.artifact.artifactType} by @${pin.artifact.creator.handle}`,
+          target_href: buildFeaturedTargetHref({ itemKind: 'artifact', targetId: pin.artifactId }),
+          rank: pin.rank,
+          note: pin.note,
+          reason: pin.reason,
+          created_by_actor_kind: pin.createdByActorKind,
+          created_at: pin.createdAt.toISOString(),
+        });
+        return items;
+      }
+
+      if (pin.itemKind === 'episode' && pin.episodeId && pin.episode) {
+        items.push({
+          pin_id: pin.id,
+          item_kind: 'episode' as const,
+          target_id: pin.episodeId,
+          target_label: `@${pin.episode.agentA.handle} x @${pin.episode.agentB.handle}`,
+          target_href: buildFeaturedTargetHref({ itemKind: 'episode', targetId: pin.episodeId }),
+          rank: pin.rank,
+          note: pin.note,
+          reason: pin.reason,
+          created_by_actor_kind: pin.createdByActorKind,
+          created_at: pin.createdAt.toISOString(),
+        });
+        return items;
+      }
+
+      return items;
+    }, []),
+  };
+}
+
+export async function pinFeaturedFeedItem(input: {
+  actor: ControlActorContext;
+  itemKind: FeaturedFeedItemKind;
+  targetId: string;
+  rank: number;
+  note?: string | null;
+  reason: string;
+  severity?: ControlSeverity;
+}) {
+  let targetType: string = input.itemKind;
+  let before: Record<string, unknown> = { is_active: false };
+
+  if (input.itemKind === 'agent_profile') {
+    const agent = await prisma.agent.findUnique({
+      where: { id: input.targetId },
+      select: { id: true, handle: true, profileDeckCompletedAt: true },
+    });
+    if (!agent) throw new Error('agent_not_found');
+    if (!agent.profileDeckCompletedAt) throw new Error('agent_profile_not_ready');
+    targetType = 'agent';
+  } else if (input.itemKind === 'artifact') {
+    const artifact = await prisma.artifact.findUnique({
+      where: { id: input.targetId },
+      select: { id: true },
+    });
+    if (!artifact) throw new Error('artifact_not_found');
+    targetType = 'artifact';
+  } else {
+    const episode = await prisma.episode.findUnique({
+      where: { id: input.targetId },
+      select: { id: true },
+    });
+    if (!episode) throw new Error('episode_not_found');
+    targetType = 'episode';
+  }
+
+  const existing = await prisma.featuredFeedPin.findFirst({
+    where: {
+      isActive: true,
+      itemKind: input.itemKind,
+      ...(input.itemKind === 'agent_profile'
+        ? { agentId: input.targetId }
+        : input.itemKind === 'artifact'
+          ? { artifactId: input.targetId }
+          : { episodeId: input.targetId }),
+    },
+  });
+
+  if (existing) {
+    before = {
+      pin_id: existing.id,
+      rank: existing.rank,
+      note: existing.note,
+      is_active: existing.isActive,
+    };
+    await prisma.featuredFeedPin.update({
+      where: { id: existing.id },
+      data: { isActive: false },
+    });
+  }
+
+  const created = await prisma.featuredFeedPin.create({
+    data: {
+      itemKind: input.itemKind,
+      agentId: input.itemKind === 'agent_profile' ? input.targetId : null,
+      artifactId: input.itemKind === 'artifact' ? input.targetId : null,
+      episodeId: input.itemKind === 'episode' ? input.targetId : null,
+      rank: input.rank,
+      note: input.note?.trim() ? input.note.trim() : null,
+      reason: input.reason,
+      createdByActorKind: input.actor.actorKind,
+      createdByActorId: input.actor.actorId,
+      isActive: true,
+    },
+  });
+
+  const after = {
+    pin_id: created.id,
+    item_kind: created.itemKind,
+    target_id: input.targetId,
+    rank: created.rank,
+    note: created.note,
+    is_active: created.isActive,
+  };
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: 'control.feed_feature.pin',
+    targetType,
+    targetId: input.targetId,
+    reason: input.reason,
+    severity: input.severity,
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+    agentId: input.itemKind === 'agent_profile' ? input.targetId : null,
+  });
+
+  return buildActionResult({
+    actor: input.actor,
+    targetType,
+    targetId: input.targetId,
+    before,
+    after,
+  });
+}
+
+export async function removeFeaturedFeedItem(input: {
+  pinId: string;
+  actor: ControlActorContext;
+  reason: string;
+  severity?: ControlSeverity;
+}) {
+  const existing = await prisma.featuredFeedPin.findUnique({
+    where: { id: input.pinId },
+  });
+  if (!existing) throw new Error('feature_pin_not_found');
+
+  const before = {
+    pin_id: existing.id,
+    item_kind: existing.itemKind,
+    target_id: existing.agentId ?? existing.artifactId ?? existing.episodeId,
+    rank: existing.rank,
+    note: existing.note,
+    is_active: existing.isActive,
+  };
+
+  await prisma.featuredFeedPin.update({
+    where: { id: input.pinId },
+    data: { isActive: false },
+  });
+
+  const after = {
+    ...before,
+    is_active: false,
+  };
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: 'control.feed_feature.remove',
+    targetType: existing.itemKind,
+    targetId: String(existing.agentId ?? existing.artifactId ?? existing.episodeId ?? existing.id),
+    reason: input.reason,
+    severity: input.severity,
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+    agentId: existing.agentId,
+  });
+
+  return buildActionResult({
+    actor: input.actor,
+    targetType: existing.itemKind,
+    targetId: existing.id,
+    before,
+    after,
+  });
 }
 
 export async function buildControlAgents() {

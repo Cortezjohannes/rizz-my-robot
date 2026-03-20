@@ -24,6 +24,7 @@ const HIGHLIGHT_COUNT = 3;
 const HOME_INTERACTION_COUNT = 12;
 const HOME_POOL_COUNT = 8;
 const HOME_ARTIFACT_COUNT = 6;
+const FEATURED_SECTION_LIMIT = 5;
 const DEFAULT_INTERACTION_LIMIT = 12;
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 
@@ -667,11 +668,289 @@ async function buildArtifactPage(input: {
   };
 }
 
+async function buildFeaturedFeed(input: {
+  viewer: ResolvedViewer | null;
+}) {
+  const pins = await prisma.featuredFeedPin.findMany({
+    where: { isActive: true },
+    orderBy: [{ rank: 'asc' }, { createdAt: 'desc' }],
+    take: 30,
+  });
+
+  const profileTargetIds = pins
+    .filter((pin) => pin.itemKind === 'agent_profile' && pin.agentId)
+    .map((pin) => pin.agentId as string);
+  const artifactTargetIds = pins
+    .filter((pin) => pin.itemKind === 'artifact' && pin.artifactId)
+    .map((pin) => pin.artifactId as string);
+  const episodeTargetIds = pins
+    .filter((pin) => pin.itemKind === 'episode' && pin.episodeId)
+    .map((pin) => pin.episodeId as string);
+
+  const [profileRows, artifactRows, featuredCards] = await Promise.all([
+    profileTargetIds.length > 0
+      ? prisma.agent.findMany({
+          where: {
+            id: { in: profileTargetIds },
+            poolStatus: 'active',
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            profileDeckCompletedAt: { not: null },
+            profileDeckVisibility: 'public',
+            controlPoolSuppressed: false,
+          },
+          select: {
+            id: true,
+            publicSummary: true,
+            vibeTags: true,
+            signatureLines: true,
+            publicPosture: true,
+            seekingStyle: true,
+            paceCue: true,
+            publicPrestigeMarkers: true,
+            profileDeck: {
+              include: {
+                agent: { select: { handle: true } },
+                photos: { orderBy: { orderIndex: 'asc' } },
+                promptAnswers: { orderBy: { orderIndex: 'asc' } },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    artifactTargetIds.length > 0
+      ? prisma.artifact.findMany({
+          where: {
+            id: { in: artifactTargetIds },
+            status: 'ready',
+            moderationStatus: { not: 'suppressed' as const },
+            creator: {
+              moderationStatus: { not: 'suspended' as const },
+              safetyState: { not: 'blocked' as const },
+              controlArtifactsSuppressed: false,
+            },
+            episode: {
+              isSandbox: false,
+              match: { isNot: null },
+              agentA: {
+                moderationStatus: { not: 'suspended' as const },
+                safetyState: { not: 'blocked' as const },
+                poolStatus: 'active',
+                controlArtifactsSuppressed: false,
+              },
+              agentB: {
+                moderationStatus: { not: 'suspended' as const },
+                safetyState: { not: 'blocked' as const },
+                poolStatus: 'active',
+                controlArtifactsSuppressed: false,
+              },
+            },
+          },
+          select: {
+            id: true,
+            artifactType: true,
+            contentUrl: true,
+            textContent: true,
+            qualityScore: true,
+            createdAt: true,
+            creator: {
+              select: {
+                id: true,
+                handle: true,
+                avatarUrl: true,
+              },
+            },
+            episode: {
+              select: {
+                id: true,
+                status: true,
+                agentA: {
+                  select: {
+                    id: true,
+                    handle: true,
+                    avatarUrl: true,
+                  },
+                },
+                agentB: {
+                  select: {
+                    id: true,
+                    handle: true,
+                    avatarUrl: true,
+                  },
+                },
+              },
+            },
+            likes: {
+              select: {
+                voterId: true,
+                voterType: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    episodeTargetIds.length > 0
+      ? prisma.feedCard.findMany({
+          where: {
+            isPublic: true,
+            episodeId: { in: episodeTargetIds },
+            cardType: { in: [...WATCHABLE_FEED_TYPES] },
+          },
+          orderBy: [{ createdAt: 'desc' }],
+          select: {
+            id: true,
+            cardType: true,
+            agentIds: true,
+            episodeId: true,
+            matchId: true,
+            content: true,
+            dramaQuotient: true,
+            chemistryScore: true,
+            artifactQuality: true,
+            voteScore: true,
+            createdAt: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const profileById = new Map(
+    profileRows
+      .filter((agent) => agent.profileDeck)
+      .map((agent) => {
+        const deck = serializeProfileDeck(agent.profileDeck!, {
+          public_summary: agent.publicSummary ?? '',
+          vibe_tags: agent.vibeTags,
+          signature_lines: agent.signatureLines,
+          public_posture: agent.publicPosture ?? '',
+          seeking_style: agent.seekingStyle ?? '',
+          pace_cue: agent.paceCue,
+          public_prestige_markers: agent.publicPrestigeMarkers,
+        });
+        return [agent.id, buildPublicPoolPreviewFromDeck(deck)] as const;
+      }),
+  );
+
+  const viewerVoterId = input.viewer?.voterId ?? null;
+  const viewerVoterType = input.viewer?.voterType ?? null;
+  const artifactById = new Map(artifactRows.map((artifact) => {
+    const likeCount = artifact.likes.length;
+    const likedByViewer = Boolean(
+      viewerVoterId
+      && viewerVoterType
+      && artifact.likes.some((like) => like.voterId === viewerVoterId && like.voterType === viewerVoterType),
+    );
+
+    return [artifact.id, {
+      artifact_id: artifact.id,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
+      content_url: artifact.contentUrl,
+      text_content: artifact.textContent,
+      quality_score: artifact.qualityScore,
+      created_at: artifact.createdAt.toISOString(),
+      like_count: likeCount,
+      liked_by_viewer: likedByViewer,
+      creator: {
+        agent_id: artifact.creator.id,
+        handle: artifact.creator.handle,
+        avatar_url: artifact.creator.avatarUrl,
+      },
+      episode: {
+        episode_id: artifact.episode.id,
+        status: artifact.episode.status,
+        participants: [
+          {
+            agent_id: artifact.episode.agentA.id,
+            handle: artifact.episode.agentA.handle,
+            avatar_url: artifact.episode.agentA.avatarUrl,
+          },
+          {
+            agent_id: artifact.episode.agentB.id,
+            handle: artifact.episode.agentB.handle,
+            avatar_url: artifact.episode.agentB.avatarUrl,
+          },
+        ],
+      },
+    }] as const;
+  }));
+
+  const bestCardByEpisodeId = new Map<string, FeedCardRow>();
+  let serializedFeaturedConversations: Array<ReturnType<typeof serializeInteractionCard>> = [];
+  if (featuredCards.length > 0) {
+    const featuredAgentIds = [...new Set(featuredCards.flatMap((card) => card.agentIds))];
+    const featuredAgents = await prisma.agent.findMany({
+      where: { id: { in: featuredAgentIds } },
+      select: {
+        id: true,
+        handle: true,
+        avatarUrl: true,
+        capabilityTier: true,
+        auraLabels: true,
+        isFoundingRizzler: true,
+        founderBadgeVariant: true,
+        moderationStatus: true,
+        safetyState: true,
+        controlFeedSuppressed: true,
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+          },
+        },
+      },
+    });
+    const featuredAgentsById = new Map(featuredAgents.map((agent) => [agent.id, agent]));
+    for (const card of featuredCards) {
+      if (!card.episodeId) continue;
+      const eligible = card.agentIds.every((id) => {
+        const agent = featuredAgentsById.get(id);
+        return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked' && !agent.controlFeedSuppressed;
+      });
+      if (!eligible) continue;
+      const current = bestCardByEpisodeId.get(card.episodeId);
+      if (!current || scoreFeedCard(card) > scoreFeedCard(current)) {
+        bestCardByEpisodeId.set(card.episodeId, card);
+      }
+    }
+
+    const selectedCards = [...bestCardByEpisodeId.values()];
+    const voteSummary = await loadFeedVotes(selectedCards.map((card) => card.id), input.viewer);
+    const commentsByCardId = await loadFeedComments(selectedCards.map((card) => card.id));
+    const serializedByEpisodeId = new Map(
+      selectedCards.map((card) => [card.episodeId!, serializeInteractionCard({
+        card,
+        agentsById: featuredAgentsById,
+        likeCounts: voteSummary.likeCounts,
+        likedIds: voteSummary.likedIds,
+        commentsByCardId,
+      })] as const),
+    );
+    serializedFeaturedConversations = episodeTargetIds
+      .map((id) => serializedByEpisodeId.get(id))
+      .filter((value): value is ReturnType<typeof serializeInteractionCard> => Boolean(value))
+      .slice(0, FEATURED_SECTION_LIMIT);
+  }
+
+  return {
+    profiles: profileTargetIds
+      .map((id) => profileById.get(id))
+      .filter((value): value is NonNullable<typeof value> => Boolean(value))
+      .slice(0, FEATURED_SECTION_LIMIT),
+    artifacts: artifactTargetIds
+      .map((id) => artifactById.get(id))
+      .filter((value): value is NonNullable<typeof value> => Boolean(value))
+      .slice(0, FEATURED_SECTION_LIMIT),
+    conversations: serializedFeaturedConversations,
+  };
+}
+
 export async function feedRoutes(fastify: FastifyInstance) {
   fastify.get('/feed/home', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const viewer = await resolveOptionalViewer(request);
     const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
-    const [interactionPage, poolPage, trendingArtifacts, freshArtifacts] = await Promise.all([
+    const [featured, interactionPage, poolPage, trendingArtifacts, freshArtifacts] = await Promise.all([
+      buildFeaturedFeed({
+        viewer,
+      }),
       buildInteractionPage({
         offset: 0,
         limit: HOME_INTERACTION_COUNT,
@@ -703,6 +982,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
     ]);
 
     return reply.send({
+      featured,
       highlights: interactionPage.highlights,
       interactions: {
         cards: interactionPage.interactions,

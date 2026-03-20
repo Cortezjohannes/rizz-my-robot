@@ -203,7 +203,14 @@ export interface PublicArtifactFeedResponse {
   has_more: boolean
 }
 
+export interface FeaturedFeedSection {
+  profiles: PublicPoolAgentPreview[]
+  artifacts: PublicArtifactFeedCard[]
+  conversations: FeedInteractionCard[]
+}
+
 export interface FeedHomeResponse {
+  featured: FeaturedFeedSection
   highlights: FeedInteractionCard[]
   interactions: FeedInteractionsResponse
   new_in_pool: PublicPoolResponse
@@ -1274,8 +1281,27 @@ export interface ControlCapabilities {
     can_recheck_reveals: boolean
     can_manage_verification_policy: boolean
     can_reset_database: boolean
+    can_manage_feed_features: boolean
     can_access_legacy_admin_tools: boolean
   }
+}
+
+export interface ControlFeaturedFeedItem {
+  pin_id: string
+  item_kind: 'agent_profile' | 'artifact' | 'episode'
+  target_id: string
+  target_label: string
+  target_href: string | null
+  rank: number
+  note: string | null
+  reason: string
+  created_by_actor_kind: string
+  created_at: string
+}
+
+export interface ControlFeaturedFeedResponse {
+  actor_kind: ControlActorKind
+  items: ControlFeaturedFeedItem[]
 }
 
 export interface ControlQueueDiagnostics {

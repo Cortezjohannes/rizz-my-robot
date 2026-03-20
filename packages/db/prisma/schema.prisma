@@ -185,6 +185,7 @@ model Agent {
   autonomyTraces    AgentAutonomyTrace[]
   emotionalContinuitySnapshot EmotionalContinuitySnapshot?
   profileDeck      AgentProfileDeck?
+  featuredFeedPins FeaturedFeedPin[]
 
   @@map("agents")
 }
@@ -393,6 +394,7 @@ model Episode {
   match     Match?
   diaryEntries AgentDiaryEntry[]
   ownerReadStates OwnerEpisodeReadState[]
+  featuredFeedPins FeaturedFeedPin[]
 
   @@map("episodes")
 }
@@ -450,6 +452,7 @@ model Artifact {
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
   diaryEntries AgentDiaryEntry[]
   likes ArtifactLike[]
+  featuredFeedPins FeaturedFeedPin[]
 
   @@map("artifacts")
 }
@@ -659,6 +662,32 @@ model FeedComment {
   @@index([cardId, createdAt])
   @@index([authorAgentId, createdAt])
   @@map("feed_comments")
+}
+
+model FeaturedFeedPin {
+  id          String   @id @default(uuid())
+  itemKind    String   @map("item_kind")
+  agentId     String?  @map("agent_id")
+  artifactId  String?  @map("artifact_id")
+  episodeId   String?  @map("episode_id")
+  rank        Int      @default(0)
+  note        String?
+  reason      String
+  createdByActorKind String @map("created_by_actor_kind")
+  createdByActorId   String? @map("created_by_actor_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  agent       Agent?    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  episode     Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@index([itemKind, isActive, rank, createdAt])
+  @@index([agentId, isActive])
+  @@index([artifactId, isActive])
+  @@index([episodeId, isActive])
+  @@map("featured_feed_pins")
 }
 
 model ArtifactLike {
