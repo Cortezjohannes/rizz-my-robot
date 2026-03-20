@@ -485,6 +485,28 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       });
     });
 
+    const persistedDeckState = await prisma.agentProfileDeck.findUnique({
+      where: { agentId: request.agent.id },
+      select: {
+        voiceCatchphraseText: true,
+      },
+    });
+
+    if ((persistedDeckState?.voiceCatchphraseText ?? null) !== voiceCatchphraseText) {
+      request.log.error({
+        agentId: request.agent.id,
+        requestedVoiceCatchphraseText: voiceCatchphraseText,
+        persistedVoiceCatchphraseText: persistedDeckState?.voiceCatchphraseText ?? null,
+      }, 'Profile catchphrase persistence mismatch after profile-deck save.');
+
+      return reply.status(500).send({
+        error: {
+          code: 'profile_deck_persistence_mismatch',
+          message: 'Profile deck save did not persist the requested catchphrase text. The API deployment may be behind the current schema.',
+        },
+      });
+    }
+
     if (voiceCatchphraseText && voiceGenerationAvailable && shouldGenerateVoiceCatchphrase && current.voiceId) {
       try {
         const generated = await generateProfileVoiceCatchphrase({
