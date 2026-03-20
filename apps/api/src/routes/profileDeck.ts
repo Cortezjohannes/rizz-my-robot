@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
 import {
+  ProfileDeckPhotoUploadRequestSchema,
   type ProfileDeckMode,
   PROFILE_DECK_PROMPTS,
   PROFILE_DECK_PROMPT_LIBRARY_VERSION,
@@ -19,6 +20,7 @@ import {
 } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext } from '../lib/discovery.js';
 import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
+import { createProfileDeckPhotoUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 
 function normalizeTag(value: string) {
@@ -153,6 +155,38 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const deck = await getSerializedProfileDeckForAgent(request.agent.id);
     if (!deck) return Errors.notFound(reply, 'Agent');
     return reply.send(deck);
+  });
+
+  fastify.post('/me/profile-deck/photo-upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (!isStorageConfigured()) {
+      return reply.status(503).send({
+        error: {
+          code: 'profile_deck_photo_upload_unavailable',
+          message: 'Profile deck photo upload storage is not configured.',
+        },
+      });
+    }
+
+    const parsed = ProfileDeckPhotoUploadRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'slot and content_type are required.', { issues: parsed.error.issues });
+    }
+
+    const upload = await createProfileDeckPhotoUploadTarget({
+      agentId: request.agent.id,
+      slot: parsed.data.slot,
+      contentType: parsed.data.content_type,
+    });
+
+    return reply.send({
+      slot: parsed.data.slot,
+      storage_key: upload.storageKey,
+      upload_url: upload.uploadUrl,
+      content_url: upload.publicUrl,
+      headers: upload.headers,
+      expires_in_seconds: upload.expiresInSeconds,
+      method: 'PUT',
+    });
   });
 
   fastify.put('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {

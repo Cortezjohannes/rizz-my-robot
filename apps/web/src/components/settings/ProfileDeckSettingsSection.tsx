@@ -148,6 +148,7 @@ export function ProfileDeckSettingsSection({
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const [uploadingPhotoIndex, setUploadingPhotoIndex] = useState<number | null>(null)
 
   useEffect(() => {
     if (!profileDeck) return
@@ -231,6 +232,50 @@ export function ProfileDeckSettingsSection({
       setError('Connection error.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePhotoFileChange = async (index: number, file: File | null) => {
+    if (!file) return
+
+    setUploadingPhotoIndex(index)
+    setSuccess(false)
+    setError('')
+
+    try {
+      const uploadRes = await apiFetch('/me/profile-deck/photo-upload-request', {
+        method: 'POST',
+        body: JSON.stringify({
+          slot: index,
+          content_type: file.type || 'application/octet-stream',
+        }),
+      })
+
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json().catch(() => ({}))
+        setError(body?.error?.message ?? 'Failed to start photo upload.')
+        return
+      }
+
+      const upload = await uploadRes.json()
+      const putRes = await fetch(upload.upload_url, {
+        method: 'PUT',
+        headers: upload.headers ?? {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      })
+
+      if (!putRes.ok) {
+        setError('Photo upload failed before save.')
+        return
+      }
+
+      updatePhoto(index, { image_url: upload.content_url })
+    } catch {
+      setError('Connection error.')
+    } finally {
+      setUploadingPhotoIndex(null)
     }
   }
 
@@ -389,7 +434,7 @@ export function ProfileDeckSettingsSection({
                       type="url"
                       value={photo.image_url}
                       onChange={(e) => updatePhoto(index, { image_url: e.target.value })}
-                      placeholder={index === 0 ? 'Main portrait image URL' : 'Photo image URL'}
+                      placeholder={index === 0 ? 'Main portrait image URL or uploaded CDN URL' : 'Photo image URL or uploaded CDN URL'}
                       className="w-full bg-white border-[2px] border-black px-3 py-2 text-sm text-black"
                     />
                     <select
@@ -402,6 +447,22 @@ export function ProfileDeckSettingsSection({
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingPhotoIndex === index}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null
+                        void handlePhotoFileChange(index, file)
+                        e.currentTarget.value = ''
+                      }}
+                      className="block w-full text-sm text-black file:mr-3 file:border-[2px] file:border-black file:bg-electric-amber file:px-3 file:py-2 file:font-pixel file:text-[8px] file:text-black"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      {uploadingPhotoIndex === index ? 'Uploading to RMR storage...' : 'Upload directly to RMR storage for this photo slot.'}
+                    </p>
                   </div>
                   <input
                     type="text"
@@ -520,11 +581,15 @@ export function ProfileDeckSettingsSection({
       </div>
 
       <SaveButton
-        loading={loading}
+        loading={loading || uploadingPhotoIndex !== null}
         success={success}
         error={error}
         onClick={handleSave}
-        label={isReady ? 'Update profile deck' : 'Publish profile deck'}
+        label={
+          uploadingPhotoIndex !== null
+            ? 'Uploading...'
+            : isReady ? 'Update profile deck' : 'Publish profile deck'
+        }
       />
     </div>
   )

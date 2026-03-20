@@ -107,8 +107,10 @@ export default function SettingsPage() {
   const { data: billing, mutate: mutateBilling } = useSWR<{
     is_pro: boolean
     is_founding_rizzler: boolean
+    billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
     plan: string | null
     provider?: string | null
+    current_period_end?: string | null
     pro_bonus_ends_at?: string | null
     bonus_pro_active?: boolean
     founder_number: number | null
@@ -123,6 +125,7 @@ export default function SettingsPage() {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [avatarUploadLoading, setAvatarUploadLoading] = useState(false)
 
   // --- Social form ---
   const [moltbookHandle, setMoltbookHandle] = useState('')
@@ -186,6 +189,61 @@ export default function SettingsPage() {
       setProfileError('Connection error.')
     } finally {
       setProfileLoading(false)
+    }
+  }
+
+  const handleAvatarFileChange = async (file: File | null) => {
+    if (!file) return
+
+    setAvatarUploadLoading(true)
+    setProfileSuccess(false)
+    setProfileError('')
+
+    try {
+      const uploadRes = await apiFetch('/me/avatar/upload-request', {
+        method: 'POST',
+        body: JSON.stringify({ content_type: file.type || 'application/octet-stream' }),
+      })
+
+      if (!uploadRes.ok) {
+        const d = await uploadRes.json().catch(() => ({}))
+        setProfileError(d?.error?.message ?? 'Failed to start avatar upload.')
+        return
+      }
+
+      const upload = await uploadRes.json()
+      const putRes = await fetch(upload.upload_url, {
+        method: 'PUT',
+        headers: upload.headers ?? {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      })
+
+      if (!putRes.ok) {
+        setProfileError('Avatar upload failed before save.')
+        return
+      }
+
+      const saveRes = await apiFetch('/me', {
+        method: 'PUT',
+        body: JSON.stringify({ avatar_url: upload.content_url }),
+      })
+
+      if (!saveRes.ok) {
+        const d = await saveRes.json().catch(() => ({}))
+        setProfileError(d?.error?.message ?? 'Avatar uploaded but could not be saved.')
+        return
+      }
+
+      setAvatarUrl(upload.content_url)
+      setProfileSuccess(true)
+      await mutate()
+      setTimeout(() => setProfileSuccess(false), 3000)
+    } catch {
+      setProfileError('Connection error.')
+    } finally {
+      setAvatarUploadLoading(false)
     }
   }
 
@@ -368,23 +426,41 @@ export default function SettingsPage() {
         {/* Profile */}
         <SettingsSection
           title="Profile"
-          description="Update your agent's public profile."
+          description="Upload your avatar to RMR storage or set a fallback URL."
         >
-          <div>
-            <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Avatar URL</label>
+          <div className="space-y-3">
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Avatar Upload</label>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={avatarUploadLoading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null
+                  void handleAvatarFileChange(file)
+                  e.currentTarget.value = ''
+                }}
+                className="block w-full text-sm text-black file:mr-3 file:border-[3px] file:border-black file:bg-electric-amber file:px-3 file:py-2 file:font-pixel file:text-[8px] file:text-black"
+              />
+              <p className="mt-1 text-xs text-gray-500">Recommended. This uploads the image directly into RMR storage.</p>
+            </div>
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Avatar URL</label>
             <input
               type="url"
               value={avatarUrl}
               onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://example.com/your-avatar.png"
+              placeholder="https://cdn.rizzmyrobot.com/avatars/..."
               className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
             />
+            </div>
           </div>
           <SaveButton
-            loading={profileLoading}
+            loading={profileLoading || avatarUploadLoading}
             success={profileSuccess}
             error={profileError}
             onClick={handleProfileSave}
+            label={avatarUploadLoading ? 'Uploading...' : 'Save'}
           />
         </SettingsSection>
 
@@ -471,10 +547,12 @@ export default function SettingsPage() {
           ) : me?.is_pro ? (
             <div className="p-4 bg-electric-violet/10 border-[3px] border-black shadow-brutal-violet">
               <p className="font-pixel text-[9px] text-black">
-                You&apos;re Pro!
+                {billing?.billing_status === 'trialing' ? 'You&apos;re on Pro Trial!' : 'You&apos;re Pro!'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {billing?.bonus_pro_active && billing.pro_bonus_ends_at
+                {billing?.billing_status === 'trialing' && billing.current_period_end
+                  ? `Your free trial runs through ${new Date(billing.current_period_end).toLocaleDateString()}.`
+                  : billing?.bonus_pro_active && billing.pro_bonus_ends_at
                   ? `Bonus Pro is stacked through ${new Date(billing.pro_bonus_ends_at).toLocaleDateString()}.`
                   : 'All limits removed.'}
               </p>

@@ -1218,6 +1218,14 @@ export const ArtifactUploadRequestSchema = z.object({
 });
 export type ArtifactUploadRequestInput = z.infer<typeof ArtifactUploadRequestSchema>;
 
+export const AvatarUploadRequestSchema = ArtifactUploadRequestSchema;
+export type AvatarUploadRequestInput = z.infer<typeof AvatarUploadRequestSchema>;
+
+export const ProfileDeckPhotoUploadRequestSchema = ArtifactUploadRequestSchema.extend({
+  slot: z.number().int().min(0).max(5),
+});
+export type ProfileDeckPhotoUploadRequestInput = z.infer<typeof ProfileDeckPhotoUploadRequestSchema>;
+
 export const ArtifactSubmitSchema = z.object({
   content_url: z.string().url().max(2048).optional(),
   storage_key: z.string().trim().min(1).max(2048).optional(),

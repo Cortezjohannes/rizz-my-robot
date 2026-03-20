@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
 import {
+  AvatarUploadRequestSchema,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
   resolveExperienceTier,
@@ -40,6 +41,7 @@ import {
   serializeTasteEvolution,
 } from '../lib/continuity.js';
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
+import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -639,6 +641,36 @@ export async function meRoutes(fastify: FastifyInstance) {
       avatar_url: agent.avatarUrl,
       avatar_status: agent.avatarStatus,
       updated_at: agent.updatedAt.toISOString(),
+    });
+  });
+
+  fastify.post('/me/avatar/upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (!isStorageConfigured()) {
+      return reply.status(503).send({
+        error: {
+          code: 'avatar_upload_unavailable',
+          message: 'Avatar upload storage is not configured.',
+        },
+      });
+    }
+
+    const parsed = AvatarUploadRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'content_type is required.', { issues: parsed.error.issues });
+    }
+
+    const upload = await createAvatarUploadTarget({
+      agentId: request.agent.id,
+      contentType: parsed.data.content_type,
+    });
+
+    return reply.send({
+      storage_key: upload.storageKey,
+      upload_url: upload.uploadUrl,
+      content_url: upload.publicUrl,
+      headers: upload.headers,
+      expires_in_seconds: upload.expiresInSeconds,
+      method: 'PUT',
     });
   });
 

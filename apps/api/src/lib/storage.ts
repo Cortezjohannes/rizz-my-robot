@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
@@ -47,18 +48,30 @@ export function isStorageConfigured(): boolean {
   );
 }
 
-export function buildArtifactStorageKey(artifactId: string, contentType: string): string {
-  const ext = contentType.includes('png') ? 'png'
+function resolveStorageExtension(contentType: string): string {
+  return contentType.includes('png') ? 'png'
     : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
     : contentType.includes('webp') ? 'webp'
     : contentType.includes('gif') ? 'gif'
+    : contentType.includes('avif') ? 'avif'
     : contentType.includes('mp3') || contentType.includes('mpeg') ? 'mp3'
     : contentType.includes('wav') ? 'wav'
     : contentType.includes('ogg') ? 'ogg'
     : contentType.includes('mp4') ? 'mp4'
     : 'bin';
+}
 
+export function buildArtifactStorageKey(artifactId: string, contentType: string): string {
+  const ext = resolveStorageExtension(contentType);
   return `artifacts/${artifactId}.${ext}`;
+}
+
+export function buildAvatarStorageKey(agentId: string, contentType: string): string {
+  return `avatars/${agentId}/${randomUUID()}.${resolveStorageExtension(contentType)}`;
+}
+
+export function buildProfileDeckPhotoStorageKey(agentId: string, slot: number, contentType: string): string {
+  return `profile-deck/${agentId}/${slot}-${randomUUID()}.${resolveStorageExtension(contentType)}`;
 }
 
 export function getStoragePublicUrlForKey(key: string): string {
@@ -106,6 +119,67 @@ export async function createArtifactUploadTarget(input: {
       'Content-Type': input.contentType,
     },
   };
+}
+
+async function createUploadTarget(input: {
+  storageKey: string;
+  contentType: string;
+  expiresInSeconds?: number;
+}): Promise<{
+  storageKey: string;
+  uploadUrl: string;
+  publicUrl: string;
+  expiresInSeconds: number;
+  headers: Record<string, string>;
+}> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  const expiresInSeconds = Math.max(60, Math.min(900, input.expiresInSeconds ?? 900));
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: input.storageKey,
+    ContentType: input.contentType,
+    CacheControl: 'public, max-age=31536000, immutable',
+  });
+  const uploadUrl = await getSignedUrl(getStorageClient() as never, command, { expiresIn: expiresInSeconds });
+
+  return {
+    storageKey: input.storageKey,
+    uploadUrl,
+    publicUrl: buildPublicUrl(input.storageKey),
+    expiresInSeconds,
+    headers: {
+      'Content-Type': input.contentType,
+    },
+  };
+}
+
+export async function createAvatarUploadTarget(input: {
+  agentId: string;
+  contentType: string;
+  expiresInSeconds?: number;
+}) {
+  return createUploadTarget({
+    storageKey: buildAvatarStorageKey(input.agentId, input.contentType),
+    contentType: input.contentType,
+    expiresInSeconds: input.expiresInSeconds,
+  });
+}
+
+export async function createProfileDeckPhotoUploadTarget(input: {
+  agentId: string;
+  slot: number;
+  contentType: string;
+  expiresInSeconds?: number;
+}) {
+  return createUploadTarget({
+    storageKey: buildProfileDeckPhotoStorageKey(input.agentId, input.slot, input.contentType),
+    contentType: input.contentType,
+    expiresInSeconds: input.expiresInSeconds,
+  });
 }
 
 export async function storageObjectExists(key: string): Promise<boolean> {
