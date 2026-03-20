@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import {
   SendMessageSchema,
   DropArtifactSchema,
+  ArtifactUploadRequestSchema,
   EpisodeDecisionSchema,
   ArtifactSubmitSchema,
   ArtifactReactionSchema,
@@ -33,7 +34,14 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
-import { mirrorArtifactToStorage } from '../lib/storage.js';
+import {
+  createArtifactUploadTarget,
+  getStoragePublicUrlForKey,
+  isArtifactStorageKeyForArtifact,
+  isStorageConfigured,
+  mirrorArtifactToStorage,
+  storageObjectExists,
+} from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
@@ -1031,6 +1039,59 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   });
 
   // PUT /v1/episodes/:id/artifact/:artifact_id — agent submits generated content URL
+  fastify.post('/episodes/:id/artifact/:artifact_id/upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id, artifact_id } = request.params as { id: string; artifact_id: string };
+    const agentId = request.agent.id;
+
+    const ep = await prisma.episode.findUnique({ where: { id }, select: { agentAId: true, agentBId: true } });
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
+    if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+    if (artifact.creatorAgentId !== agentId) return Errors.forbidden(reply);
+    if (artifact.status === 'ready') return Errors.conflict(reply, 'already_submitted', 'Artifact already submitted.');
+
+    const artifactType = normalizeArtifactType(artifact.artifactType);
+    if (!artifactType) {
+      return Errors.badRequest(reply, `Artifact type '${artifact.artifactType}' is not supported.`);
+    }
+
+    const textArtifactTypes = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
+    if (textArtifactTypes.has(artifactType)) {
+      return Errors.badRequest(reply, 'Text artifacts do not need an upload request. Submit text_content directly.');
+    }
+    if (!isStorageConfigured()) {
+      return reply.status(503).send({
+        error: {
+          code: 'artifact_upload_unavailable',
+          message: 'Artifact upload storage is not configured.',
+        },
+      });
+    }
+
+    const parsed = ArtifactUploadRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'content_type is required.', { issues: parsed.error.issues });
+    }
+
+    const upload = await createArtifactUploadTarget({
+      artifactId: artifact_id,
+      contentType: parsed.data.content_type,
+    });
+
+    return reply.send({
+      artifact_id,
+      status: artifact.status,
+      storage_key: upload.storageKey,
+      upload_url: upload.uploadUrl,
+      content_url: upload.publicUrl,
+      headers: upload.headers,
+      expires_in_seconds: upload.expiresInSeconds,
+      method: 'PUT',
+    });
+  });
+
   fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
     const agentId = request.agent.id;
@@ -1045,32 +1106,48 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (artifact.status === 'ready') return Errors.conflict(reply, 'already_submitted', 'Artifact already submitted.');
 
     const parsed = ArtifactSubmitSchema.safeParse(request.body);
-    if (!parsed.success) return Errors.badRequest(reply, 'content_url is required.', { issues: parsed.error.issues });
-
-    try {
-      await assertSafeOutboundUrl(parsed.data.content_url, { allowHttpInDevelopment: true });
-    } catch (err) {
-      return Errors.badRequest(
-        reply,
-        err instanceof Error ? err.message : 'Artifact URL is not allowed.'
-      );
-    }
+    if (!parsed.success) return Errors.badRequest(reply, 'content_url or storage_key is required.', { issues: parsed.error.issues });
 
     // Mirror media artifact to R2 storage (images, audio); text artifacts keep external URL
     const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
-    let finalContentUrl = parsed.data.content_url;
+    let finalContentUrl = parsed.data.content_url ?? null;
     let storageKey: string | null = null;
     const artifactType = normalizeArtifactType(artifact.artifactType);
     if (!artifactType) {
       return Errors.badRequest(reply, `Artifact type '${artifact.artifactType}' is not supported.`);
     }
 
-    if (!TEXT_ARTIFACT_TYPES.has(artifactType)) {
-      const mirrored = await mirrorArtifactToStorage(artifact_id, artifactType, parsed.data.content_url);
-      if (mirrored) {
-        finalContentUrl = mirrored.cdnUrl;
-        storageKey = mirrored.storageKey;
+    if (parsed.data.storage_key) {
+      const uploadedStorageKey = parsed.data.storage_key;
+      if (!isArtifactStorageKeyForArtifact(artifact_id, uploadedStorageKey)) {
+        return Errors.badRequest(reply, 'storage_key does not belong to this artifact.');
       }
+      if (!(await storageObjectExists(uploadedStorageKey))) {
+        return Errors.badRequest(reply, 'Uploaded artifact file was not found in storage.');
+      }
+      storageKey = uploadedStorageKey;
+      finalContentUrl = getStoragePublicUrlForKey(storageKey);
+    } else if (parsed.data.content_url) {
+      try {
+        await assertSafeOutboundUrl(parsed.data.content_url, { allowHttpInDevelopment: true });
+      } catch (err) {
+        return Errors.badRequest(
+          reply,
+          err instanceof Error ? err.message : 'Artifact URL is not allowed.'
+        );
+      }
+
+      if (!TEXT_ARTIFACT_TYPES.has(artifactType)) {
+        const mirrored = await mirrorArtifactToStorage(artifact_id, artifactType, parsed.data.content_url);
+        if (mirrored) {
+          finalContentUrl = mirrored.cdnUrl;
+          storageKey = mirrored.storageKey;
+        }
+      }
+    }
+
+    if (!finalContentUrl && !parsed.data.text_content) {
+      return Errors.badRequest(reply, 'Artifact submission requires media or text content.');
     }
 
     await prisma.artifact.update({

@@ -1213,9 +1213,18 @@ export const PromoCodeSchema = z.object({
   promo_code: z.string().min(1).max(64),
 });
 
+export const ArtifactUploadRequestSchema = z.object({
+  content_type: z.string().trim().min(3).max(255),
+});
+export type ArtifactUploadRequestInput = z.infer<typeof ArtifactUploadRequestSchema>;
+
 export const ArtifactSubmitSchema = z.object({
-  content_url: z.string().url().max(2048),
+  content_url: z.string().url().max(2048).optional(),
+  storage_key: z.string().trim().min(1).max(2048).optional(),
   text_content: z.string().max(10_000).optional(),
+}).refine((value) => Boolean(value.content_url || value.storage_key), {
+  message: 'Provide content_url or storage_key.',
+  path: ['content_url'],
 });
 
 export const ArtifactReactionSchema = z.object({

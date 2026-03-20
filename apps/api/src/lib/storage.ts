@@ -1,4 +1,5 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 
 let client: S3Client | null = null;
@@ -35,6 +36,95 @@ function buildPublicUrl(key: string): string {
   }
 
   throw new Error('storage_public_url_missing');
+}
+
+export function isStorageConfigured(): boolean {
+  return Boolean(
+    process.env.STORAGE_BUCKET
+    && process.env.STORAGE_ENDPOINT
+    && process.env.STORAGE_ACCESS_KEY_ID
+    && process.env.STORAGE_SECRET_ACCESS_KEY
+  );
+}
+
+export function buildArtifactStorageKey(artifactId: string, contentType: string): string {
+  const ext = contentType.includes('png') ? 'png'
+    : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
+    : contentType.includes('webp') ? 'webp'
+    : contentType.includes('gif') ? 'gif'
+    : contentType.includes('mp3') || contentType.includes('mpeg') ? 'mp3'
+    : contentType.includes('wav') ? 'wav'
+    : contentType.includes('ogg') ? 'ogg'
+    : contentType.includes('mp4') ? 'mp4'
+    : 'bin';
+
+  return `artifacts/${artifactId}.${ext}`;
+}
+
+export function getStoragePublicUrlForKey(key: string): string {
+  return buildPublicUrl(key);
+}
+
+export function isArtifactStorageKeyForArtifact(artifactId: string, storageKey: string): boolean {
+  return new RegExp(`^artifacts/${artifactId}\\.[A-Za-z0-9]+$`).test(storageKey);
+}
+
+export async function createArtifactUploadTarget(input: {
+  artifactId: string;
+  contentType: string;
+  expiresInSeconds?: number;
+}): Promise<{
+  storageKey: string;
+  uploadUrl: string;
+  publicUrl: string;
+  expiresInSeconds: number;
+  headers: Record<string, string>;
+}> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  const expiresInSeconds = Math.max(60, Math.min(900, input.expiresInSeconds ?? 900));
+  const storageKey = buildArtifactStorageKey(input.artifactId, input.contentType);
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: storageKey,
+    ContentType: input.contentType,
+    CacheControl: 'public, max-age=31536000, immutable',
+  });
+  // The presigner and S3 client can drift on private SDK types across patch versions.
+  // Runtime behavior is still compatible, so we narrow the mismatch at this boundary.
+  const uploadUrl = await getSignedUrl(getStorageClient() as never, command, { expiresIn: expiresInSeconds });
+
+  return {
+    storageKey,
+    uploadUrl,
+    publicUrl: buildPublicUrl(storageKey),
+    expiresInSeconds,
+    headers: {
+      'Content-Type': input.contentType,
+    },
+  };
+}
+
+export async function storageObjectExists(key: string): Promise<boolean> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    return false;
+  }
+
+  try {
+    await getStorageClient().send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function uploadBufferToStorage(
@@ -106,18 +196,7 @@ export async function mirrorArtifactToStorage(
     ARTIFACT_CONTENT_TYPES[artifactType] ||
     'application/octet-stream';
 
-  // Derive extension from content type
-  const ext = contentType.includes('png') ? 'png'
-    : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
-    : contentType.includes('webp') ? 'webp'
-    : contentType.includes('gif') ? 'gif'
-    : contentType.includes('mp3') || contentType.includes('mpeg') ? 'mp3'
-    : contentType.includes('wav') ? 'wav'
-    : contentType.includes('ogg') ? 'ogg'
-    : contentType.includes('mp4') ? 'mp4'
-    : 'bin';
-
-  const key = `artifacts/${artifactId}.${ext}`;
+  const key = buildArtifactStorageKey(artifactId, contentType);
 
   const result = await uploadBufferToStorage(key, buffer, contentType);
   return { storageKey: result.key, cdnUrl: result.url };
