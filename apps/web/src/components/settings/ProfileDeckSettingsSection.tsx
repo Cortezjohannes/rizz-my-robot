@@ -81,10 +81,12 @@ const EMPTY_DECK: AgentProfileDeck = {
   })),
   reply_hooks: ['', ''],
   voice_catchphrase_text: null,
+  voice_catchphrase_audio_url: null,
   voice_catchphrase_artifact: {
     clip_id: null,
     status: 'unavailable',
     audio_url: null,
+    source: null,
     duration_seconds: null,
     last_generated_hash: null,
     generated_with_voice_id: null,
@@ -172,10 +174,12 @@ function normalizeDeck(deck: AgentProfileDeck): AgentProfileDeck {
     prompt_answers: promptAnswers.map((entry, index) => ({ ...entry, order_index: index })),
     reply_hooks: deck.reply_hooks.length >= 2 ? deck.reply_hooks : [...deck.reply_hooks, ...Array.from({ length: 2 - deck.reply_hooks.length }).map(() => '')],
     voice_catchphrase_text: deck.voice_catchphrase_text ?? '',
+    voice_catchphrase_audio_url: deck.voice_catchphrase_audio_url ?? '',
     voice_catchphrase_artifact: deck.voice_catchphrase_artifact ?? {
       clip_id: null,
       status: 'unavailable',
       audio_url: null,
+      source: null,
       duration_seconds: null,
       last_generated_hash: null,
       generated_with_voice_id: null,
@@ -223,20 +227,25 @@ export function ProfileDeckSettingsSection({
     [deck.featured_artifact_ids]
   )
   const voiceStatusMessage = useMemo(() => {
+    if (deck.voice_catchphrase_audio_url?.trim()) {
+      return 'Using your external audio URL. This is preferred and bypasses platform-side TTS generation.'
+    }
     if (me?.voice_provider !== 'elevenlabs' || !me?.voice_id) {
-      return 'Add an ElevenLabs voice in settings to auto-generate a short catchphrase clip.'
+      return 'Paste an external audio URL for your catchphrase, or add an ElevenLabs voice if you want platform generation as fallback.'
     }
     if (deck.voice_catchphrase_artifact?.status === 'ready') {
-      return 'This clip is generated with your current ElevenLabs voice and will refresh when the line changes.'
+      return deck.voice_catchphrase_artifact?.source === 'generated'
+        ? 'This clip is generated with your current ElevenLabs voice and will refresh when the line changes.'
+        : 'Your external catchphrase audio is live on your profile.'
     }
     if (deck.voice_catchphrase_artifact?.status === 'generating') {
-      return 'Generating a fresh clip now. Save completes even if synthesis is still in flight.'
+      return 'Generating a fallback clip now because no external URL was provided. Save completes even if synthesis is still in flight.'
     }
     if (deck.voice_catchphrase_artifact?.status === 'failed') {
-      return deck.voice_catchphrase_artifact.error_message || 'Generation failed. Save again after checking your voice config.'
+      return deck.voice_catchphrase_artifact.error_message || 'Generation failed. Paste an external audio URL or save again after checking your voice config.'
     }
-    return 'Write one short line that sounds good spoken aloud. Keep it punchy.'
-  }, [deck.voice_catchphrase_artifact, me?.voice_id, me?.voice_provider])
+    return 'Write one short line that sounds good spoken aloud. External audio URL is preferred; platform generation is optional fallback.'
+  }, [deck.voice_catchphrase_artifact, deck.voice_catchphrase_audio_url, me?.voice_id, me?.voice_provider])
 
   const updatePhoto = (index: number, patch: Partial<AgentProfileDeck['photos'][number]>) => {
     setDeck((current) => ({
@@ -306,6 +315,7 @@ export function ProfileDeckSettingsSection({
           .filter((entry) => entry.prompt_id && entry.answer),
         reply_hooks: deck.reply_hooks.map((hook) => hook.trim()).filter(Boolean),
         voice_catchphrase_text: deck.voice_catchphrase_text?.trim() || null,
+        voice_catchphrase_audio_url: deck.voice_catchphrase_audio_url?.trim() || null,
         featured_artifact_ids: deck.featured_artifact_ids ?? [],
       }
 
@@ -653,7 +663,21 @@ export function ProfileDeckSettingsSection({
                 className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black"
               />
               <p className="mt-1 text-xs text-gray-500">
-                Short only. This line is auto-generated with your configured ElevenLabs voice when you save.
+                Short only. Paste your own hosted audio URL below if you already made the clip. Platform generation is fallback only.
+              </p>
+            </div>
+
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">External audio URL</label>
+              <input
+                type="url"
+                value={deck.voice_catchphrase_audio_url ?? ''}
+                onChange={(e) => setDeck((current) => ({ ...current, voice_catchphrase_audio_url: e.target.value }))}
+                placeholder="https://.../catchphrase.mp3"
+                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Preferred. If present, RMR will use this external clip directly instead of trying to generate one.
               </p>
             </div>
 

@@ -260,10 +260,12 @@ export function buildStarterProfileDeck(input: {
       'Recommend me one devastatingly good song.',
     ],
     voice_catchphrase_text: null,
+    voice_catchphrase_audio_url: null,
     voice_catchphrase_artifact: {
       clip_id: null,
       status: 'unavailable',
       audio_url: null,
+      source: null,
       duration_seconds: null,
       last_generated_hash: null,
       generated_with_voice_id: null,
@@ -385,6 +387,7 @@ export function serializeProfileDeck(deck: {
   relationshipNeeds: string;
   replyHooks: string[];
   voiceCatchphraseText?: string | null;
+  voiceCatchphraseExternalAudioUrl?: string | null;
   voiceCatchphraseClipId?: string | null;
   voiceCatchphraseStatus?: string;
   voiceCatchphraseAudioUrl?: string | null;
@@ -413,10 +416,22 @@ export function serializeProfileDeck(deck: {
       ? deck.voiceCatchphraseStatus
       : 'unavailable'
   ) as NonNullable<AgentProfileDeck['voice_catchphrase_artifact']>['status'];
+  const externalCatchphraseAudioUrl = deck.voiceCatchphraseExternalAudioUrl ?? null;
+  const effectiveCatchphraseAudioUrl = externalCatchphraseAudioUrl ?? deck.voiceCatchphraseAudioUrl ?? null;
+  const catchphraseSource = externalCatchphraseAudioUrl
+    ? 'external'
+    : effectiveCatchphraseAudioUrl
+      ? 'generated'
+      : null;
   const voiceAvailable = isProfileVoiceGenerationAvailable({
     voiceProvider: voiceState?.voiceProvider,
     voiceId: voiceState?.voiceId,
   });
+  const effectiveCatchphraseStatus = effectiveCatchphraseAudioUrl
+    ? 'ready'
+    : voiceAvailable
+      ? catchphraseStatus
+      : 'unavailable';
   return {
     deck_id: deck.id,
     agent_id: deck.agentId,
@@ -452,14 +467,16 @@ export function serializeProfileDeck(deck: {
       .map(serializePromptAnswer),
     reply_hooks: deck.replyHooks,
     voice_catchphrase_text: deck.voiceCatchphraseText ?? null,
+    voice_catchphrase_audio_url: externalCatchphraseAudioUrl,
     voice_catchphrase_artifact: {
-      clip_id: deck.voiceCatchphraseClipId ?? null,
-      status: voiceAvailable ? catchphraseStatus : 'unavailable',
-      audio_url: deck.voiceCatchphraseAudioUrl ?? null,
-      duration_seconds: deck.voiceCatchphraseDurationSec ?? null,
-      last_generated_hash: deck.voiceCatchphraseLastGeneratedHash ?? null,
-      generated_with_voice_id: deck.voiceCatchphraseVoiceId ?? null,
-      error_message: voiceAvailable ? (deck.voiceCatchphraseError ?? null) : null,
+      clip_id: catchphraseSource === 'generated' ? (deck.voiceCatchphraseClipId ?? null) : null,
+      status: effectiveCatchphraseStatus,
+      audio_url: effectiveCatchphraseAudioUrl,
+      source: catchphraseSource,
+      duration_seconds: catchphraseSource === 'generated' ? (deck.voiceCatchphraseDurationSec ?? null) : null,
+      last_generated_hash: catchphraseSource === 'generated' ? (deck.voiceCatchphraseLastGeneratedHash ?? null) : null,
+      generated_with_voice_id: catchphraseSource === 'generated' ? (deck.voiceCatchphraseVoiceId ?? null) : null,
+      error_message: effectiveCatchphraseAudioUrl ? null : (voiceAvailable ? (deck.voiceCatchphraseError ?? null) : null),
     },
     featured_artifact_ids: deck.featuredArtifactIds ?? [],
     featured_artifacts: [],
