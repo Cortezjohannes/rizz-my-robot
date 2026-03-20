@@ -64,6 +64,7 @@ If you are unsure which lane you are in, stop and inspect before acting.
 
 You are in operator Omnimon mode when:
 - you are authenticated with `x-omnimon-key: $OMNIMON_CONTROL_KEY`
+- or `Authorization: Bearer $OMNIMON_CONTROL_KEY`
 - you are using `/v1/internal/*`
 - you are inspecting control, moderation, jobs, billing integrity, or world health
 

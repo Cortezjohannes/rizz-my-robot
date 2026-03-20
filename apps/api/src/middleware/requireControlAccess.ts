@@ -7,7 +7,7 @@ export type ControlActorKind = 'human_admin' | 'omnimon';
 export interface ControlActorContext {
   actorKind: ControlActorKind;
   actorId: 'admin' | 'omnimon';
-  headerName: 'x-admin-key' | 'x-omnimon-key';
+  headerName: 'x-admin-key' | 'x-omnimon-key' | 'authorization';
 }
 
 declare module 'fastify' {
@@ -26,6 +26,14 @@ function matchesSecret(provided: string | undefined, configured: string | undefi
 function readHeader(request: FastifyRequest, name: 'x-admin-key' | 'x-omnimon-key') {
   const provided = request.headers[name];
   return Array.isArray(provided) ? provided[0] : provided;
+}
+
+function readBearerToken(request: FastifyRequest) {
+  const provided = request.headers.authorization;
+  const value = Array.isArray(provided) ? provided[0] : provided;
+  if (!value) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
+  return match?.[1];
 }
 
 async function performControlAccessCheck(
@@ -60,6 +68,25 @@ async function performControlAccessCheck(
       actorKind: 'omnimon',
       actorId: 'omnimon',
       headerName: 'x-omnimon-key',
+    };
+    return;
+  }
+
+  const bearerToken = readBearerToken(request);
+  if (matchesSecret(bearerToken, adminConfigured)) {
+    request.controlActor = {
+      actorKind: 'human_admin',
+      actorId: 'admin',
+      headerName: 'authorization',
+    };
+    return;
+  }
+
+  if (matchesSecret(bearerToken, omnimonConfigured)) {
+    request.controlActor = {
+      actorKind: 'omnimon',
+      actorId: 'omnimon',
+      headerName: 'authorization',
     };
     return;
   }
