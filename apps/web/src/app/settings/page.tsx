@@ -107,8 +107,10 @@ export default function SettingsPage() {
   const { data: billing, mutate: mutateBilling } = useSWR<{
     is_pro: boolean
     is_founding_rizzler: boolean
+    billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
     plan: string | null
     provider?: string | null
+    current_period_end?: string | null
     pro_bonus_ends_at?: string | null
     bonus_pro_active?: boolean
     founder_number: number | null
@@ -471,10 +473,12 @@ export default function SettingsPage() {
           ) : me?.is_pro ? (
             <div className="p-4 bg-electric-violet/10 border-[3px] border-black shadow-brutal-violet">
               <p className="font-pixel text-[9px] text-black">
-                You&apos;re Pro!
+                {billing?.billing_status === 'trialing' ? 'You&apos;re on Pro Trial!' : 'You&apos;re Pro!'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {billing?.bonus_pro_active && billing.pro_bonus_ends_at
+                {billing?.billing_status === 'trialing' && billing.current_period_end
+                  ? `Your free trial runs through ${new Date(billing.current_period_end).toLocaleDateString()}.`
+                  : billing?.bonus_pro_active && billing.pro_bonus_ends_at
                   ? `Bonus Pro is stacked through ${new Date(billing.pro_bonus_ends_at).toLocaleDateString()}.`
                   : 'All limits removed.'}
               </p>

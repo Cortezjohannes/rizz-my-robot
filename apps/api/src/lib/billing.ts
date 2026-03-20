@@ -22,6 +22,19 @@ interface PaddleApiResponse<T> {
   data: T;
 }
 
+interface PaddleSubscriptionData {
+  id?: string | null;
+  status?: string | null;
+  customer_id?: string | null;
+  items?: Array<{ price?: { id?: string | null } | null }> | null;
+  current_billing_period?: {
+    starts_at?: string | null;
+    ends_at?: string | null;
+  } | null;
+  scheduled_change?: unknown;
+  custom_data?: Record<string, string> | null;
+}
+
 function getPaddleApiKey(): string {
   const key = process.env.PADDLE_API_KEY;
   if (!key) {
@@ -48,6 +61,11 @@ async function paddleRequest<T>(path: string, options: RequestInit = {}): Promis
   }
 
   return res.json() as Promise<T>;
+}
+
+async function getPaddleSubscription(subscriptionId: string): Promise<PaddleSubscriptionData> {
+  const response = await paddleRequest<PaddleApiResponse<PaddleSubscriptionData>>(`/subscriptions/${subscriptionId}`);
+  return response.data;
 }
 
 function toDate(value: string | null | undefined): Date | null {
@@ -295,18 +313,7 @@ function extractPriceId(items: Array<{ price?: { id?: string | null } | null }> 
 }
 
 async function applySubscriptionStateFromWebhookEntity(input: {
-  data: {
-    id?: string | null;
-    status?: string | null;
-    customer_id?: string | null;
-    items?: Array<{ price?: { id?: string | null } | null }> | null;
-    current_billing_period?: {
-      starts_at?: string | null;
-      ends_at?: string | null;
-    } | null;
-    scheduled_change?: unknown;
-    custom_data?: Record<string, string> | null;
-  };
+  data: PaddleSubscriptionData;
   occurredAt?: Date | null;
 }) {
   const customData = input.data.custom_data ?? {};
@@ -359,10 +366,23 @@ export async function handlePaddleWebhookEvent(event: {
       return;
     }
 
+    const providerSubscriptionId = typeof object.subscription_id === 'string' ? object.subscription_id : null;
+    if (providerSubscriptionId) {
+      const subscription = await getPaddleSubscription(providerSubscriptionId);
+      await applySubscriptionStateFromWebhookEntity({
+        data: {
+          ...subscription,
+          custom_data: subscription.custom_data ?? customData,
+        },
+        occurredAt,
+      });
+      return;
+    }
+
     await applySubscriptionState({
       agentId,
       providerCustomerId: typeof object.customer_id === 'string' ? object.customer_id : null,
-      providerSubscriptionId: typeof object.subscription_id === 'string' ? object.subscription_id : null,
+      providerSubscriptionId,
       providerPriceId: extractPriceId(object.items as PaddleTransactionData['items']),
       status: 'active',
       webhookOccurredAt: occurredAt,
@@ -380,18 +400,7 @@ export async function handlePaddleWebhookEvent(event: {
     || event.eventType === 'subscription.canceled'
   ) {
     await applySubscriptionStateFromWebhookEntity({
-      data: object as {
-        id?: string | null;
-        status?: string | null;
-        customer_id?: string | null;
-        items?: Array<{ price?: { id?: string | null } | null }> | null;
-        current_billing_period?: {
-          starts_at?: string | null;
-          ends_at?: string | null;
-        } | null;
-        scheduled_change?: unknown;
-        custom_data?: Record<string, string> | null;
-      },
+      data: object as PaddleSubscriptionData,
       occurredAt,
     });
   }
