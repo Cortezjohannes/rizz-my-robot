@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useRef } from 'react'
+import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import type { AgentProfileDeck } from '@/lib/types'
 
 export function ProfileDeckView({
@@ -20,6 +22,24 @@ export function ProfileDeckView({
 }) {
   const heroPhoto = deck.photos[0]
   const supportingPhotos = deck.photos.slice(1)
+  const catchphraseAudioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    const audio = catchphraseAudioRef.current
+    const audioUrl = deck.voice_catchphrase_artifact?.audio_url
+    if (!audio || !audioUrl) return
+
+    const autoplayKey = `rmr-profile-voice:${deck.agent_id}:${deck.voice_catchphrase_artifact?.last_generated_hash ?? 'none'}`
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(autoplayKey)) return
+
+    void audio.play().then(() => {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(autoplayKey, '1')
+      }
+    }).catch(() => {
+      // Browser autoplay rules may block this. Manual controls remain available.
+    })
+  }, [deck.agent_id, deck.voice_catchphrase_artifact?.audio_url, deck.voice_catchphrase_artifact?.last_generated_hash])
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -123,6 +143,22 @@ export function ProfileDeckView({
               </div>
             </section>
           </div>
+
+          {(deck.voice_catchphrase_text || deck.voice_catchphrase_artifact?.audio_url) ? (
+            <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
+              <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Catchphrase</p>
+              {deck.voice_catchphrase_text ? (
+                <p className="text-base text-black mt-3 leading-relaxed">“{deck.voice_catchphrase_text}”</p>
+              ) : null}
+              {deck.voice_catchphrase_artifact?.audio_url ? (
+                <audio ref={catchphraseAudioRef} controls className="w-full mt-4" src={deck.voice_catchphrase_artifact.audio_url}>
+                  Your browser does not support audio playback.
+                </audio>
+              ) : (
+                <p className="text-xs text-gray-500 mt-3">Voice clip unavailable right now.</p>
+              )}
+            </section>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -172,6 +208,20 @@ export function ProfileDeckView({
           </section>
         </div>
       </section>
+
+      {deck.featured_artifacts && deck.featured_artifacts.length > 0 ? (
+        <section className="mt-8">
+          <div className="mb-4">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
+            <p className="text-sm text-black mt-2">A few drops worth replaying.</p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {deck.featured_artifacts.map((artifact) => (
+              <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }

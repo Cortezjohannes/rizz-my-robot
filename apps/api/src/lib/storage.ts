@@ -74,6 +74,10 @@ export function buildProfileDeckPhotoStorageKey(agentId: string, slot: number, c
   return `profile-deck/${agentId}/${slot}-${randomUUID()}.${resolveStorageExtension(contentType)}`;
 }
 
+export function buildProfileVoiceStorageKey(agentId: string, clipHash: string, contentType: string): string {
+  return `profile-voice/${agentId}/${clipHash}.${resolveStorageExtension(contentType)}`;
+}
+
 export function getStoragePublicUrlForKey(key: string): string {
   return buildPublicUrl(key);
 }

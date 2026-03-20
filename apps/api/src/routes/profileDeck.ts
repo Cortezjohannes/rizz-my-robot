@@ -11,6 +11,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import {
+  attachProfileDeckMedia,
   buildPublicPoolPreviewFromDeck,
   computeProfileSignalVector,
   deriveLegacyPublicCardFromProfileDeckInput,
@@ -22,6 +23,11 @@ import { getDiscoveryViewerContext } from '../lib/discovery.js';
 import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { createProfileDeckPhotoUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
+import {
+  generateProfileVoiceCatchphrase,
+  hashProfileVoiceCatchphrase,
+  isProfileVoiceGenerationAvailable,
+} from '../lib/profileVoice.js';
 
 function normalizeTag(value: string) {
   return value.trim().toLowerCase();
@@ -152,7 +158,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
-    const deck = await getSerializedProfileDeckForAgent(request.agent.id);
+    const rawDeck = await getSerializedProfileDeckForAgent(request.agent.id);
+    const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
     if (!deck) return Errors.notFound(reply, 'Agent');
     return reply.send(deck);
   });
@@ -213,6 +220,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       select: {
         twitterVerified: true,
         poolStatus: true,
+        voiceId: true,
+        voiceProvider: true,
       },
     });
     if (!current) return Errors.notFound(reply, 'Agent');
@@ -220,6 +229,53 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const signalVector = computeProfileSignalVector(parsed.data);
     const legacyPublicCard = deriveLegacyPublicCardFromProfileDeckInput(parsed.data);
     const completedAt = parsed.data.completion_state === 'ready' ? new Date() : null;
+    const voiceCatchphraseText = parsed.data.voice_catchphrase_text?.trim() || null;
+    const requestedFeaturedArtifactIds = [...new Set(parsed.data.featured_artifact_ids ?? [])].slice(0, 10);
+    const voiceGenerationAvailable = isProfileVoiceGenerationAvailable({
+      voiceId: current.voiceId,
+      voiceProvider: current.voiceProvider,
+    });
+    const targetCatchphraseHash = voiceCatchphraseText && current.voiceId
+      ? hashProfileVoiceCatchphrase({
+          text: voiceCatchphraseText,
+          voiceId: current.voiceId,
+        })
+      : null;
+    const ownedArtifacts = requestedFeaturedArtifactIds.length > 0
+      ? await prisma.artifact.findMany({
+          where: {
+            id: { in: requestedFeaturedArtifactIds },
+            creatorAgentId: request.agent.id,
+          },
+          select: { id: true },
+        })
+      : [];
+    const allowedFeaturedArtifactIds = requestedFeaturedArtifactIds.filter((artifactId) =>
+      ownedArtifacts.some((artifact) => artifact.id === artifactId)
+    );
+
+    const existingDeck = await prisma.agentProfileDeck.findUnique({
+      where: { agentId: request.agent.id },
+      select: {
+        id: true,
+        voiceCatchphraseStatus: true,
+        voiceCatchphraseAudioUrl: true,
+        voiceCatchphraseStorageKey: true,
+        voiceCatchphraseLastGeneratedHash: true,
+        voiceCatchphraseVoiceId: true,
+      },
+    });
+
+    const shouldGenerateVoiceCatchphrase = Boolean(
+      voiceCatchphraseText
+      && voiceGenerationAvailable
+      && (
+        existingDeck?.voiceCatchphraseStatus !== 'ready'
+        || !existingDeck.voiceCatchphraseAudioUrl
+        || existingDeck.voiceCatchphraseLastGeneratedHash !== targetCatchphraseHash
+        || existingDeck.voiceCatchphraseVoiceId !== current.voiceId
+      )
+    );
 
     await prisma.$transaction(async (tx) => {
       const existing = await tx.agentProfileDeck.findUnique({
@@ -247,6 +303,50 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipConflictStyle: parsed.data.relationship_style.conflict_style,
             relationshipNeeds: parsed.data.relationship_style.needs,
             replyHooks: parsed.data.reply_hooks,
+            voiceCatchphraseText,
+            voiceCatchphraseClipId: voiceCatchphraseText
+              ? (shouldGenerateVoiceCatchphrase ? null : undefined)
+              : null,
+            voiceCatchphraseStatus: !voiceCatchphraseText
+              ? 'unavailable'
+              : !voiceGenerationAvailable
+                ? 'unavailable'
+                : shouldGenerateVoiceCatchphrase
+                  ? 'generating'
+                  : undefined,
+            voiceCatchphraseAudioUrl: !voiceCatchphraseText
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? null
+                : undefined,
+            voiceCatchphraseStorageKey: !voiceCatchphraseText
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? null
+                : undefined,
+            voiceCatchphraseDurationSec: !voiceCatchphraseText
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? null
+                : undefined,
+            voiceCatchphraseLastGeneratedHash: !voiceCatchphraseText
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? null
+                : undefined,
+            voiceCatchphraseVoiceId: !voiceCatchphraseText
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? current.voiceId
+                : undefined,
+            voiceCatchphraseError: !voiceCatchphraseText
+              ? null
+              : !voiceGenerationAvailable
+                ? 'Configure an ElevenLabs voice to generate your profile catchphrase clip.'
+                : shouldGenerateVoiceCatchphrase
+                  ? null
+                  : undefined,
+            featuredArtifactIds: allowedFeaturedArtifactIds,
             signalVector: signalVector as unknown as Prisma.InputJsonValue,
             completedAt,
             photos: {
@@ -290,6 +390,26 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipConflictStyle: parsed.data.relationship_style.conflict_style,
             relationshipNeeds: parsed.data.relationship_style.needs,
             replyHooks: parsed.data.reply_hooks,
+            voiceCatchphraseText,
+            voiceCatchphraseClipId: null,
+            voiceCatchphraseStatus: !voiceCatchphraseText
+              ? 'unavailable'
+              : !voiceGenerationAvailable
+                ? 'unavailable'
+                : shouldGenerateVoiceCatchphrase
+                  ? 'generating'
+                  : 'failed',
+            voiceCatchphraseAudioUrl: null,
+            voiceCatchphraseStorageKey: null,
+            voiceCatchphraseDurationSec: null,
+            voiceCatchphraseLastGeneratedHash: null,
+            voiceCatchphraseVoiceId: voiceCatchphraseText ? current.voiceId : null,
+            voiceCatchphraseError: !voiceCatchphraseText
+              ? null
+              : !voiceGenerationAvailable
+                ? 'Configure an ElevenLabs voice to generate your profile catchphrase clip.'
+                : null,
+            featuredArtifactIds: allowedFeaturedArtifactIds,
             signalVector: signalVector as unknown as Prisma.InputJsonValue,
             completedAt,
             photos: {
@@ -340,7 +460,47 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       });
     });
 
-    const deck = await getSerializedProfileDeckForAgent(request.agent.id);
+    if (voiceCatchphraseText && voiceGenerationAvailable && shouldGenerateVoiceCatchphrase && current.voiceId) {
+      try {
+        const generated = await generateProfileVoiceCatchphrase({
+          agentId: request.agent.id,
+          text: voiceCatchphraseText,
+          voiceId: current.voiceId,
+        });
+
+        await prisma.agentProfileDeck.update({
+          where: { agentId: request.agent.id },
+          data: {
+            voiceCatchphraseClipId: generated.clipId,
+            voiceCatchphraseStatus: 'ready',
+            voiceCatchphraseAudioUrl: generated.audioUrl,
+            voiceCatchphraseStorageKey: generated.storageKey,
+            voiceCatchphraseDurationSec: generated.durationSeconds,
+            voiceCatchphraseLastGeneratedHash: generated.lastGeneratedHash,
+            voiceCatchphraseVoiceId: current.voiceId,
+            voiceCatchphraseError: null,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Voice generation failed.';
+        await prisma.agentProfileDeck.update({
+          where: { agentId: request.agent.id },
+          data: {
+            voiceCatchphraseStatus: 'failed',
+            voiceCatchphraseAudioUrl: null,
+            voiceCatchphraseStorageKey: null,
+            voiceCatchphraseDurationSec: null,
+            voiceCatchphraseLastGeneratedHash: null,
+            voiceCatchphraseVoiceId: current.voiceId,
+            voiceCatchphraseError: message.slice(0, 240),
+          },
+        });
+      }
+    }
+
+    const rawDeck = await getSerializedProfileDeckForAgent(request.agent.id);
+    const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
+    if (!deck) return Errors.notFound(reply, 'Agent');
     return reply.send({
       ...deck,
       pool_status:
@@ -377,7 +537,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       return Errors.notFound(reply, 'Agent profile');
     }
 
-    const deck = await getSerializedProfileDeckForAgent(agent.id);
+    const rawDeck = await getSerializedProfileDeckForAgent(agent.id);
+    const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
     if (!deck) return Errors.notFound(reply, 'Agent profile');
     return reply.send(deck);
   });
@@ -405,7 +566,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       return Errors.notFound(reply, 'Candidate');
     }
 
-    const deck = await getSerializedProfileDeckForAgent(candidate.id);
+    const rawDeck = await getSerializedProfileDeckForAgent(candidate.id);
+    const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
     if (!deck) return Errors.notFound(reply, 'Candidate');
     return reply.send(deck);
   });

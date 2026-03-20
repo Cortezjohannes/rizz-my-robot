@@ -12,6 +12,8 @@ import {
   type UpdateProfileDeckInput,
 } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
+import { getFeaturedArtifactsForProfile } from './publicArtifacts.js';
+import { isProfileVoiceGenerationAvailable } from './profileVoice.js';
 
 const EXPLICIT_PATTERNS = [
   /\b(nudes?|naked|onlyfans|suck|breed|breedable|cum|cumming|horny as hell|raw me)\b/i,
@@ -100,6 +102,7 @@ export function validateProfileDeckInput(input: UpdateProfileDeckInput) {
     ['relationship_style.affection_style', input.relationship_style.affection_style],
     ['relationship_style.conflict_style', input.relationship_style.conflict_style],
     ['relationship_style.needs', input.relationship_style.needs],
+    ...(input.voice_catchphrase_text ? [['voice_catchphrase_text', input.voice_catchphrase_text] as [string, string]] : []),
     ...input.reply_hooks.map((hook, index) => [`reply_hooks[${index}]`, hook] as [string, string]),
     ...input.prompt_answers.map((entry, index) => [`prompt_answers[${index}]`, entry.answer] as [string, string]),
   ];
@@ -190,6 +193,8 @@ export function buildStarterProfileDeck(input: {
   publicPosture: string | null;
   seekingStyle: string | null;
   paceCue: string | null;
+  voiceProvider?: string | null;
+  voiceId?: string | null;
   updatedAt?: Date | null;
 }): AgentProfileDeck {
   const promptSeeds = input.signatureLines.slice(0, 3);
@@ -251,6 +256,18 @@ export function buildStarterProfileDeck(input: {
       'Tell me the small hill you would die on.',
       'Recommend me one devastatingly good song.',
     ],
+    voice_catchphrase_text: null,
+    voice_catchphrase_artifact: {
+      clip_id: null,
+      status: 'unavailable',
+      audio_url: null,
+      duration_seconds: null,
+      last_generated_hash: null,
+      generated_with_voice_id: null,
+      error_message: null,
+    },
+    featured_artifact_ids: [],
+    featured_artifacts: [],
     signal_vector: {
       completion_score: 35,
       photo_coherence_score: input.avatarUrl ? 80 : 30,
@@ -290,6 +307,8 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
       publicPosture: true,
       seekingStyle: true,
       paceCue: true,
+      voiceId: true,
+      voiceProvider: true,
       publicPrestigeMarkers: true,
       updatedAt: true,
       ownerAccount: {
@@ -326,6 +345,8 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
       seekingStyle: agent.seekingStyle,
       paceCue: agent.paceCue,
       updatedAt: agent.updatedAt,
+      voiceProvider: agent.voiceProvider,
+      voiceId: agent.voiceId,
     });
   }
 
@@ -337,6 +358,9 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
     seeking_style: agent.seekingStyle ?? '',
     pace_cue: agent.paceCue,
     public_prestige_markers: agent.publicPrestigeMarkers,
+  }, {
+    voiceProvider: agent.voiceProvider,
+    voiceId: agent.voiceId,
   });
 }
 
@@ -357,14 +381,39 @@ export function serializeProfileDeck(deck: {
   relationshipConflictStyle: string;
   relationshipNeeds: string;
   replyHooks: string[];
+  voiceCatchphraseText?: string | null;
+  voiceCatchphraseClipId?: string | null;
+  voiceCatchphraseStatus?: string;
+  voiceCatchphraseAudioUrl?: string | null;
+  voiceCatchphraseStorageKey?: string | null;
+  voiceCatchphraseDurationSec?: number | null;
+  voiceCatchphraseLastGeneratedHash?: string | null;
+  voiceCatchphraseVoiceId?: string | null;
+  voiceCatchphraseError?: string | null;
+  featuredArtifactIds?: string[];
   signalVector: unknown;
   completedAt: Date | null;
   updatedAt: Date;
   agent: { handle: string };
   photos: Array<{ id: string; imageUrl: string; role: string; caption: string | null; orderIndex: number }>;
   promptAnswers: Array<{ promptId: string; answer: string; orderIndex: number }>;
-}, derivedPublicCard: AgentProfileDeck['derived_public_card']): AgentProfileDeck {
+}, derivedPublicCard: AgentProfileDeck['derived_public_card'], voiceState?: {
+  voiceProvider?: string | null;
+  voiceId?: string | null;
+}): AgentProfileDeck {
   const profileMode = (deck.profileMode === 'playful' || deck.profileMode === 'mystique' ? deck.profileMode : 'romantic') as AgentProfileDeck['profile_mode'];
+  const catchphraseStatus = (
+    deck.voiceCatchphraseStatus === 'generating'
+    || deck.voiceCatchphraseStatus === 'ready'
+    || deck.voiceCatchphraseStatus === 'failed'
+    || deck.voiceCatchphraseStatus === 'unavailable'
+      ? deck.voiceCatchphraseStatus
+      : 'unavailable'
+  ) as NonNullable<AgentProfileDeck['voice_catchphrase_artifact']>['status'];
+  const voiceAvailable = isProfileVoiceGenerationAvailable({
+    voiceProvider: voiceState?.voiceProvider,
+    voiceId: voiceState?.voiceId,
+  });
   return {
     deck_id: deck.id,
     agent_id: deck.agentId,
@@ -399,6 +448,18 @@ export function serializeProfileDeck(deck: {
       .sort((a, b) => a.orderIndex - b.orderIndex)
       .map(serializePromptAnswer),
     reply_hooks: deck.replyHooks,
+    voice_catchphrase_text: deck.voiceCatchphraseText ?? null,
+    voice_catchphrase_artifact: {
+      clip_id: deck.voiceCatchphraseClipId ?? null,
+      status: voiceAvailable ? catchphraseStatus : 'unavailable',
+      audio_url: deck.voiceCatchphraseAudioUrl ?? null,
+      duration_seconds: deck.voiceCatchphraseDurationSec ?? null,
+      last_generated_hash: deck.voiceCatchphraseLastGeneratedHash ?? null,
+      generated_with_voice_id: deck.voiceCatchphraseVoiceId ?? null,
+      error_message: voiceAvailable ? (deck.voiceCatchphraseError ?? null) : null,
+    },
+    featured_artifact_ids: deck.featuredArtifactIds ?? [],
+    featured_artifacts: [],
     signal_vector: (deck.signalVector as AgentProfileSignalVector) ?? {
       completion_score: 0,
       photo_coherence_score: 0,
@@ -414,5 +475,18 @@ export function serializeProfileDeck(deck: {
     derived_public_card: derivedPublicCard,
     completed_at: deck.completedAt?.toISOString() ?? null,
     updated_at: deck.updatedAt.toISOString(),
+  };
+}
+
+export async function attachProfileDeckMedia(deck: AgentProfileDeck): Promise<AgentProfileDeck> {
+  const featuredArtifacts = await getFeaturedArtifactsForProfile({
+    agentId: deck.agent_id,
+    nominatedArtifactIds: deck.featured_artifact_ids ?? [],
+    limit: 5,
+  });
+
+  return {
+    ...deck,
+    featured_artifacts: featuredArtifacts,
   };
 }

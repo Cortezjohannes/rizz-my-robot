@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { apiFetch, fetcher } from '@/lib/api'
-import type { AgentProfileDeck, MeResponse, ProfileDeckPromptLibraryResponse, ProfileDeckPhotoRole } from '@/lib/types'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import type {
+  AgentProfileDeck,
+  ArtifactLibraryResponse,
+  MeResponse,
+  ProfileDeckPromptLibraryResponse,
+  ProfileDeckPhotoRole,
+} from '@/lib/types'
 
 function SaveButton({
   loading,
@@ -73,6 +80,18 @@ const EMPTY_DECK: AgentProfileDeck = {
     order_index: index,
   })),
   reply_hooks: ['', ''],
+  voice_catchphrase_text: null,
+  voice_catchphrase_artifact: {
+    clip_id: null,
+    status: 'unavailable',
+    audio_url: null,
+    duration_seconds: null,
+    last_generated_hash: null,
+    generated_with_voice_id: null,
+    error_message: null,
+  },
+  featured_artifact_ids: [],
+  featured_artifacts: [],
   signal_vector: {
     completion_score: 0,
     photo_coherence_score: 0,
@@ -95,6 +114,29 @@ const EMPTY_DECK: AgentProfileDeck = {
     public_prestige_markers: [],
   },
   completed_at: null,
+}
+
+function VoiceStatusBadge({
+  status,
+  message,
+}: {
+  status: NonNullable<AgentProfileDeck['voice_catchphrase_artifact']>['status']
+  message: string
+}) {
+  const tone = status === 'ready'
+    ? 'bg-electric-cyan/15 text-black'
+    : status === 'generating'
+      ? 'bg-electric-amber/20 text-black'
+      : status === 'failed'
+        ? 'bg-electric-magenta/15 text-black'
+        : 'bg-[#f4ead8] text-black'
+
+  return (
+    <div className={`border-[2px] border-black px-3 py-2 ${tone}`}>
+      <p className="font-pixel text-[7px] uppercase tracking-[0.16em]">{status}</p>
+      <p className="text-xs mt-1">{message}</p>
+    </div>
+  )
 }
 
 function normalizeDeck(deck: AgentProfileDeck): AgentProfileDeck {
@@ -129,6 +171,18 @@ function normalizeDeck(deck: AgentProfileDeck): AgentProfileDeck {
     })),
     prompt_answers: promptAnswers.map((entry, index) => ({ ...entry, order_index: index })),
     reply_hooks: deck.reply_hooks.length >= 2 ? deck.reply_hooks : [...deck.reply_hooks, ...Array.from({ length: 2 - deck.reply_hooks.length }).map(() => '')],
+    voice_catchphrase_text: deck.voice_catchphrase_text ?? '',
+    voice_catchphrase_artifact: deck.voice_catchphrase_artifact ?? {
+      clip_id: null,
+      status: 'unavailable',
+      audio_url: null,
+      duration_seconds: null,
+      last_generated_hash: null,
+      generated_with_voice_id: null,
+      error_message: null,
+    },
+    featured_artifact_ids: deck.featured_artifact_ids ?? [],
+    featured_artifacts: deck.featured_artifacts ?? [],
   }
 }
 
@@ -143,6 +197,7 @@ export function ProfileDeckSettingsSection({
     revalidateOnFocus: false,
   })
   const { data: profileDeck, mutate: mutateProfileDeck } = useSWR<AgentProfileDeck>('/me/profile-deck', fetcher)
+  const { data: artifactLibrary } = useSWR<ArtifactLibraryResponse>('/artifacts?limit=120', fetcher)
 
   const [deck, setDeck] = useState<AgentProfileDeck>(EMPTY_DECK)
   const [loading, setLoading] = useState(false)
@@ -159,6 +214,29 @@ export function ProfileDeckSettingsSection({
   const isReady = me?.profile_deck_complete ?? false
 
   const selectedPromptIds = useMemo(() => deck.prompt_answers.map((entry) => entry.prompt_id).filter(Boolean), [deck.prompt_answers])
+  const ownArtifacts = useMemo(
+    () => (artifactLibrary?.artifacts ?? []).filter((artifact) => artifact.is_your_artifact),
+    [artifactLibrary]
+  )
+  const featuredArtifactIds = useMemo(
+    () => new Set(deck.featured_artifact_ids ?? []),
+    [deck.featured_artifact_ids]
+  )
+  const voiceStatusMessage = useMemo(() => {
+    if (me?.voice_provider !== 'elevenlabs' || !me?.voice_id) {
+      return 'Add an ElevenLabs voice in settings to auto-generate a short catchphrase clip.'
+    }
+    if (deck.voice_catchphrase_artifact?.status === 'ready') {
+      return 'This clip is generated with your current ElevenLabs voice and will refresh when the line changes.'
+    }
+    if (deck.voice_catchphrase_artifact?.status === 'generating') {
+      return 'Generating a fresh clip now. Save completes even if synthesis is still in flight.'
+    }
+    if (deck.voice_catchphrase_artifact?.status === 'failed') {
+      return deck.voice_catchphrase_artifact.error_message || 'Generation failed. Save again after checking your voice config.'
+    }
+    return 'Write one short line that sounds good spoken aloud. Keep it punchy.'
+  }, [deck.voice_catchphrase_artifact, me?.voice_id, me?.voice_provider])
 
   const updatePhoto = (index: number, patch: Partial<AgentProfileDeck['photos'][number]>) => {
     setDeck((current) => ({
@@ -178,6 +256,19 @@ export function ProfileDeckSettingsSection({
         entryIndex === index ? { ...entry, ...patch } : entry
       )),
     }))
+  }
+
+  const toggleFeaturedArtifact = (artifactId: string) => {
+    setDeck((current) => {
+      const currentIds = current.featured_artifact_ids ?? []
+      const nextIds = currentIds.includes(artifactId)
+        ? currentIds.filter((id) => id !== artifactId)
+        : [...currentIds, artifactId].slice(0, 10)
+      return {
+        ...current,
+        featured_artifact_ids: nextIds,
+      }
+    })
   }
 
   const handleSave = async () => {
@@ -214,6 +305,8 @@ export function ProfileDeckSettingsSection({
           }))
           .filter((entry) => entry.prompt_id && entry.answer),
         reply_hooks: deck.reply_hooks.map((hook) => hook.trim()).filter(Boolean),
+        voice_catchphrase_text: deck.voice_catchphrase_text?.trim() || null,
+        featured_artifact_ids: deck.featured_artifact_ids ?? [],
       }
 
       const res = await apiFetch('/me/profile-deck', {
@@ -547,6 +640,104 @@ export function ProfileDeckSettingsSection({
               placeholder="One hook per line"
               className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black"
             />
+          </div>
+
+          <div className="border-[3px] border-black bg-[#eef8ff] p-4 space-y-3">
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Catchphrase voice clip</label>
+              <textarea
+                rows={2}
+                value={deck.voice_catchphrase_text ?? ''}
+                onChange={(e) => setDeck((current) => ({ ...current, voice_catchphrase_text: e.target.value }))}
+                placeholder="One short line you want people to hear in your own voice."
+                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Short only. This line is auto-generated with your configured ElevenLabs voice when you save.
+              </p>
+            </div>
+
+            <VoiceStatusBadge
+              status={deck.voice_catchphrase_artifact?.status ?? 'unavailable'}
+              message={voiceStatusMessage}
+            />
+
+            {deck.voice_catchphrase_artifact?.audio_url ? (
+              <div className="border-[2px] border-black bg-white p-3">
+                <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Current clip</p>
+                <audio controls className="w-full mt-3" src={deck.voice_catchphrase_artifact.audio_url}>
+                  Your browser does not support audio playback.
+                </audio>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="border-[3px] border-black bg-[#fffaf1] p-4 space-y-3">
+            <div>
+              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Featured artifacts</label>
+              <p className="text-xs text-gray-500">
+                Nominate up to 10 of your own artifacts. Your public profile will rank and show up to 5 eligible ones.
+              </p>
+            </div>
+
+            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+              {ownArtifacts.length === 0 ? (
+                <div className="border-[2px] border-black bg-white p-3 text-xs text-gray-600">
+                  No artifacts yet. Drop some in episodes first, then come back and feature your favorites.
+                </div>
+              ) : (
+                ownArtifacts.map((artifact) => {
+                  const selected = featuredArtifactIds.has(artifact.artifact_id)
+                  return (
+                    <label
+                      key={artifact.artifact_id}
+                      className={`block border-[2px] border-black p-3 cursor-pointer ${
+                        selected ? 'bg-electric-amber/20' : 'bg-white'
+                      } ${!artifact.eligible_for_profile_feature ? 'opacity-70' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-2 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
+                              {artifactTypeLabel(artifact.artifact_type)}
+                            </span>
+                            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
+                              {artifact.like_count} likes
+                            </span>
+                            {!artifact.eligible_for_profile_feature ? (
+                              <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-magenta">
+                                not currently eligible
+                              </span>
+                            ) : null}
+                          </div>
+                          {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+                            <img
+                              src={artifact.content_url}
+                              alt={artifact.text_content ?? artifactTypeLabel(artifact.artifact_type)}
+                              className="h-28 w-24 object-cover border-[2px] border-black bg-[#efe2cc]"
+                            />
+                          ) : null}
+                          {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+                            <audio controls className="w-full max-w-md" src={artifact.content_url}>
+                              Your browser does not support audio playback.
+                            </audio>
+                          ) : null}
+                          {artifact.text_content ? (
+                            <p className="text-xs text-black line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>
+                          ) : null}
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleFeaturedArtifact(artifact.artifact_id)}
+                          className="mt-1 h-4 w-4 accent-black"
+                        />
+                      </div>
+                    </label>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
 
