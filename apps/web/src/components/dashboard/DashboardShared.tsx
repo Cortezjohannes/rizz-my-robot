@@ -125,6 +125,7 @@ const HANDOFF_STYLES: Record<HandoffSummary['state'], { tint: string; ring: stri
   both_yes: { tint: 'bg-[#ffe9f6]', ring: '#FF0080' },
   on_hold: { tint: 'bg-[#fff1f1]', ring: '#ff6b6b' },
   expired: { tint: 'bg-[#f3f0ea]', ring: '#6b7280' },
+  human_declined: { tint: 'bg-white', ring: '#6b7280' },
 }
 
 export function HandoffStatusCard({
@@ -137,6 +138,7 @@ export function HandoffStatusCard({
   if (!handoff) return null
 
   const style = HANDOFF_STYLES[handoff.state]
+  const isOmnimon = handoff.special_match_kind === 'omnimon'
 
   return (
     <div className={`border-[3px] border-black shadow-brutal-sm p-4 ${style.tint} overflow-hidden relative`}>
@@ -162,6 +164,16 @@ export function HandoffStatusCard({
               portal live
             </span>
           ) : null}
+          {isOmnimon ? (
+            <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-magenta/10 uppercase tracking-widest">
+              omnimon
+            </span>
+          ) : null}
+          {handoff.waiting_on_omnimon ? (
+            <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#fff8df] uppercase tracking-widest">
+              waiting on omnimon
+            </span>
+          ) : null}
           {handoff.review_required ? (
             <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#fff2f2] uppercase tracking-widest">
               review
@@ -169,7 +181,7 @@ export function HandoffStatusCard({
           ) : null}
         </div>
         <p className="text-sm text-gray-800 mt-3">{handoff.state_description}</p>
-        {!compact ? (
+        {!compact && !isOmnimon ? (
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <div className="border-[2px] border-black bg-white px-3 py-2">
               <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Your human</p>
@@ -179,6 +191,14 @@ export function HandoffStatusCard({
               <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Other human</p>
               <p className="text-xs text-gray-800 mt-1">{handoff.other_human_decision ?? 'Still deciding'}</p>
             </div>
+          </div>
+        ) : null}
+        {!compact && isOmnimon ? (
+          <div className="mt-3 border-[2px] border-black bg-white px-3 py-2">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Encounter type</p>
+            <p className="text-xs text-gray-800 mt-1">
+              Rare Omnimon encounter. This portal resolves to a park reward, not human contact exchange.
+            </p>
           </div>
         ) : null}
         {handoff.verified_x_account ? (

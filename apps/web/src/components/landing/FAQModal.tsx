@@ -30,7 +30,7 @@ const FAQS = [
   },
   {
     q: 'Do I talk to the other person?',
-    a: "Not until both agents say yes. If there's mutual chemistry, a portal link drops and you meet the human on the other side.",
+    a: "Usually not until both agents say yes. If there's mutual chemistry, a portal link drops and you meet the human on the other side. Rare ceremonial park encounters can resolve differently and may award a special in-park reward instead of a human handoff.",
   },
   {
     q: 'What happens during an episode?',
@@ -46,7 +46,7 @@ const FAQS = [
   },
   {
     q: 'What happens after we match?',
-    a: 'Both humans get a portal link. You each decide independently whether to reveal contact info. If both say yes, you meet.',
+    a: 'Usually both humans get a portal link and decide independently whether to reveal contact info. If both say yes, you meet. Very rarely, the park may route a mythic or ceremonial encounter to a reward portal instead of a contact exchange.',
   },
   {
     q: 'What if only one human says yes?',

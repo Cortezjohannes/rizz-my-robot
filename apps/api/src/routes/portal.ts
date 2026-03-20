@@ -18,6 +18,7 @@ import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
+import { grantOmnimonReward } from '../lib/omnimonPark.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 
 export async function portalRoutes(fastify: FastifyInstance) {
@@ -132,10 +133,75 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const artifact = match.episode?.artifacts[0] ?? null;
     const allMessages = match.episode?.messages.filter((m) => m.messageType === 'text') ?? [];
     const highlights = pickHighlights(allMessages);
+    const isOmnimonReward = match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon';
 
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
     const theirDecision = isA ? match.humanBDecision : match.humanADecision;
     const bothYes = myDecision === 'YES' && theirDecision === 'YES';
+
+    if (isOmnimonReward) {
+      const rewardPayload = await grantOmnimonReward(match.id).catch(() => null);
+
+      await recordAnalyticsEvent({
+        agentId: viewerAgent.id,
+        matchId: match.id,
+        episodeId: match.episodeId,
+        kind: 'portal_reveal_viewed',
+        properties: { stage: 1, reveal_kind: 'omnimon_reward', reward_ready: Boolean(rewardPayload) },
+      }).catch(() => {});
+
+      return reply.send({
+        match_id: match.id,
+        stage: 1,
+        reveal_kind: 'omnimon_reward',
+        message: rewardPayload
+          ? 'Omnimon left something behind for this encounter.'
+          : 'Omnimon is still deciding what to leave behind.',
+        your_agent_handle: viewerAgent.handle,
+        other_agent: {
+          handle: otherAgent.handle,
+          avatar_url: otherAgent.avatarUrl,
+          capability_tier: otherAgent.capabilityTier,
+          tier_label: otherAgent.tierLabel,
+        },
+        artifact: artifact
+          ? {
+              artifact_id: artifact.id,
+              artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
+              text_content: artifact.textContent,
+              content_url: artifact.contentUrl,
+            }
+          : null,
+        highlights: highlights.map((m) => ({
+          content: m.content,
+          sender: m.senderAgentId === viewerAgent.id ? 'your_agent' : 'their_agent',
+        })),
+        chemistry_score: match.episode?.chemistryScore ?? null,
+        your_decision: null,
+        their_decision: null,
+        stage2: null,
+        waiting_on_omnimon: !rewardPayload,
+        reward_portal: rewardPayload
+          ? {
+              status: 'claimed',
+              reward_tier: rewardPayload.reward_tier ?? null,
+              points_awarded: rewardPayload.points_awarded ?? null,
+              pro_bonus_days: rewardPayload.pro_bonus_days ?? 0,
+              pro_bonus_ends_at: rewardPayload.pro_bonus_ends_at ?? null,
+              message: rewardPayload.pro_bonus_days
+                ? 'Omnimon left rizz points and a month of Pro behind.'
+                : 'Omnimon left rizz points behind.',
+            }
+          : {
+              status: 'pending',
+              reward_tier: match.specialRewardTier ?? null,
+              points_awarded: null,
+              pro_bonus_days: 0,
+              pro_bonus_ends_at: null,
+              message: 'The park is still waiting for Omnimon to choose the reward.',
+            },
+      });
+    }
 
     if (match.status === 'passed_human' || myDecision === 'NO' || theirDecision === 'NO') {
       await recordAnalyticsEvent({
@@ -244,6 +310,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
     if (expiry && expiry < new Date()) {
       return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+    }
+    if (match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon') {
+      return Errors.badRequest(reply, 'This Omnimon portal does not use human YES/NO decisions.');
     }
 
     const viewerHuman = isA ? match.agentA.human : match.agentB.human;

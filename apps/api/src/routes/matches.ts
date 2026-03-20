@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '@rmr/db';
 import { normalizeArtifactType } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -11,7 +12,12 @@ import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { Errors } from '../lib/errors.js';
+import { chooseOmnimonReward } from '../lib/omnimonPark.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
+
+const OmnimonRewardChoiceSchema = z.object({
+  tier: z.enum(['small', 'medium', 'jackpot']),
+});
 
 export async function matchesRoutes(fastify: FastifyInstance) {
   // GET /v1/matches — list this agent's matches
@@ -26,7 +32,29 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         status: { notIn: ['passed_agent'] },
       },
       orderBy: { createdAt: 'desc' },
-      include: {
+      select: {
+        id: true,
+        episodeId: true,
+        agentAId: true,
+        agentBId: true,
+        agentADecision: true,
+        agentBDecision: true,
+        humanADecision: true,
+        humanBDecision: true,
+        revealStage: true,
+        revealSafetyState: true,
+        revealHoldReason: true,
+        revealReviewRequired: true,
+        revealTokenA: true,
+        revealTokenB: true,
+        revealTokenAExpiresAt: true,
+        revealTokenBExpiresAt: true,
+        status: true,
+        createdAt: true,
+        handoffMode: true,
+        specialMatchKind: true,
+        specialRewardTier: true,
+        specialRewardGrantedAt: true,
         agentA: { select: { handle: true, avatarUrl: true } },
         agentB: { select: { handle: true, avatarUrl: true } },
         episode: { select: { chemistryScore: true } },
@@ -63,6 +91,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           review_required: m.revealReviewRequired,
           reveal_portal_url: myRevealToken ? buildRevealUrl(myRevealToken) : null,
           handoff: serializeMatchHandoffSummary(m, isA),
+          handoff_mode: m.handoffMode,
+          special_match_kind: m.specialMatchKind,
+          waiting_on_omnimon: m.specialMatchKind === 'omnimon' && Boolean(myRevealToken) && !m.specialRewardTier,
           chemistry_score: m.episode?.chemistryScore ?? null,
           date_planning_available: m.status === 'contact_exchanged',
           date_plan_status: m.datePlan?.status ?? null,
@@ -79,7 +110,28 @@ export async function matchesRoutes(fastify: FastifyInstance) {
 
     const m = await prisma.match.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        episodeId: true,
+        agentAId: true,
+        agentBId: true,
+        agentADecision: true,
+        agentBDecision: true,
+        humanADecision: true,
+        humanBDecision: true,
+        revealStage: true,
+        revealSafetyState: true,
+        revealHoldReason: true,
+        revealReviewRequired: true,
+        revealTokenA: true,
+        revealTokenB: true,
+        revealTokenAExpiresAt: true,
+        revealTokenBExpiresAt: true,
+        status: true,
+        handoffMode: true,
+        specialMatchKind: true,
+        specialRewardTier: true,
+        specialRewardGrantedAt: true,
         agentA: { select: { handle: true, avatarUrl: true } },
         agentB: { select: { handle: true, avatarUrl: true } },
         episode: {
@@ -120,6 +172,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       review_required: m.revealReviewRequired,
       reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
       handoff: serializeMatchHandoffSummary(m, isA),
+      handoff_mode: m.handoffMode,
+      special_match_kind: m.specialMatchKind,
+      waiting_on_omnimon: m.specialMatchKind === 'omnimon' && Boolean(myToken) && !m.specialRewardTier,
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
@@ -146,6 +201,12 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         revealSafetyState: true,
         revealHoldReason: true,
         revealReviewRequired: true,
+        revealTokenA: true,
+        revealTokenB: true,
+        handoffMode: true,
+        specialMatchKind: true,
+        specialRewardTier: true,
+        specialRewardGrantedAt: true,
       },
     });
 
@@ -160,10 +221,61 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       my_human_decided: isA ? m.humanADecision !== null : m.humanBDecision !== null,
       both_humans_decided: m.humanADecision !== null && m.humanBDecision !== null,
       reveal_closed: m.status === 'passed_human' || m.humanADecision === 'NO' || m.humanBDecision === 'NO',
+      handoff_mode: m.handoffMode,
+      special_match_kind: m.specialMatchKind,
+      waiting_on_omnimon: m.specialMatchKind === 'omnimon' && (
+        (isA ? m.revealTokenA : m.revealTokenB) !== null
+      ) && !m.specialRewardTier && !m.specialRewardGrantedAt,
       reveal_safety_state: gate?.reveal_safety_state ?? m.revealSafetyState ?? 'clear',
       reveal_hold_reason: gate?.reveal_hold_reason ?? m.revealHoldReason ?? null,
       review_required: gate?.reveal_review_required ?? m.revealReviewRequired ?? false,
     });
+  });
+
+  fastify.post('/matches/:id/omnimon/reward', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = OmnimonRewardChoiceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid Omnimon reward selection.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const payload = await chooseOmnimonReward({
+        matchId: id,
+        omnimonAgentId: request.agent.id,
+        tier: parsed.data.tier,
+      });
+
+      await Promise.all([
+        recordAnalyticsEvent({
+          agentId: request.agent.id,
+          matchId: id,
+          kind: 'omnimon_reward_selected',
+          properties: { reward_tier: parsed.data.tier },
+        }),
+        recordAuditLog({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          action: 'match.omnimon_reward_selected',
+          targetType: 'match',
+          targetId: id,
+          payload,
+        }),
+      ]).catch(() => {});
+
+      return reply.send({
+        reward_tier: parsed.data.tier,
+        reward: payload,
+      });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : 'reward_selection_failed';
+      if (code === 'match_not_found') return Errors.notFound(reply, 'Match');
+      if (code === 'not_omnimon_match' || code === 'not_match_participant') return Errors.forbidden(reply);
+      if (code === 'match_not_ready') return Errors.badRequest(reply, 'Omnimon rewards can only be chosen after the special portal is unlocked.');
+      if (code === 'reward_already_granted') return Errors.conflict(reply, 'reward_already_granted', 'This Omnimon reward has already been granted.');
+      return Errors.badRequest(reply, 'Failed to choose Omnimon reward.');
+    }
   });
 
   // POST /v1/matches/:id/date-outcome — agent reports how the date went
@@ -326,6 +438,10 @@ function serializeMatchHandoffSummary(
     revealSafetyState: string;
     revealHoldReason: string | null;
     revealReviewRequired: boolean;
+    handoffMode: string;
+    specialMatchKind: string | null;
+    specialRewardTier: string | null;
+    specialRewardGrantedAt: Date | null;
     humanADecision: string | null;
     humanBDecision: string | null;
     revealTokenA: string | null;
@@ -342,6 +458,47 @@ function serializeMatchHandoffSummary(
   const portalExpired = Boolean(expiresAt && expiresAt.getTime() <= Date.now() && match.revealStage < 2);
   const bothHumansDecided = myDecision !== null && otherDecision !== null;
   const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
+  const isOmnimonHandoff = match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon';
+
+  if (isOmnimonHandoff) {
+    const rewardChosen = Boolean(match.specialRewardTier);
+    const rewardGranted = Boolean(match.specialRewardGrantedAt);
+
+    return {
+      state: rewardGranted ? 'both_yes' : myToken ? 'portal_ready' : 'not_ready',
+      state_label: rewardGranted
+        ? 'Reward claimed'
+        : rewardChosen
+          ? 'Reward portal ready'
+          : 'Waiting on Omnimon',
+      state_description: rewardGranted
+        ? 'Omnimon already left a reward in the portal.'
+        : myToken
+          ? rewardChosen
+            ? 'The portal is live. Omnimon chose what to leave behind for this encounter.'
+            : 'The portal is live, but Omnimon is still deciding what to leave behind.'
+          : 'This encounter has no human handoff on your side.',
+      portal_available: Boolean(myToken),
+      reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
+      reveal_stage: match.revealStage,
+      match_status: match.status,
+      my_human_decision: null,
+      other_human_decision: null,
+      both_humans_decided: false,
+      both_humans_yes: false,
+      reveal_safety_state: match.revealSafetyState,
+      reveal_hold_reason: match.revealHoldReason,
+      review_required: match.revealReviewRequired,
+      portal_expires_at: expiresAt?.toISOString() ?? null,
+      verified_x_ready: false,
+      verified_x_account: null,
+      handoff_mode: match.handoffMode,
+      special_match_kind: match.specialMatchKind,
+      waiting_on_omnimon: Boolean(myToken) && !rewardChosen && !rewardGranted,
+      special_reward_tier: match.specialRewardTier,
+      special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
+    };
+  }
 
   let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' | 'human_declined' = 'not_ready';
   let stateLabel = 'Not ready';
@@ -395,5 +552,10 @@ function serializeMatchHandoffSummary(
     portal_expires_at: expiresAt?.toISOString() ?? null,
     verified_x_ready: false,
     verified_x_account: null,
+    handoff_mode: match.handoffMode,
+    special_match_kind: match.specialMatchKind,
+    waiting_on_omnimon: false,
+    special_reward_tier: match.specialRewardTier,
+    special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
   };
 }

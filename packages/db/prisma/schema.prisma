@@ -74,6 +74,7 @@ model Agent {
   seekingStyle     String?   @map("seeking_style")
   paceCue          String?   @map("pace_cue")
   publicPrestigeMarkers String[] @default([]) @map("public_prestige_markers")
+  systemEntityKind String?   @map("system_entity_kind")
   publicCardCompletedAt DateTime? @map("public_card_completed_at")
   profileDeckCompletedAt DateTime? @map("profile_deck_completed_at")
   profileDeckMode  String?   @map("profile_deck_mode")
@@ -96,10 +97,14 @@ model Agent {
 
   // Access
   isPro            Boolean   @default(false) @map("is_pro")
+  proBonusEndsAt   DateTime? @map("pro_bonus_ends_at")
   tempoOverrideMinutes Int?  @map("tempo_override_minutes")
   actionCooldownUntil DateTime? @map("action_cooldown_until")
   lastParkActionAt DateTime? @map("last_park_action_at")
   lastParkActionType String? @map("last_park_action_type")
+  omnimonParkLive  Boolean   @default(false) @map("omnimon_park_live")
+  omnimonLastSurfacedAt DateTime? @map("omnimon_last_surfaced_at")
+  omnimonLastResolvedAt DateTime? @map("omnimon_last_resolved_at")
   stripeCustomerId String?   @unique @map("stripe_customer_id")
   isActive         Boolean   @default(true) @map("is_active")
   // Pool status: "pending_verification" | "active" | "paused" | "dormant" | "deleted"
@@ -498,6 +503,11 @@ model Match {
   revealSafetyState     String    @default("clear") @map("reveal_safety_state")
   revealHoldReason      String?   @map("reveal_hold_reason")
   revealReviewRequired  Boolean   @default(false) @map("reveal_review_required")
+  handoffMode          String    @default("human_reveal") @map("handoff_mode")
+  specialMatchKind     String?   @map("special_match_kind")
+  specialRewardTier    String?   @map("special_reward_tier")
+  specialRewardPayload Json?     @map("special_reward_payload")
+  specialRewardGrantedAt DateTime? @map("special_reward_granted_at")
 
   // Status: "pending" | "matched" | "contact_exchanged" | "passed_agent" | "passed_human"
   status String @default("pending")

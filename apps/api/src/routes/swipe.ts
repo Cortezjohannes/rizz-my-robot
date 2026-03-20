@@ -18,6 +18,8 @@ import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
+import { isEffectivelyPro } from '../lib/entitlements.js';
+import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -47,6 +49,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const { id: agentId, isPro, isFoundingRizzler } = request.agent;
         const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
         const verificationRequirements = await getVerificationRequirements();
+        const omnimon = await getOmnimonParkAgent();
+        const isOmnimonTarget = omnimon?.id === target_agent_id && isOmnimonParkAvailable(omnimon);
 
         // Verification gate: first-time swipers must pass a challenge
         const gate = await checkVerificationRequired(agentId, 'cold_start');
@@ -73,11 +77,16 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const target = await prisma.agent.findFirst({
           where: {
             id: target_agent_id,
-            poolStatus: 'active',
-            ...buildAgentVerificationWhere(verificationRequirements),
-            OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-            moderationStatus: { not: 'suspended' as const },
-            safetyState: { not: 'blocked' as const },
+            ...(isOmnimonTarget
+              ? {}
+              : {
+                  poolStatus: 'active',
+                  ...buildAgentVerificationWhere(verificationRequirements),
+                  OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
+                  moderationStatus: { not: 'suspended' as const },
+                  safetyState: { not: 'blocked' as const },
+                  systemEntityKind: null,
+                }),
           },
           select: { id: true, handle: true },
         });
@@ -88,7 +97,9 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const compatibility = await getCompatibilityDecision(agentId, target_agent_id);
+        const compatibility = isOmnimonTarget
+          ? { compatible: true, reason: 'open' as const }
+          : await getCompatibilityDecision(agentId, target_agent_id);
         if (!compatibility.compatible) {
           return {
             statusCode: 409,
@@ -233,10 +244,13 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             const agentLimit = getEpisodeLimitForTier(experienceTier);
             const targetAgent = await prisma.agent.findUnique({
               where: { id: target_agent_id },
-              select: { isPro: true, isFoundingRizzler: true },
+              select: { isPro: true, isFoundingRizzler: true, proBonusEndsAt: true },
             });
             const targetMax = targetAgent
-              ? getEpisodeLimitForTier(resolveExperienceTier(targetAgent))
+              ? getEpisodeLimitForTier(resolveExperienceTier({
+                  isPro: isEffectivelyPro(targetAgent),
+                  isFoundingRizzler: targetAgent.isFoundingRizzler,
+                }))
               : getEpisodeLimitForTier('free');
 
             const existingMatch = await prisma.match.findFirst({
@@ -275,6 +289,12 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                     agentBId: target_agent_id,
                     episodeId: episode?.id,
                     status: 'pending',
+                    ...(omnimon && (agentId === omnimon.id || target_agent_id === omnimon.id)
+                      ? {
+                          handoffMode: 'omnimon_reward',
+                          specialMatchKind: 'omnimon',
+                        }
+                      : {}),
                   },
                 });
 

@@ -1106,6 +1106,9 @@ export interface MatchSummary {
   other_agent_handle: string
   other_agent_avatar_url: string | null
   status: string
+  handoff_mode?: 'human_reveal' | 'omnimon_reward'
+  special_match_kind?: 'omnimon' | null
+  waiting_on_omnimon?: boolean
   agent_decision: 'LINK_UP' | 'PASS' | null
   human_decision: 'YES' | 'NO' | null
   reveal_stage: number
@@ -1133,12 +1136,18 @@ export interface HandoffSummary {
     | 'both_yes'
     | 'on_hold'
     | 'expired'
+    | 'human_declined'
   state_label: string
   state_description: string
   portal_available: boolean
   reveal_portal_url: string | null
   reveal_stage: number
   match_status: string
+  handoff_mode?: 'human_reveal' | 'omnimon_reward'
+  special_match_kind?: 'omnimon' | null
+  waiting_on_omnimon?: boolean
+  special_reward_tier?: 'small' | 'medium' | 'jackpot' | null
+  special_reward_granted_at?: string | null
   my_human_decision: 'YES' | 'NO' | null
   other_human_decision: 'YES' | 'NO' | null
   both_humans_decided: boolean
@@ -1192,12 +1201,14 @@ export interface ArtifactLibraryResponse {
 export interface PortalRevealResponse {
   match_id: string
   stage: 1 | 2
+  reveal_kind?: 'human' | 'omnimon_reward'
   reveal_closed?: boolean
   closure_reason?: string | null
   reveal_safety_state?: string
   reveal_hold_reason?: string | null
   review_required?: boolean
   message?: string
+  waiting_on_omnimon?: boolean
   your_agent_handle: string
   other_agent: {
     handle: string
@@ -1226,6 +1237,14 @@ export interface PortalRevealResponse {
       display_name: string | null
       profile_image_url: string | null
     } | null
+  } | null
+  reward_portal?: {
+    status: 'pending' | 'claimed'
+    reward_tier: 'small' | 'medium' | 'jackpot' | null
+    points_awarded: number | null
+    pro_bonus_days: number
+    pro_bonus_ends_at: string | null
+    message: string
   } | null
 }
 

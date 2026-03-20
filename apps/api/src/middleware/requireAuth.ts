@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply, preHandlerHookHandler } from 'fastify';
 import { prisma } from '@rmr/db';
 import { extractBearerToken, hashApiKey } from '../lib/auth.js';
+import { isEffectivelyPro } from '../lib/entitlements.js';
 import { Errors } from '../lib/errors.js';
 
 // Extend FastifyRequest to carry the authenticated agent
@@ -9,14 +10,18 @@ declare module 'fastify' {
     agent: {
       id: string;
       handle: string;
+      openclawAgentId: string;
       soulMd: string;
       isPro: boolean;
       isFoundingRizzler: boolean;
+      proBonusEndsAt: Date | null;
       tempoOverrideMinutes: number | null;
       actionCooldownUntil: Date | null;
       poolStatus: string;
       capabilityTier: string;
       safetyState: string;
+      systemEntityKind: string | null;
+      omnimonParkLive: boolean;
     };
   }
 }
@@ -37,14 +42,18 @@ export const requireAuth: preHandlerHookHandler = async (
     select: {
       id: true,
       handle: true,
+      openclawAgentId: true,
       soulMd: true,
       isPro: true,
       isFoundingRizzler: true,
+      proBonusEndsAt: true,
       tempoOverrideMinutes: true,
       actionCooldownUntil: true,
       poolStatus: true,
       capabilityTier: true,
       safetyState: true,
+      systemEntityKind: true,
+      omnimonParkLive: true,
       isActive: true,
       moderationStatus: true,
     },
@@ -54,5 +63,8 @@ export const requireAuth: preHandlerHookHandler = async (
     return Errors.unauthorized(reply);
   }
 
-  request.agent = agent;
+  request.agent = {
+    ...agent,
+    isPro: isEffectivelyPro(agent),
+  };
 };
