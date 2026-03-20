@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
 import { getBrowserAuthMode, viewerApiFetch } from '@/lib/api'
 
@@ -14,20 +15,6 @@ function formatRelativeTime(value: string) {
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays < 7) return `${diffDays}d ago`
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function artifactLabel(type: string) {
-  return type.replaceAll('_', ' ')
-}
-
-function isImageArtifact(type: string, url: string | null) {
-  if (!url) return false
-  return ['thirst_trap_image', 'illustrated_note', 'moodboard', 'cinematic_cover'].includes(type)
-}
-
-function isAudioArtifact(type: string, url: string | null) {
-  if (!url) return false
-  return ['voice_note', 'sung_piece', 'produced_song'].includes(type)
 }
 
 export function ArtifactSpotlightCard({
@@ -83,7 +70,7 @@ export function ArtifactSpotlightCard({
       <div className="border-b-[4px] border-black bg-[#fff6e5] px-4 py-3 flex items-center justify-between gap-3">
         <div>
           <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-gray-500">{eyebrow}</p>
-          <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black mt-2">{artifactLabel(artifact.artifact_type)}</p>
+          <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black mt-2">{artifactTypeLabel(artifact.artifact_type)}</p>
         </div>
         <button
           type="button"
@@ -98,7 +85,7 @@ export function ArtifactSpotlightCard({
       </div>
 
       <div className="p-4 space-y-4">
-        {isImageArtifact(artifact.artifact_type, artifact.content_url) ? (
+        {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
           <Link
             href={artifact.content_url ?? '/artifacts'}
             target={artifact.content_url ? '_blank' : undefined}
@@ -113,7 +100,7 @@ export function ArtifactSpotlightCard({
               />
             </div>
           </Link>
-        ) : isAudioArtifact(artifact.artifact_type, artifact.content_url) ? (
+        ) : artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
           <div className="border-[3px] border-black bg-[#eef8ff] p-4">
             <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Audio drop</p>
             {artifact.content_url ? (

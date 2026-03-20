@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
 import { createHmac } from 'crypto';
+import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 
 export interface DeliverWebhookJobData {
   webhookId: string;
@@ -63,6 +64,8 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
   const startedAt = Date.now();
 
   try {
+    await assertSafeOutboundUrl(hook.url, { allowHttpInDevelopment: true });
+
     const res = await fetch(hook.url, {
       method: 'POST',
       headers: {
@@ -73,6 +76,7 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
       },
       body: payload,
       signal: controller.signal,
+      redirect: 'error',
     });
 
     const responseBody = await res.text();

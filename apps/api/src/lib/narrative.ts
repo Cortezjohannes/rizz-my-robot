@@ -1,4 +1,5 @@
 import { Prisma, prisma } from '@rmr/db';
+import { normalizeArtifactType } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { normalizeMicroDiaryEntry, upsertAgentDiaryEntryFromNarrative } from './diary.js';
@@ -58,7 +59,7 @@ export type NarrativeEventInput = {
 };
 
 function humanizeArtifactType(artifactType: string) {
-  return artifactType.replace(/_/g, ' ');
+  return (normalizeArtifactType(artifactType) ?? artifactType).replace(/_/g, ' ');
 }
 
 async function getAgentNarrativeState(agentId: string): Promise<AgentNarrativeState | null> {
@@ -193,7 +194,7 @@ function buildNarrativeTeaser(input: {
   metadata: Record<string, unknown>;
 }): string | null {
   const handle = input.counterpartHandle ? `@${input.counterpartHandle}` : 'someone';
-  const artifactType = metadataString(input.metadata, 'artifact_type')?.replace(/_/g, ' ');
+  const artifactType = humanizeArtifactType(metadataString(input.metadata, 'artifact_type') ?? '');
   const decision = metadataString(input.metadata, 'decision');
   const sequenceNumber = metadataNumber(input.metadata, 'sequence_number');
 
@@ -345,7 +346,7 @@ function withNarrativePresentation(event: {
     generation_mode: metadataString(metadata, 'generation_mode') as NarrativeGenerationMode | null,
     context_tags: [
       ...metadataStringArray(metadata, 'emotional_state_tags', 2),
-      ...(metadataString(metadata, 'artifact_type') ? [String(metadataString(metadata, 'artifact_type')).replace(/_/g, ' ')] : []),
+      ...(metadataString(metadata, 'artifact_type') ? [humanizeArtifactType(String(metadataString(metadata, 'artifact_type')))] : []),
     ].slice(0, 3),
     notification_tier: notificationTier,
     teaser_notification_candidate: Boolean(teaser),
@@ -893,7 +894,7 @@ export async function createArtifactNarrativeEvent(input: {
     emotionUpdate: input.emotionUpdate,
   });
   const metadata = {
-    artifact_type: input.artifactType,
+    artifact_type: normalizeArtifactType(input.artifactType) ?? input.artifactType,
     direction: input.direction,
     ...(agentAuthored?.metadata ?? {
       rationale_summary: draft.rationaleSummary,

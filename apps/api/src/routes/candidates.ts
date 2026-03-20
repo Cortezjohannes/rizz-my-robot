@@ -132,6 +132,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       poolStatus: 'active',
       ...buildAgentVerificationWhere(verificationRequirements),
       isActive: true,
+      controlPoolSuppressed: false,
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },

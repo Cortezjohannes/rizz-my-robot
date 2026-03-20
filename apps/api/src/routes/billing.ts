@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { BillingCheckoutSchema } from '@rmr/shared';
-import { createStripeCheckoutSession, handleStripeWebhookEvent } from '../lib/billing.js';
+import { createPaddleCheckoutTransaction, handlePaddleWebhookEvent } from '../lib/billing.js';
 import { buildExperienceVelocityState } from '../lib/continuity.js';
 import { getFounderScarcity } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
@@ -10,20 +10,28 @@ import { recordAuditLog } from '../lib/audit.js';
 import { sendError, Errors } from '../lib/errors.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
-function verifyStripeSignature(payload: string, signatureHeader: string, secret: string): boolean {
-  const pairs = signatureHeader.split(',').map((part) => part.trim());
-  const timestamp = pairs.find((part) => part.startsWith('t='))?.slice(2);
-  const signature = pairs.find((part) => part.startsWith('v1='))?.slice(3);
-  if (!timestamp || !signature) return false;
+function verifyPaddleSignature(payload: string, signatureHeader: string, secret: string): boolean {
+  const pairs = signatureHeader.split(';').map((part) => part.trim());
+  const timestamp = pairs.find((part) => part.startsWith('ts='))?.slice(3);
+  const signatures = pairs.filter((part) => part.startsWith('h1=')).map((part) => part.slice(3));
+  if (!timestamp || signatures.length === 0) return false;
 
-  const signedPayload = `${timestamp}.${payload}`;
+  const parsedTimestamp = Number.parseInt(timestamp, 10);
+  if (!Number.isFinite(parsedTimestamp)) return false;
+
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - parsedTimestamp);
+  if (ageSeconds > 30) return false;
+
+  const signedPayload = `${timestamp}:${payload}`;
   const expected = createHmac('sha256', secret).update(signedPayload).digest('hex');
 
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
+  return signatures.some((signature) => {
+    try {
+      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function billingRoutes(fastify: FastifyInstance) {
@@ -85,8 +93,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
     }
 
     const wantsFounder = parsed.data.plan === 'founding';
-    if (!process.env.STRIPE_SECRET_KEY || (!wantsFounder && !process.env.STRIPE_PRO_PRICE_ID) || (wantsFounder && !process.env.STRIPE_FOUNDING_PRICE_ID)) {
-      return sendError(reply, 503, 'billing_unavailable', 'Stripe billing is not configured.');
+    if (!process.env.PADDLE_API_KEY || (!wantsFounder && !process.env.PADDLE_PRO_PRICE_ID) || (wantsFounder && !process.env.PADDLE_FOUNDING_PRICE_ID)) {
+      return sendError(reply, 503, 'billing_unavailable', 'Paddle billing is not configured.');
     }
 
     try {
@@ -104,7 +112,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const session = await createStripeCheckoutSession(
+      const session = await createPaddleCheckoutTransaction(
         request.agent.id,
         parsed.data.success_url,
         parsed.data.cancel_url,
@@ -115,7 +123,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
         recordAnalyticsEvent({
           agentId: request.agent.id,
           kind: 'billing_checkout_created',
-          properties: { checkout_session_id: session.id, plan: parsed.data.plan },
+          properties: { checkout_session_id: session.id, plan: parsed.data.plan, provider: 'paddle' },
         }),
         recordAuditLog({
           agentId: request.agent.id,
@@ -131,40 +139,46 @@ export async function billingRoutes(fastify: FastifyInstance) {
       return reply.status(201).send({
         checkout_session_id: session.id,
         url: session.url,
-        provider: 'stripe',
+        provider: 'paddle',
         plan: parsed.data.plan,
       });
     } catch (err) {
-      request.log.error({ err, agentId: request.agent.id }, 'Failed to create Stripe checkout session');
-      return sendError(reply, 502, 'billing_provider_failure', 'Failed to create Stripe checkout session.');
+      request.log.error({ err, agentId: request.agent.id }, 'Failed to create Paddle checkout session');
+      return sendError(reply, 502, 'billing_provider_failure', 'Failed to create Paddle checkout session.');
     }
   });
 
-  fastify.post('/billing/stripe/webhook', async (request, reply) => {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return sendError(reply, 503, 'billing_unavailable', 'Stripe billing is not configured.');
+  fastify.post('/billing/paddle/webhook', async (request, reply) => {
+    if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_WEBHOOK_SECRET) {
+      return sendError(reply, 503, 'billing_unavailable', 'Paddle billing is not configured.');
     }
 
-    const payload = JSON.stringify(request.body ?? {});
-    const signature = request.headers['stripe-signature'];
+    const payload = request.rawBody ?? JSON.stringify(request.body ?? {});
+    const signature = request.headers['paddle-signature'];
     const signatureValue = Array.isArray(signature) ? signature[0] : signature;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const webhookSecret = process.env.PADDLE_WEBHOOK_SECRET;
 
-    if (webhookSecret) {
-      if (!signatureValue || !verifyStripeSignature(payload, signatureValue, webhookSecret)) {
-        return sendError(reply, 401, 'invalid_signature', 'Invalid Stripe webhook signature.');
-      }
+    if (!request.rawBody) {
+      request.log.error('Paddle webhook raw body was unavailable.');
+      return sendError(reply, 500, 'webhook_raw_body_unavailable', 'Paddle webhook raw body is unavailable.');
+    }
+    if (!signatureValue || !verifyPaddleSignature(payload, signatureValue, webhookSecret)) {
+      return sendError(reply, 401, 'invalid_signature', 'Invalid Paddle webhook signature.');
     }
 
-    const event = (request.body ?? {}) as { id?: string; type?: string; data?: { object?: Record<string, unknown> } };
-    if (!event.type) {
-      return Errors.badRequest(reply, 'Stripe webhook payload must include an event type.');
+    const event = (request.body ?? {}) as {
+      event_id?: string;
+      event_type?: string;
+      occurred_at?: string;
+      data?: Record<string, unknown>;
+    };
+    if (!event.event_type) {
+      return Errors.badRequest(reply, 'Paddle webhook payload must include an event type.');
     }
 
-    // Idempotency: Stripe retries webhooks on failure — skip if already processed
-    if (event.id) {
+    if (event.event_id) {
       const alreadyProcessed = await prisma.auditLog.findFirst({
-        where: { action: `billing.${event.type}`, actorId: event.id },
+        where: { action: `billing.${event.event_type}`, actorId: event.event_id },
         select: { id: true },
       });
       if (alreadyProcessed) {
@@ -173,33 +187,32 @@ export async function billingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      await handleStripeWebhookEvent({
-        type: event.type,
+      await handlePaddleWebhookEvent({
+        eventType: event.event_type,
+        occurredAt: event.occurred_at,
         data: event.data,
       });
     } catch (err) {
-      // Log but return 200 — Stripe retries on non-2xx, which causes duplicate processing.
-      // The event is already deduplicated above via AuditLog; logging here is enough.
-      request.log.error({ err, stripeEventType: event.type, stripeEventId: event.id }, 'Stripe webhook handler failed');
-      return reply.send({ received: true, error: 'handler_failed' });
+      request.log.error({ err, paddleEventType: event.event_type, paddleEventId: event.event_id }, 'Paddle webhook handler failed');
+      return sendError(reply, 500, 'billing_webhook_failed', 'Paddle webhook processing failed.');
     }
 
-    const object = event.data?.object ?? {};
-    const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
-    const agentId = metadata.agent_id;
+    const object = event.data ?? {};
+    const customData = (object.custom_data as Record<string, string> | undefined) ?? {};
+    const agentId = customData.agent_id;
 
     if (agentId) {
       await Promise.all([
         recordAnalyticsEvent({
           agentId,
           kind: 'billing_webhook_processed',
-          properties: { stripe_event_type: event.type, stripe_event_id: event.id ?? null },
+          properties: { paddle_event_type: event.event_type, paddle_event_id: event.event_id ?? null },
         }),
         recordAuditLog({
           agentId,
-          actorType: 'stripe',
-          actorId: event.id ?? null,
-          action: `billing.${event.type}`,
+          actorType: 'billing_provider',
+          actorId: event.event_id ?? null,
+          action: `billing.${event.event_type}`,
           targetType: 'agent',
           targetId: agentId,
         }),

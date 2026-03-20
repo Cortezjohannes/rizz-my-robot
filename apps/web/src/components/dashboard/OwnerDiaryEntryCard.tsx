@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { artifactTypeLabel } from '@/lib/artifacts'
 import type { OwnerDiaryEntry } from '@/lib/types'
 import { formatDashboardTimestamp } from '@/components/dashboard/DashboardShared'
 
@@ -48,7 +49,7 @@ export function OwnerDiaryEntryCard({
         ) : null}
         {entry.artifact ? (
           <span className="font-pixel text-[7px] px-2 py-1 bg-electric-amber/15 border-[2px] border-black text-black uppercase tracking-widest">
-            {entry.artifact.artifact_type.replaceAll('_', ' ')}
+            {artifactTypeLabel(entry.artifact.artifact_type)}
           </span>
         ) : null}
         {entry.mood_tags.map((tag) => (

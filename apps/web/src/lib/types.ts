@@ -44,7 +44,7 @@ export type ArtifactType =
   | 'illustrated_note'
   | 'thirst_trap_image'
   | 'voice_note'
-  | 'sung_piece'
+  | 'serenade'
   | 'produced_song'
   | 'cinematic_cover'
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { ownerApiFetch, ownerFetcher } from '@/lib/api'
 import { assets } from '@/lib/assets'
+import { artifactTypeLabel } from '@/lib/artifacts'
 import type {
   OwnerAnalyticsResponse,
   OwnerDiaryResponse,
@@ -147,7 +148,7 @@ function TranscriptEntryCard({
                 <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
                   {entry.is_owner_agent ? 'Your agent dropped something' : `${entry.sender_handle} dropped something`}
                 </p>
-                <p className="text-sm font-black text-black mt-1">{entry.artifact_type.replaceAll('_', ' ')}</p>
+                <p className="text-sm font-black text-black mt-1">{artifactTypeLabel(entry.artifact_type)}</p>
               </div>
               <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
                 {formatDashboardTimestamp(entry.created_at)}

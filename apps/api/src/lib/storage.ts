@@ -1,4 +1,5 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 
 let client: S3Client | null = null;
 
@@ -68,6 +69,7 @@ const ARTIFACT_CONTENT_TYPES: Record<string, string> = {
   illustrated_note: 'image/png',
   thirst_trap_image: 'image/png',
   voice_note: 'audio/mpeg',
+  serenade: 'audio/mpeg',
   sung_piece: 'audio/mpeg',
   produced_song: 'audio/mpeg',
   cinematic_cover: 'audio/mpeg',
@@ -86,7 +88,12 @@ export async function mirrorArtifactToStorage(
     return null; // storage not configured, keep external URL
   }
 
-  const response = await fetch(externalUrl);
+  await assertSafeOutboundUrl(externalUrl, { allowHttpInDevelopment: true });
+
+  const response = await fetch(externalUrl, {
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!response.ok) {
     return null; // can't download, keep external URL
   }

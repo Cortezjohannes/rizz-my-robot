@@ -46,6 +46,7 @@ import {
   isXVerificationSatisfied,
 } from '../lib/controlSettings.js';
 import { sendClaimVerificationEmail } from '../lib/email.js';
+import { publicEmailLimit, publicReadLimit, publicStartLimit, publicVerifyLimit } from '../lib/rateLimit.js';
 
 function normalizeIdentitySlug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -96,7 +97,8 @@ async function findClaimByToken(token: string) {
         },
       },
     });
-    if (byId) return byId;
+    if (byId && byId.tokenHash === hashClaimToken(token)) return byId;
+    return null;
   }
 
   return prisma.agentClaim.findUnique({
@@ -115,7 +117,7 @@ async function findClaimByToken(token: string) {
 }
 
 export async function claimsRoutes(fastify: FastifyInstance) {
-  fastify.get('/handles/:handle/availability', async (request, reply) => {
+  fastify.get('/handles/:handle/availability', { config: { rateLimit: publicReadLimit } }, async (request, reply) => {
     const params = request.params as { handle: string };
     const parsed = UsernameSchema.safeParse(params.handle);
     if (!parsed.success) {
@@ -127,7 +129,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     return reply.send({ handle: parsed.data, available });
   });
 
-  fastify.post('/claims/start', async (request, reply) => {
+  fastify.post('/claims/start', { config: { rateLimit: publicStartLimit } }, async (request, reply) => {
     const parsed = ClaimStartSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid claim start data.', { issues: parsed.error.issues });
@@ -525,7 +527,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/claims/:id/email', async (request, reply) => {
+  fastify.post('/claims/:id/email', { config: { rateLimit: publicEmailLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const parsed = ClaimEmailSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -676,7 +678,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/claims/:id/verify-email', async (request, reply) => {
+  fastify.post('/claims/:id/verify-email', { config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const parsed = ClaimVerifyEmailSchema.safeParse(request.body);
     if (!parsed.success) {

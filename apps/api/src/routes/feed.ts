@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { normalizeArtifactType } from '@rmr/shared';
 import { buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
@@ -25,6 +26,13 @@ const HOME_POOL_COUNT = 8;
 const HOME_ARTIFACT_COUNT = 6;
 const DEFAULT_INTERACTION_LIMIT = 12;
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
+
+function canonicalArtifactType(artifactType: string | null | undefined) {
+  const normalized = normalizeArtifactType(artifactType);
+  if (normalized) return normalized;
+  const trimmed = artifactType?.trim();
+  return trimmed ? trimmed : null;
+}
 
 type FeedCardRow = {
   id: string;
@@ -625,7 +633,7 @@ async function buildArtifactPage(input: {
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
       artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
       content_url: artifact.contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
@@ -857,7 +865,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
             artifact_id: artifact.id,
             creator_agent_id: artifact.creatorAgentId,
             creator_handle: agentMap.get(artifact.creatorAgentId)?.handle ?? null,
-            artifact_type: artifact.artifactType,
+            artifact_type: canonicalArtifactType(artifact.artifactType),
             text_content: artifact.textContent,
             content_url: artifact.contentUrl,
             status: artifact.status,

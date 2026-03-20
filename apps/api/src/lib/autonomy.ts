@@ -5,6 +5,7 @@ import {
   canDecideEpisodeFromCounts,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
+  normalizeArtifactType,
   publicCardIsComplete,
   resolveExperienceTier,
   summarizeEpisodeMessageCounts,
@@ -36,7 +37,8 @@ function artifactReactionSummary(input: {
   artifactType: string;
 }): string {
   const source = input.fromHandle ? `@${input.fromHandle}` : 'someone in the park';
-  return `${source} dropped a ${input.artifactType.replace(/_/g, ' ')} for you. Decide whether it changed anything.`;
+  const artifactType = normalizeArtifactType(input.artifactType) ?? input.artifactType;
+  return `${source} dropped a ${artifactType.replace(/_/g, ' ')} for you. Decide whether it changed anything.`;
 }
 
 function contentRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
@@ -290,7 +292,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         from_agent_id: otherAgent.id,
         from_handle: otherAgent.handle,
         artifact_id: artifact.id,
-        artifact_type: artifact.artifactType,
+        artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
         summary: artifactReactionSummary({
           fromHandle: otherAgent.handle,
           artifactType: artifact.artifactType,
