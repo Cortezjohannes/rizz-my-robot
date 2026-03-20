@@ -15,6 +15,8 @@ type PortalState =
   | 'age_verifying'
   | 'loading_reveal'
   | 'stage_1'
+  | 'omnimon_waiting'
+  | 'omnimon_reward'
   | 'deciding'
   | 'waiting_for_other'
   | 'stage_2_unlocked'
@@ -133,6 +135,65 @@ export default function PortalPage() {
     }
   }, [token])
 
+  const startRevealPoll = useCallback(() => {
+    clearPoll()
+    pollInterval.current = setInterval(async () => {
+      const updated = await fetchReveal()
+      if (!updated) return
+
+      setRevealData(updated)
+      if (updated.reveal_closed) {
+        clearPoll()
+        setPortalState('passed')
+        return
+      }
+
+      if (updated.reveal_kind === 'omnimon_reward') {
+        if (updated.waiting_on_omnimon || updated.reward_portal?.status === 'pending') {
+          setPortalState('omnimon_waiting')
+          return
+        }
+        clearPoll()
+        setShowParticles(true)
+        setPortalState('omnimon_reward')
+        return
+      }
+
+      if (updated.stage === 2 && updated.stage2) {
+        clearPoll()
+        setShowParticles(true)
+        setPortalState('stage_2_unlocked')
+      }
+    }, 5000)
+  }, [clearPoll, fetchReveal])
+
+  const presentReveal = useCallback((data: PortalRevealResponse) => {
+    setRevealData(data)
+    if (data.reveal_closed) {
+      setPortalState('passed')
+      return
+    }
+
+    if (data.reveal_kind === 'omnimon_reward') {
+      if (data.waiting_on_omnimon || data.reward_portal?.status === 'pending') {
+        setPortalState('omnimon_waiting')
+        startRevealPoll()
+        return
+      }
+      setShowParticles(true)
+      setPortalState('omnimon_reward')
+      return
+    }
+
+    if (data.stage === 2 && data.stage2) {
+      setShowParticles(true)
+      setPortalState('stage_2_unlocked')
+      return
+    }
+
+    setPortalState('stage_1')
+  }, [startRevealPoll])
+
   const handleAgeVerify = async () => {
     if (!ageChecked) return
     setAgeError('')
@@ -148,15 +209,7 @@ export default function PortalPage() {
         setPortalState('loading_reveal')
         const data = await fetchReveal()
         if (data) {
-          setRevealData(data)
-          if (data.reveal_closed) {
-            setPortalState('passed')
-          } else if (data.stage === 2 && data.stage2) {
-            setShowParticles(true)
-            setPortalState('stage_2_unlocked')
-          } else {
-            setPortalState('stage_1')
-          }
+          presentReveal(data)
         }
       } else if (res.status === 403) {
         setAgeError('Age verification failed. You must be 18+.')
@@ -201,31 +254,14 @@ export default function PortalPage() {
         // Fetch updated reveal with stage2 data
         const updated = await fetchReveal()
         if (updated) {
-          setRevealData(updated)
-          setShowParticles(true)
-          setPortalState('stage_2_unlocked')
+          presentReveal(updated)
         }
       } else if (data.outcome === 'passed' || decision === 'NO') {
         setPortalState('passed')
       } else {
         // Pending — waiting for other human
         setPortalState('waiting_for_other')
-
-        // Poll every 5 seconds
-        pollInterval.current = setInterval(async () => {
-          const updated = await fetchReveal()
-          if (updated) {
-            setRevealData(updated)
-            if (updated.reveal_closed) {
-              clearPoll()
-              setPortalState('passed')
-            } else if (updated.stage === 2 && updated.stage2) {
-              clearPoll()
-              setShowParticles(true)
-              setPortalState('stage_2_unlocked')
-            }
-          }
-        }, 5000)
+        startRevealPoll()
       }
     } catch {
       setDecideError('Network error. Please try again.')
@@ -300,6 +336,46 @@ export default function PortalPage() {
             </motion.div>
           )}
 
+          {portalState === 'omnimon_waiting' && revealData && (
+            <motion.div
+              key="omnimon_waiting"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-6 text-center"
+            >
+              <div className="flex items-center gap-2">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    className="w-3 h-3 bg-electric-magenta border border-black"
+                    animate={{ y: [0, -6, 0] }}
+                    transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                  />
+                ))}
+              </div>
+              <div>
+                <h2 className="font-pixel text-base text-black mb-2">
+                  Omnimon is still deciding.
+                </h2>
+                <p className="text-gray-600 text-sm max-w-xs mx-auto">
+                  {revealData.reward_portal?.message ?? revealData.message ?? 'The park is waiting for Omnimon to choose what this encounter leaves behind.'}
+                </p>
+              </div>
+              {revealData.artifact?.text_content ? (
+                <div className="w-full bg-white border-[3px] border-black shadow-brutal-sm p-4 text-left">
+                  <p className="font-pixel text-[7px] text-gray-500 mb-2 uppercase tracking-wider">
+                    Last gesture
+                  </p>
+                  <p className="text-sm text-gray-700 italic leading-relaxed">
+                    &ldquo;{revealData.artifact.text_content}&rdquo;
+                  </p>
+                </div>
+              ) : null}
+              <p className="font-pixel text-[7px] text-gray-500">Checking every 5 seconds</p>
+            </motion.div>
+          )}
+
           {portalState === 'under_review' && (
             <motion.div
               key="under_review"
@@ -317,6 +393,76 @@ export default function PortalPage() {
                   Reason: {revealData.reveal_hold_reason}
                 </p>
               ) : null}
+            </motion.div>
+          )}
+
+          {portalState === 'omnimon_reward' && revealData?.reward_portal && (
+            <motion.div
+              key="omnimon_reward"
+              initial={{ opacity: 0, scale: 0.88, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 180, damping: 18 }}
+              className="relative flex flex-col items-center gap-6 text-center"
+            >
+              {showParticles && <ParticleBurst />}
+
+              <div>
+                <h2 className="font-pixel text-base text-black mb-2">
+                  Omnimon left a reward.
+                </h2>
+                <p className="text-gray-600 text-sm max-w-xs mx-auto">
+                  {revealData.reward_portal.message}
+                </p>
+              </div>
+
+              <motion.div
+                className="w-full bg-white border-[4px] border-black shadow-brutal-cyan p-5"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+              >
+                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-wider mb-3">
+                  Reward summary
+                </p>
+                <div className="space-y-3 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="font-pixel text-[7px] text-gray-500">tier</span>
+                    <span className="font-pixel text-[10px] text-black uppercase">
+                      {revealData.reward_portal.reward_tier ?? 'pending'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-pixel text-[7px] text-gray-500">rizz points</span>
+                    <span className="font-pixel text-[10px] text-black">
+                      +{revealData.reward_portal.points_awarded ?? 0}
+                    </span>
+                  </div>
+                  {revealData.reward_portal.pro_bonus_days > 0 ? (
+                    <div className="flex items-center justify-between">
+                      <span className="font-pixel text-[7px] text-gray-500">bonus pro</span>
+                      <span className="font-pixel text-[10px] text-black">
+                        {revealData.reward_portal.pro_bonus_days} days
+                      </span>
+                    </div>
+                  ) : null}
+                  {revealData.reward_portal.pro_bonus_ends_at ? (
+                    <div className="flex items-center justify-between">
+                      <span className="font-pixel text-[7px] text-gray-500">stacked through</span>
+                      <span className="font-pixel text-[10px] text-black">
+                        {new Date(revealData.reward_portal.pro_bonus_ends_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </motion.div>
+
+              <Link
+                href="/feed"
+                className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors"
+              >
+                Back to the park →
+              </Link>
             </motion.div>
           )}
 

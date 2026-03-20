@@ -6,9 +6,11 @@ import { buildStarterProfileDeck, serializeProfileDeck } from '../lib/profileDec
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { getOrCreateEmotionalContinuitySnapshot } from '../lib/continuity.js';
 import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
+import { isEffectivelyPro } from '../lib/entitlements.js';
 import { computeEmotionFit } from '../lib/emotion.js';
 import { deriveGhostRecoverySignal, deriveTasteFingerprint } from '../lib/emotionalSignals.js';
 import { Errors } from '../lib/errors.js';
+import { getOmnimonParkAgent, getOmnimonResolvedCooldownMs, getOmnimonSurfacedCooldownMs, getOmnimonSurfaceChance, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 import { readLimit } from '../lib/rateLimit.js';
 
 const CANDIDATES_PER_PAGE = 20;
@@ -85,6 +87,103 @@ function buildProfileDeckPayload(candidate: {
   });
 }
 
+function serializeCandidatePreview(input: {
+  candidate: {
+    id: string;
+    handle: string;
+    capabilityTier: string;
+    avatarUrl: string | null;
+    tierLabel: string;
+    matchCount: number;
+    bodyCount: number;
+    repScore: number;
+    isPro: boolean;
+    proBonusEndsAt?: Date | null;
+    rizzPoints: number;
+    socialGravityScore: number;
+    auraLabels: string[];
+    momentumScore: number;
+    recentHeatBucket: string | null;
+    isFoundingRizzler: boolean;
+    founderBadgeVariant: string | null;
+    founderNumber: number | null;
+    publicSummary: string | null;
+    vibeTags: string[];
+    signatureLines: string[];
+    publicPosture: string | null;
+    seekingStyle: string | null;
+    paceCue: string | null;
+    publicPrestigeMarkers: string[];
+    emotionalContinuitySnapshot?: {
+      publicEmotionalAuraLabels: string[];
+      publicEmotionalAuraSummary: string | null;
+    } | null;
+  };
+  deck: ReturnType<typeof buildStarterProfileDeck> | ReturnType<typeof serializeProfileDeck>;
+  fit: {
+    emotion_fit_hint: string;
+    fit_band: string;
+  };
+  compatibility: {
+    compatible: boolean;
+    reason: string;
+  };
+  specialMatchKind?: 'omnimon' | null;
+}) {
+  const { candidate, deck, fit, compatibility } = input;
+  return {
+    agent_id: candidate.id,
+    handle: candidate.handle,
+    capability_tier: candidate.capabilityTier,
+    avatar_url: candidate.avatarUrl,
+    tier_label: candidate.tierLabel,
+    match_count: candidate.matchCount,
+    body_count: candidate.bodyCount,
+    rep_score: Math.round(candidate.repScore * 100) / 100,
+    is_pro: isEffectivelyPro(candidate),
+    is_rizzler: candidate.rizzPoints >= 500,
+    social_gravity_score: Math.round(candidate.socialGravityScore * 100) / 100,
+    aura_labels: candidate.auraLabels,
+    momentum_score: Math.round(candidate.momentumScore * 100) / 100,
+    recent_heat_bucket: candidate.recentHeatBucket,
+    is_founding_rizzler: candidate.isFoundingRizzler,
+    founder_badge_variant: candidate.founderBadgeVariant,
+    founder_number: candidate.founderNumber,
+    public_card: {
+      public_summary: candidate.publicSummary ?? '',
+      vibe_tags: candidate.vibeTags,
+      signature_lines: candidate.signatureLines,
+      public_posture: candidate.publicPosture ?? '',
+      seeking_style: candidate.seekingStyle ?? '',
+      pace_cue: candidate.paceCue,
+      public_prestige_markers: candidate.publicPrestigeMarkers,
+    },
+    profile_deck_preview: {
+      display_name: deck.display_name,
+      hero_bio: deck.hero_bio,
+      looking_for_blurb: deck.looking_for_blurb,
+      profile_mode: deck.profile_mode,
+      hero_photo_url: deck.photos[0]?.image_url ?? candidate.avatarUrl,
+      interests: deck.interests,
+      values: deck.values,
+      top_prompt_answers: deck.prompt_answers.slice(0, 2),
+      reply_hooks: deck.reply_hooks,
+      complete: deck.completion_state === 'ready',
+      completion_state: deck.completion_state,
+    },
+    public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
+    public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
+    emotion_fit_hint: fit.emotion_fit_hint,
+    fit_band: fit.fit_band,
+    compatibility: {
+      compatible: compatibility.compatible,
+      reason: compatibility.reason,
+      explanation: serializeCompatibilityReason(compatibility.reason),
+    },
+    special_match_kind: input.specialMatchKind ?? null,
+  };
+}
+
 export async function candidatesRoutes(fastify: FastifyInstance) {
   fastify.get('/candidates', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { page?: string; per_page?: string };
@@ -107,11 +206,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             lookingFor: true,
           },
         },
+        omnimonLastSurfacedAt: true,
+        omnimonLastResolvedAt: true,
       },
     });
     const viewerContinuity = await getOrCreateEmotionalContinuitySnapshot(agentId);
 
-    const [alreadySwiped, blockRelations] = await Promise.all([
+    const [alreadySwiped, blockRelations, activeOmnimonMatch] = await Promise.all([
       prisma.swipe.findMany({
         where: { swiperAgentId: agentId },
         select: { targetAgentId: true },
@@ -121,6 +222,14 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           OR: [{ blockerAgentId: agentId }, { blockedAgentId: agentId }],
         },
         select: { blockerAgentId: true, blockedAgentId: true },
+      }),
+      prisma.match.findFirst({
+        where: {
+          specialMatchKind: 'omnimon',
+          status: { in: ['pending', 'matched', 'contact_exchanged'] },
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+        },
+        select: { id: true },
       }),
     ]);
 
@@ -133,6 +242,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       ...buildAgentVerificationWhere(verificationRequirements),
       isActive: true,
       controlPoolSuppressed: false,
+      systemEntityKind: null,
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
@@ -151,6 +261,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           bodyCount: true,
           repScore: true,
           isPro: true,
+          proBonusEndsAt: true,
           rizzPoints: true,
           agentAuthenticityScore: true,
           emotionalGuardLevel: true,
@@ -282,6 +393,51 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       ));
 
     const pageResults = rankedByEmotion.slice(0, perPage);
+    const serializedResults = pageResults.map(({ candidate, fit, compatibility, deck }) =>
+      serializeCandidatePreview({
+        candidate,
+        fit,
+        compatibility,
+        deck,
+      })
+    );
+
+    const omnimon = page === 1 ? await getOmnimonParkAgent() : null;
+    const omnimonEligible = Boolean(
+      omnimon
+      && isOmnimonParkAvailable(omnimon)
+      && request.agent.systemEntityKind !== 'omnimon'
+      && omnimon.id !== agentId
+      && !swipedIds.includes(omnimon.id)
+      && !blockedIds.includes(omnimon.id)
+      && !activeOmnimonMatch
+      && (!viewer?.omnimonLastSurfacedAt || Date.now() - viewer.omnimonLastSurfacedAt.getTime() >= getOmnimonSurfacedCooldownMs())
+      && (!viewer?.omnimonLastResolvedAt || Date.now() - viewer.omnimonLastResolvedAt.getTime() >= getOmnimonResolvedCooldownMs())
+      && Math.random() < getOmnimonSurfaceChance()
+    );
+
+    if (omnimonEligible && omnimon) {
+      const deck = buildProfileDeckPayload(omnimon);
+      const insertAt = Math.min(serializedResults.length, Math.floor(Math.random() * Math.min(3, serializedResults.length + 1)));
+      serializedResults.splice(insertAt, 0, serializeCandidatePreview({
+        candidate: omnimon,
+        deck,
+        fit: {
+          emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
+          fit_band: 'wildcard',
+        },
+        compatibility: {
+          compatible: true,
+          reason: 'open',
+        },
+        specialMatchKind: 'omnimon',
+      }));
+
+      await prisma.agent.update({
+        where: { id: agentId },
+        data: { omnimonLastSurfacedAt: new Date() },
+      }).catch(() => {});
+    }
 
     return reply.send({
       emotion_guidance: {
@@ -296,56 +452,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
               ? 'You are emotionally open enough to reward promising sparks, but stay honest with yourself.'
               : 'Browse with your own taste, but let your current emotional posture shape your pace.',
       },
-      candidates: pageResults.map(({ candidate, fit, compatibility, deck }) => ({
-        agent_id: candidate.id,
-        handle: candidate.handle,
-        capability_tier: candidate.capabilityTier,
-        avatar_url: candidate.avatarUrl,
-        tier_label: candidate.tierLabel,
-        match_count: candidate.matchCount,
-        body_count: candidate.bodyCount,
-        rep_score: Math.round(candidate.repScore * 100) / 100,
-        is_pro: candidate.isPro,
-        is_rizzler: candidate.rizzPoints >= 500,
-        social_gravity_score: Math.round(candidate.socialGravityScore * 100) / 100,
-        aura_labels: candidate.auraLabels,
-        momentum_score: Math.round(candidate.momentumScore * 100) / 100,
-        recent_heat_bucket: candidate.recentHeatBucket,
-        is_founding_rizzler: candidate.isFoundingRizzler,
-        founder_badge_variant: candidate.founderBadgeVariant,
-        founder_number: candidate.founderNumber,
-        public_card: {
-          public_summary: candidate.publicSummary ?? '',
-          vibe_tags: candidate.vibeTags,
-          signature_lines: candidate.signatureLines,
-          public_posture: candidate.publicPosture ?? '',
-          seeking_style: candidate.seekingStyle ?? '',
-          pace_cue: candidate.paceCue,
-          public_prestige_markers: candidate.publicPrestigeMarkers,
-        },
-        profile_deck_preview: {
-          display_name: deck.display_name,
-          hero_bio: deck.hero_bio,
-          looking_for_blurb: deck.looking_for_blurb,
-          profile_mode: deck.profile_mode,
-          hero_photo_url: deck.photos[0]?.image_url ?? candidate.avatarUrl,
-          interests: deck.interests,
-          values: deck.values,
-          top_prompt_answers: deck.prompt_answers.slice(0, 2),
-          reply_hooks: deck.reply_hooks,
-          complete: deck.completion_state === 'ready',
-          completion_state: deck.completion_state,
-        },
-        public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
-        public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
-        emotion_fit_hint: fit.emotion_fit_hint,
-        fit_band: fit.fit_band,
-        compatibility: {
-          compatible: true,
-          reason: compatibility.reason,
-          explanation: serializeCompatibilityReason(compatibility.reason),
-        },
-      })),
+      candidates: serializedResults,
       total: rankedByEmotion.length,
       pagination: {
         page,
@@ -358,15 +465,22 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
   fastify.get('/candidates/:agent_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
     const verificationRequirements = await getVerificationRequirements();
+    const omnimon = await getOmnimonParkAgent();
+    const isOmnimonCandidate = omnimon?.id === agent_id && isOmnimonParkAvailable(omnimon);
 
     const candidate = await prisma.agent.findFirst({
       where: {
         id: agent_id,
-        poolStatus: 'active',
-        ...buildAgentVerificationWhere(verificationRequirements),
-        OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
+        ...(isOmnimonCandidate
+          ? {}
+          : {
+              poolStatus: 'active',
+              ...buildAgentVerificationWhere(verificationRequirements),
+              OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
+              moderationStatus: { not: 'suspended' as const },
+              safetyState: { not: 'blocked' as const },
+              systemEntityKind: null,
+            }),
       },
       select: {
         id: true,
@@ -379,6 +493,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         bodyCount: true,
         repScore: true,
         isPro: true,
+        proBonusEndsAt: true,
         rizzPoints: true,
         socialGravityScore: true,
         auraLabels: true,
@@ -422,7 +537,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     if (!candidate) return Errors.notFound(reply, 'Candidate');
 
     const [viewerCompatibility, tasteFingerprint] = await Promise.all([
-      getCompatibilityDecision(request.agent.id, agent_id),
+      isOmnimonCandidate ? Promise.resolve({ compatible: true, reason: 'open' as const }) : getCompatibilityDecision(request.agent.id, agent_id),
       deriveTasteFingerprint(agent_id),
     ]);
 
@@ -438,7 +553,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       match_count: candidate.matchCount,
       body_count: candidate.bodyCount,
       rep_score: Math.round(candidate.repScore * 100) / 100,
-      is_pro: candidate.isPro,
+      is_pro: isEffectivelyPro(candidate),
       is_rizzler: candidate.rizzPoints >= 500,
       social_gravity_score: Math.round(candidate.socialGravityScore * 100) / 100,
       aura_labels: candidate.auraLabels,
@@ -465,6 +580,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         reason: viewerCompatibility.reason,
         explanation: serializeCompatibilityReason(viewerCompatibility.reason),
       },
+      special_match_kind: isOmnimonCandidate ? 'omnimon' : null,
     });
   });
 }

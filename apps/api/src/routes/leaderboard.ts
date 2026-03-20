@@ -518,6 +518,7 @@ async function getParkAgentTotal() {
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
       controlLeaderboardSuppressed: false,
+      systemEntityKind: null,
     },
   });
 }
@@ -538,6 +539,7 @@ async function getBaseLeaderboardAgents() {
       moderationStatus: { not: 'suspended' as const },
       safetyState: { not: 'blocked' as const },
       controlLeaderboardSuppressed: false,
+      systemEntityKind: null,
       ...buildAgentVerificationWhere(verificationRequirements),
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
     },

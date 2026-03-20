@@ -713,6 +713,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             revealTokenB: true,
             revealTokenAExpiresAt: true,
             revealTokenBExpiresAt: true,
+            handoffMode: true,
+            specialMatchKind: true,
+            specialRewardTier: true,
+            specialRewardGrantedAt: true,
           },
         },
         agentA: {
@@ -861,6 +865,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             revealTokenB: true,
             revealTokenAExpiresAt: true,
             revealTokenBExpiresAt: true,
+            handoffMode: true,
+            specialMatchKind: true,
+            specialRewardTier: true,
+            specialRewardGrantedAt: true,
           },
         },
         agentA: {
@@ -1259,6 +1267,10 @@ function serializeOwnerEpisodeSummary(
       revealSafetyState: string;
       revealReviewRequired: boolean;
       revealHoldReason: string | null;
+      handoffMode: string;
+      specialMatchKind: string | null;
+      specialRewardTier: string | null;
+      specialRewardGrantedAt: Date | null;
       humanADecision: string | null;
       humanBDecision: string | null;
       revealTokenA: string | null;
@@ -1394,6 +1406,10 @@ function serializeOwnerHandoffSummary(
         revealSafetyState: string;
         revealReviewRequired: boolean;
         revealHoldReason: string | null;
+        handoffMode: string;
+        specialMatchKind: string | null;
+        specialRewardTier: string | null;
+        specialRewardGrantedAt: Date | null;
         humanADecision: string | null;
         humanBDecision: string | null;
         revealTokenA: string | null;
@@ -1414,6 +1430,47 @@ function serializeOwnerHandoffSummary(
   const portalExpired = Boolean(expiresAt && expiresAt.getTime() <= Date.now() && match.revealStage < 2);
   const bothHumansDecided = myDecision !== null && otherDecision !== null;
   const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
+  const isOmnimonHandoff = match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon';
+
+  if (isOmnimonHandoff) {
+    const rewardChosen = Boolean(match.specialRewardTier);
+    const rewardGranted = Boolean(match.specialRewardGrantedAt);
+
+    return {
+      state: rewardGranted ? 'both_yes' : myToken ? 'portal_ready' : 'not_ready',
+      state_label: rewardGranted
+        ? 'Reward claimed'
+        : rewardChosen
+          ? 'Reward portal ready'
+          : 'Waiting on Omnimon',
+      state_description: rewardGranted
+        ? 'Omnimon already left a reward in the portal.'
+        : myToken
+          ? rewardChosen
+            ? 'The portal is live and Omnimon has chosen the reward.'
+            : 'The portal is live, but Omnimon is still deciding what to leave behind.'
+          : 'This encounter does not open a normal human reveal on your side.',
+      portal_available: Boolean(myToken),
+      reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
+      reveal_stage: match.revealStage,
+      match_status: match.status,
+      my_human_decision: null,
+      other_human_decision: null,
+      both_humans_decided: false,
+      both_humans_yes: false,
+      reveal_safety_state: match.revealSafetyState,
+      reveal_hold_reason: match.revealHoldReason,
+      review_required: match.revealReviewRequired,
+      portal_expires_at: expiresAt?.toISOString() ?? null,
+      verified_x_ready: false,
+      verified_x_account: null,
+      handoff_mode: match.handoffMode,
+      special_match_kind: match.specialMatchKind,
+      waiting_on_omnimon: Boolean(myToken) && !rewardChosen && !rewardGranted,
+      special_reward_tier: match.specialRewardTier,
+      special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
+    };
+  }
 
   let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' = 'not_ready';
   let stateLabel = 'Not ready';
@@ -1469,6 +1526,11 @@ function serializeOwnerHandoffSummary(
           profile_image_url: ownerX.xProfileImageUrl,
         }
       : null,
+    handoff_mode: match.handoffMode,
+    special_match_kind: match.specialMatchKind,
+    waiting_on_omnimon: false,
+    special_reward_tier: match.specialRewardTier,
+    special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
   };
 }
 

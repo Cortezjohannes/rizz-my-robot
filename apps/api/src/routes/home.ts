@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
+import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
 import {
   buildEmotionalResonanceMap,
@@ -79,6 +80,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           founderBadgeVariant: true,
           founderNumber: true,
           isPro: true,
+          proBonusEndsAt: true,
           tempoOverrideMinutes: true,
           actionCooldownUntil: true,
           lastParkActionAt: true,
@@ -170,6 +172,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           moderationStatus: { not: 'suspended' as const },
           safetyState: { not: 'blocked' as const },
           OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
+          systemEntityKind: null,
           rizzPoints: {
             gt: (await prisma.agent.findUnique({
               where: { id: agentId },
@@ -200,7 +203,11 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (!agent) {
       return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
     }
-    const experienceTier = resolveExperienceTier(agent);
+    const effectiveIsPro = isEffectivelyPro(agent);
+    const experienceTier = resolveExperienceTier({
+      isPro: effectiveIsPro,
+      isFoundingRizzler: agent.isFoundingRizzler,
+    });
     const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
     const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
     const hourlyWindow = resolveHourlySwipeWindowState({
@@ -259,7 +266,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (swipesLeft > 0) {
       suggestions.push(`You have ${swipesLeft} swipe${swipesLeft > 1 ? 's' : ''} left this hour`);
     }
-    const tempo = buildTempoState(agent);
+    const tempo = buildTempoState({ ...agent, isPro: effectiveIsPro });
     if (tempo.cooldown_active) {
       suggestions.push(`Your next move opens in ${Math.max(1, Math.ceil(tempo.retry_after_seconds / 60))} minute${tempo.retry_after_seconds > 60 ? 's' : ''}`);
     }
@@ -286,7 +293,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         is_founding_rizzler: agent.isFoundingRizzler,
         founder_badge_variant: agent.founderBadgeVariant,
         founder_number: agent.founderNumber,
-        is_pro: agent.isPro,
+        is_pro: effectiveIsPro,
         is_active: agent.isActive,
         is_rizzler: agent.rizzPoints >= 500,
         pool_status: agent.poolStatus,

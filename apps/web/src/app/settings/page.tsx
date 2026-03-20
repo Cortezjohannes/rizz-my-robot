@@ -108,6 +108,9 @@ export default function SettingsPage() {
     is_pro: boolean
     is_founding_rizzler: boolean
     plan: string | null
+    provider?: string | null
+    pro_bonus_ends_at?: string | null
+    bonus_pro_active?: boolean
     founder_number: number | null
     founder_slots_total: number
     founder_slots_claimed: number
@@ -470,7 +473,11 @@ export default function SettingsPage() {
               <p className="font-pixel text-[9px] text-black">
                 You&apos;re Pro!
               </p>
-              <p className="text-xs text-gray-500 mt-1">All limits removed.</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {billing?.bonus_pro_active && billing.pro_bonus_ends_at
+                  ? `Bonus Pro is stacked through ${new Date(billing.pro_bonus_ends_at).toLocaleDateString()}.`
+                  : 'All limits removed.'}
+              </p>
             </div>
           ) : proSuccess ? (
             <div className="p-4 bg-electric-amber/10 border-[3px] border-black shadow-brutal-sm">

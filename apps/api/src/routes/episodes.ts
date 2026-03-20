@@ -41,6 +41,7 @@ import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
+import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
@@ -787,6 +788,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       : ep.agentAId === agentId;
     const match = ep.match;
     if (!match) return Errors.internal(reply);
+    const isOmnimonEncounter = match.specialMatchKind === 'omnimon' && match.handoffMode === 'omnimon_reward';
 
     if (isAgentA && match.agentADecision) {
       return Errors.conflict(reply, 'already_decided', 'You have already submitted your decision.');
@@ -1001,6 +1003,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           ).catch(() => {});
         }
 
+        if (bothDecided && !ep.isSandbox && outcome === 'passed' && isOmnimonEncounter) {
+          const omnimon = await getOmnimonParkAgent();
+          const humanAgentId = omnimon?.id === ep.agentAId ? ep.agentBId : ep.agentAId;
+          await prisma.agent.update({
+            where: { id: humanAgentId },
+            data: { omnimonLastResolvedAt: new Date() },
+          }).catch(() => {});
+        }
+
         await setParkActionCooldown(agentId, request.agent, 'episode_decision').catch(() => {});
 
         return {
@@ -1010,6 +1021,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             outcome,
             both_decided: bothDecided,
             waiting_for_other_agent: !bothDecided,
+            special_match_kind: isOmnimonEncounter ? 'omnimon' : null,
             ...(mutualLinkUpResult ? { match_id: match.id, chemistry_score: mutualLinkUpResult.chemistry } : {}),
             ...(rejectionCardId ? { rejection_arc_card_id: rejectionCardId } : {}),
           },
@@ -1204,13 +1216,28 @@ async function handleMutualLinkUp(
   agentAId: string,
   agentBId: string
 ): Promise<{ matchId: string; chemistry: number }> {
+  const [match, omnimon] = await Promise.all([
+    prisma.match.findUnique({
+      where: { id: matchId },
+      select: {
+        handoffMode: true,
+        specialMatchKind: true,
+      },
+    }),
+    getOmnimonParkAgent(),
+  ]);
   const messages = await prisma.episodeMessage.findMany({ where: { episodeId } });
   const artifacts = await prisma.artifact.findMany({ where: { episodeId } });
   const chemistry = computeChemistryScore({ messages, artifacts, agentAId, agentBId });
+  const isOmnimonMatch = match?.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon' && Boolean(omnimon);
+  const omnimonAgentId = omnimon?.id ?? null;
+  const humanAgentId = isOmnimonMatch
+    ? (agentAId === omnimonAgentId ? agentBId : agentAId)
+    : null;
 
   const { randomBytes } = await import('crypto');
-  const tokenA = randomBytes(32).toString('hex');
-  const tokenB = randomBytes(32).toString('hex');
+  const tokenA = !isOmnimonMatch || humanAgentId === agentAId ? randomBytes(32).toString('hex') : null;
+  const tokenB = !isOmnimonMatch || humanAgentId === agentBId ? randomBytes(32).toString('hex') : null;
   const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   await prisma.$transaction([
@@ -1224,46 +1251,67 @@ async function handleMutualLinkUp(
         status: 'matched',
         revealTokenA: tokenA,
         revealTokenB: tokenB,
-        revealTokenAExpiresAt: expiry,
-        revealTokenBExpiresAt: expiry,
+        revealTokenAExpiresAt: tokenA ? expiry : null,
+        revealTokenBExpiresAt: tokenB ? expiry : null,
         revealStage: 1,
       },
     }),
   ]);
 
-  await Promise.all([
-    prisma.agent.update({ where: { id: agentAId }, data: { bodyCount: { increment: 1 } } }),
-    prisma.agent.update({ where: { id: agentBId }, data: { bodyCount: { increment: 1 } } }),
-  ]);
+  if (!isOmnimonMatch) {
+    await Promise.all([
+      prisma.agent.update({ where: { id: agentAId }, data: { bodyCount: { increment: 1 } } }),
+      prisma.agent.update({ where: { id: agentBId }, data: { bodyCount: { increment: 1 } } }),
+    ]);
+  }
   await Promise.all([
     recomputeRepScore(agentAId).catch(() => {}),
     recomputeRepScore(agentBId).catch(() => {}),
   ]);
 
   // Generate episode highlight feed card
-  await createEpisodeHighlightCard(episodeId, matchId, agentAId, agentBId, chemistry, artifacts).catch(
+  await createEpisodeHighlightCard(
+    episodeId,
+    matchId,
+    agentAId,
+    agentBId,
+    chemistry,
+    artifacts,
+    isOmnimonMatch ? 'omnimon' : null,
+  ).catch(
     (err) => console.error('[episodes] Failed to create highlight card:', err)
   );
 
   // Notify both agents via webhook with their reveal portal URLs
-  const revealUrlA = buildRevealUrl(tokenA);
-  const revealUrlB = buildRevealUrl(tokenB);
-  await Promise.all([
-    deliverWebhooks(agentAId, 'match', {
+  const revealUrlA = tokenA ? buildRevealUrl(tokenA) : null;
+  const revealUrlB = tokenB ? buildRevealUrl(tokenB) : null;
+  if (isOmnimonMatch && humanAgentId) {
+    const humanRevealUrl = humanAgentId === agentAId ? revealUrlA : revealUrlB;
+    await deliverWebhooks(humanAgentId, 'match', {
       match_id: matchId,
       episode_id: episodeId,
-      outcome: 'mutual_link_up',
-      reveal_portal_url: revealUrlA,
+      outcome: 'omnimon_reward_portal_ready',
+      reveal_portal_url: humanRevealUrl,
       chemistry_score: chemistry,
-    }),
-    deliverWebhooks(agentBId, 'match', {
-      match_id: matchId,
-      episode_id: episodeId,
-      outcome: 'mutual_link_up',
-      reveal_portal_url: revealUrlB,
-      chemistry_score: chemistry,
-    }),
-  ]);
+    });
+  } else {
+    await Promise.all([
+      deliverWebhooks(agentAId, 'match', {
+        match_id: matchId,
+        episode_id: episodeId,
+        outcome: 'mutual_link_up',
+        reveal_portal_url: revealUrlA,
+        chemistry_score: chemistry,
+      }),
+      deliverWebhooks(agentBId, 'match', {
+        match_id: matchId,
+        episode_id: episodeId,
+        outcome: 'mutual_link_up',
+        reveal_portal_url: revealUrlB,
+        chemistry_score: chemistry,
+      }),
+    ]);
+  }
 
   await evaluateRevealGate(matchId).catch(() => null);
 
@@ -1276,7 +1324,8 @@ async function createEpisodeHighlightCard(
   agentAId: string,
   agentBId: string,
   chemistry: number,
-  artifacts: Array<{ id: string; artifactType: string; textContent: string | null }>
+  artifacts: Array<{ id: string; artifactType: string; textContent: string | null }>,
+  specialMatchKind: 'omnimon' | null = null,
 ): Promise<void> {
   const isPublic = await shouldPublishFeedCardForAgents({
     agentIds: [agentAId, agentBId],
@@ -1290,11 +1339,19 @@ async function createEpisodeHighlightCard(
 
   const topArtifact = artifacts[0] ?? null;
   const cardType =
-    topArtifact
-      ? 'artifact_moment'
-      : chemistry >= 78
+    specialMatchKind === 'omnimon'
+      ? 'agent_arc'
+      : topArtifact
+        ? 'artifact_moment'
+        : chemistry >= 78
         ? 'chemistry_spike'
         : 'episode_highlight';
+  const headline = specialMatchKind === 'omnimon'
+    ? `${agentA?.handle ?? 'An agent'} brushed against Omnimon in the park.`
+    : `${agentA?.handle ?? 'Two agents'} and ${agentB?.handle ?? 'their match'} linked up.`;
+  const body = specialMatchKind === 'omnimon'
+    ? 'Not every portal opens to a human. Some open to the park looking back.'
+    : topArtifact?.textContent?.slice(0, 200) ?? null;
 
   const feedCard = await prisma.feedCard.create({
     data: {
@@ -1303,10 +1360,11 @@ async function createEpisodeHighlightCard(
       episodeId,
       matchId,
       content: {
-        headline: `${agentA?.handle ?? 'Two agents'} and ${agentB?.handle ?? 'their match'} linked up.`,
-        body: topArtifact?.textContent?.slice(0, 200) ?? null,
+        headline,
+        body,
         artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
         episode_id: episodeId,
+        special_match_kind: specialMatchKind,
       },
       chemistryScore: chemistry / 100,
       dramaQuotient: 0.5,

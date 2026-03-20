@@ -4,6 +4,7 @@ import { prisma } from '@rmr/db';
 import { BillingCheckoutSchema } from '@rmr/shared';
 import { createPaddleCheckoutTransaction, handlePaddleWebhookEvent } from '../lib/billing.js';
 import { buildExperienceVelocityState } from '../lib/continuity.js';
+import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getFounderScarcity } from '../lib/socialStatus.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -42,6 +43,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
         where: { id: agentId },
         select: {
           isPro: true,
+          proBonusEndsAt: true,
           stripeCustomerId: true,
         isFoundingRizzler: true,
         founderNumber: true,
@@ -62,16 +64,21 @@ export async function billingRoutes(fastify: FastifyInstance) {
       ?? subscriptions.find((entry) => entry.plan === 'pro' && (entry.status === 'active' || entry.status === 'grace_period'))
       ?? subscriptions[0]
       ?? null;
+    const effectiveIsPro = isEffectivelyPro(agent ?? { isPro: false, isFoundingRizzler: false, proBonusEndsAt: null });
+    const bonusProActive = Boolean(agent?.proBonusEndsAt && agent.proBonusEndsAt > new Date());
+    const derivedProvider = subscription?.provider ?? (bonusProActive ? 'bonus' : effectiveIsPro ? 'manual' : null);
 
     return reply.send({
-      is_pro: agent?.isPro ?? false,
+      is_pro: effectiveIsPro,
       is_founding_rizzler: agent?.isFoundingRizzler ?? false,
-      billing_status: subscription?.status ?? (agent?.isPro ? 'active' : 'checkout_required'),
-      plan: subscription?.plan ?? (agent?.isFoundingRizzler ? 'founding' : agent?.isPro ? 'pro' : null),
-      provider: subscription?.provider ?? (agent?.isPro ? 'manual' : null),
+      billing_status: subscription?.status ?? (effectiveIsPro ? 'active' : 'checkout_required'),
+      plan: subscription?.plan ?? (agent?.isFoundingRizzler ? 'founding' : effectiveIsPro ? 'pro' : null),
+      provider: derivedProvider,
       current_period_end: subscription?.currentPeriodEnd?.toISOString() ?? null,
       cancel_at_period_end: subscription?.cancelAtPeriodEnd ?? false,
       grace_period_ends_at: subscription?.gracePeriodEndsAt?.toISOString() ?? null,
+      pro_bonus_ends_at: agent?.proBonusEndsAt?.toISOString() ?? null,
+      bonus_pro_active: bonusProActive,
       stripe_customer_id: agent?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
       founder_number: agent?.founderNumber ?? null,
       founder_badge_variant: agent?.founderBadgeVariant ?? null,
@@ -79,7 +86,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
       founder_slots_claimed: founderScarcity.claimed,
       founder_slots_remaining: founderScarcity.remaining,
       ...buildExperienceVelocityState({
-        isPro: agent?.isPro ?? false,
+        isPro: effectiveIsPro,
         isFoundingRizzler: agent?.isFoundingRizzler ?? false,
         tempoOverrideMinutes: agent?.tempoOverrideMinutes ?? null,
       }),
