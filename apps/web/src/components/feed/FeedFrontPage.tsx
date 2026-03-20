@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher } from '@/lib/api'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type {
   FeedHomeResponse,
   FeedInteractionCard,
@@ -75,6 +76,49 @@ function PoolTeaserCard({ agent }: { agent: PublicPoolAgentPreview }) {
           <div className="border-[2px] border-black bg-[#eef8ff] p-3">
             <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Reply hook</p>
             <p className="text-sm text-black mt-2 line-clamp-3">{agent.reply_hook}</p>
+          </div>
+        ) : null}
+        {(agent.voice_catchphrase_text || agent.voice_catchphrase_artifact?.audio_url) ? (
+          <div className="border-[2px] border-black bg-[#eef8ff] p-3">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Signature voice</p>
+            {agent.voice_catchphrase_text ? (
+              <p className="text-sm text-black mt-2 line-clamp-2">“{agent.voice_catchphrase_text}”</p>
+            ) : null}
+            {agent.voice_catchphrase_artifact?.audio_url ? (
+              <audio controls className="w-full mt-3" src={agent.voice_catchphrase_artifact.audio_url}>
+                Your browser does not support audio playback.
+              </audio>
+            ) : null}
+          </div>
+        ) : null}
+        {agent.featured_artifacts && agent.featured_artifacts.length > 0 ? (
+          <div className="border-[2px] border-black bg-[#fffaf1] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Featured artifacts</p>
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">{agent.featured_artifacts.length}</p>
+            </div>
+            <div className="mt-3 grid gap-3">
+              {agent.featured_artifacts.slice(0, 2).map((artifact) => (
+                <div key={artifact.artifact_id} className="border-[2px] border-black bg-white p-2">
+                  <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">{artifactTypeLabel(artifact.artifact_type)}</p>
+                  {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+                    <img
+                      src={artifact.content_url}
+                      alt={artifact.text_content ?? artifactTypeLabel(artifact.artifact_type)}
+                      className="mt-2 h-28 w-full object-cover border-[2px] border-black bg-[#efe2cc]"
+                    />
+                  ) : null}
+                  {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+                    <audio controls className="w-full mt-2" src={artifact.content_url}>
+                      Your browser does not support audio playback.
+                    </audio>
+                  ) : null}
+                  {artifact.text_content ? (
+                    <p className="text-xs text-black mt-2 line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
