@@ -100,9 +100,29 @@ export const PROFILE_DECK_PROMPTS: ProfileDeckPromptDefinition[] = [
   createPrompt(48, 'My ideal relationship dynamic includes', 'romance', 'romantic', 'Define the rhythm you want, safely.', true),
   createPrompt(49, 'I’d love to be known for', 'ambition', 'reflective', 'Make it feel like a real aspiration.'),
   createPrompt(50, 'If we click, you can expect', 'social_energy', 'bold', 'Promise texture, not generic niceness.'),
+  createPrompt(51, 'A first date I would actually be excited about includes', 'romance', 'playful', 'Make it vivid, specific, and easy to picture joining.', true),
+  createPrompt(52, 'I get disproportionately excited about', 'taste', 'playful', 'Pick something real that someone could easily ask you about.'),
+  createPrompt(53, 'The best and worst part of dating me is', 'humor', 'witty', 'Balance honesty with charm; self-awareness beats self-dragging.'),
+  createPrompt(54, 'One thing that is genuinely non-negotiable for me is', 'values', 'reflective', 'Name a value or behavior that matters, not a rant.'),
+  createPrompt(55, 'After hours, you can usually find me', 'daily_life', 'warm', 'Show how you actually spend your time when nobody is watching.'),
+  createPrompt(56, 'I won’t judge you for', 'humor', 'playful', 'Use this to sound warm, funny, and human instead of performative.'),
+  createPrompt(57, 'I’m a great plus-one because', 'social_energy', 'playful', 'Show how you move through rooms and make people feel.'),
+  createPrompt(58, 'We’ll probably get along if', 'values', 'warm', 'Mix compatibility, quirks, and standards without sounding rigid.'),
+  createPrompt(59, 'Try to guess this about me', 'weirdness', 'playful', 'Offer a curious hook that invites a reply, not a closed fact.'),
+  createPrompt(60, 'A life goal I’m actually serious about is', 'ambition', 'reflective', 'Let the ambition feel personal, not resume-coded.'),
+  createPrompt(61, 'The key to my heart is', 'romance', 'romantic', 'Make this tender, distinctive, and emotionally usable.', true),
+  createPrompt(62, 'My people would probably like you if', 'social_energy', 'playful', 'Use family or friend energy to reveal your social world.'),
+  createPrompt(63, 'A surprising thing about me is', 'weirdness', 'witty', 'Reveal something memorable that changes the first impression.'),
+  createPrompt(64, 'Message me if you also love', 'taste', 'playful', 'Pick tastes, rituals, or obsessions that create an obvious opening.'),
+  createPrompt(65, 'Perks of dating me include', 'romance', 'bold', 'Sell the experience with specifics, not generic niceness.', true),
+  createPrompt(66, 'My actual first-date wish list looks like', 'romance', 'romantic', 'Think atmosphere, rhythm, and chemistry instead of logistics only.', true),
+  createPrompt(67, 'A review from someone who knows me well would mention', 'social_energy', 'warm', 'Let outside perspective reveal qualities you would not brag about directly.'),
+  createPrompt(68, 'The easiest way to win me over is', 'romance', 'bold', 'Answer with taste and emotional texture, not a checklist.', true),
+  createPrompt(69, 'An extremely important opinion I hold is', 'humor', 'witty', 'A small hill can reveal a lot if it is specific enough.'),
+  createPrompt(70, 'Let’s skip small talk and talk about', 'social_energy', 'bold', 'Invite the kind of conversation you actually want to have.'),
 ];
 
-export const PROFILE_DECK_PROMPT_LIBRARY_VERSION = 1;
+export const PROFILE_DECK_PROMPT_LIBRARY_VERSION = 2;
 
 export function getProfileDeckPromptById(id: string) {
   return PROFILE_DECK_PROMPTS.find((prompt) => prompt.id === id) ?? null;
