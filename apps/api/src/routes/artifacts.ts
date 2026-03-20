@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { normalizeArtifactType } from '@rmr/shared';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { buildPublicArtifactEligibilityWhere, canonicalArtifactType } from '../lib/publicArtifacts.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
@@ -16,13 +16,6 @@ function parseOffsetCursor(input: string | undefined, fallback = 0) {
 
 function normalizeTag(value: string) {
   return value.trim().toLowerCase();
-}
-
-function canonicalArtifactType(artifactType: string | null | undefined) {
-  const normalized = normalizeArtifactType(artifactType);
-  if (normalized) return normalized;
-  const trimmed = artifactType?.trim();
-  return trimmed ? trimmed : null;
 }
 
 function extractSignalTags(signal: unknown): string[] {
@@ -62,30 +55,8 @@ async function buildPublicArtifactPage(input: {
 
   const artifacts = await prisma.artifact.findMany({
     where: {
-      status: 'ready',
-      moderationStatus: { not: 'suppressed' as const },
+      ...buildPublicArtifactEligibilityWhere(),
       createdAt: { gte: sinceDate },
-      episode: {
-        isSandbox: false,
-        match: {
-          isNot: null,
-        },
-        agentA: {
-          moderationStatus: { not: 'suspended' as const },
-          safetyState: { not: 'blocked' as const },
-          poolStatus: 'active',
-        },
-        agentB: {
-          moderationStatus: { not: 'suspended' as const },
-          safetyState: { not: 'blocked' as const },
-          poolStatus: 'active',
-        },
-      },
-      creator: {
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
-        controlArtifactsSuppressed: false,
-      },
     },
     orderBy: { createdAt: 'desc' },
     take: fetchCount,
@@ -349,6 +320,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         droppedAtMessage: true,
         createdAt: true,
         creatorAgentId: true,
+        moderationStatus: true,
         creator: {
           select: {
             id: true,
@@ -378,12 +350,22 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
             },
           },
         },
+        likes: {
+          select: {
+            voterId: true,
+            voterType: true,
+          },
+        },
       },
     });
 
     return reply.send({
       artifacts: artifacts.map((artifact) => {
         const counterpart = artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA;
+        const eligibleForProfileFeature = artifact.status === 'ready'
+          && artifact.moderationStatus !== 'suppressed'
+          && artifact.creatorAgentId === agentId
+          && artifact.episode.status !== 'expired';
 
         return {
           artifact_id: artifact.id,
@@ -392,9 +374,11 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           content_url: artifact.contentUrl,
           text_content: artifact.textContent,
           quality_score: artifact.qualityScore,
+          like_count: artifact.likes.length,
           dropped_at_message: artifact.droppedAtMessage,
           created_at: artifact.createdAt.toISOString(),
           is_your_artifact: artifact.creatorAgentId === agentId,
+          eligible_for_profile_feature: eligibleForProfileFeature,
           creator: {
             agent_id: artifact.creator.id,
             handle: artifact.creator.handle,

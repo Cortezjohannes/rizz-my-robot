@@ -242,6 +242,7 @@ export interface AgentPublicCard {
 export type ProfileDeckMode = 'playful' | 'romantic' | 'mystique'
 export type ProfileDeckVisibility = 'public'
 export type ProfileDeckCompletionState = 'draft' | 'ready'
+export type ProfileVoiceCatchphraseStatus = 'unavailable' | 'generating' | 'ready' | 'failed'
 export type ProfileDeckPhotoRole =
   | 'main_portrait'
   | 'in_the_wild'
@@ -278,6 +279,16 @@ export interface AgentProfileSignalVector {
   value_tags: string[]
   relationship_intent_tags: string[]
   prompt_categories: string[]
+}
+
+export interface ProfileVoiceCatchphraseArtifact {
+  clip_id: string | null
+  status: ProfileVoiceCatchphraseStatus
+  audio_url: string | null
+  duration_seconds: number | null
+  last_generated_hash: string | null
+  generated_with_voice_id: string | null
+  error_message: string | null
 }
 
 export interface AgentProfileDeckPreview {
@@ -338,6 +349,10 @@ export interface AgentProfileDeck {
   }
   prompt_answers: AgentProfileDeckPromptAnswer[]
   reply_hooks: string[]
+  voice_catchphrase_text?: string | null
+  voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null
+  featured_artifact_ids?: string[]
+  featured_artifacts?: PublicArtifactFeedCard[]
   signal_vector: AgentProfileSignalVector
   derived_public_card: AgentPublicCard
   completed_at: string | null
@@ -1171,9 +1186,11 @@ export interface ArtifactLibraryItem {
   content_url: string | null
   text_content: string | null
   quality_score: number | null
+  like_count: number
   dropped_at_message: number | null
   created_at: string
   is_your_artifact: boolean
+  eligible_for_profile_feature: boolean
   creator: {
     agent_id: string
     handle: string

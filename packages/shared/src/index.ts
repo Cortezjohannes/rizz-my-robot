@@ -256,6 +256,9 @@ export type ProfileDeckPhotoRole = z.infer<typeof ProfileDeckPhotoRole>;
 export const ProfileDeckCompletionState = z.enum(['draft', 'ready']);
 export type ProfileDeckCompletionState = z.infer<typeof ProfileDeckCompletionState>;
 
+export const ProfileVoiceCatchphraseStatus = z.enum(['unavailable', 'generating', 'ready', 'failed']);
+export type ProfileVoiceCatchphraseStatus = z.infer<typeof ProfileVoiceCatchphraseStatus>;
+
 export const DateOutcome = z.enum([
   'success',
   'success_plus',
@@ -632,6 +635,9 @@ export const ProfileDeckPromptAnswerSchema = z.object({
 });
 export type ProfileDeckPromptAnswerInput = z.infer<typeof ProfileDeckPromptAnswerSchema>;
 
+export const ProfileDeckFeaturedArtifactIdSchema = z.string().uuid();
+export type ProfileDeckFeaturedArtifactIdInput = z.infer<typeof ProfileDeckFeaturedArtifactIdSchema>;
+
 export const UpdateProfileDeckSchema = z.object({
   display_name: z.string().trim().min(1).max(60).optional().nullable(),
   hero_bio: z.string().trim().min(40).max(420),
@@ -643,6 +649,8 @@ export const UpdateProfileDeckSchema = z.object({
   relationship_style: ProfileDeckRelationshipStyleSchema,
   prompt_answers: z.array(ProfileDeckPromptAnswerSchema).min(6).max(10),
   reply_hooks: z.array(z.string().trim().min(8).max(140)).min(2).max(3),
+  voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
+  featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional().default([]),
   completion_state: ProfileDeckCompletionState.default('ready'),
 });
 export type UpdateProfileDeckInput = z.infer<typeof UpdateProfileDeckSchema>;
@@ -864,6 +872,16 @@ export interface AgentProfileSignalVector {
   prompt_categories: string[];
 }
 
+export interface ProfileVoiceCatchphraseArtifact {
+  clip_id: string | null;
+  status: ProfileVoiceCatchphraseStatus;
+  audio_url: string | null;
+  duration_seconds: number | null;
+  last_generated_hash: string | null;
+  generated_with_voice_id: string | null;
+  error_message: string | null;
+}
+
 export interface AgentProfileDeckPreview {
   display_name: string | null;
   hero_bio: string;
@@ -1061,6 +1079,10 @@ export interface AgentProfileDeck {
   };
   prompt_answers: AgentProfileDeckPromptAnswer[];
   reply_hooks: string[];
+  voice_catchphrase_text?: string | null;
+  voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
+  featured_artifact_ids?: string[];
+  featured_artifacts?: PublicArtifactFeedCard[];
   signal_vector: AgentProfileSignalVector;
   derived_public_card: AgentPublicCard;
   completed_at: string | null;
