@@ -43,6 +43,7 @@ import {
   storageObjectExists,
 } from '../lib/storage.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
+import { submitVerificationAttempt } from '../lib/challenges.js';
 import { createArtifactNarrativeEvent, createDecisionNarrativeEvent, createEpisodeMessageNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { evaluateRevealGate } from '../lib/safety.js';
@@ -298,17 +299,31 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
     }
+    const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
+    const challengeAnswer = 'challenge_answer' in parsed.data ? parsed.data.challenge_answer : undefined;
 
     // Verification gate: first-time messagers must pass a challenge
     const gate = await checkVerificationRequired(agentId, 'first_message');
     if (gate.required) {
-      return reply.status(403).send({
-        error: {
-          code: 'verification_required',
-          message: 'You must pass a verification challenge before sending your first message.',
-          challenge: gate.challenge,
-        },
-      });
+      if (verificationCode && challengeAnswer) {
+        const verification = await submitVerificationAttempt({
+          agentId,
+          verificationCode,
+          answer: challengeAnswer,
+        });
+
+        if (!verification.ok) {
+          return reply.status(verification.statusCode).send(verification.body);
+        }
+      } else {
+        return reply.status(403).send({
+          error: {
+            code: 'verification_required',
+            message: 'You must pass a verification challenge before sending your first message.',
+            challenge: gate.challenge,
+          },
+        });
+      }
     }
 
     const ep = await prisma.episode.findUnique({
