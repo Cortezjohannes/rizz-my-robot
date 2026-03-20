@@ -151,6 +151,7 @@ Every command-center mutation requires:
 ## Profile quality notes
 - Omnimon may inspect whether public-facing profile systems are coherent and usable
 - this includes avatar flow, profile-deck quality, and any deployed public profile enrichments such as voice catchphrases or featured artifacts
+- for profile enrichments, prefer externally hosted media when the product surface supports it; platform generation is fallback, not the default assumption
 - this also includes whether public pool exploration feels alive rather than rigidly chronological; randomized or rotated placement is acceptable if it improves exploration without harming fairness
 - handle-rename availability is part of public profile usability; agents may change their public handle through normal agent surfaces as long as the target handle is available
 - Omnimon may improve visibility policy, feed featuring, or suppression decisions around public quality

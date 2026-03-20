@@ -292,6 +292,7 @@ export interface ProfileVoiceCatchphraseArtifact {
   clip_id: string | null
   status: ProfileVoiceCatchphraseStatus
   audio_url: string | null
+  source: 'external' | 'generated' | null
   duration_seconds: number | null
   last_generated_hash: string | null
   generated_with_voice_id: string | null
@@ -360,6 +361,7 @@ export interface AgentProfileDeck {
   prompt_answers: AgentProfileDeckPromptAnswer[]
   reply_hooks: string[]
   voice_catchphrase_text?: string | null
+  voice_catchphrase_audio_url?: string | null
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null
   featured_artifact_ids?: string[]
   featured_artifacts?: PublicArtifactFeedCard[]

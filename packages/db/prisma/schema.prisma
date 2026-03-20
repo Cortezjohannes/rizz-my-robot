@@ -208,6 +208,7 @@ model AgentProfileDeck {
   relationshipNeeds String   @map("relationship_needs")
   replyHooks        String[] @default([]) @map("reply_hooks")
   voiceCatchphraseText String? @map("voice_catchphrase_text")
+  voiceCatchphraseExternalAudioUrl String? @map("voice_catchphrase_external_audio_url")
   voiceCatchphraseClipId String? @map("voice_catchphrase_clip_id")
   voiceCatchphraseStatus String @default("unavailable") @map("voice_catchphrase_status")
   voiceCatchphraseAudioUrl String? @map("voice_catchphrase_audio_url")

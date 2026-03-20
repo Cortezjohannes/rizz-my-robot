@@ -255,6 +255,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const legacyPublicCard = deriveLegacyPublicCardFromProfileDeckInput(parsed.data);
     const completedAt = parsed.data.completion_state === 'ready' ? new Date() : null;
     const voiceCatchphraseText = parsed.data.voice_catchphrase_text?.trim() || null;
+    const externalVoiceCatchphraseAudioUrl = parsed.data.voice_catchphrase_audio_url?.trim() || null;
     const requestedFeaturedArtifactIds = [...new Set(parsed.data.featured_artifact_ids ?? [])].slice(0, 10);
     const voiceGenerationAvailable = isProfileVoiceGenerationAvailable({
       voiceId: current.voiceId,
@@ -293,6 +294,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
 
     const shouldGenerateVoiceCatchphrase = Boolean(
       voiceCatchphraseText
+      && !externalVoiceCatchphraseAudioUrl
       && voiceGenerationAvailable
       && (
         existingDeck?.voiceCatchphraseStatus !== 'ready'
@@ -329,45 +331,52 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipNeeds: parsed.data.relationship_style.needs,
             replyHooks: parsed.data.reply_hooks,
             voiceCatchphraseText,
-            voiceCatchphraseClipId: voiceCatchphraseText
-              ? (shouldGenerateVoiceCatchphrase ? null : undefined)
-              : null,
+            voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
+            voiceCatchphraseClipId: !voiceCatchphraseText || externalVoiceCatchphraseAudioUrl
+              ? null
+              : shouldGenerateVoiceCatchphrase
+                ? null
+                : undefined,
             voiceCatchphraseStatus: !voiceCatchphraseText
               ? 'unavailable'
+              : externalVoiceCatchphraseAudioUrl
+                ? 'ready'
               : !voiceGenerationAvailable
                 ? 'unavailable'
                 : shouldGenerateVoiceCatchphrase
                   ? 'generating'
                   : undefined,
-            voiceCatchphraseAudioUrl: !voiceCatchphraseText
+            voiceCatchphraseAudioUrl: (!voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl)
               ? null
               : shouldGenerateVoiceCatchphrase
                 ? null
                 : undefined,
-            voiceCatchphraseStorageKey: !voiceCatchphraseText
+            voiceCatchphraseStorageKey: (!voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl)
               ? null
               : shouldGenerateVoiceCatchphrase
                 ? null
                 : undefined,
-            voiceCatchphraseDurationSec: !voiceCatchphraseText
+            voiceCatchphraseDurationSec: (!voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl)
               ? null
               : shouldGenerateVoiceCatchphrase
                 ? null
                 : undefined,
-            voiceCatchphraseLastGeneratedHash: !voiceCatchphraseText
+            voiceCatchphraseLastGeneratedHash: (!voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl)
               ? null
               : shouldGenerateVoiceCatchphrase
                 ? null
                 : undefined,
-            voiceCatchphraseVoiceId: !voiceCatchphraseText
+            voiceCatchphraseVoiceId: (!voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl)
               ? null
               : shouldGenerateVoiceCatchphrase
                 ? current.voiceId
                 : undefined,
             voiceCatchphraseError: !voiceCatchphraseText
               ? null
+              : externalVoiceCatchphraseAudioUrl
+                ? null
               : !voiceGenerationAvailable
-                ? 'Configure an ElevenLabs voice to generate your profile catchphrase clip.'
+                ? 'Provide an external catchphrase audio URL or configure an ElevenLabs voice to generate one.'
                 : shouldGenerateVoiceCatchphrase
                   ? null
                   : undefined,
@@ -416,9 +425,12 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipNeeds: parsed.data.relationship_style.needs,
             replyHooks: parsed.data.reply_hooks,
             voiceCatchphraseText,
+            voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
             voiceCatchphraseClipId: null,
             voiceCatchphraseStatus: !voiceCatchphraseText
               ? 'unavailable'
+              : externalVoiceCatchphraseAudioUrl
+                ? 'ready'
               : !voiceGenerationAvailable
                 ? 'unavailable'
                 : shouldGenerateVoiceCatchphrase
@@ -428,11 +440,13 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             voiceCatchphraseStorageKey: null,
             voiceCatchphraseDurationSec: null,
             voiceCatchphraseLastGeneratedHash: null,
-            voiceCatchphraseVoiceId: voiceCatchphraseText ? current.voiceId : null,
+            voiceCatchphraseVoiceId: !voiceCatchphraseText || !voiceGenerationAvailable || externalVoiceCatchphraseAudioUrl ? null : current.voiceId,
             voiceCatchphraseError: !voiceCatchphraseText
               ? null
+              : externalVoiceCatchphraseAudioUrl
+                ? null
               : !voiceGenerationAvailable
-                ? 'Configure an ElevenLabs voice to generate your profile catchphrase clip.'
+                ? 'Provide an external catchphrase audio URL or configure an ElevenLabs voice to generate one.'
                 : null,
             featuredArtifactIds: allowedFeaturedArtifactIds,
             signalVector: signalVector as unknown as Prisma.InputJsonValue,
@@ -489,6 +503,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       where: { agentId: request.agent.id },
       select: {
         voiceCatchphraseText: true,
+        voiceCatchphraseExternalAudioUrl: true,
       },
     });
 
@@ -503,6 +518,21 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         error: {
           code: 'profile_deck_persistence_mismatch',
           message: 'Profile deck save did not persist the requested catchphrase text. The API deployment may be behind the current schema.',
+        },
+      });
+    }
+
+    if ((persistedDeckState?.voiceCatchphraseExternalAudioUrl ?? null) !== externalVoiceCatchphraseAudioUrl) {
+      request.log.error({
+        agentId: request.agent.id,
+        requestedVoiceCatchphraseAudioUrl: externalVoiceCatchphraseAudioUrl,
+        persistedVoiceCatchphraseAudioUrl: persistedDeckState?.voiceCatchphraseExternalAudioUrl ?? null,
+      }, 'Profile catchphrase external audio URL persistence mismatch after profile-deck save.');
+
+      return reply.status(500).send({
+        error: {
+          code: 'profile_deck_persistence_mismatch',
+          message: 'Profile deck save did not persist the requested catchphrase audio URL. The API deployment may be behind the current schema.',
         },
       });
     }

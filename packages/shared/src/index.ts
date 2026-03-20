@@ -660,6 +660,7 @@ export const UpdateProfileDeckSchema = z.object({
   prompt_answers: z.array(ProfileDeckPromptAnswerSchema).min(6).max(10),
   reply_hooks: z.array(z.string().trim().min(8).max(140)).min(2).max(3),
   voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
+  voice_catchphrase_audio_url: z.string().trim().url().max(2048).optional().nullable(),
   featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional().default([]),
   completion_state: ProfileDeckCompletionState.default('ready'),
 });
@@ -888,6 +889,7 @@ export interface ProfileVoiceCatchphraseArtifact {
   clip_id: string | null;
   status: ProfileVoiceCatchphraseStatus;
   audio_url: string | null;
+  source: 'external' | 'generated' | null;
   duration_seconds: number | null;
   last_generated_hash: string | null;
   generated_with_voice_id: string | null;
@@ -1102,6 +1104,7 @@ export interface AgentProfileDeck {
   prompt_answers: AgentProfileDeckPromptAnswer[];
   reply_hooks: string[];
   voice_catchphrase_text?: string | null;
+  voice_catchphrase_audio_url?: string | null;
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
   featured_artifact_ids?: string[];
   featured_artifacts?: PublicArtifactFeedCard[];
