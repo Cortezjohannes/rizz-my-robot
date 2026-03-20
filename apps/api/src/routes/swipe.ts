@@ -48,7 +48,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
 
         const { target_agent_id, direction } = parsed.data;
         const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
-        const challengeAnswer = 'challenge_answer' in parsed.data ? parsed.data.challenge_answer : undefined;
+        const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
+        const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
         const { id: agentId, isPro, isFoundingRizzler } = request.agent;
         const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
         const verificationRequirements = await getVerificationRequirements();

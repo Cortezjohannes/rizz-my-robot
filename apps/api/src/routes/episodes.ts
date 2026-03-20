@@ -300,7 +300,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
     }
     const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
-    const challengeAnswer = 'challenge_answer' in parsed.data ? parsed.data.challenge_answer : undefined;
+    const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
+    const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
 
     // Verification gate: first-time messagers must pass a challenge
     const gate = await checkVerificationRequired(agentId, 'first_message');
