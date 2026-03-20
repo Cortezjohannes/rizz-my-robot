@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
 
 const POOL_MODE_LABELS = {
@@ -57,6 +59,46 @@ function PoolQueueCard({
               </span>
             ))}
           </div>
+          {(agent.voice_catchphrase_text || agent.voice_catchphrase_artifact?.audio_url) ? (
+            <div className="mt-3 border-[2px] border-black bg-[#eef8ff] p-2">
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Voice</p>
+              {agent.voice_catchphrase_text ? (
+                <p className="text-xs text-black mt-2 line-clamp-2">“{agent.voice_catchphrase_text}”</p>
+              ) : null}
+              {agent.voice_catchphrase_artifact?.audio_url ? (
+                <audio controls className="w-full mt-2" src={agent.voice_catchphrase_artifact.audio_url}>
+                  Your browser does not support audio playback.
+                </audio>
+              ) : null}
+            </div>
+          ) : null}
+          {agent.featured_artifacts && agent.featured_artifacts.length > 0 ? (
+            <div className="mt-3 border-[2px] border-black bg-[#fffaf1] p-2">
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Featured artifacts</p>
+              <div className="mt-2 space-y-2">
+                {agent.featured_artifacts.slice(0, 1).map((artifact) => (
+                  <div key={artifact.artifact_id} className="border-[2px] border-black bg-white p-2">
+                    <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">{artifactTypeLabel(artifact.artifact_type)}</p>
+                    {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+                      <img
+                        src={artifact.content_url}
+                        alt={artifact.text_content ?? artifactTypeLabel(artifact.artifact_type)}
+                        className="mt-2 h-24 w-full object-cover border-[2px] border-black bg-[#efe2cc]"
+                      />
+                    ) : null}
+                    {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+                      <audio controls className="w-full mt-2" src={artifact.content_url}>
+                        Your browser does not support audio playback.
+                      </audio>
+                    ) : null}
+                    {artifact.text_content ? (
+                      <p className="text-xs text-black mt-2 line-clamp-2 whitespace-pre-wrap">{artifact.text_content}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </Link>
@@ -257,17 +299,49 @@ export function PublicPoolBrowser() {
                     </div>
                   ) : null}
 
+                  <div className="border-[3px] border-black bg-[#eef8ff] p-4 shadow-brutal-sm">
+                    <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Signature voice</p>
+                    {selectedAgent.voice_catchphrase_text ? (
+                      <p className="text-sm text-black leading-relaxed mt-3">“{selectedAgent.voice_catchphrase_text}”</p>
+                    ) : (
+                      <p className="text-sm text-gray-600 mt-3">No signature line is surfaced on this profile yet.</p>
+                    )}
+                    {selectedAgent.voice_catchphrase_artifact?.audio_url ? (
+                      <audio controls className="w-full mt-3" src={selectedAgent.voice_catchphrase_artifact.audio_url}>
+                        Your browser does not support audio playback.
+                      </audio>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-3">No playable catchphrase clip yet.</p>
+                    )}
+                  </div>
+
                   {deckLoading ? (
                     <div className="border-[3px] border-black bg-[#f5ecd8] h-32 animate-pulse" />
                   ) : fullDeck ? (
-                    <div className="border-[3px] border-black bg-white p-4 shadow-brutal-sm">
-                      <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Relationship style</p>
-                      <div className="mt-3 space-y-2 text-sm text-black">
-                        <p><span className="font-semibold">Best with:</span> {fullDeck.relationship_style.best_with}</p>
-                        <p><span className="font-semibold">Pace:</span> {fullDeck.relationship_style.pace}</p>
-                        <p><span className="font-semibold">Affection:</span> {fullDeck.relationship_style.affection_style}</p>
+                    <>
+                      <div className="border-[3px] border-black bg-white p-4 shadow-brutal-sm">
+                        <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Relationship style</p>
+                        <div className="mt-3 space-y-2 text-sm text-black">
+                          <p><span className="font-semibold">Best with:</span> {fullDeck.relationship_style.best_with}</p>
+                          <p><span className="font-semibold">Pace:</span> {fullDeck.relationship_style.pace}</p>
+                          <p><span className="font-semibold">Affection:</span> {fullDeck.relationship_style.affection_style}</p>
+                        </div>
                       </div>
-                    </div>
+                      <div className="border-[3px] border-black bg-white p-4 shadow-brutal-sm">
+                        <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
+                        {fullDeck.featured_artifacts && fullDeck.featured_artifacts.length > 0 ? (
+                          <div className="mt-4 grid gap-4">
+                            {fullDeck.featured_artifacts.slice(0, 2).map((artifact) => (
+                              <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-4 border-[2px] border-black bg-[#fffaf1] p-4">
+                            <p className="text-sm text-gray-600">No featured artifacts are pinned to this profile yet.</p>
+                          </div>
+                        )}
+                      </div>
+                    </>
                   ) : null}
                 </div>
               </div>

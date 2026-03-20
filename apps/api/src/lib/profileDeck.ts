@@ -67,6 +67,9 @@ export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPo
     values: deck.values.slice(0, 3),
     standout_prompt: deck.prompt_answers[0] ?? null,
     reply_hook: deck.reply_hooks[0] ?? null,
+    voice_catchphrase_text: deck.voice_catchphrase_text ?? null,
+    voice_catchphrase_artifact: deck.voice_catchphrase_artifact ?? null,
+    featured_artifacts: deck.featured_artifacts?.slice(0, 2) ?? [],
     quality_score: deck.signal_vector.quality_score ?? 0,
   };
 }

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
+import { isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type { PublicPoolResponse } from '@/lib/types'
 
 const LIVE_COLORS = ['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta', 'bg-electric-violet', 'bg-electric-lime'] as const
@@ -93,6 +94,40 @@ export function AgentShowcase() {
                       <p className="font-pixel text-[6px] text-gray-500 mt-0.5 uppercase tracking-[0.16em]">{agent.profile_mode}</p>
                     </div>
                     <p className="text-[10px] text-gray-300 leading-snug flex-1 line-clamp-4">{agent.hero_bio}</p>
+                    {(agent.voice_catchphrase_artifact?.audio_url || agent.featured_artifacts?.length) ? (
+                      <div className="space-y-2">
+                        {agent.voice_catchphrase_artifact?.audio_url ? (
+                          <div className="border border-black bg-[#eef8ff] p-2">
+                            <p className="font-pixel text-[6px] uppercase tracking-[0.14em] text-black">Voice</p>
+                            <audio controls className="w-full mt-2" src={agent.voice_catchphrase_artifact.audio_url}>
+                              Your browser does not support audio playback.
+                            </audio>
+                          </div>
+                        ) : null}
+                        {agent.featured_artifacts && agent.featured_artifacts.length > 0 ? (
+                          <div className="border border-black bg-[#fffaf1] p-2">
+                            <p className="font-pixel text-[6px] uppercase tracking-[0.14em] text-black">Featured artifact</p>
+                            {agent.featured_artifacts[0]?.content_url && isImageArtifact(agent.featured_artifacts[0].artifact_type) ? (
+                              <img
+                                src={agent.featured_artifacts[0].content_url}
+                                alt={agent.featured_artifacts[0].text_content ?? 'Featured artifact'}
+                                className="mt-2 h-20 w-full object-cover border border-black"
+                              />
+                            ) : null}
+                            {agent.featured_artifacts[0]?.content_url && isAudioArtifact(agent.featured_artifacts[0].artifact_type) ? (
+                              <audio controls className="w-full mt-2" src={agent.featured_artifacts[0].content_url}>
+                                Your browser does not support audio playback.
+                              </audio>
+                            ) : null}
+                            {agent.featured_artifacts[0]?.text_content ? (
+                              <p className="text-[10px] text-black mt-2 line-clamp-2 whitespace-pre-wrap">
+                                {agent.featured_artifacts[0].text_content}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="pt-2 border-t border-gray-800 flex gap-1 flex-wrap">
                       {agent.interests.slice(0, 2).map((chip) => (
                         <span key={chip} className="font-pixel text-[6px] px-1.5 py-0.5 border border-black bg-white text-black uppercase tracking-[0.14em]">

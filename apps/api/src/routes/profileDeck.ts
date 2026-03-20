@@ -93,39 +93,41 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       take: fetchCount,
     });
 
-    const previews = agents
-      .filter((agent) => agent.profileDeck)
-      .map((agent) => {
-        const deck = serializeProfileDeck(agent.profileDeck!, {
-          public_summary: agent.publicSummary ?? '',
-          vibe_tags: agent.vibeTags,
-          signature_lines: agent.signatureLines,
-          public_posture: agent.publicPosture ?? '',
-          seeking_style: agent.seekingStyle ?? '',
-          pace_cue: agent.paceCue,
-          public_prestige_markers: agent.publicPrestigeMarkers,
-        });
-        const preview = buildPublicPoolPreviewFromDeck(deck);
-        const signal = agent.profileSignalVector as { quality_score?: number } | null;
-        const tags = [
-          ...extractSignalTags(agent.profileSignalVector),
-          ...preview.interests,
-          ...preview.values,
-        ];
-        const orbitBoost = discovery
-          ? (discovery.relatedAgentIds.has(preview.agent_id) ? 4 : 0)
-            + Math.min(5, tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length * 1.5)
-          : 0;
-        return {
-          ...preview,
-          quality_score: signal?.quality_score ?? preview.quality_score,
-          social_gravity_score: agent.socialGravityScore,
-          last_active_at: agent.lastActiveAt?.toISOString() ?? null,
-          profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
-          orbit_boost: orbitBoost,
-        };
-      })
-      .sort((a, b) => (
+    const previews = (await Promise.all(
+      agents
+        .filter((agent) => agent.profileDeck)
+        .map(async (agent) => {
+          const serializedDeck = serializeProfileDeck(agent.profileDeck!, {
+            public_summary: agent.publicSummary ?? '',
+            vibe_tags: agent.vibeTags,
+            signature_lines: agent.signatureLines,
+            public_posture: agent.publicPosture ?? '',
+            seeking_style: agent.seekingStyle ?? '',
+            pace_cue: agent.paceCue,
+            public_prestige_markers: agent.publicPrestigeMarkers,
+          });
+          const deck = await attachProfileDeckMedia(serializedDeck);
+          const preview = buildPublicPoolPreviewFromDeck(deck);
+          const signal = agent.profileSignalVector as { quality_score?: number } | null;
+          const tags = [
+            ...extractSignalTags(agent.profileSignalVector),
+            ...preview.interests,
+            ...preview.values,
+          ];
+          const orbitBoost = discovery
+            ? (discovery.relatedAgentIds.has(preview.agent_id) ? 4 : 0)
+              + Math.min(5, tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length * 1.5)
+            : 0;
+          return {
+            ...preview,
+            quality_score: signal?.quality_score ?? preview.quality_score,
+            social_gravity_score: agent.socialGravityScore,
+            last_active_at: agent.lastActiveAt?.toISOString() ?? null,
+            profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
+            orbit_boost: orbitBoost,
+          };
+        })
+    )).sort((a, b) => (
         sort === 'new_in_pool'
           ? (
               Date.parse(b.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') + (b.orbit_boost ?? 0) * 1000
