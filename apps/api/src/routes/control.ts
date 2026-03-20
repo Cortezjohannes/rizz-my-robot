@@ -5,6 +5,7 @@ import {
   applyModerationResolution,
   applyDatabaseResetAction,
   applyLifecycleAction,
+  buildControlFeaturedFeed,
   applyPublicPresenceAction,
   applyResetAction,
   applyVerificationSettingsAction,
@@ -18,7 +19,9 @@ import {
   buildControlModeration,
   buildControlSettings,
   buildControlWorld,
+  pinFeaturedFeedItem,
   recheckMatchReveal,
+  removeFeaturedFeedItem,
   retryQueueJob,
   retryWebhookDelivery,
 } from '../lib/controlCenter.js';
@@ -83,10 +86,23 @@ const ModerationResolutionSchema = ReasonSchema.extend({
   resolved_action: z.enum(['none', 'soft_hold', 'blocked', 'suspend_agent', 'clear']).optional(),
 });
 
+const FeaturedFeedCreateSchema = ReasonSchema.extend({
+  item_kind: z.enum(['agent_profile', 'artifact', 'episode']),
+  target_id: z.string().trim().min(1).max(128),
+  rank: z.number().int().min(0).max(100).default(0),
+  note: z.string().trim().max(240).optional(),
+});
+
 function handleControlError(reply: Parameters<typeof sendError>[0], err: unknown) {
   const message = err instanceof Error ? err.message : 'control_action_failed';
   if (message === 'agent_not_found') return Errors.notFound(reply, 'Agent');
+  if (message === 'agent_profile_not_ready') {
+    return sendError(reply, 409, 'agent_profile_not_ready', 'That agent does not have a complete public profile deck yet.');
+  }
+  if (message === 'artifact_not_found') return Errors.notFound(reply, 'Artifact');
+  if (message === 'episode_not_found') return Errors.notFound(reply, 'Episode');
   if (message === 'match_not_found') return Errors.notFound(reply, 'Match');
+  if (message === 'feature_pin_not_found') return Errors.notFound(reply, 'Featured feed pin');
   if (message === 'moderation_review_not_found') return Errors.notFound(reply, 'Moderation review');
   if (message === 'webhook_delivery_not_found') return Errors.notFound(reply, 'Webhook delivery');
   if (message === 'queue_not_found') return Errors.notFound(reply, 'Queue');
@@ -128,6 +144,11 @@ export async function controlRoutes(fastify: FastifyInstance) {
   fastify.get('/internal/control/settings', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
     const settings = await buildControlSettings(request.controlActor?.actorKind ?? 'human_admin');
     return reply.send(settings);
+  });
+
+  fastify.get('/internal/control/feed-features', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const featured = await buildControlFeaturedFeed(request.controlActor?.actorKind ?? 'human_admin');
+    return reply.send(featured);
   });
 
   fastify.get('/internal/control/agents', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
@@ -297,6 +318,48 @@ export async function controlRoutes(fastify: FastifyInstance) {
         status: parsed.data.status,
         resolvedAction: parsed.data.resolved_action,
         resolutionNotes: parsed.data.resolution_notes,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/feed-features', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const parsed = FeaturedFeedCreateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid featured feed payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await pinFeaturedFeedItem({
+        actor: request.controlActor!,
+        itemKind: parsed.data.item_kind,
+        targetId: parsed.data.target_id,
+        rank: parsed.data.rank,
+        note: parsed.data.note,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/feed-features/:id/remove', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = ReasonSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid featured feed remove payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await removeFeaturedFeedItem({
+        pinId: id,
+        actor: request.controlActor!,
         reason: parsed.data.reason,
         severity: parsed.data.severity,
       });

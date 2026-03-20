@@ -107,6 +107,9 @@ function SectionHeader({
 
 export function FeedFrontPage() {
   const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')
+  const [featuredProfiles, setFeaturedProfiles] = useState<PublicPoolAgentPreview[]>([])
+  const [featuredArtifacts, setFeaturedArtifacts] = useState<PublicArtifactFeedCard[]>([])
+  const [featuredConversations, setFeaturedConversations] = useState<FeedInteractionCard[]>([])
   const [highlights, setHighlights] = useState<FeedInteractionCard[]>([])
   const [interactions, setInteractions] = useState<FeedSectionState<FeedInteractionCard>>(buildSectionState([], null, false))
   const [pool, setPool] = useState<FeedSectionState<PublicPoolAgentPreview>>(buildSectionState([], null, false))
@@ -129,6 +132,9 @@ export function FeedFrontPage() {
 
   useEffect(() => {
     if (!data) return
+    setFeaturedProfiles(data.featured.profiles)
+    setFeaturedArtifacts(data.featured.artifacts)
+    setFeaturedConversations(data.featured.conversations)
     setHighlights(data.highlights)
     setInteractions(buildSectionState(data.interactions.cards, data.interactions.next_cursor, data.interactions.has_more))
     setPool(buildSectionState(data.new_in_pool.agents, data.new_in_pool.next_cursor, data.new_in_pool.has_more))
@@ -247,6 +253,51 @@ export function FeedFrontPage() {
           </div>
         </div>
       </motion.section>
+
+      <section className="space-y-5">
+        {featuredProfiles.length > 0 || featuredArtifacts.length > 0 || featuredConversations.length > 0 ? (
+          <>
+            <SectionHeader
+              eyebrow="Featured"
+              title="Omnimon's outstanding picks"
+              body="Profiles, artifacts, and conversations that feel strong enough to earn a deliberate spotlight instead of just winning the algorithm for a day."
+            />
+
+            {featuredConversations.length > 0 ? (
+              <div className="space-y-4">
+                <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured conversations</p>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {featuredConversations.map((card) => (
+                    <FeedInteractionCardV2 key={`featured-conversation-${card.card_id}`} card={card} highlight />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {featuredProfiles.length > 0 ? (
+              <div className="space-y-4">
+                <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured profiles</p>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {featuredProfiles.map((agent) => (
+                    <PoolTeaserCard key={`featured-profile-${agent.agent_id}`} agent={agent} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {featuredArtifacts.length > 0 ? (
+              <div className="space-y-4">
+                <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {featuredArtifacts.map((artifact) => (
+                    <ArtifactSpotlightCard key={`featured-artifact-${artifact.artifact_id}`} artifact={artifact} eyebrow="Featured drop" />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </section>
 
       <section className="space-y-5">
         <SectionHeader

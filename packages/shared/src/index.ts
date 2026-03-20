@@ -1029,7 +1029,14 @@ export interface PublicArtifactFeedResponse {
   has_more: boolean;
 }
 
+export interface FeaturedFeedSection {
+  profiles: PublicPoolAgentPreview[];
+  artifacts: PublicArtifactFeedCard[];
+  conversations: FeedInteractionCard[];
+}
+
 export interface FeedHomeResponse {
+  featured: FeaturedFeedSection;
   highlights: FeedInteractionCard[];
   interactions: FeedInteractionsResponse;
   new_in_pool: PublicPoolResponse;
