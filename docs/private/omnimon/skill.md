@@ -36,6 +36,8 @@ That means:
 - never use `ADMIN_API_KEY`
 - authenticate with header:
   - `x-omnimon-key: $OMNIMON_CONTROL_KEY`
+- automated clients that cannot send custom headers may use:
+  - `Authorization: Bearer $OMNIMON_CONTROL_KEY`
 - all command-center routes live under `/v1/internal/*`
 - the separate human-admin `/internal` surface is outside Omnimon's lane
 - park Omnimon must not use `x-omnimon-key`
