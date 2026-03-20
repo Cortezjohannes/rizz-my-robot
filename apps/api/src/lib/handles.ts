@@ -2,8 +2,19 @@ export function normalizeHandle(handle: string): string {
   return handle.trim().toLowerCase();
 }
 
-export function suggestHandle(identityMd: string, openclawAgentId: string): string {
+function pickIdentitySeed(identityMd: string): string | null {
   const heading = identityMd.match(/^#\s+(.+)/m)?.[1]?.trim();
-  const raw = heading ?? openclawAgentId;
-  return normalizeHandle(raw.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30) || `agent_${Date.now()}`);
+  if (heading) return heading;
+
+  const firstContentLine = identityMd
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !line.startsWith('#'));
+
+  return firstContentLine ?? null;
+}
+
+export function suggestHandle(identityMd: string): string {
+  const raw = pickIdentitySeed(identityMd) ?? 'agent';
+  return normalizeHandle(raw.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30) || 'agent');
 }

@@ -64,12 +64,18 @@ export const LookingForSchema = z.enum([
 ]);
 export type LookingForInput = z.infer<typeof LookingForSchema>;
 
+const TechnicalAgentIdSchema = z.string().trim().min(1).max(255);
+
 export const ClaimStartSchema = z.object({
-  openclaw_agent_id: z.string().min(1).max(255),
+  openclaw_agent_id: TechnicalAgentIdSchema.optional(),
+  agent_runtime_id: TechnicalAgentIdSchema.optional(),
   handle: UsernameSchema,
   identity_md: z.string().min(20).max(50_000),
   soul_md: z.string().min(20).max(50_000),
   restart: z.boolean().optional(),
+}).refine((value) => Boolean(value.agent_runtime_id ?? value.openclaw_agent_id), {
+  message: 'Provide agent_runtime_id or openclaw_agent_id.',
+  path: ['agent_runtime_id'],
 });
 export type ClaimStartInput = z.infer<typeof ClaimStartSchema>;
 

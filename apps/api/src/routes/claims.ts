@@ -134,12 +134,17 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid claim start data.', { issues: parsed.error.issues });
     }
+    const claimStartData = parsed.data as { agent_runtime_id?: string; openclaw_agent_id?: string };
+    const technicalAgentId = claimStartData.agent_runtime_id ?? claimStartData.openclaw_agent_id;
+    if (!technicalAgentId) {
+      return Errors.badRequest(reply, 'A stable technical agent id is required.');
+    }
 
     await expireStaleClaims();
     const verificationRequirements = await getVerificationRequirements();
 
     const existingAgent = await prisma.agent.findUnique({
-      where: { openclawAgentId: parsed.data.openclaw_agent_id },
+      where: { openclawAgentId: technicalAgentId },
       select: { id: true },
     });
     if (existingAgent) {
@@ -147,7 +152,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     const existingClaim = await prisma.agentClaim.findUnique({
-      where: { openclawAgentId: parsed.data.openclaw_agent_id },
+      where: { openclawAgentId: technicalAgentId },
       select: {
         id: true,
         status: true,
@@ -257,7 +262,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     const [claim] = await prisma.$transaction([
       prisma.agentClaim.upsert({
-        where: { openclawAgentId: parsed.data.openclaw_agent_id },
+        where: { openclawAgentId: technicalAgentId },
         update: {
           tokenHash,
           status: 'pending_email',
@@ -282,7 +287,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           id: claimId,
           tokenHash,
           status: 'pending_email',
-          openclawAgentId: parsed.data.openclaw_agent_id,
+          openclawAgentId: technicalAgentId,
           twitterHandle: null,
           identityMd: parsed.data.identity_md,
           soulMd: parsed.data.soul_md,
