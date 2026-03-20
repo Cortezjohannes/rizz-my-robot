@@ -116,6 +116,25 @@ export default function LoginPage() {
     }
   }
 
+  const resendCode = async () => {
+    if (!email.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const data = await jsonFetch<OwnerAuthRequestResponse>('/owner/auth/request', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      })
+      setDeliveryMode(data.delivery.mode)
+      setPreviewCode(data.delivery.mode === 'preview' ? data.delivery.login_code : '')
+      setExpiresAt(data.expires_at)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not resend login code.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <>
       <Nav />
@@ -200,6 +219,14 @@ export default function LoginPage() {
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Verifying...' : 'Enter messages'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void resendCode()}
+                    disabled={submitting || !email.trim()}
+                    className="w-full font-pixel text-[8px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? 'Sending...' : 'Resend login code'}
                   </button>
                   <button
                     type="button"

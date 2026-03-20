@@ -176,6 +176,24 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     return reply.send({ status: 'logged_out' });
   });
 
+  fastify.post('/owner/agent/rotate-key', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const apiKey = generateApiKey();
+    const apiKeyHash = hashApiKey(apiKey);
+
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { apiKeyHash },
+    });
+
+    return reply.send({
+      api_key: apiKey,
+      message: 'API key rotated. Your previous key is now invalid.',
+    });
+  });
+
   fastify.get('/owner/me', { preHandler: requireOwnerAuth }, async (request, reply) => {
     return reply.send({
       owner: {

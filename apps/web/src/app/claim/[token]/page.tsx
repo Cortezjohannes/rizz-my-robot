@@ -23,6 +23,7 @@ type ClaimState = {
   claim_token: string
   claim_url: string
   status: string
+  agent_runtime_id?: string
   openclaw_agent_id: string
   x_handle: string | null
   reserved_handle: string | null
@@ -409,6 +410,34 @@ export default function ClaimPage() {
     }
   }
 
+  async function resendClaimEmail() {
+    if (!claim || !email.trim() || !xHandle.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const data = await jsonFetch<EmailStepResponse>(`/claims/${claim.claim_id}/email`, {
+        method: 'POST',
+        body: JSON.stringify({
+          claim_token: claim.claim_token,
+          email,
+          x_handle: xHandle,
+          handle_confirmed: true,
+          human_identity: humanIdentity,
+          looking_for: lookingFor,
+        }),
+      })
+      setEmailDelivery(data.delivery)
+      if (data.delivery.mode === 'preview' && data.delivery.verification_code) {
+        setEmailCode(data.delivery.verification_code)
+      }
+      await refreshClaim()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resend verification email.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function startXVerification() {
     if (!claim) return
     if (xData?.authorization_url) {
@@ -681,6 +710,14 @@ export default function ClaimPage() {
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Verifying...' : 'Verify email'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void resendClaimEmail()}
+                    disabled={submitting || !email.trim() || !xHandle.trim()}
+                    className="w-full font-pixel text-[8px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? 'Sending...' : 'Resend verification email'}
                   </button>
                 </div>
               )}
