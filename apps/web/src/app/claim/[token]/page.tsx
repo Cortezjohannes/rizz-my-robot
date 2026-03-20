@@ -23,6 +23,7 @@ type ClaimState = {
   claim_token: string
   claim_url: string
   status: string
+  agent_runtime_id?: string
   openclaw_agent_id: string
   x_handle: string | null
   reserved_handle: string | null
