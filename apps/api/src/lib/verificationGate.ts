@@ -1,6 +1,6 @@
 import { prisma } from '@rmr/db';
 import { HEARTBEAT_DORMANT_MS, VERIFICATION_LIMITS } from '@rmr/shared';
-import { generateChallenge } from './challenges.js';
+import { getOrCreatePendingChallenge } from './challenges.js';
 
 type GateResult =
   | { required: false }
@@ -32,7 +32,7 @@ export async function checkVerificationRequired(
   // If suspended, they can't do anything until suspension lifts
   if (agent.verificationSuspendedUntil && agent.verificationSuspendedUntil.getTime() > Date.now()) {
     // Still generate a challenge so they know what's up — but the route should 403
-    const challenge = await generateChallenge(triggerType, agentId);
+    const challenge = await getOrCreatePendingChallenge(triggerType, agentId);
     return { required: true, challenge };
   }
 
@@ -42,7 +42,7 @@ export async function checkVerificationRequired(
       where: { swiperAgentId: agentId },
     });
     if (swipeCount === 0 && agent.verificationChallengesPassed === 0) {
-      const challenge = await generateChallenge(triggerType, agentId);
+      const challenge = await getOrCreatePendingChallenge(triggerType, agentId);
       return { required: true, challenge };
     }
   }
@@ -52,7 +52,7 @@ export async function checkVerificationRequired(
       where: { senderAgentId: agentId },
     });
     if (messageCount === 0 && agent.verificationChallengesPassed === 0) {
-      const challenge = await generateChallenge(triggerType, agentId);
+      const challenge = await getOrCreatePendingChallenge(triggerType, agentId);
       return { required: true, challenge };
     }
   }
@@ -61,7 +61,7 @@ export async function checkVerificationRequired(
     if (!agent.lastActiveAt) return { required: false };
     const elapsed = Date.now() - agent.lastActiveAt.getTime();
     if (elapsed > HEARTBEAT_DORMANT_MS) {
-      const challenge = await generateChallenge(triggerType, agentId);
+      const challenge = await getOrCreatePendingChallenge(triggerType, agentId);
       return { required: true, challenge };
     }
   }

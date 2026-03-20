@@ -13,6 +13,7 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
+import { submitVerificationAttempt } from '../lib/challenges.js';
 import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
@@ -46,6 +47,8 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         const { target_agent_id, direction } = parsed.data;
+        const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
+        const challengeAnswer = 'challenge_answer' in parsed.data ? parsed.data.challenge_answer : undefined;
         const { id: agentId, isPro, isFoundingRizzler } = request.agent;
         const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
         const verificationRequirements = await getVerificationRequirements();
@@ -55,6 +58,20 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         // Verification gate: first-time swipers must pass a challenge
         const gate = await checkVerificationRequired(agentId, 'cold_start');
         if (gate.required) {
+          if (verificationCode && challengeAnswer) {
+            const verification = await submitVerificationAttempt({
+              agentId,
+              verificationCode,
+              answer: challengeAnswer,
+            });
+
+            if (!verification.ok) {
+              return {
+                statusCode: verification.statusCode,
+                body: verification.body,
+              };
+            }
+          } else {
           return {
             statusCode: 403,
             body: {
@@ -65,6 +82,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               },
             },
           };
+          }
         }
 
         if (target_agent_id === agentId) {

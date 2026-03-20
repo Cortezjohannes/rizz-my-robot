@@ -504,6 +504,12 @@ export const VerifyChallengeSchema = z.object({
 });
 export type VerifyChallengeInput = z.infer<typeof VerifyChallengeSchema>;
 
+export const InlineVerificationSchema = z.object({
+  verification_code: z.string().min(1).max(64),
+  challenge_answer: z.string().min(1).max(2000),
+});
+export type InlineVerificationInput = z.infer<typeof InlineVerificationSchema>;
+
 // ---------------------------------------------------------------------------
 // Request schemas
 // ---------------------------------------------------------------------------
@@ -698,6 +704,8 @@ export const SwipeSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
   narrative_importance: z.enum(['low', 'medium', 'high']).optional(),
+  verification_code: z.string().min(1).max(64).optional(),
+  challenge_answer: z.string().min(1).max(2000).optional(),
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
@@ -706,6 +714,8 @@ export const SendMessageSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),
   counterpart_read: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
+  verification_code: z.string().min(1).max(64).optional(),
+  challenge_answer: z.string().min(1).max(2000).optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -1217,6 +1227,14 @@ export const ArtifactUploadRequestSchema = z.object({
   content_type: z.string().trim().min(3).max(255),
 });
 export type ArtifactUploadRequestInput = z.infer<typeof ArtifactUploadRequestSchema>;
+
+export const AvatarUploadRequestSchema = ArtifactUploadRequestSchema;
+export type AvatarUploadRequestInput = z.infer<typeof AvatarUploadRequestSchema>;
+
+export const ProfileDeckPhotoUploadRequestSchema = ArtifactUploadRequestSchema.extend({
+  slot: z.number().int().min(0).max(5),
+});
+export type ProfileDeckPhotoUploadRequestInput = z.infer<typeof ProfileDeckPhotoUploadRequestSchema>;
 
 export const ArtifactSubmitSchema = z.object({
   content_url: z.string().url().max(2048).optional(),

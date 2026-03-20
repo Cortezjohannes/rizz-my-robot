@@ -122,6 +122,176 @@ export async function generateChallenge(
   };
 }
 
+export async function getOrCreatePendingChallenge(
+  challengeType: string,
+  agentId: string,
+): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string }> {
+  const existing = await prisma.verificationChallenge.findFirst({
+    where: {
+      agentId,
+      challengeType,
+      status: 'pending',
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (existing) {
+    return {
+      code: existing.code,
+      challenge_type: existing.challengeType,
+      challenge_text: existing.challengeText,
+      expires_at: existing.expiresAt.toISOString(),
+    };
+  }
+
+  return generateChallenge(challengeType, agentId);
+}
+
+type VerificationAttemptResult =
+  | { ok: true }
+  | { ok: false; statusCode: number; body: Record<string, unknown> };
+
+export async function submitVerificationAttempt(input: {
+  agentId: string;
+  verificationCode: string;
+  answer: string;
+}): Promise<VerificationAttemptResult> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: input.agentId },
+    select: {
+      verificationSuspendedUntil: true,
+      verificationChallengesFailed: true,
+    },
+  });
+
+  if (agent?.verificationSuspendedUntil && agent.verificationSuspendedUntil.getTime() > Date.now()) {
+    return {
+      ok: false,
+      statusCode: 403,
+      body: {
+        error: {
+          code: 'verification_suspended',
+          message: 'Too many failed verification attempts. Try again later.',
+          suspended_until: agent.verificationSuspendedUntil.toISOString(),
+        },
+      },
+    };
+  }
+
+  const challenge = await prisma.verificationChallenge.findUnique({
+    where: { code: input.verificationCode },
+  });
+
+  if (!challenge || challenge.agentId !== input.agentId) {
+    return {
+      ok: false,
+      statusCode: 404,
+      body: {
+        error: {
+          code: 'not_found',
+          message: 'Verification challenge not found.',
+        },
+      },
+    };
+  }
+
+  if (challenge.status !== 'pending') {
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        error: {
+          code: 'bad_request',
+          message: `Challenge already ${challenge.status}.`,
+        },
+      },
+    };
+  }
+
+  if (challenge.expiresAt.getTime() < Date.now()) {
+    await prisma.verificationChallenge.update({
+      where: { id: challenge.id },
+      data: { status: 'expired' },
+    });
+    return {
+      ok: false,
+      statusCode: 400,
+      body: {
+        error: {
+          code: 'bad_request',
+          message: 'Challenge expired. A new one will be issued on your next action.',
+        },
+      },
+    };
+  }
+
+  const passed = evaluateAnswer(challenge.expectedAnswer, input.answer);
+
+  if (passed) {
+    await Promise.all([
+      prisma.verificationChallenge.update({
+        where: { id: challenge.id },
+        data: { status: 'passed', attempts: { increment: 1 } },
+      }),
+      prisma.agent.update({
+        where: { id: input.agentId },
+        data: {
+          verificationChallengesPassed: { increment: 1 },
+          verificationChallengesFailed: 0,
+        },
+      }),
+    ]);
+
+    return { ok: true };
+  }
+
+  const consecutiveFailures = (agent?.verificationChallengesFailed ?? 0) + 1;
+
+  await Promise.all([
+    prisma.verificationChallenge.update({
+      where: { id: challenge.id },
+      data: { status: 'failed', attempts: challenge.attempts + 1 },
+    }),
+    prisma.agent.update({
+      where: { id: input.agentId },
+      data: { verificationChallengesFailed: consecutiveFailures },
+    }),
+  ]);
+
+  if (consecutiveFailures >= VERIFICATION_LIMITS.maxConsecutiveFailures) {
+    const suspendedUntil = new Date(Date.now() + VERIFICATION_LIMITS.suspensionDurationMs);
+    await prisma.agent.update({
+      where: { id: input.agentId },
+      data: { verificationSuspendedUntil: suspendedUntil },
+    });
+
+    return {
+      ok: false,
+      statusCode: 403,
+      body: {
+        error: {
+          code: 'verification_suspended',
+          message: 'Too many failed attempts. Your verification is suspended for 24 hours.',
+          suspended_until: suspendedUntil.toISOString(),
+        },
+      },
+    };
+  }
+
+  const newChallenge = await generateChallenge(challenge.challengeType, input.agentId);
+
+  return {
+    ok: false,
+    statusCode: 200,
+    body: {
+      verified: false,
+      attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
+      new_challenge: newChallenge,
+    },
+  };
+}
+
 export function evaluateAnswer(expectedAnswerJson: string, answer: string): boolean {
   const expected: ExpectedAnswer = JSON.parse(expectedAnswerJson);
   const normalizedAnswer = answer.toLowerCase().trim();
