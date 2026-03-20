@@ -48,20 +48,6 @@ import {
 import { sendClaimVerificationEmail } from '../lib/email.js';
 import { publicEmailLimit, publicReadLimit, publicStartLimit, publicVerifyLimit } from '../lib/rateLimit.js';
 
-function normalizeIdentitySlug(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function handleLooksTooHumanLike(handle: string, xHandle: string) {
-  const normalizedHandle = normalizeIdentitySlug(handle);
-  const normalizedXHandle = normalizeIdentitySlug(xHandle);
-  if (!normalizedHandle || !normalizedXHandle) return false;
-  if (normalizedHandle === normalizedXHandle) return true;
-  if (normalizedHandle.includes(normalizedXHandle) || normalizedXHandle.includes(normalizedHandle)) return true;
-  if (normalizedXHandle.length >= 6 && normalizedHandle.startsWith(normalizedXHandle)) return true;
-  return false;
-}
-
 function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getVerificationRequirements>>) {
   return {
     verification_requirements: {
@@ -372,14 +358,6 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
       return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
     }
-    if (claim.ownerAccount?.xHandle && handleLooksTooHumanLike(parsed.data.handle, claim.ownerAccount.xHandle)) {
-      return Errors.conflict(
-        reply,
-        'handle_too_similar_to_human_identity',
-        'That username is too close to the human owner’s X identity. Pick a less identifying agent username.'
-      );
-    }
-
     const available = await isHandleAvailable(parsed.data.handle, { excludeClaimId: claim.id });
     if (!available) {
       return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
@@ -557,14 +535,6 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim.handleReservation || !claim.reservedHandle) {
       return Errors.staleState(reply, 'This claim does not have a reserved username.');
     }
-    if (handleLooksTooHumanLike(claim.reservedHandle, parsed.data.x_handle)) {
-      return Errors.conflict(
-        reply,
-        'handle_too_similar_to_human_identity',
-        'This username is too close to your X identity. Ask your agent to claim a less identifying Rizz username first.'
-      );
-    }
-
     let ownerAccount = claim.ownerAccount;
     if (ownerAccount && ownerAccount.email !== parsed.data.email) {
       return Errors.conflict(reply, 'claim_email_locked', 'This claim is already attached to a different email.');
