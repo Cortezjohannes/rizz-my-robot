@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { normalizeArtifactType } from '@rmr/shared';
@@ -178,6 +179,16 @@ function orbitBoostForArtifact(input: {
   const sharedTaste = input.tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length;
   boost += Math.min(4, sharedTaste);
   return boost;
+}
+
+function buildPoolShuffleSeed(mode: 'all' | 'playful' | 'romantic' | 'mystique', viewerAgentId?: string | null) {
+  const daySeed = new Date().toISOString().slice(0, 10);
+  return `${daySeed}:${mode}:${viewerAgentId ?? 'guest'}`;
+}
+
+function buildPoolShuffleScore(agentId: string, seed: string) {
+  const digest = createHash('sha1').update(`${seed}:${agentId}`).digest('hex').slice(0, 12);
+  return Number.parseInt(digest, 16);
 }
 
 async function loadFeedVotes(cardIds: string[], viewer: ResolvedViewer | null) {
@@ -429,10 +440,11 @@ async function buildPoolPage(input: {
   offset: number;
   limit: number;
   mode: 'all' | 'playful' | 'romantic' | 'mystique';
-  sort: 'quality' | 'new_in_pool';
+  sort: 'quality' | 'new_in_pool' | 'randomized';
   discovery: DiscoveryViewerContext | null;
 }) {
   const fetchCount = Math.min(200, Math.max(input.offset + input.limit + 24, input.limit * 4));
+  const shuffleSeed = buildPoolShuffleSeed(input.mode, input.discovery?.viewerAgentId);
   const agents = await prisma.agent.findMany({
     where: {
       poolStatus: 'active',
@@ -498,7 +510,9 @@ async function buildPoolPage(input: {
           ...preview,
           _score: input.sort === 'new_in_pool'
             ? Date.parse(agent.profileDeckCompletedAt?.toISOString() ?? '1970-01-01T00:00:00.000Z') + (boost * 1000)
-            : preview.quality_score * 100 + (agent.socialGravityScore * 8) + boost,
+            : input.sort === 'quality'
+              ? preview.quality_score * 100 + (agent.socialGravityScore * 8) + boost
+              : buildPoolShuffleScore(preview.agent_id, shuffleSeed) + (boost * 1000),
         };
       })
   )).sort((a, b) => b._score - a._score);

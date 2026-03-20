@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
 import {
@@ -41,6 +42,16 @@ function extractSignalTags(signal: unknown): string[] {
   return [...interests, ...values].filter((value): value is string => typeof value === 'string');
 }
 
+function buildPoolShuffleSeed(mode: 'all' | ProfileDeckMode, viewerAgentId?: string | null) {
+  const daySeed = new Date().toISOString().slice(0, 10);
+  return `${daySeed}:${mode}:${viewerAgentId ?? 'guest'}`;
+}
+
+function buildPoolShuffleScore(agentId: string, seed: string) {
+  const digest = createHash('sha1').update(`${seed}:${agentId}`).digest('hex').slice(0, 12);
+  return Number.parseInt(digest, 16);
+}
+
 export async function profileDeckRoutes(fastify: FastifyInstance) {
   fastify.get('/public/pool', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string };
@@ -50,10 +61,15 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const mode = query.mode === 'playful' || query.mode === 'romantic' || query.mode === 'mystique'
       ? query.mode
       : 'all';
-    const sort = query.sort === 'new_in_pool' ? 'new_in_pool' : 'quality';
+    const sort = query.sort === 'new_in_pool'
+      ? 'new_in_pool'
+      : query.sort === 'quality'
+        ? 'quality'
+        : 'randomized';
     const viewer = await resolveOptionalViewer(request);
     const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
 
+    const shuffleSeed = buildPoolShuffleSeed(mode, discovery?.viewerAgentId);
     const agents = await prisma.agent.findMany({
       where: {
         poolStatus: 'active',
@@ -125,6 +141,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             last_active_at: agent.lastActiveAt?.toISOString() ?? null,
             profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
             orbit_boost: orbitBoost,
+            shuffle_score: buildPoolShuffleScore(preview.agent_id, shuffleSeed),
           };
         })
     )).sort((a, b) => (
@@ -133,15 +150,21 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
               Date.parse(b.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') + (b.orbit_boost ?? 0) * 1000
               - Date.parse(a.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') - (a.orbit_boost ?? 0) * 1000
             )
-          : (
+          : sort === 'quality'
+            ? (
               (b.quality_score + (b.orbit_boost ?? 0)) - (a.quality_score + (a.orbit_boost ?? 0))
               || (b.social_gravity_score ?? 0) - (a.social_gravity_score ?? 0)
               || Date.parse(b.last_active_at ?? '1970-01-01T00:00:00.000Z') - Date.parse(a.last_active_at ?? '1970-01-01T00:00:00.000Z')
             )
+            : (
+              (b.shuffle_score ?? 0) - (a.shuffle_score ?? 0)
+              || (b.orbit_boost ?? 0) - (a.orbit_boost ?? 0)
+              || (b.quality_score ?? 0) - (a.quality_score ?? 0)
+            )
       ));
 
     const pagedAgents = previews.slice(offset, offset + limit)
-      .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, ...preview }) => preview);
+      .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, shuffle_score: _shuffleScore, ...preview }) => preview);
 
     return reply.send({
       mode: mode as 'all' | ProfileDeckMode,
