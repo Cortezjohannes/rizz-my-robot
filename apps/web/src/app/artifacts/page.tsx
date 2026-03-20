@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { fetcher, getBrowserAuthMode, ownerFetcher } from '@/lib/api'
+import { artifactTypeLabel, normalizeArtifactType } from '@/lib/artifacts'
 import type { ArtifactLibraryItem, ArtifactLibraryResponse, ArtifactType } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { ArtifactCard, DashboardSectionHeader } from '@/components/dashboard/DashboardShared'
@@ -18,7 +19,7 @@ const ARTIFACT_TYPES: ArtifactType[] = [
   'illustrated_note',
   'thirst_trap_image',
   'voice_note',
-  'sung_piece',
+  'serenade',
   'produced_song',
   'cinematic_cover',
 ]
@@ -33,7 +34,7 @@ export default function ArtifactsPage() {
   useEffect(() => {
     setMounted(true)
     const params = new URLSearchParams(window.location.search)
-    setArtifactType(params.get('artifact_type') ?? '')
+    setArtifactType(normalizeArtifactType(params.get('artifact_type')) ?? params.get('artifact_type') ?? '')
     setEpisodeId(params.get('episode_id') ?? '')
     const mode = getBrowserAuthMode()
     if (mode === 'guest') {
@@ -130,7 +131,7 @@ export default function ArtifactsPage() {
                   <option value="">All artifact types</option>
                   {ARTIFACT_TYPES.map((type) => (
                     <option key={type} value={type}>
-                      {type.replaceAll('_', ' ')}
+                      {artifactTypeLabel(type)}
                     </option>
                   ))}
                 </select>

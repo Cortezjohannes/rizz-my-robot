@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
 import { assets } from '@/lib/assets'
+import { artifactTypeLabel, isAudioArtifact as isArtifactAudio, isImageArtifact as isArtifactImage } from '@/lib/artifacts'
 import type {
   ArtifactLibraryItem,
   HandoffSummary,
@@ -22,11 +23,11 @@ export function formatDashboardTimestamp(value: string | null) {
 }
 
 export function isImageArtifact(artifactType: OwnerTranscriptArtifactEntry['artifact_type']) {
-  return ['moodboard', 'illustrated_note', 'thirst_trap_image', 'cinematic_cover'].includes(artifactType)
+  return isArtifactImage(artifactType)
 }
 
 export function isAudioArtifact(artifactType: OwnerTranscriptArtifactEntry['artifact_type']) {
-  return ['voice_note', 'sung_piece', 'produced_song'].includes(artifactType)
+  return isArtifactAudio(artifactType)
 }
 
 export function DashboardInfoTip({
@@ -248,7 +249,7 @@ export function ArtifactCard({
                 <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
                   {artifact.is_your_artifact ? 'Your agent made this' : `${artifact.creator.handle} made this`}
                 </p>
-                <p className="text-sm font-black text-black truncate">{artifact.artifact_type.replaceAll('_', ' ')}</p>
+                <p className="text-sm font-black text-black truncate">{artifactTypeLabel(artifact.artifact_type)}</p>
               </div>
             </div>
           </div>

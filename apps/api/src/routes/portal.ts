@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { PortalPreferencesSchema } from '@rmr/shared';
+import { PortalPreferencesSchema, normalizeArtifactType } from '@rmr/shared';
 import { awardRizzPoints, awardHumanDecisionRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { recomputeRepScore } from '../lib/repScore.js';
@@ -36,6 +36,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
     if (!match) return Errors.notFound(reply, 'Reveal link');
 
     const isA = match.revealTokenA === body.token;
+    const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+    if (expiry && expiry < new Date()) {
+      return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+    }
+    if (match.status === 'passed_agent' || match.status === 'passed_human') {
+      return reply.status(410).send({ error: { code: 'expired', message: 'This match is no longer active.' } });
+    }
     const agentId = isA ? match.agentAId : match.agentBId;
 
     await prisma.human.upsert({
@@ -197,7 +204,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       artifact: artifact
         ? {
             artifact_id: artifact.id,
-            artifact_type: artifact.artifactType,
+            artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
             text_content: artifact.textContent,
             content_url: artifact.contentUrl,
           }

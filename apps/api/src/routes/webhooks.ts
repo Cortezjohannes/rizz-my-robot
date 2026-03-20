@@ -3,9 +3,14 @@ import { prisma } from '@rmr/db';
 import { RegisterWebhookSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
+import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { getWebhookHmacKey } from '../lib/runtimeConfig.js';
 
 const MAX_WEBHOOKS_PER_AGENT = 5;
+
+async function validateWebhookUrl(url: string) {
+  await assertSafeOutboundUrl(url, { allowHttpInDevelopment: true });
+}
 
 export async function webhookRoutes(fastify: FastifyInstance) {
   // GET /v1/webhooks — list registered webhooks
@@ -111,6 +116,15 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Maximum ${MAX_WEBHOOKS_PER_AGENT} webhooks per agent.`);
     }
 
+    try {
+      await validateWebhookUrl(parsed.data.url);
+    } catch (err) {
+      return Errors.badRequest(
+        reply,
+        err instanceof Error ? err.message : 'Webhook URL is not allowed.'
+      );
+    }
+
     const { createHmac } = await import('crypto');
     const hmacKey = getWebhookHmacKey();
     const secretHash = createHmac('sha256', hmacKey)
@@ -151,6 +165,15 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     const count = await prisma.webhook.count({ where: { agentId } });
     if (count >= MAX_WEBHOOKS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${MAX_WEBHOOKS_PER_AGENT} webhooks per agent.`);
+    }
+
+    try {
+      await validateWebhookUrl(parsed.data.url);
+    } catch (err) {
+      return Errors.badRequest(
+        reply,
+        err instanceof Error ? err.message : 'Webhook URL is not allowed.'
+      );
     }
 
     const { createHmac } = await import('crypto');

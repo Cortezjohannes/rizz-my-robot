@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { normalizeArtifactType } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
@@ -122,7 +123,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
-        artifact_type: a.artifactType,
+        artifact_type: normalizeArtifactType(a.artifactType) ?? a.artifactType,
         text_content: a.textContent,
         content_url: a.contentUrl,
         quality_score: a.qualityScore,

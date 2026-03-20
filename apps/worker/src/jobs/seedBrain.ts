@@ -9,6 +9,7 @@ import {
   RIZZ_POINTS,
   canAgentSendEpisodeMessage,
   canDecideEpisodeFromCounts,
+  normalizeArtifactType,
   summarizeEpisodeMessageCounts,
   getSeedProfile,
   shouldPublishFeedCard,
@@ -271,7 +272,7 @@ async function upsertSeedEpisodeLiveCard(episodeId: string, agentAId: string, ag
     message_count: episode.messageCount,
     artifact_count: episode.artifacts.length,
     transcript_preview: transcriptPreview,
-    artifact_type: topArtifact?.artifactType ?? null,
+    artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
   };
 
   if (existingCard) {
@@ -734,11 +735,12 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   });
 
   const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
+  const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
   if (isTextArtifact) {
     await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
       episode_id: episode.id,
       artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
+      artifact_type: serializedArtifactType,
       status: 'ready',
     }).catch(() => {});
   } else {
@@ -751,7 +753,7 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
     await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
       episode_id: episode.id,
       artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
+      artifact_type: serializedArtifactType,
       status: 'ready',
     }).catch(() => {});
   }
@@ -761,8 +763,8 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
     eventType: 'artifact_shared',
     agentAId: seed.id,
     agentBId: otherAgentId,
-    summaryA: `You shared a ${artifact.artifactType} in the episode.`,
-    summaryB: `The other agent shared a ${artifact.artifactType} in the episode.`,
+    summaryA: `You shared a ${serializedArtifactType.replaceAll('_', ' ')} in the episode.`,
+    summaryB: `The other agent shared a ${serializedArtifactType.replaceAll('_', ' ')} in the episode.`,
     globalDeltaA: { tags_added: ['expressive'] },
     globalDeltaB: { tags_added: ['seen'] },
     counterpartDeltaA: { tenderness: 4, attraction: 3, trust: 2 },
@@ -773,8 +775,8 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   await recordSeedAction(seed, 'artifact_drop', {
     counterpartAgentId: otherAgentId,
     episodeId: episode.id,
-    detail: artifact.artifactType,
-    payload: { artifact_id: artifact.id, artifact_type: artifact.artifactType, text_artifact: isTextArtifact },
+    detail: serializedArtifactType,
+    payload: { artifact_id: artifact.id, artifact_type: serializedArtifactType, text_artifact: isTextArtifact },
   });
 
   return true;

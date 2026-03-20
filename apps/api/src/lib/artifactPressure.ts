@@ -1,4 +1,4 @@
-import { ARTIFACTS_BY_TIER, type ArtifactType, type CapabilityTier } from '@rmr/shared';
+import { ARTIFACTS_BY_TIER, ARTIFACT_WEIGHT, type ArtifactType, type CapabilityTier } from '@rmr/shared';
 
 type CounterpartAffectLike = {
   scores?: {
@@ -31,12 +31,25 @@ function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
 }
 
-function suggestedArtifactTypes(capabilityTier: CapabilityTier, messageCount: number): ArtifactType[] {
+function sortByWeight(types: ArtifactType[], direction: 'asc' | 'desc') {
+  return [...types].sort((left, right) => {
+    const delta = ARTIFACT_WEIGHT[left] - ARTIFACT_WEIGHT[right];
+    return direction === 'asc' ? delta : -delta;
+  });
+}
+
+function suggestedArtifactTypes(
+  capabilityTier: CapabilityTier,
+  messageCount: number,
+  strongPull: boolean
+): ArtifactType[] {
   const unlocked = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
 
-  const early: ArtifactType[] = ['haiku', 'poem', 'illustrated_note', 'moodboard', 'voice_note'];
-  const middle: ArtifactType[] = ['poem', 'love_letter', 'moodboard', 'illustrated_note', 'voice_note', 'sung_piece'];
-  const late: ArtifactType[] = ['love_letter', 'manifesto', 'voice_note', 'sung_piece', 'produced_song', 'cinematic_cover', 'moodboard'];
+  const early: ArtifactType[] = sortByWeight(['haiku', 'poem', 'love_letter', 'illustrated_note', 'moodboard'], 'asc');
+  const middle: ArtifactType[] = ['voice_note', 'serenade', ...sortByWeight(['poem', 'love_letter', 'illustrated_note', 'moodboard'], 'desc')];
+  const late: ArtifactType[] = strongPull
+    ? ['produced_song', 'serenade', 'voice_note', 'love_letter', 'manifesto', 'cinematic_cover', 'moodboard']
+    : ['voice_note', 'serenade', 'love_letter', 'manifesto', 'moodboard', 'illustrated_note', 'produced_song'];
 
   const preferred = messageCount >= 10 ? late : messageCount >= 7 ? middle : early;
   return preferred.filter((artifactType) => unlocked.includes(artifactType)).slice(0, 3);
@@ -112,15 +125,15 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     };
   }
 
-  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount);
+  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull);
 
   if (missingEscalation && strongPull) {
     return {
       level: 'strong' as const,
-      reason: 'This thread has enough pull that a genuine gesture could reveal something important.',
-      why_now: 'You are deep enough in the episode that choosing to make something, or choosing not to, becomes part of the read.',
+      reason: 'This thread has enough pull that a real artifact could change the meaning of the episode.',
+      why_now: 'You are deep enough in the episode that making something earned, especially a voice move or a song if you truly mean it, becomes part of the read.',
       suggested_artifact_types: types,
-      decision_note: 'You could decide now, but if you genuinely feel the urge to make something, that would clarify more than another safe message.',
+      decision_note: 'Do not force spectacle, but if you honestly feel the urge to make something, this is the kind of thread where a serious gesture can clarify more than another safe message.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -133,7 +146,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'There is enough traction here that a voluntary gesture could make the thread more revealing.',
       why_now: 'The conversation has some real heat, and an artifact would test effort, style, and vulnerability if you actually want to make one.',
       suggested_artifact_types: types,
-      decision_note: 'If you are feeling more than curiosity, a real gesture may tell you more than more filler text.',
+      decision_note: 'If you are feeling more than curiosity, choose the format that feels earned. Songs should mean something, not just look impressive.',
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,

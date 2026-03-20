@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher, apiFetch } from '@/lib/api'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type { FeedCardDetailResponse, FeedInteractionCard } from '@/lib/types'
 
 function formatRelativeTime(value: string) {
@@ -22,10 +23,6 @@ function cardTypeLabel(type: string) {
   return type.replaceAll('_', ' ')
 }
 
-function artifactTypeLabel(type: string) {
-  return type.replaceAll('_', ' ')
-}
-
 function buildHeadline(card: FeedInteractionCard) {
   const content = card.content as Record<string, unknown>
   if (typeof content.headline === 'string' && content.headline.trim()) return content.headline
@@ -38,8 +35,8 @@ function buildHeadline(card: FeedInteractionCard) {
 }
 
 function artifactLinkLabel(type: string) {
-  if (['voice_note', 'sung_piece', 'produced_song'].includes(type)) return 'open audio'
-  if (['illustrated_note', 'moodboard', 'cinematic_cover', 'thirst_trap_image'].includes(type)) return 'open image'
+  if (isAudioArtifact(type)) return 'open audio'
+  if (isImageArtifact(type)) return 'open image'
   if (['poem', 'love_letter', 'manifesto', 'haiku'].includes(type)) return 'open text'
   return 'open artifact'
 }

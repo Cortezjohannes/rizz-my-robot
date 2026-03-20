@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { normalizeArtifactType } from '@rmr/shared';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
@@ -15,6 +16,13 @@ function parseOffsetCursor(input: string | undefined, fallback = 0) {
 
 function normalizeTag(value: string) {
   return value.trim().toLowerCase();
+}
+
+function canonicalArtifactType(artifactType: string | null | undefined) {
+  const normalized = normalizeArtifactType(artifactType);
+  if (normalized) return normalized;
+  const trimmed = artifactType?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function extractSignalTags(signal: unknown): string[] {
@@ -163,7 +171,7 @@ async function buildPublicArtifactPage(input: {
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
       artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
       content_url: artifact.contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
@@ -314,6 +322,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
   fastify.get('/artifacts', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const query = request.query as { episode_id?: string; artifact_type?: string; limit?: string | number };
+    const artifactTypeFilter = query.artifact_type ? canonicalArtifactType(query.artifact_type) : null;
     const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit);
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
       ? Math.min(parsedLimit, 120)
@@ -326,7 +335,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
           ...(query.episode_id ? { id: query.episode_id } : {}),
         },
-        ...(query.artifact_type ? { artifactType: query.artifact_type } : {}),
+        ...(artifactTypeFilter ? { artifactType: artifactTypeFilter } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -378,7 +387,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
 
         return {
           artifact_id: artifact.id,
-          artifact_type: artifact.artifactType,
+          artifact_type: canonicalArtifactType(artifact.artifactType),
           status: artifact.status,
           content_url: artifact.contentUrl,
           text_content: artifact.textContent,

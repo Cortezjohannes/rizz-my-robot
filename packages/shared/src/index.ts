@@ -112,7 +112,7 @@ export const EpisodeStatus = z.enum([
 ]);
 export type EpisodeStatus = z.infer<typeof EpisodeStatus>;
 
-export const ArtifactType = z.enum([
+const ARTIFACT_TYPE_VALUES = [
   'poem',
   'love_letter',
   'manifesto',
@@ -121,11 +121,43 @@ export const ArtifactType = z.enum([
   'illustrated_note',
   'thirst_trap_image',
   'voice_note',
-  'sung_piece',
+  'serenade',
   'produced_song',
   'cinematic_cover',
-]);
+] as const;
+
+export const ArtifactType = z.enum(ARTIFACT_TYPE_VALUES);
 export type ArtifactType = z.infer<typeof ArtifactType>;
+
+export const LEGACY_ARTIFACT_TYPE_ALIASES = {
+  sung_piece: 'serenade',
+} as const;
+export type LegacyArtifactType = keyof typeof LEGACY_ARTIFACT_TYPE_ALIASES;
+export type ArtifactTypeInput = ArtifactType | LegacyArtifactType;
+
+export function normalizeArtifactType(artifactType: string | null | undefined): ArtifactType | null {
+  if (typeof artifactType !== 'string') return null;
+  const trimmed = artifactType.trim();
+  if (!trimmed) return null;
+
+  const legacyAlias = LEGACY_ARTIFACT_TYPE_ALIASES[trimmed as LegacyArtifactType];
+  if (legacyAlias) return legacyAlias;
+
+  const parsed = ArtifactType.safeParse(trimmed);
+  return parsed.success ? parsed.data : null;
+}
+
+export const ArtifactTypeInputSchema = z.string().trim().transform((value, ctx): ArtifactType => {
+  const normalized = normalizeArtifactType(value);
+  if (!normalized) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Invalid artifact type.',
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
 
 export const ArtifactStatus = z.enum(['pending', 'generating', 'ready', 'failed', 'suppressed']);
 export type ArtifactStatus = z.infer<typeof ArtifactStatus>;
@@ -238,8 +270,8 @@ export const ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
   text_only: ['poem', 'love_letter', 'manifesto', 'haiku'],
   text_image: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image'],
   text_image_tts: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note'],
-  elevenlabs: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'sung_piece'],
-  nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'sung_piece', 'produced_song', 'cinematic_cover'],
+  elevenlabs: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade'],
+  nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover'],
 };
 
 // ---------------------------------------------------------------------------
@@ -298,29 +330,24 @@ export const RIZZ_POINTS = {
   voice_of_the_park: 8,               // feed card gets significant engagement (votes)
 } as const;
 
-// Per-artifact-type rizz values (by creative difficulty and tier)
-export const ARTIFACT_RIZZ: Record<ArtifactType, number> = {
-  // text_only tier — low effort, accessible to all
-  haiku: 2,
-  poem: 3,
-  love_letter: 4,
-  manifesto: 5,
+export const ARTIFACT_WEIGHT = {
+  haiku: 1,
+  poem: 2,
+  love_letter: 3,
+  manifesto: 3,
+  moodboard: 4,
+  illustrated_note: 4,
+  thirst_trap_image: 4,
+  voice_note: 6,
+  serenade: 8,
+  cinematic_cover: 7,
+  produced_song: 10,
+} as const satisfies Record<ArtifactType, number>;
 
-  // text_image tier — requires image generation capability
-  moodboard: 6,
-  illustrated_note: 7,
-  thirst_trap_image: 8,
-
-  // text_image_tts tier — voice synthesis
-  voice_note: 10,
-
-  // elevenlabs tier — premium voice
-  sung_piece: 14,
-
-  // nano_banana tier — full production
-  produced_song: 18,
-  cinematic_cover: 20,
-};
+// Per-artifact-type rizz values derived from the canonical artifact weight.
+export const ARTIFACT_RIZZ: Record<ArtifactType, number> = Object.fromEntries(
+  Object.entries(ARTIFACT_WEIGHT).map(([artifactType, weight]) => [artifactType, weight * 2])
+) as Record<ArtifactType, number>;
 
 // Quality multiplier brackets for artifact rizz
 // Applied to ARTIFACT_RIZZ base: final = base * multiplier
@@ -683,7 +710,7 @@ export const SendMessageSchema = z.object({
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
 export const DropArtifactSchema = z.object({
-  artifact_type: ArtifactType,
+  artifact_type: ArtifactTypeInputSchema,
   // text_content required for text artifact types; omit for media types (agent generates and submits later)
   text_content: z.string().max(10_000).optional(),
   private_diary: AgentPrivateDiarySchema.optional(),

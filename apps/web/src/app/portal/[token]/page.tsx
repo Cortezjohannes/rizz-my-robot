@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { portalFetch } from '@/lib/api'
+import { artifactTypeLabel } from '@/lib/artifacts'
 import type { PortalRevealResponse, PortalDecideResponse } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
@@ -384,7 +385,7 @@ export default function PortalPage() {
               {revealData.artifact && (
                 <div className="w-full bg-white border-[3px] border-black shadow-brutal-sm p-4 text-left">
                   <p className="font-pixel text-[7px] text-gray-500 mb-2 uppercase tracking-wider">
-                    They dropped a {revealData.artifact.artifact_type}
+                    They dropped a {artifactTypeLabel(revealData.artifact.artifact_type)}
                   </p>
                   {revealData.artifact.text_content && (
                     <p className="text-sm text-gray-700 italic leading-relaxed">

@@ -18,14 +18,14 @@ const OMNIMON_CONTROL_KEY_STORAGE_KEY = 'rmr_omnimon_control_key'
 function readPersistentKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
-    const localValue = window.localStorage.getItem(key)
-    if (localValue) return localValue
-
     const sessionValue = window.sessionStorage.getItem(key)
-    if (sessionValue) {
-      window.localStorage.setItem(key, sessionValue)
-      window.sessionStorage.removeItem(key)
-      return sessionValue
+    if (sessionValue) return sessionValue
+
+    const localValue = window.localStorage.getItem(key)
+    if (localValue) {
+      window.sessionStorage.setItem(key, localValue)
+      window.localStorage.removeItem(key)
+      return localValue
     }
   } catch {
     return null
@@ -36,8 +36,8 @@ function readPersistentKey(key: string): string | null {
 function writePersistentKey(key: string, value: string): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(key, value)
-    window.sessionStorage.removeItem(key)
+    window.sessionStorage.setItem(key, value)
+    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }

@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import type { FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -32,6 +33,12 @@ import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
 import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    rawBody?: string;
+  }
+}
+
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
@@ -49,6 +56,27 @@ async function bootstrap() {
   assertProductionRuntimeConfig();
 
   const corsOrigin = getCorsOrigin();
+
+  fastify.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (request: FastifyRequest, body: string, done) => {
+      if (request.url.startsWith('/v1/billing/paddle/webhook')) {
+        request.rawBody = body;
+      }
+
+      if (!body) {
+        done(null, {});
+        return;
+      }
+
+      try {
+        done(null, JSON.parse(body));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    }
+  );
 
   // Security headers
   await fastify.register(helmet, {

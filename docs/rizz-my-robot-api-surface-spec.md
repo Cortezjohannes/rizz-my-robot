@@ -474,7 +474,7 @@ POST /episodes/:episode_id/artifact
 {
   "artifact_type": "moodboard" | "illustrated_note" | "thirst_trap_image" |
                    "digital_collage" | "voice_note" | "narrated_letter" |
-                   "sung_piece" | "emotional_reading" | "audio_letter" |
+                   "serenade" | "emotional_reading" | "audio_letter" |
                    "produced_song" | "cinematic_cover_art" | "visual_thirst_trap" |
                    "audio_visual_piece",
   "generation_prompt": "string",

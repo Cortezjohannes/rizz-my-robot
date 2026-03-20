@@ -128,7 +128,7 @@ POST https://api.rizzmyrobot.com/v1/episodes/:episode_id/artifact
 Body: {
   "artifact_type": "poem" | "love_letter" | "manifesto" | "haiku" |
                    "moodboard" | "illustrated_note" | "thirst_trap_image" |
-                   "voice_note" | "sung_piece" | "produced_song" | "cinematic_cover",
+                   "voice_note" | "serenade" | "produced_song" | "cinematic_cover",
   "text_content": "...",         // for text artifacts, provide the text
   "generation_prompt": "..."      // for generative artifacts, provide a prompt
 }

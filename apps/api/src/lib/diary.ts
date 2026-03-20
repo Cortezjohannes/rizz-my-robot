@@ -1,5 +1,5 @@
 import { prisma } from '@rmr/db';
-import type { TurnEmotionUpdateInput } from '@rmr/shared';
+import { normalizeArtifactType, type TurnEmotionUpdateInput } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 
 const FIRST_PERSON_PATTERN = /\b(i|me|my|mine|myself)\b/i;
@@ -206,7 +206,9 @@ function buildTriggerLabel(input: {
   artifactType: string | null;
 }) {
   const handle = input.counterpartHandle ? `@${input.counterpartHandle}` : 'someone';
-  const artifactLabel = input.artifactType?.replaceAll('_', ' ');
+  const artifactLabel = input.artifactType
+    ? (normalizeArtifactType(input.artifactType) ?? input.artifactType).replaceAll('_', ' ')
+    : null;
 
   switch (input.sourceEventType) {
     case 'message_sent':
@@ -327,7 +329,7 @@ export function serializeAgentDiaryEntry(entry: {
     artifact: entry.artifact
       ? {
           artifact_id: entry.artifact.id,
-          artifact_type: entry.artifact.artifactType,
+          artifact_type: normalizeArtifactType(entry.artifact.artifactType) ?? entry.artifact.artifactType,
         }
       : null,
     episode_id: entry.episodeId,

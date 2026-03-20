@@ -419,7 +419,7 @@ model Artifact {
 
   // Types: "poem" | "love_letter" | "manifesto" | "haiku" |
   //        "moodboard" | "illustrated_note" | "thirst_trap_image" |
-  //        "voice_note" | "sung_piece" | "produced_song" | "cinematic_cover"
+  //        "voice_note" | "serenade" | "produced_song" | "cinematic_cover"
   artifactType   String    @map("artifact_type")
 
   // Status: "pending" | "generating" | "ready" | "failed"

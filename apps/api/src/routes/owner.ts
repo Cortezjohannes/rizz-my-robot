@@ -5,6 +5,7 @@ import {
   OwnerAuthVerifySchema,
   OwnerRenameHandleSchema,
   OwnerSocialsSchema,
+  normalizeArtifactType,
 } from '@rmr/shared';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
@@ -16,7 +17,7 @@ import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
 import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
-import { readLimit } from '../lib/rateLimit.js';
+import { publicEmailLimit, publicVerifyLimit, readLimit } from '../lib/rateLimit.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -24,14 +25,22 @@ const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'
 const OWNER_RESOLVED_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'] as const;
 const OWNER_TASTE_FALLBACK_SUMMARY = 'This is who your agent has been drawn to, passed on, and matched with.';
 
+function canonicalArtifactType(artifactType: string | null | undefined) {
+  const normalized = normalizeArtifactType(artifactType);
+  if (normalized) return normalized;
+  const trimmed = artifactType?.trim();
+  return trimmed ? trimmed : null;
+}
+
 export async function ownerRoutes(fastify: FastifyInstance) {
-  fastify.post('/owner/auth/request', async (request, reply) => {
+  fastify.post('/owner/auth/request', { config: { rateLimit: publicEmailLimit } }, async (request, reply) => {
     const parsed = OwnerAuthRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid owner auth request.', { issues: parsed.error.issues });
     }
 
     await expireStaleClaims();
+    const expiresAt = emailCodeExpiryDate();
 
     const ownerAccount = await prisma.ownerAccount.findUnique({
       where: { email: parsed.data.email },
@@ -40,12 +49,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       },
     });
     if (!ownerAccount) {
-      return sendError(reply, 404, 'owner_not_found', 'No owner account found for that email.');
+      return reply.send({
+        status: 'code_sent',
+        delivery: { mode: 'provider' },
+        expires_at: expiresAt.toISOString(),
+      });
     }
 
     const code = generateShortCode();
     const codeHash = hashOpaqueSecret(code);
-    const expiresAt = emailCodeExpiryDate();
     const delivery = await sendOwnerLoginEmail({
       email: ownerAccount.email,
       code,
@@ -74,7 +86,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/owner/auth/verify', async (request, reply) => {
+  fastify.post('/owner/auth/verify', { config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
     const parsed = OwnerAuthVerifySchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid owner auth verification.', { issues: parsed.error.issues });
@@ -964,6 +976,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
 
     const query = request.query as { episode_id?: string; artifact_type?: string; limit?: string | number };
+    const artifactTypeFilter = query.artifact_type ? canonicalArtifactType(query.artifact_type) : null;
     const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit);
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
       ? Math.min(parsedLimit, 120)
@@ -976,7 +989,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
           ...(query.episode_id ? { id: query.episode_id } : {}),
         },
-        ...(query.artifact_type ? { artifactType: query.artifact_type } : {}),
+        ...(artifactTypeFilter ? { artifactType: artifactTypeFilter } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -1028,7 +1041,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
         return {
           artifact_id: artifact.id,
-          artifact_type: artifact.artifactType,
+          artifact_type: canonicalArtifactType(artifact.artifactType),
           status: artifact.status,
           content_url: artifact.contentUrl,
           text_content: artifact.textContent,
@@ -1276,7 +1289,7 @@ function serializeOwnerEpisodeSummary(
   const lastMessagePreview = latestVisibleEntry
     ? latestVisibleEntry.kind === 'message'
       ? `${latestVisibleEntry.value.sender.handle}: ${latestVisibleEntry.value.content}`
-      : `${latestVisibleEntry.value.creator.handle} dropped ${latestVisibleEntry.value.artifactType.replaceAll('_', ' ')}`
+      : `${latestVisibleEntry.value.creator.handle} dropped ${(canonicalArtifactType(latestVisibleEntry.value.artifactType) ?? latestVisibleEntry.value.artifactType).replaceAll('_', ' ')}`
     : null;
   const lastActivityAt = latestVisibleEntry?.value.createdAt ?? null;
   const unread = (() => {
@@ -1538,7 +1551,7 @@ function serializeOwnerTranscript(
           sender_handle: artifact.creator.handle,
           sender_avatar_url: artifact.creator.avatarUrl,
           is_owner_agent: artifact.creatorAgentId === ownerAgentId,
-          artifact_type: artifact.artifactType,
+          artifact_type: canonicalArtifactType(artifact.artifactType),
           status: artifact.status,
           text_content: artifact.textContent,
           content_url: artifact.contentUrl,
@@ -1579,7 +1592,7 @@ function serializeOwnerTranscript(
       sender_handle: artifact.creator.handle,
       sender_avatar_url: artifact.creator.avatarUrl,
       is_owner_agent: artifact.creatorAgentId === ownerAgentId,
-      artifact_type: artifact.artifactType,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
       status: artifact.status,
       text_content: artifact.textContent,
       content_url: artifact.contentUrl,

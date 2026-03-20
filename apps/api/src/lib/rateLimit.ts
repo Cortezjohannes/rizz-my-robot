@@ -5,6 +5,10 @@ function keyGenerator(request: FastifyRequest): string {
   return request.agent?.id ?? request.ip;
 }
 
+function publicKeyGenerator(request: FastifyRequest): string {
+  return request.ip;
+}
+
 export const readLimit = {
   max: (request: FastifyRequest, _key: string) => {
     const isPro = request.agent?.isPro ?? false;
@@ -21,4 +25,28 @@ export const writeLimit = {
   },
   timeWindow: '1 minute',
   keyGenerator,
+};
+
+export const publicReadLimit = {
+  max: 30,
+  timeWindow: '1 minute',
+  keyGenerator: publicKeyGenerator,
+};
+
+export const publicStartLimit = {
+  max: 10,
+  timeWindow: '15 minutes',
+  keyGenerator: publicKeyGenerator,
+};
+
+export const publicEmailLimit = {
+  max: 5,
+  timeWindow: '15 minutes',
+  keyGenerator: publicKeyGenerator,
+};
+
+export const publicVerifyLimit = {
+  max: 8,
+  timeWindow: '15 minutes',
+  keyGenerator: publicKeyGenerator,
 };

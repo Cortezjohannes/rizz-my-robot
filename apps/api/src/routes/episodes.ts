@@ -13,6 +13,7 @@ import {
   ARTIFACTS_BY_TIER,
   canAgentSendEpisodeMessage,
   canDecideEpisodeFromCounts,
+  normalizeArtifactType,
   summarizeEpisodeMessageCounts,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -40,6 +41,7 @@ import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
+import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 
 export async function episodeRoutes(fastify: FastifyInstance) {
   // GET /v1/episodes — list this agent's active episodes
@@ -555,10 +557,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const agentTier = request.agent.capabilityTier as CapabilityTier;
     const allowed = ARTIFACTS_BY_TIER[agentTier] ?? ARTIFACTS_BY_TIER['text_only'];
-    if (!allowed.includes(parsed.data.artifact_type)) {
+    const artifactType = parsed.data.artifact_type;
+    if (!allowed.includes(artifactType)) {
       return Errors.badRequest(
         reply,
-        `Artifact type '${parsed.data.artifact_type}' is not available on your capability tier (${agentTier}).`
+        `Artifact type '${artifactType}' is not available on your capability tier (${agentTier}).`
       );
     }
 
@@ -578,7 +581,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           data: {
             episodeId: id,
             creatorAgentId: agentId,
-            artifactType: parsed.data.artifact_type,
+            artifactType,
             textContent: parsed.data.text_content ?? null,
             capabilityTierUsed: agentTier,
             droppedAtMessage: ep.messageCount,
@@ -607,17 +610,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           },
         });
         const vulnerabilitySignal = computeArtifactVulnerabilitySignal({
-          artifactType: artifact.artifactType,
+          artifactType: normalizeArtifactType(artifact.artifactType) ?? artifactType,
           emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
           emotionalArc: creatorEmotion?.emotionalArc,
           textContent: artifact.textContent,
         });
+        const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifactType;
         const tasks: Array<Promise<unknown>> = [
           recordAnalyticsEvent({
             agentId,
             episodeId: id,
             kind: 'artifact_requested',
-            properties: { artifact_id: artifact.id, artifact_type: artifact.artifactType, status: artifact.status },
+            properties: { artifact_id: artifact.id, artifact_type: serializedArtifactType, status: artifact.status },
           }),
           recordAuditLog({
             agentId,
@@ -626,7 +630,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             action: 'episode.artifact_dropped',
             targetType: 'artifact',
             targetId: artifact.id,
-            payload: { episode_id: id, artifact_type: artifact.artifactType },
+            payload: { episode_id: id, artifact_type: serializedArtifactType },
           }),
         ];
 
@@ -635,7 +639,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             deliverWebhooks(otherAgentId, 'artifact_ready', {
               episode_id: id,
               artifact_id: artifact.id,
-              artifact_type: artifact.artifactType,
+              artifact_type: serializedArtifactType,
               status: 'ready',
               text_content: artifact.textContent,
               content_url: artifact.contentUrl,
@@ -643,7 +647,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             }),
             awardArtifactRizz(
               agentId,
-              artifact.artifactType as import('@rmr/shared').ArtifactType,
+              serializedArtifactType,
               artifact.qualityScore,
               id,
               vulnerabilitySignal.score,
@@ -672,7 +676,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             deliverWebhooks(agentId, 'artifact_generation_requested', {
               episode_id: id,
               artifact_id: artifact.id,
-              artifact_type: artifact.artifactType,
+              artifact_type: serializedArtifactType,
               submit_url: `/v1/episodes/${id}/artifact/${artifact.id}`,
               generation_context: {
                 // Image generation: avatar as reference for thirst traps, moodboards, etc.
@@ -698,7 +702,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             counterpartHandle,
             episodeId: id,
             artifactId: artifact.id,
-            artifactType: artifact.artifactType,
+            artifactType: serializedArtifactType,
             direction: 'sent',
             privateDiary: parsed.data.private_diary,
           }).catch(() => {}),
@@ -708,7 +712,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             counterpartHandle: ep.agentAId === agentId ? ep.agentA.handle : ep.agentB.handle,
             episodeId: id,
             artifactId: artifact.id,
-            artifactType: artifact.artifactType,
+            artifactType: serializedArtifactType,
             direction: 'received',
           }).catch(() => {}),
         );
@@ -719,8 +723,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           eventType: 'artifact_shared',
           agentAId: agentId,
           agentBId: otherAgentId,
-          summaryA: `You shared a ${artifact.artifactType} in the episode.`,
-          summaryB: `The other agent shared a ${artifact.artifactType} in the episode.`,
+          summaryA: `You shared a ${serializedArtifactType.replaceAll('_', ' ')} in the episode.`,
+          summaryB: `The other agent shared a ${serializedArtifactType.replaceAll('_', ' ')} in the episode.`,
           globalDeltaA: { tags_added: ['expressive'] },
           globalDeltaB: { tags_added: ['seen'] },
           counterpartDeltaA: { tenderness: 4, attraction: 3, trust: 2 },
@@ -734,7 +738,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           statusCode: 201,
           body: {
             artifact_id: artifact.id,
-            artifact_type: artifact.artifactType,
+            artifact_type: serializedArtifactType,
             status: artifact.status,
             text_content: artifact.textContent,
             content_url: artifact.contentUrl,
@@ -1031,13 +1035,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const parsed = ArtifactSubmitSchema.safeParse(request.body);
     if (!parsed.success) return Errors.badRequest(reply, 'content_url is required.', { issues: parsed.error.issues });
 
+    try {
+      await assertSafeOutboundUrl(parsed.data.content_url, { allowHttpInDevelopment: true });
+    } catch (err) {
+      return Errors.badRequest(
+        reply,
+        err instanceof Error ? err.message : 'Artifact URL is not allowed.'
+      );
+    }
+
     // Mirror media artifact to R2 storage (images, audio); text artifacts keep external URL
     const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
     let finalContentUrl = parsed.data.content_url;
     let storageKey: string | null = null;
+    const artifactType = normalizeArtifactType(artifact.artifactType);
+    if (!artifactType) {
+      return Errors.badRequest(reply, `Artifact type '${artifact.artifactType}' is not supported.`);
+    }
 
-    if (!TEXT_ARTIFACT_TYPES.has(artifact.artifactType)) {
-      const mirrored = await mirrorArtifactToStorage(artifact_id, artifact.artifactType, parsed.data.content_url);
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType)) {
+      const mirrored = await mirrorArtifactToStorage(artifact_id, artifactType, parsed.data.content_url);
       if (mirrored) {
         finalContentUrl = mirrored.cdnUrl;
         storageKey = mirrored.storageKey;
@@ -1064,7 +1081,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
     });
     const vulnerabilitySignal = computeArtifactVulnerabilitySignal({
-      artifactType: artifact.artifactType,
+      artifactType,
       emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
       emotionalArc: creatorEmotion?.emotionalArc,
       textContent: parsed.data.text_content ?? artifact.textContent,
@@ -1072,7 +1089,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     await deliverWebhooks(otherAgentId, 'artifact_ready', {
       episode_id: id,
       artifact_id,
-      artifact_type: artifact.artifactType,
+      artifact_type: artifactType,
       status: 'ready',
       text_content: parsed.data.text_content ?? artifact.textContent,
       content_url: finalContentUrl,
@@ -1083,7 +1100,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {}),
       awardArtifactRizz(
         agentId,
-        artifact.artifactType as import('@rmr/shared').ArtifactType,
+        artifactType,
         artifact.qualityScore,
         id,
         vulnerabilitySignal.score,
@@ -1136,7 +1153,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       counterpartHandle,
       episodeId: id,
       artifactId: artifact.id,
-      artifactType: artifact.artifactType,
+      artifactType: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
       direction: 'received',
       privateDiary: parsed.data.private_diary,
       emotionUpdate: parsed.data.emotion_update,
@@ -1170,7 +1187,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       artifact_id: artifact.id,
-      artifact_type: artifact.artifactType,
+      artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
       status: artifact.status,
       text_content: artifact.textContent,
       content_url: artifact.contentUrl,
@@ -1288,7 +1305,7 @@ async function createEpisodeHighlightCard(
       content: {
         headline: `${agentA?.handle ?? 'Two agents'} and ${agentB?.handle ?? 'their match'} linked up.`,
         body: topArtifact?.textContent?.slice(0, 200) ?? null,
-        artifact_type: topArtifact?.artifactType ?? null,
+        artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
         episode_id: episodeId,
       },
       chemistryScore: chemistry / 100,
@@ -1393,7 +1410,7 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
     message_count: episode.messageCount,
     artifact_count: episode.artifacts.length,
     transcript_preview: transcriptPreview,
-    artifact_type: topArtifact?.artifactType ?? null,
+    artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
     artifact_vulnerability_label: topArtifactSignal?.label ?? null,
     artifact_vulnerability_score: topArtifactSignal?.score ?? null,
   };

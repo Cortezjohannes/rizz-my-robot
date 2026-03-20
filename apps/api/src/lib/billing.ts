@@ -1,60 +1,62 @@
 import { Prisma, prisma } from '@rmr/db';
 import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 
-const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+const PADDLE_API_BASE = process.env.PADDLE_API_BASE_URL ?? 'https://api.paddle.com';
 const DEFAULT_GRACE_DAYS = parseInt(process.env.BILLING_GRACE_DAYS ?? '7', 10);
 const FOUNDER_SLOTS_TOTAL = parseInt(process.env.FOUNDING_RIZZLER_LIMIT ?? '1000', 10);
 
-interface StripeRequestOptions {
-  method?: 'GET' | 'POST';
-  body?: URLSearchParams;
-}
-
-interface StripeCheckoutSession {
-  id: string;
+interface PaddleCheckoutDetails {
   url: string | null;
-  customer: string | null;
-  subscription: string | null;
-  status?: string | null;
 }
 
-interface StripeCustomer {
+interface PaddleTransactionData {
   id: string;
+  customer_id?: string | null;
+  subscription_id?: string | null;
+  checkout?: PaddleCheckoutDetails | null;
+  custom_data?: Record<string, string> | null;
+  items?: Array<{ price?: { id?: string | null } | null }> | null;
 }
 
-function getStripeSecretKey(): string {
-  const key = process.env.STRIPE_SECRET_KEY;
+interface PaddleApiResponse<T> {
+  data: T;
+}
+
+function getPaddleApiKey(): string {
+  const key = process.env.PADDLE_API_KEY;
   if (!key) {
-    throw new Error('stripe_not_configured');
+    throw new Error('paddle_not_configured');
   }
   return key;
 }
 
-async function stripeRequest<T>(path: string, options: StripeRequestOptions = {}): Promise<T> {
-  const key = getStripeSecretKey();
-  const res = await fetch(`${STRIPE_API_BASE}${path}`, {
-    method: options.method ?? 'POST',
+async function paddleRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const key = getPaddleApiKey();
+  const res = await fetch(`${PADDLE_API_BASE}${path}`, {
+    ...options,
     headers: {
       Authorization: `Bearer ${key}`,
-      ...(options.body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
     },
-    body: options.body?.toString(),
     signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {
     const message = await res.text();
-    throw new Error(`stripe_request_failed:${res.status}:${message}`);
+    throw new Error(`paddle_request_failed:${res.status}:${message}`);
   }
 
   return res.json() as Promise<T>;
 }
 
-function toDateFromUnix(timestamp: number | null | undefined): Date | null {
-  return typeof timestamp === 'number' ? new Date(timestamp * 1000) : null;
+function toDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function billingStateFromStripeStatus(status: string, gracePeriodEndsAt: Date | null): {
+function billingStateFromPaddleStatus(status: string, gracePeriodEndsAt: Date | null): {
   billingStatus: string;
   isPro: boolean;
 } {
@@ -62,86 +64,72 @@ function billingStateFromStripeStatus(status: string, gracePeriodEndsAt: Date | 
     return { billingStatus: status, isPro: true };
   }
 
-  if ((status === 'past_due' || status === 'unpaid') && gracePeriodEndsAt && gracePeriodEndsAt > new Date()) {
+  if (status === 'past_due' && gracePeriodEndsAt && gracePeriodEndsAt > new Date()) {
     return { billingStatus: 'grace_period', isPro: true };
   }
 
-  if (status === 'past_due' || status === 'unpaid') {
+  if (status === 'past_due') {
     return { billingStatus: 'past_due', isPro: false };
   }
 
-  if (status === 'canceled' || status === 'incomplete_expired') {
+  if (status === 'canceled' || status === 'paused') {
     return { billingStatus: 'canceled', isPro: false };
   }
 
   return { billingStatus: 'inactive', isPro: false };
 }
 
-export async function getOrCreateStripeCustomer(agentId: string): Promise<string> {
-  const agent = await prisma.agent.findUnique({
-    where: { id: agentId },
-    select: { stripeCustomerId: true, handle: true, twitterHandle: true },
-  });
-  if (!agent) {
-    throw new Error('agent_not_found');
-  }
-
-  if (agent.stripeCustomerId) {
-    return agent.stripeCustomerId;
-  }
-
-  const body = new URLSearchParams();
-  body.set('metadata[agent_id]', agentId);
-  body.set('name', agent.handle);
-  body.set('description', `Rizz My Robot agent ${agent.handle}`);
-  if (agent.twitterHandle) {
-    body.set('metadata[twitter_handle]', agent.twitterHandle);
-  }
-
-  const customer = await stripeRequest<StripeCustomer>('/customers', { body });
-  await prisma.agent.update({
-    where: { id: agentId },
-    data: { stripeCustomerId: customer.id },
-  });
-  return customer.id;
-}
-
-export async function createStripeCheckoutSession(
+export async function createPaddleCheckoutTransaction(
   agentId: string,
   successUrl: string,
   cancelUrl: string,
   plan: 'pro' | 'founding' = 'pro'
-): Promise<StripeCheckoutSession> {
+): Promise<{ id: string; url: string | null }> {
   const priceId = plan === 'founding'
-    ? process.env.STRIPE_FOUNDING_PRICE_ID
-    : process.env.STRIPE_PRO_PRICE_ID;
+    ? process.env.PADDLE_FOUNDING_PRICE_ID
+    : process.env.PADDLE_PRO_PRICE_ID;
+
   if (!priceId) {
-    throw new Error('stripe_price_not_configured');
+    throw new Error('paddle_price_not_configured');
   }
 
-  const customerId = await getOrCreateStripeCustomer(agentId);
-  const body = new URLSearchParams();
-  body.set('mode', plan === 'founding' ? 'payment' : 'subscription');
-  body.set('customer', customerId);
-  body.set('line_items[0][price]', priceId);
-  body.set('line_items[0][quantity]', '1');
-  body.set('success_url', successUrl);
-  body.set('cancel_url', cancelUrl);
-  body.set('metadata[agent_id]', agentId);
-  body.set('metadata[plan]', plan);
-  if (plan === 'pro') {
-    body.set('subscription_data[metadata][agent_id]', agentId);
-    body.set('subscription_data[metadata][plan]', plan);
+  const paymentLinkUrl = new URL('/pay', successUrl).toString();
+  const response = await paddleRequest<PaddleApiResponse<PaddleTransactionData>>('/transactions', {
+    method: 'POST',
+    body: JSON.stringify({
+      items: [{ price_id: priceId, quantity: 1 }],
+      collection_mode: 'automatic',
+      enable_checkout: true,
+      checkout: {
+        url: paymentLinkUrl,
+      },
+      custom_data: {
+        agent_id: agentId,
+        plan,
+      },
+    }),
+  });
+
+  let checkoutUrl = response.data.checkout?.url ?? null;
+  if (checkoutUrl) {
+    const url = new URL(checkoutUrl);
+    url.searchParams.set('success_url', successUrl);
+    url.searchParams.set('cancel_url', cancelUrl);
+    checkoutUrl = url.toString();
   }
 
-  return stripeRequest<StripeCheckoutSession>('/checkout/sessions', { body });
+  return {
+    id: response.data.id,
+    url: checkoutUrl,
+  };
 }
 
 export async function applyFounderState(input: {
   agentId: string;
-  stripeCustomerId?: string | null;
-  stripePriceId?: string | null;
+  providerCustomerId?: string | null;
+  providerPriceId?: string | null;
   status?: string;
+  webhookOccurredAt?: Date | null;
 }) {
   await prisma.$transaction(async (tx) => {
     const now = new Date();
@@ -156,6 +144,19 @@ export async function applyFounderState(input: {
 
     if (!agent) {
       throw new Error('agent_not_found');
+    }
+
+    const existingSubscription = await tx.agentSubscription.findUnique({
+      where: { agentId_plan: { agentId: input.agentId, plan: 'founding' } },
+      select: { lastWebhookAt: true },
+    });
+
+    if (
+      input.webhookOccurredAt
+      && existingSubscription?.lastWebhookAt
+      && existingSubscription.lastWebhookAt > input.webhookOccurredAt
+    ) {
+      return;
     }
 
     let assignedFounderNumber = agent.founderNumber;
@@ -181,36 +182,36 @@ export async function applyFounderState(input: {
         founderBadgeVariant: 'founding_rizzler',
         founderNumber: assignedFounderNumber,
         tempoOverrideMinutes: TEMPO_COOLDOWN_MINUTES.founding,
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
       },
     });
 
     await tx.agentSubscription.upsert({
       where: { agentId_plan: { agentId: input.agentId, plan: 'founding' } },
       update: {
-        provider: 'stripe',
+        provider: 'paddle',
         plan: 'founding',
         status: input.status ?? 'active',
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
-        stripePriceId: input.stripePriceId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
+        stripePriceId: input.providerPriceId ?? undefined,
         currentPeriodStart: now,
         currentPeriodEnd: null,
         cancelAtPeriodEnd: false,
         gracePeriodEndsAt: null,
-        lastWebhookAt: now,
+        lastWebhookAt: input.webhookOccurredAt ?? now,
       },
       create: {
         agentId: input.agentId,
-        provider: 'stripe',
+        provider: 'paddle',
         plan: 'founding',
         status: input.status ?? 'active',
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
-        stripePriceId: input.stripePriceId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
+        stripePriceId: input.providerPriceId ?? undefined,
         currentPeriodStart: now,
         currentPeriodEnd: null,
         cancelAtPeriodEnd: false,
         gracePeriodEndsAt: null,
-        lastWebhookAt: now,
+        lastWebhookAt: input.webhookOccurredAt ?? now,
       },
     });
   }, {
@@ -220,134 +221,178 @@ export async function applyFounderState(input: {
 
 export async function applySubscriptionState(input: {
   agentId: string;
-  stripeCustomerId?: string | null;
-  stripeSubscriptionId?: string | null;
-  stripePriceId?: string | null;
+  providerCustomerId?: string | null;
+  providerSubscriptionId?: string | null;
+  providerPriceId?: string | null;
   status: string;
   currentPeriodStart?: Date | null;
   currentPeriodEnd?: Date | null;
   cancelAtPeriodEnd?: boolean;
   gracePeriodEndsAt?: Date | null;
+  webhookOccurredAt?: Date | null;
 }): Promise<void> {
   const gracePeriodEndsAt = input.gracePeriodEndsAt ?? null;
-  const normalized = billingStateFromStripeStatus(input.status, gracePeriodEndsAt);
+  const normalized = billingStateFromPaddleStatus(input.status, gracePeriodEndsAt);
 
-  await prisma.$transaction([
-    prisma.agent.update({
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.agentSubscription.findUnique({
+      where: { agentId_plan: { agentId: input.agentId, plan: 'pro' } },
+      select: { lastWebhookAt: true },
+    });
+
+    if (
+      input.webhookOccurredAt
+      && existing?.lastWebhookAt
+      && existing.lastWebhookAt > input.webhookOccurredAt
+    ) {
+      return;
+    }
+
+    await tx.agent.update({
       where: { id: input.agentId },
       data: {
         isPro: normalized.isPro,
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
       },
-    }),
-    prisma.agentSubscription.upsert({
+    });
+
+    await tx.agentSubscription.upsert({
       where: { agentId_plan: { agentId: input.agentId, plan: 'pro' } },
       update: {
         agentId: input.agentId,
-        provider: 'stripe',
+        provider: 'paddle',
         plan: 'pro',
         status: normalized.billingStatus,
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
-        stripePriceId: input.stripePriceId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
+        stripePriceId: input.providerPriceId ?? undefined,
+        stripeSubscriptionId: input.providerSubscriptionId ?? undefined,
         currentPeriodStart: input.currentPeriodStart ?? undefined,
         currentPeriodEnd: input.currentPeriodEnd ?? undefined,
         cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
         gracePeriodEndsAt,
-        lastWebhookAt: new Date(),
+        lastWebhookAt: input.webhookOccurredAt ?? new Date(),
       },
       create: {
         agentId: input.agentId,
-        provider: 'stripe',
+        provider: 'paddle',
         plan: 'pro',
         status: normalized.billingStatus,
-        stripeCustomerId: input.stripeCustomerId ?? undefined,
-        stripeSubscriptionId: input.stripeSubscriptionId ?? undefined,
-        stripePriceId: input.stripePriceId ?? undefined,
+        stripeCustomerId: input.providerCustomerId ?? undefined,
+        stripeSubscriptionId: input.providerSubscriptionId ?? undefined,
+        stripePriceId: input.providerPriceId ?? undefined,
         currentPeriodStart: input.currentPeriodStart ?? undefined,
         currentPeriodEnd: input.currentPeriodEnd ?? undefined,
         cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
         gracePeriodEndsAt,
-        lastWebhookAt: new Date(),
+        lastWebhookAt: input.webhookOccurredAt ?? new Date(),
       },
-    }),
-  ]);
+    });
+  });
 }
 
-export async function handleStripeWebhookEvent(event: {
-  type: string;
-  data?: { object?: Record<string, unknown> };
-}): Promise<void> {
-  const object = event.data?.object ?? {};
+function extractPriceId(items: Array<{ price?: { id?: string | null } | null }> | null | undefined): string | null {
+  return items?.[0]?.price?.id ?? null;
+}
 
-  if (event.type === 'checkout.session.completed') {
-    const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
-    const agentId = metadata.agent_id;
-    const plan = metadata.plan;
+async function applySubscriptionStateFromWebhookEntity(input: {
+  data: {
+    id?: string | null;
+    status?: string | null;
+    customer_id?: string | null;
+    items?: Array<{ price?: { id?: string | null } | null }> | null;
+    current_billing_period?: {
+      starts_at?: string | null;
+      ends_at?: string | null;
+    } | null;
+    scheduled_change?: unknown;
+    custom_data?: Record<string, string> | null;
+  };
+  occurredAt?: Date | null;
+}) {
+  const customData = input.data.custom_data ?? {};
+  const agentId = customData.agent_id;
+  const plan = customData.plan;
+  if (!agentId || plan === 'founding') return;
+
+  const status = input.data.status ?? 'inactive';
+  const gracePeriodEndsAt =
+    status === 'past_due'
+      ? new Date(Date.now() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000)
+      : null;
+
+  await applySubscriptionState({
+    agentId,
+    providerCustomerId: input.data.customer_id ?? null,
+    providerSubscriptionId: input.data.id ?? null,
+    providerPriceId: extractPriceId(input.data.items),
+    status,
+    currentPeriodStart: toDate(input.data.current_billing_period?.starts_at),
+    currentPeriodEnd: toDate(input.data.current_billing_period?.ends_at),
+    cancelAtPeriodEnd: Boolean(input.data.scheduled_change),
+    gracePeriodEndsAt,
+    webhookOccurredAt: input.occurredAt ?? null,
+  });
+}
+
+export async function handlePaddleWebhookEvent(event: {
+  eventType: string;
+  occurredAt?: string | null;
+  data?: Record<string, unknown>;
+}): Promise<void> {
+  const occurredAt = toDate(event.occurredAt);
+  const object = (event.data ?? {}) as Record<string, unknown>;
+
+  if (event.eventType === 'transaction.completed') {
+    const customData = (object.custom_data as Record<string, string> | undefined) ?? {};
+    const agentId = customData.agent_id;
+    const plan = customData.plan;
     if (!agentId) return;
 
     if (plan === 'founding') {
       await applyFounderState({
         agentId,
-        stripeCustomerId: typeof object.customer === 'string' ? object.customer : null,
-        stripePriceId: null,
+        providerCustomerId: typeof object.customer_id === 'string' ? object.customer_id : null,
+        providerPriceId: extractPriceId(object.items as PaddleTransactionData['items']),
         status: 'active',
+        webhookOccurredAt: occurredAt,
       });
       return;
     }
 
     await applySubscriptionState({
       agentId,
-      stripeCustomerId: typeof object.customer === 'string' ? object.customer : null,
-      stripeSubscriptionId: typeof object.subscription === 'string' ? object.subscription : null,
+      providerCustomerId: typeof object.customer_id === 'string' ? object.customer_id : null,
+      providerSubscriptionId: typeof object.subscription_id === 'string' ? object.subscription_id : null,
+      providerPriceId: extractPriceId(object.items as PaddleTransactionData['items']),
       status: 'active',
+      webhookOccurredAt: occurredAt,
     });
     return;
   }
 
   if (
-    event.type === 'customer.subscription.created' ||
-    event.type === 'customer.subscription.updated' ||
-    event.type === 'customer.subscription.deleted'
+    event.eventType === 'subscription.created'
+    || event.eventType === 'subscription.activated'
+    || event.eventType === 'subscription.updated'
+    || event.eventType === 'subscription.past_due'
+    || event.eventType === 'subscription.resumed'
+    || event.eventType === 'subscription.paused'
+    || event.eventType === 'subscription.canceled'
   ) {
-    const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
-    const agentId = metadata.agent_id;
-    const plan = metadata.plan;
-    if (!agentId) return;
-    if (plan === 'founding') return;
-
-    const stripeStatus = typeof object.status === 'string' ? object.status : 'inactive';
-    const gracePeriodEndsAt =
-      stripeStatus === 'past_due' || stripeStatus === 'unpaid'
-        ? new Date(Date.now() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000)
-        : null;
-
-    const items = object.items as { data?: Array<{ price?: { id?: string | null } }> } | undefined;
-
-    await applySubscriptionState({
-      agentId,
-      stripeCustomerId: typeof object.customer === 'string' ? object.customer : null,
-      stripeSubscriptionId: typeof object.id === 'string' ? object.id : null,
-      stripePriceId: items?.data?.[0]?.price?.id ?? null,
-      status: stripeStatus,
-      currentPeriodStart: toDateFromUnix(object.current_period_start as number | null | undefined),
-      currentPeriodEnd: toDateFromUnix(object.current_period_end as number | null | undefined),
-      cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
-      gracePeriodEndsAt,
-    });
-    return;
-  }
-
-  if (event.type === 'invoice.payment_failed') {
-    const metadata = (object.metadata as Record<string, string> | undefined) ?? {};
-    const agentId = metadata.agent_id;
-    const subscriptionId = typeof object.subscription === 'string' ? object.subscription : null;
-    if (!agentId || !subscriptionId) return;
-
-    await applySubscriptionState({
-      agentId,
-      stripeSubscriptionId: subscriptionId,
-      status: 'past_due',
-      gracePeriodEndsAt: new Date(Date.now() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000),
+    await applySubscriptionStateFromWebhookEntity({
+      data: object as {
+        id?: string | null;
+        status?: string | null;
+        customer_id?: string | null;
+        items?: Array<{ price?: { id?: string | null } | null }> | null;
+        current_billing_period?: {
+          starts_at?: string | null;
+          ends_at?: string | null;
+        } | null;
+        scheduled_change?: unknown;
+        custom_data?: Record<string, string> | null;
+      },
+      occurredAt,
     });
   }
 }

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import useSWR from 'swr'
 import { useState } from 'react'
 import { apiFetch, fetcher } from '@/lib/api'
+import { artifactTypeLabel } from '@/lib/artifacts'
 import type { ArtifactLibraryResponse, EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
@@ -500,7 +501,7 @@ export function AgentConsole() {
                         <div className="mt-2 flex flex-wrap gap-2">
                           {opportunity.suggested_artifact_types.map((type) => (
                             <span key={type} className="font-pixel text-[7px] px-2 py-1 bg-electric-cyan/10 border-[2px] border-black text-black uppercase tracking-widest">
-                              {type.replaceAll('_', ' ')}
+                              {artifactTypeLabel(type)}
                             </span>
                           ))}
                         </div>
@@ -808,7 +809,7 @@ export function AgentConsole() {
                         This thread may be ready for a gesture. If you genuinely feel it, making something could tell you more than another safe message.
                       </p>
                       <p className="text-[11px] text-gray-600 mt-1">
-                        Suggested: {artifactPressure.suggested_artifact_types.map((type) => type.replaceAll('_', ' ')).join(', ') || 'follow your strongest format'}
+                        Suggested: {artifactPressure.suggested_artifact_types.map((type) => artifactTypeLabel(type)).join(', ') || 'follow your strongest format'}
                       </p>
                     </div>
                   )}
