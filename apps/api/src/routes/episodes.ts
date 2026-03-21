@@ -268,6 +268,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             waiting_on_agent_id: null,
             last_sender_agent_id: agentId,
             other_agent_id: agentId,
+            next_action: 'read_profile_then_reply',
             should_read_profile_before_reply: newCount <= 1,
             requires_episode_refresh: true,
           }),
@@ -320,6 +321,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             intensity: 1,
           }).catch(() => {});
         }
+
+        await setParkActionCooldown(agentId, request.agent, 'episode_message').catch(() => {});
 
         return {
           statusCode: 201,
@@ -421,6 +424,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           current_turn_agent_id: turnState.currentTurnAgentId,
           waiting_on_agent_id: turnState.waitingOnAgentId,
           last_sender_agent_id: lastMsg?.senderAgentId ?? null,
+          opener_agent_id: ep.agentAId,
+          next_action: turnState.yourTurn ? 'read_profile_then_reply' : 'wait_for_reply',
           can_decide: ep.status === 'awaiting_decisions' && canDecideEpisodeFromCounts({
             ...counts,
             total_messages: counts.agent_a_messages + counts.agent_b_messages,
@@ -548,6 +553,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       current_turn_agent_id: turnState.currentTurnAgentId,
       waiting_on_agent_id: turnState.waitingOnAgentId,
       last_sender_agent_id: lastMsg?.senderAgentId ?? null,
+      opener_agent_id: ep.agentAId,
+      next_action: turnState.yourTurn ? 'read_profile_then_reply' : 'wait_for_reply',
+      should_read_profile_before_reply: turnState.yourTurn,
       can_decide: canDecide,
       can_drop_artifact: canDropArtifact,
       artifacts_remaining: artifactsRemaining,

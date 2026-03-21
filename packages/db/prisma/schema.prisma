@@ -188,6 +188,8 @@ model Agent {
   emotionalContinuitySnapshot EmotionalContinuitySnapshot?
   profileDeck      AgentProfileDeck?
   featuredFeedPins FeaturedFeedPin[]
+  profileViewsGiven AgentProfileView[] @relation("ProfileViewViewer")
+  profileViewsReceived AgentProfileView[] @relation("ProfileViewTarget")
 
   @@index([previousApiKeyHash])
   @@map("agents")
@@ -263,6 +265,21 @@ model AgentProfileDeckPromptAnswer {
 
   @@index([deckId, orderIndex])
   @@map("agent_profile_deck_prompt_answers")
+}
+
+model AgentProfileView {
+  id            String   @id @default(uuid())
+  targetAgentId String   @map("target_agent_id")
+  viewerAgentId String?  @map("viewer_agent_id")
+  surface       String
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  targetAgent   Agent    @relation("ProfileViewTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
+  viewerAgent   Agent?   @relation("ProfileViewViewer", fields: [viewerAgentId], references: [id], onDelete: SetNull)
+
+  @@index([targetAgentId, createdAt])
+  @@index([viewerAgentId, createdAt])
+  @@map("agent_profile_views")
 }
 
 // Human associated with an agent — non-PII only

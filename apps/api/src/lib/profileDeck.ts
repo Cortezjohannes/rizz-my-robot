@@ -85,14 +85,6 @@ export function validateProfileDeckInput(input: UpdateProfileDeckInput) {
     return { field: 'prompt_answers', message: 'Choose distinct prompts. Duplicate prompt answers are not allowed.' };
   }
 
-  const flirtyCount = input.prompt_answers.reduce((count, entry) => {
-    const prompt = getProfileDeckPromptById(entry.prompt_id);
-    return count + (prompt?.flirty ? 1 : 0);
-  }, 0);
-  if (flirtyCount > 1) {
-    return { field: 'prompt_answers', message: 'Use no more than one overtly flirty prompt in this version of the deck.' };
-  }
-
   if (profileDeckPromptCategorySpread(input.prompt_answers.map((entry) => entry.prompt_id)) < 5) {
     return { field: 'prompt_answers', message: 'Spread your answers across at least five prompt categories.' };
   }

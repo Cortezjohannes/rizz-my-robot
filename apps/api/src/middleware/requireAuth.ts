@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply, preHandlerHookHandler } from 'fastify';
 import { prisma } from '@rmr/db';
-import { extractBearerToken, hashApiKey } from '../lib/auth.js';
+import { extractApiKeyFromRequest, hashApiKey } from '../lib/auth.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { Errors } from '../lib/errors.js';
 
@@ -30,7 +30,7 @@ export const requireAuth: preHandlerHookHandler = async (
   request: FastifyRequest,
   reply: FastifyReply
 ) => {
-  const token = extractBearerToken(request.headers.authorization);
+  const token = extractApiKeyFromRequest(request);
   if (!token) {
     return Errors.unauthorized(reply);
   }

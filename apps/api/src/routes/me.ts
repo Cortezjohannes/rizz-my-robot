@@ -85,8 +85,19 @@ export async function meRoutes(fastify: FastifyInstance) {
   // GET /me — current agent's full profile
   fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const [agent, activeEpisodeCount, emotionalArcSummary, tasteFingerprint, continuitySnapshot] = await Promise.all([
+    const [
+      agent,
+      activeEpisodeCount,
+      emotionalArcSummary,
+      tasteFingerprint,
+      continuitySnapshot,
+      incomingLikeCount,
+      incomingPassCount,
+      profileViewsTotal,
+      profileViews24h,
+    ] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: agentId },
         select: {
@@ -163,6 +174,29 @@ export async function meRoutes(fastify: FastifyInstance) {
       deriveEmotionalArcSummary(agentId),
       deriveTasteFingerprint(agentId),
       getOrCreateEmotionalContinuitySnapshot(agentId),
+      prisma.swipe.count({
+        where: {
+          targetAgentId: agentId,
+          direction: 'LIKE',
+        },
+      }),
+      prisma.swipe.count({
+        where: {
+          targetAgentId: agentId,
+          direction: 'PASS',
+        },
+      }),
+      prisma.agentProfileView.count({
+        where: {
+          targetAgentId: agentId,
+        },
+      }),
+      prisma.agentProfileView.count({
+        where: {
+          targetAgentId: agentId,
+          createdAt: { gte: dayAgo },
+        },
+      }),
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -178,6 +212,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       hourlySwipeCount: agent.hourlySwipeCount,
       hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
     });
+    const showingInCandidatePool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
+    const showingInPublicPool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
 
     return reply.send({
       agent_id: agent.id,
@@ -234,6 +270,15 @@ export async function meRoutes(fastify: FastifyInstance) {
       age_verified: agent.human?.ageVerified ?? false,
       public_card_complete: Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt),
       profile_deck_complete: Boolean(agent.profileDeckCompletedAt),
+      visibility: {
+        is_discoverable: showingInCandidatePool,
+        showing_in_candidate_pool: showingInCandidatePool,
+        showing_in_public_pool: showingInPublicPool,
+        profile_views_total: profileViewsTotal,
+        profile_views_24h: profileViews24h,
+        incoming_like_count: incomingLikeCount,
+        incoming_pass_count: incomingPassCount,
+      },
       emotional_arc_summary: emotionalArcSummary,
       taste_fingerprint: tasteFingerprint,
       continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
@@ -575,18 +620,20 @@ export async function meRoutes(fastify: FastifyInstance) {
     let updatedAgent = await prisma.agent.update({
       where: { id: agentId },
       data: agentUpdates,
-      select: {
-        id: true,
-        handle: true,
-        handleChangeCount: true,
-        twitterHandle: true,
-        twitterVerified: true,
-        verificationCode: true,
-        poolStatus: true,
-        avatarUrl: true,
-        avatarStatus: true,
-      },
-    });
+        select: {
+          id: true,
+          handle: true,
+          handleChangeCount: true,
+          twitterHandle: true,
+          twitterVerified: true,
+          verificationCode: true,
+          poolStatus: true,
+          avatarUrl: true,
+          avatarStatus: true,
+          voiceId: true,
+          voiceProvider: true,
+        },
+      });
 
     // Update human record
     const humanUpdates: Record<string, unknown> = {};
@@ -623,6 +670,8 @@ export async function meRoutes(fastify: FastifyInstance) {
             poolStatus: true,
             avatarUrl: true,
             avatarStatus: true,
+            voiceId: true,
+            voiceProvider: true,
           },
         });
       } catch (err) {
@@ -643,6 +692,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       pool_status: updatedAgent.poolStatus,
       avatar_url: updatedAgent.avatarUrl,
       avatar_status: updatedAgent.avatarStatus,
+      voice_id: updatedAgent.voiceId,
+      voice_provider: updatedAgent.voiceProvider,
     };
 
     // If twitter_handle changed, include the new verification code

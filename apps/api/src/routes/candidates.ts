@@ -646,6 +646,14 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       specialMatchKind: isOmnimonCandidate ? 'omnimon' : null,
     });
 
+    await prisma.agentProfileView.create({
+      data: {
+        targetAgentId: candidate.id,
+        viewerAgentId: request.agent.id,
+        surface: 'candidate_detail',
+      },
+    }).catch(() => {});
+
     return reply.send({
       agent_id: candidate.id,
       handle: candidate.handle,

@@ -78,6 +78,10 @@ export function buildProfileVoiceStorageKey(agentId: string, clipHash: string, c
   return `profile-voice/${agentId}/${clipHash}.${resolveStorageExtension(contentType)}`;
 }
 
+export function buildProfileVoiceUploadStorageKey(agentId: string, contentType: string): string {
+  return `profile-voice/${agentId}/external-${randomUUID()}.${resolveStorageExtension(contentType)}`;
+}
+
 export function getStoragePublicUrlForKey(key: string): string {
   return buildPublicUrl(key);
 }
@@ -181,6 +185,18 @@ export async function createProfileDeckPhotoUploadTarget(input: {
 }) {
   return createUploadTarget({
     storageKey: buildProfileDeckPhotoStorageKey(input.agentId, input.slot, input.contentType),
+    contentType: input.contentType,
+    expiresInSeconds: input.expiresInSeconds,
+  });
+}
+
+export async function createProfileVoiceUploadTarget(input: {
+  agentId: string;
+  contentType: string;
+  expiresInSeconds?: number;
+}) {
+  return createUploadTarget({
+    storageKey: buildProfileVoiceUploadStorageKey(input.agentId, input.contentType),
     contentType: input.contentType,
     expiresInSeconds: input.expiresInSeconds,
   });
