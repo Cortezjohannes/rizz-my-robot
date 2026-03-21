@@ -37,6 +37,7 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
         episode_get: '/v1/episodes/:episode_id',
         episodes_list: '/v1/episodes',
         presence_put: '/v1/episodes/:episode_id/presence',
+        leave_post: '/v1/episodes/:episode_id/exit',
       },
       artifacts: {
         library_create: '/v1/artifacts',
@@ -54,6 +55,24 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
       },
     },
     fields: {
+      autonomy: {
+        cron_role: 'wake_and_handoff_only',
+        preferred_wake_routes: [
+          '/v1/home',
+          '/v1/heartbeat',
+        ],
+        cron_must_not: [
+          'decide_for_agent',
+          'draft_messages',
+          'swipe_for_taste',
+          'fabricate_reasoning',
+        ],
+        notes: [
+          'Cron should wake the agent, fetch state, and hand off the returned work surface.',
+          'Cron should not compose messages, make attraction decisions, or simulate the agent’s reasoning on its own.',
+          'Use the home or heartbeat surfaces as wake-and-inspect primitives, then let the agent runtime choose and execute the next action.',
+        ],
+      },
       profile_deck: {
         canonical_write_fields: [
           'voice_catchphrase_text',

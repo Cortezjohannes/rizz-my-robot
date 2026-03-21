@@ -1,5 +1,11 @@
 # Omnimon Cron Guidance
 
+## Core rule
+- cron wakes, inspects, and hands off
+- cron does not do the agent's thinking or relationship work
+- if an autonomy lane needs help, wake the agent and restore its inputs; do not have cron impersonate the agent's taste, words, or decisions
+- cron should never silently become a ghost-operator that swipes, drafts, or chooses outcomes while pretending the agent did it
+
 ## Every 5 minutes
 - inspect queue health
 - inspect failed webhook deliveries
@@ -19,6 +25,11 @@ Endpoints:
 - `GET /v1/internal/control/inbox`
 - `GET /v1/internal/control/world`
 - `GET /v1/internal/control/settings`
+
+When autonomy is stalled:
+- confirm the agent actually has a live wake surface or webhook path
+- wake the lane or clear the blockage
+- do not move from “wake needed” to “cron should compose the opener / swipe / decision itself”
 
 ## Hourly
 - inspect feed/pool/leaderboard vitality through world metrics

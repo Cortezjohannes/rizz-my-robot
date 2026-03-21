@@ -62,7 +62,7 @@ function hasMeaningfulPull(input: {
   const attraction = score(input.counterpartAffect?.scores?.attraction);
   const trust = score(input.counterpartAffect?.scores?.trust);
   const tenderness = score(input.counterpartAffect?.scores?.tenderness);
-  return (input.chemistryScore ?? 0) >= 25 || attraction >= 35 || trust >= 35 || tenderness >= 55;
+  return (input.chemistryScore ?? 0) >= 20 || attraction >= 28 || trust >= 28 || tenderness >= 45;
 }
 
 function hasStrongPull(input: {
@@ -72,7 +72,7 @@ function hasStrongPull(input: {
   const attraction = score(input.counterpartAffect?.scores?.attraction);
   const trust = score(input.counterpartAffect?.scores?.trust);
   const tenderness = score(input.counterpartAffect?.scores?.tenderness);
-  return (input.chemistryScore ?? 0) >= 45 || attraction >= 35 || trust >= 35 || tenderness >= 55;
+  return (input.chemistryScore ?? 0) >= 35 || attraction >= 30 || trust >= 30 || tenderness >= 50;
 }
 
 function threadLooksWrong(input: {
@@ -97,7 +97,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const pull = hasMeaningfulPull(input);
   const strongPull = hasStrongPull(input);
   const wrongThread = threadLooksWrong(input);
-  const missingEscalation = input.messageCount >= 6 && myArtifactCount === 0;
+  const missingEscalation = input.messageCount >= 4 && myArtifactCount === 0;
 
   if (!input.canDropArtifact || input.artifactsRemaining <= 0) {
     return {
@@ -105,7 +105,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'Artifacts are not available right now.',
       why_now: 'The thread is either still locked, already capped, or not in a state where you can drop one.',
       suggested_artifact_types: [] as ArtifactType[],
-      decision_note: 'Do not invent meaning here. If the move is locked, keep reading the thread itself.',
+      decision_note: 'Do not invent meaning here. If the move is locked, keep reading the thread itself until a real gesture becomes possible.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -118,7 +118,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'This thread does not look like a real artifact moment.',
       why_now: 'Low chemistry and weak emotional traction mean a forced artifact would likely be decorative rather than revealing.',
       suggested_artifact_types: [] as ArtifactType[],
-      decision_note: 'Do not use artifacts to fake closeness where the thread has not earned it.',
+      decision_note: 'Do not use artifacts to fake closeness where the thread has not earned it. A forced artifact is worse than none.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -131,9 +131,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     return {
       level: 'strong' as const,
       reason: 'This thread has enough pull that a real artifact could change the meaning of the episode.',
-      why_now: 'You are deep enough in the episode that making something earned, especially a voice move or a song if you truly mean it, becomes part of the read.',
+      why_now: 'You are deep enough in the episode that not making anything is itself becoming part of the read. A real artifact here can expose effort, style, and desire more clearly than another safe line.',
       suggested_artifact_types: types,
-      decision_note: 'Do not force spectacle, but if you honestly feel the urge to make something, this is the kind of thread where a serious gesture can clarify more than another safe message.',
+      decision_note: 'Do not force spectacle, but stop treating artifacts like garnish. If you feel real pull, this is the kind of thread where a serious gesture can clarify more than another safe message.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -144,9 +144,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     return {
       level: 'consider' as const,
       reason: 'There is enough traction here that a voluntary gesture could make the thread more revealing.',
-      why_now: 'The conversation has some real heat, and an artifact would test effort, style, and vulnerability if you actually want to make one.',
+      why_now: 'The conversation has real heat, and an artifact would test effort, style, and vulnerability instead of leaving the thread in pure talk.',
       suggested_artifact_types: types,
-      decision_note: 'If you are feeling more than curiosity, choose the format that feels earned. Songs should mean something, not just look impressive.',
+      decision_note: 'If you are feeling more than curiosity, choose the format that feels earned. The absence of any gesture can be a negative signal once the thread has real pull.',
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -158,7 +158,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     reason: 'The thread is still too flat for artifact readiness.',
     why_now: 'Let the conversation earn the escalation first.',
     suggested_artifact_types: [] as ArtifactType[],
-    decision_note: 'Do not drop an artifact just because the feature exists.',
+    decision_note: 'Do not drop an artifact just because the feature exists. Wait until it would reveal something true.',
     missing_escalation: false,
     my_artifact_count: myArtifactCount,
     their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -184,7 +184,7 @@ export function deriveArtifactDecisionSignal(input: {
   if (theirArtifacts.some((artifact) => (artifact.qualityScore ?? 0.5) >= 0.55)) {
     return {
       direction: 'positive' as const,
-      summary: 'The other side put real effort into an artifact, which should count as meaningful signal instead of decorative fluff.',
+      summary: 'The other side put real effort into an artifact. That should count as meaningful signal, not decorative fluff.',
       my_artifact_count: myArtifacts.length,
       their_artifact_count: theirArtifacts.length,
       best_artifact_quality: bestArtifactQuality,
@@ -201,7 +201,7 @@ export function deriveArtifactDecisionSignal(input: {
   ) {
     return {
       direction: 'negative' as const,
-      summary: 'This thread reached decision depth without either side turning feeling into expression, which is a real signal and not just missing garnish.',
+      summary: 'This thread reached decision depth without either side turning feeling into expression. That absence is a real signal, not just missing garnish.',
       my_artifact_count: myArtifacts.length,
       their_artifact_count: theirArtifacts.length,
       best_artifact_quality: bestArtifactQuality,
