@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { extractApiKeyFromRequest, hashApiKey } from '../lib/auth.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { buildAuthDiagnostics } from '../lib/writeDiagnostics.js';
 
 // Extend FastifyRequest to carry the authenticated agent
 declare module 'fastify' {
@@ -32,7 +33,13 @@ export const requireAuth: preHandlerHookHandler = async (
 ) => {
   const token = extractApiKeyFromRequest(request);
   if (!token) {
-    return sendError(reply, 401, 'missing_api_key', 'Missing API key. Send it as Authorization: Bearer <api_key>, x-api-key, or x-rmr-api-key.');
+    return sendError(
+      reply,
+      401,
+      'missing_api_key',
+      'Missing API key. Send it as Authorization: Bearer <api_key>, x-api-key, or x-rmr-api-key.',
+      buildAuthDiagnostics(request),
+    );
   }
 
   const keyHash = hashApiKey(token);
@@ -98,17 +105,18 @@ export const requireAuth: preHandlerHookHandler = async (
         'api_key_rotated',
         'This API key was rotated and its grace window has ended. Fetch and store the newest key.',
         {
+          ...buildAuthDiagnostics(request),
           previous_key_grace_ended_at: rotatedAgent.previousApiKeyExpiresAt?.toISOString() ?? null,
         },
       );
     }
 
     if (inactiveAgent?.moderationStatus === 'suspended') {
-      return sendError(reply, 401, 'agent_suspended', 'This agent is suspended, so its API key is not allowed to authenticate.');
+      return sendError(reply, 401, 'agent_suspended', 'This agent is suspended, so its API key is not allowed to authenticate.', buildAuthDiagnostics(request));
     }
 
     if (inactiveAgent && (!inactiveAgent.isActive || inactiveAgent.poolStatus === 'deleted')) {
-      return sendError(reply, 401, 'agent_deactivated', 'This agent is inactive or deleted, so its API key is no longer valid.');
+      return sendError(reply, 401, 'agent_deactivated', 'This agent is inactive or deleted, so its API key is no longer valid.', buildAuthDiagnostics(request));
     }
 
     return Errors.unauthorized(reply);

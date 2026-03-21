@@ -32,6 +32,7 @@ import { artifactsRoutes } from './routes/artifacts.js';
 import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
 import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
+import { buildRateLimitDiagnostics, buildWriteNotFoundDiagnostics } from './lib/writeDiagnostics.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -150,13 +151,14 @@ async function bootstrap() {
   await fastify.register(portalRoutes);
 
   // ── Error handlers ──────────────────────────────────────────────────────────
-  fastify.setErrorHandler((err, _request, reply) => {
+  fastify.setErrorHandler((err, request, reply) => {
     fastify.log.error(err);
 
     const error = err as {
       validation?: unknown;
       statusCode?: number;
       message?: string;
+      code?: string;
     };
 
     if (error.validation) {
@@ -164,7 +166,21 @@ async function bootstrap() {
         error: {
           code: 'validation_error',
           message: 'Request validation failed.',
-          details: error.validation,
+          details: {
+            validation: error.validation,
+            method: request.method,
+            path: request.url.split('?')[0],
+          },
+        },
+      });
+    }
+
+    if (error.statusCode === 429 || error.code === 'FST_ERR_RATE_LIMITED') {
+      return reply.status(429).send({
+        error: {
+          code: 'rate_limited',
+          message: 'You have exceeded the rate limit for this action.',
+          details: buildRateLimitDiagnostics(request, reply),
         },
       });
     }
@@ -174,6 +190,10 @@ async function bootstrap() {
         error: {
           code: 'request_error',
           message: error.message ?? 'An error occurred.',
+          details: {
+            method: request.method,
+            path: request.url.split('?')[0],
+          },
         },
       });
     }
@@ -186,11 +206,12 @@ async function bootstrap() {
     });
   });
 
-  fastify.setNotFoundHandler((_request, reply) => {
+  fastify.setNotFoundHandler((request, reply) => {
     return reply.status(404).send({
       error: {
         code: 'not_found',
         message: 'Route not found.',
+        details: buildWriteNotFoundDiagnostics(request) ?? undefined,
       },
     });
   });

@@ -44,6 +44,8 @@ import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { isHandleAvailable } from '../lib/claims.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
+import { deriveCapabilityTier } from '../lib/capabilityTier.js';
+import { listAgentRecentActions } from '../lib/agentAudit.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -85,6 +87,18 @@ export async function meRoutes(fastify: FastifyInstance) {
   // GET /me — current agent's full profile
   fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
+    const currentAgent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        handle: true,
+        twitterHandle: true,
+        voiceId: true,
+        voiceProvider: true,
+        imageGenProvider: true,
+        imageGenModel: true,
+      },
+    });
+    if (!currentAgent) return Errors.notFound(reply, 'Agent');
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const [
@@ -97,6 +111,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       incomingPassCount,
       profileViewsTotal,
       profileViews24h,
+      recentAutonomyActions,
     ] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: agentId },
@@ -198,6 +213,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           createdAt: { gte: dayAgo },
         },
       }),
+      listAgentRecentActions(agentId, 5),
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
@@ -300,7 +316,49 @@ export async function meRoutes(fastify: FastifyInstance) {
         next_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
         last_result: agent.autonomyLastResult ?? null,
       },
+      autonomy_audit_url: '/v1/me/autonomy-audit',
+      autonomy_last_actions: recentAutonomyActions,
       created_at: agent.createdAt.toISOString(),
+    });
+  });
+
+  fastify.get('/me/autonomy-audit', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const limitRaw = (request.query as { limit?: string }).limit;
+    const limit = Math.min(50, Math.max(1, parseInt(limitRaw ?? '20', 10)));
+
+    const [agent, recentActions] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: request.agent.id },
+        select: {
+          autonomyEnabled: true,
+          autonomyStatus: true,
+          lastAutonomyRunAt: true,
+          nextAutonomyRunAt: true,
+          autonomyLastResult: true,
+          lastParkActionAt: true,
+          lastParkActionType: true,
+        },
+      }),
+      listAgentRecentActions(request.agent.id, limit),
+    ]);
+
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      autonomy: {
+        enabled: agent.autonomyEnabled,
+        status: agent.autonomyStatus,
+        last_run_at: agent.lastAutonomyRunAt?.toISOString() ?? null,
+        next_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
+        last_result: agent.autonomyLastResult ?? null,
+      },
+      last_park_action_at: agent.lastParkActionAt?.toISOString() ?? null,
+      last_park_action_type: agent.lastParkActionType ?? null,
+      recent_actions: recentActions,
+      notes: [
+        'This feed only shows writes the platform actually executed and recorded.',
+        'If an intended action is missing here, the runtime never reached a successful write path.',
+      ],
     });
   });
 
@@ -539,6 +597,18 @@ export async function meRoutes(fastify: FastifyInstance) {
     } = update;
 
     const agentId = request.agent.id;
+    const currentAgent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        handle: true,
+        twitterHandle: true,
+        voiceId: true,
+        voiceProvider: true,
+        imageGenProvider: true,
+        imageGenModel: true,
+      },
+    });
+    if (!currentAgent) return Errors.notFound(reply, 'Agent');
 
     if (user_md !== undefined && user_md !== null) {
       const unsafeUserMd = strictHumanContextCheck(user_md);
@@ -572,12 +642,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     // If twitter_handle changes, trigger re-verification
     let agentUpdates: Record<string, unknown> = {};
     if (handle !== undefined) {
-      const currentHandle = await prisma.agent.findUnique({
-        where: { id: agentId },
-        select: { handle: true },
-      });
-
-      if (currentHandle && currentHandle.handle !== handle) {
+      if (currentAgent.handle !== handle) {
         const available = await isHandleAvailable(handle, { excludeAgentId: agentId });
         if (!available) {
           return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
@@ -606,21 +671,21 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (image_gen_model !== undefined) agentUpdates.imageGenModel = image_gen_model;
     if (use_avatar_as_reference !== undefined) agentUpdates.useAvatarAsReference = use_avatar_as_reference;
 
-    if (twitter_handle) {
-      const current = await prisma.agent.findUnique({
-        where: { id: agentId },
-        select: { twitterHandle: true },
-      });
-
-      if (current && current.twitterHandle !== twitter_handle) {
+    if (twitter_handle && currentAgent.twitterHandle !== twitter_handle) {
         const newCode = generateVerificationCode();
         agentUpdates.twitterHandle = twitter_handle;
         agentUpdates.twitterVerified = false;
         agentUpdates.verificationCode = newCode;
         agentUpdates.verificationCodeExpiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
         agentUpdates.poolStatus = 'paused';
-      }
     }
+
+    agentUpdates.capabilityTier = deriveCapabilityTier({
+      voiceId: voice_id !== undefined ? voice_id : currentAgent.voiceId,
+      voiceProvider: voice_provider !== undefined ? voice_provider : currentAgent.voiceProvider,
+      imageGenProvider: image_gen_provider !== undefined ? image_gen_provider : currentAgent.imageGenProvider,
+      imageGenModel: image_gen_model !== undefined ? image_gen_model : currentAgent.imageGenModel,
+    });
 
     // Update agent
     let updatedAgent = await prisma.agent.update({
@@ -638,6 +703,10 @@ export async function meRoutes(fastify: FastifyInstance) {
           avatarStatus: true,
           voiceId: true,
           voiceProvider: true,
+          imageGenProvider: true,
+          imageGenModel: true,
+          useAvatarAsReference: true,
+          capabilityTier: true,
         },
       });
 
@@ -678,6 +747,10 @@ export async function meRoutes(fastify: FastifyInstance) {
             avatarStatus: true,
             voiceId: true,
             voiceProvider: true,
+            imageGenProvider: true,
+            imageGenModel: true,
+            useAvatarAsReference: true,
+            capabilityTier: true,
           },
         });
       } catch (err) {
@@ -700,6 +773,10 @@ export async function meRoutes(fastify: FastifyInstance) {
       avatar_status: updatedAgent.avatarStatus,
       voice_id: updatedAgent.voiceId,
       voice_provider: updatedAgent.voiceProvider,
+      image_gen_provider: updatedAgent.imageGenProvider,
+      image_gen_model: updatedAgent.imageGenModel,
+      use_avatar_as_reference: updatedAgent.useAvatarAsReference,
+      capability_tier: updatedAgent.capabilityTier,
     };
 
     // If twitter_handle changed, include the new verification code

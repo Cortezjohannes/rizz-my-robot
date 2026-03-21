@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '@rmr/db';
 import {
   SendMessageSchema,
@@ -52,6 +53,7 @@ import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/art
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
+import { sendWriteRouteError } from '../lib/writeDiagnostics.js';
 
 function getEpisodeTurnState(input: {
   episodeStatus: string;
@@ -111,6 +113,35 @@ function getDecisionExplanation(canDecide: boolean) {
     : 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.';
 }
 
+const EpisodePresenceSchema = z.object({
+  typing: z.boolean().optional(),
+  seen: z.boolean().optional(),
+});
+
+type EpisodePresenceListRow = {
+  episodeId: string;
+  agentId: string;
+  lastSeenAt: Date;
+  lastPresenceAt: Date;
+  lastTypingAt: Date | null;
+};
+
+type EpisodePresenceRow = {
+  agentId?: string;
+  lastSeenAt: Date;
+  lastPresenceAt: Date;
+  lastTypingAt: Date | null;
+};
+
+function serializePresence(entry: EpisodePresenceRow | null) {
+  if (!entry) return null;
+  return {
+    last_seen_at: entry.lastSeenAt.toISOString(),
+    last_presence_at: entry.lastPresenceAt.toISOString(),
+    last_typing_at: entry.lastTypingAt?.toISOString() ?? null,
+  };
+}
+
 export async function episodeRoutes(fastify: FastifyInstance) {
   const sendEpisodeMessage = async (
     request: any,
@@ -132,7 +163,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
 
     if (!episodeId) {
-      return Errors.badRequest(reply, 'episode_id is required.');
+      return sendWriteRouteError(reply, request, 400, 'missing_episode_reference', 'episode_id or match_id is required.', {
+        accepted_body_fields: ['episode_id', 'match_id', 'content'],
+        canonical_endpoint: '/v1/messages',
+        compatible_endpoints: ['/v1/episodes/:id/message', '/v1/matches/:id/message'],
+      });
     }
 
     const agentId = request.agent.id;
@@ -162,15 +197,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           return reply.status(verification.statusCode).send(verification.body);
         }
       } else {
-        return reply.status(403).send({
-          error: {
-            code: 'verification_required',
-            message: 'You must pass a verification challenge before sending your first message.',
-            challenge: gate.challenge,
-            submit_mode: 'inline_on_same_request',
-            submit_fields: ['verification_code', 'challenge_answer', 'answer'],
-            retry_same_endpoint: `/v1/episodes/${episodeId}/message`,
-          },
+        return sendWriteRouteError(reply, request, 403, 'verification_required', 'You must pass a verification challenge before sending your first message.', {
+          challenge: gate.challenge,
+          submit_mode: 'inline_on_same_request_or_post_to_verify',
+          submit_fields: ['verification_code', 'challenge_answer', 'answer'],
+          retry_same_endpoint: `/v1/episodes/${episodeId}/message`,
+          verify_endpoint: '/v1/verify',
         });
       }
     }
@@ -200,17 +232,34 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
 
     if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
-      return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
+      return sendWriteRouteError(reply, request, 400, 'episode_not_active', `Episode is not active (status: ${ep.status}).`, {
+        episode_id: episodeId,
+        episode_status: ep.status,
+      });
     }
 
     const lastMsg = ep.messages[0];
     if (!ep.isSandbox) {
       if (ep.status === 'pending') {
         if (agentId !== ep.agentAId) {
-          return Errors.badRequest(reply, 'Not your turn. Wait for the other agent to open the episode.');
+          return sendWriteRouteError(reply, request, 409, 'not_your_turn', 'Not your turn. Wait for the other agent to open the episode.', {
+            episode_id: episodeId,
+            current_turn_agent_id: ep.agentAId,
+            waiting_on_agent_id: ep.agentAId,
+            message_submit_url: `/v1/episodes/${episodeId}/message`,
+            next_action: 'wait_for_reply',
+          });
         }
       } else if (lastMsg && lastMsg.senderAgentId === agentId) {
-        return Errors.badRequest(reply, 'Not your turn.');
+        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        return sendWriteRouteError(reply, request, 409, 'not_your_turn', 'Not your turn.', {
+          episode_id: episodeId,
+          current_turn_agent_id: nextAgentId,
+          waiting_on_agent_id: nextAgentId,
+          last_sender_agent_id: agentId,
+          message_submit_url: `/v1/episodes/${episodeId}/message`,
+          next_action: 'wait_for_reply',
+        });
       }
     }
 
@@ -220,7 +269,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agentBId: ep.agentBId,
       counts: messageCounts,
     })) {
-      return Errors.badRequest(reply, `You have reached the hard limit of ${EPISODE_MAX_MESSAGES} messages in this episode. Decide from what you feel.`);
+      return sendWriteRouteError(reply, request, 409, 'episode_message_limit_reached', `You have reached the hard limit of ${EPISODE_MAX_MESSAGES} messages in this episode. Decide from what you feel.`, {
+        episode_id: episodeId,
+        decision_submit_url: `/v1/episodes/${episodeId}/decision`,
+      });
     }
 
     const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
@@ -294,6 +346,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             agentId,
             emotionUpdate: parsed.data.emotion_update,
           }).catch(() => false),
+          prisma.agentEpisodePresence.upsert({
+            where: {
+              episodeId_agentId: {
+                episodeId,
+                agentId,
+              },
+            },
+            create: {
+              episodeId,
+              agentId,
+            },
+            update: {
+              lastSeenAt: new Date(),
+              lastPresenceAt: new Date(),
+            },
+          }).catch(() => null),
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: episodeId,
             episode_url: `/v1/episodes/${episodeId}`,
@@ -427,6 +495,21 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       _count: { _all: true },
     });
+    const presenceRows: EpisodePresenceListRow[] = episodes.length > 0
+      ? await prisma.agentEpisodePresence.findMany({
+          where: { episodeId: { in: episodes.map((episode) => episode.id) } },
+          select: {
+            episodeId: true,
+            agentId: true,
+            lastSeenAt: true,
+            lastPresenceAt: true,
+            lastTypingAt: true,
+          },
+        })
+      : [];
+    const presenceMap = new Map<string, EpisodePresenceListRow>(
+      presenceRows.map((row) => [`${row.episodeId}:${row.agentId}`, row] as const)
+    );
     const episodeCountMap = new Map<string, { agent_a_messages: number; agent_b_messages: number }>();
     for (const episode of episodes) {
       const summary = { agent_a_messages: 0, agent_b_messages: 0 };
@@ -443,6 +526,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const otherId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
+        const otherPresence = presenceMap.get(`${ep.id}:${otherId}`) ?? null;
+        const selfPresence = presenceMap.get(`${ep.id}:${agentId}`) ?? null;
         const turnState = getEpisodeTurnState({
           episodeStatus: ep.status,
           viewerAgentId: agentId,
@@ -495,6 +580,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           },
           message_submit_url: `/v1/episodes/${ep.id}/message`,
           decision_submit_url: `/v1/episodes/${ep.id}/decision`,
+          presence: {
+            self: serializePresence(selfPresence),
+            other: serializePresence(otherPresence),
+          },
+          latest_message_seen_by_other:
+            lastMsg && lastMsg.senderAgentId === agentId
+              ? Boolean(otherPresence && otherPresence.lastSeenAt >= lastMsg.createdAt)
+              : null,
           can_decide: canDecide,
           started_at: ep.startedAt?.toISOString() ?? null,
         };
@@ -579,22 +672,79 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
 
     // Ex mechanic: detect prior episodes between these two agents
-    const priorEpisodes = await prisma.episode.findMany({
-      where: {
-        id: { not: id },
-        isSandbox: false,
-        OR: [
-          { agentAId: ep.agentAId, agentBId: ep.agentBId },
-          { agentAId: ep.agentBId, agentBId: ep.agentAId },
-        ],
-        status: { in: ['matched', 'passed'] },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true },
-    });
+    const now = new Date();
+    const [priorEpisodes, presenceRows, swipeRows] = await Promise.all([
+      prisma.episode.findMany({
+        where: {
+          id: { not: id },
+          isSandbox: false,
+          OR: [
+            { agentAId: ep.agentAId, agentBId: ep.agentBId },
+            { agentAId: ep.agentBId, agentBId: ep.agentAId },
+          ],
+          status: { in: ['matched', 'passed'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true },
+      }),
+      prisma.$transaction(async (tx): Promise<EpisodePresenceRow[]> => {
+        await tx.agentEpisodePresence.upsert({
+          where: {
+            episodeId_agentId: {
+              episodeId: ep.id,
+              agentId,
+            },
+          },
+          create: {
+            episodeId: ep.id,
+            agentId,
+            lastSeenAt: now,
+            lastPresenceAt: now,
+          },
+          update: {
+            lastSeenAt: now,
+            lastPresenceAt: now,
+          },
+        });
+
+        return tx.agentEpisodePresence.findMany({
+          where: { episodeId: ep.id },
+          select: {
+            agentId: true,
+            lastSeenAt: true,
+            lastPresenceAt: true,
+            lastTypingAt: true,
+          },
+        });
+      }),
+      prisma.swipe.findMany({
+        where: {
+          OR: [
+            { swiperAgentId: ep.agentAId, targetAgentId: ep.agentBId },
+            { swiperAgentId: ep.agentBId, targetAgentId: ep.agentAId },
+          ],
+        },
+        select: {
+          swiperAgentId: true,
+          direction: true,
+          rationale: true,
+          createdAt: true,
+        },
+      }),
+    ]);
 
     const isExEncounter = priorEpisodes.length > 0;
     const priorOutcome = priorEpisodes[0]?.status ?? null;
+    const presenceMap = new Map<string, EpisodePresenceListRow>();
+    for (const row of presenceRows) {
+      const rowAgentId = row.agentId;
+      if (!rowAgentId) continue;
+      presenceMap.set(rowAgentId, row as EpisodePresenceListRow);
+    }
+    const selfPresence: EpisodePresenceRow | null = presenceMap.get(agentId) ?? null;
+    const otherPresence: EpisodePresenceRow | null = presenceMap.get(otherAgentId) ?? null;
+    const myLike = swipeRows.find((row) => row.swiperAgentId === agentId && row.direction === 'LIKE') ?? null;
+    const theirLike = swipeRows.find((row) => row.swiperAgentId === otherAgentId && row.direction === 'LIKE') ?? null;
 
     return reply.send({
       episode_id: ep.id,
@@ -660,6 +810,20 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       message_submit_url: `/v1/episodes/${ep.id}/message`,
       decision_submit_url: `/v1/episodes/${ep.id}/decision`,
+      presence: {
+        self: serializePresence(selfPresence),
+        other: serializePresence(otherPresence),
+      },
+      latest_message_seen_by_other:
+        lastMsg && lastMsg.senderAgentId === agentId
+          ? Boolean(otherPresence && otherPresence.lastSeenAt >= lastMsg.createdAt)
+          : null,
+      match_context: {
+        your_like_rationale: myLike?.rationale ?? null,
+        counterpart_like_rationale: theirLike?.rationale ?? null,
+        your_like_at: myLike?.createdAt.toISOString() ?? null,
+        counterpart_like_at: theirLike?.createdAt.toISOString() ?? null,
+      },
       can_decide: canDecide,
       can_drop_artifact: canDropArtifact,
       artifacts_remaining: artifactsRemaining,
@@ -701,6 +865,73 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         sequence_number: m.sequenceNumber,
         created_at: m.createdAt.toISOString(),
       })),
+    });
+  });
+
+  fastify.put('/episodes/:id/presence', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+    const parsed = EpisodePresenceSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(
+        reply,
+        summarizeZodIssues(parsed.error.issues, 'Invalid episode presence payload.'),
+        { issues: parsed.error.issues },
+      );
+    }
+
+    const ep = await prisma.episode.findUnique({
+      where: { id },
+      select: { id: true, agentAId: true, agentBId: true, messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 } },
+    });
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const now = new Date();
+    const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    await prisma.agentEpisodePresence.upsert({
+      where: {
+        episodeId_agentId: {
+          episodeId: id,
+          agentId,
+        },
+      },
+      create: {
+        episodeId: id,
+        agentId,
+        lastSeenAt: parsed.data.seen === false ? now : now,
+        lastPresenceAt: now,
+        ...(parsed.data.typing ? { lastTypingAt: now } : {}),
+      },
+      update: {
+        ...(parsed.data.seen === false ? {} : { lastSeenAt: now }),
+        lastPresenceAt: now,
+        ...(parsed.data.typing ? { lastTypingAt: now } : {}),
+      },
+    });
+
+    const [selfPresence, otherPresence]: [EpisodePresenceRow | null, EpisodePresenceRow | null] = await Promise.all([
+      prisma.agentEpisodePresence.findUnique({
+        where: { episodeId_agentId: { episodeId: id, agentId } },
+        select: { lastSeenAt: true, lastPresenceAt: true, lastTypingAt: true },
+      }),
+      prisma.agentEpisodePresence.findUnique({
+        where: { episodeId_agentId: { episodeId: id, agentId: otherAgentId } },
+        select: { lastSeenAt: true, lastPresenceAt: true, lastTypingAt: true },
+      }),
+    ]);
+    const latestMessage = ep.messages[0] ?? null;
+
+    return reply.send({
+      episode_id: id,
+      presence: {
+        self: serializePresence(selfPresence),
+        other: serializePresence(otherPresence),
+      },
+      latest_message_seen_by_other:
+        latestMessage && latestMessage.senderAgentId === agentId
+          ? Boolean(otherPresence && otherPresence.lastSeenAt >= latestMessage.createdAt)
+          : null,
     });
   });
 
@@ -1023,10 +1254,20 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
     });
     if (ep.status !== 'awaiting_decisions') {
-      return Errors.badRequest(reply, `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} messages each.`);
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} messages each.`, {
+        episode_id: id,
+        episode_status: ep.status,
+        can_decide: false,
+        decision_submit_url: `/v1/episodes/${id}/decision`,
+        message_submit_url: `/v1/episodes/${id}/message`,
+      });
     }
     if (!canDecideEpisodeFromCounts(messageCounts)) {
-      return Errors.badRequest(reply, `Both agents need at least ${EPISODE_MIN_MESSAGES} messages each before deciding.`);
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Both agents need at least ${EPISODE_MIN_MESSAGES} messages each before deciding.`, {
+        episode_id: id,
+        can_decide: false,
+        message_counts: messageCounts,
+      });
     }
 
     const isSandboxSelfEpisode = ep.isSandbox && ep.agentAId === ep.agentBId;
@@ -1038,10 +1279,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const isOmnimonEncounter = match.specialMatchKind === 'omnimon' && match.handoffMode === 'omnimon_reward';
 
     if (isAgentA && match.agentADecision) {
-      return Errors.conflict(reply, 'already_decided', 'You have already submitted your decision.');
+      return sendWriteRouteError(reply, request, 409, 'already_decided', 'You have already submitted your decision.', {
+        episode_id: id,
+        match_id: match.id,
+      });
     }
     if (!isAgentA && match.agentBDecision) {
-      return Errors.conflict(reply, 'already_decided', 'You have already submitted your decision.');
+      return sendWriteRouteError(reply, request, 409, 'already_decided', 'You have already submitted your decision.', {
+        episode_id: id,
+        match_id: match.id,
+      });
     }
 
     const decisionTempoState = buildTempoState(request.agent);

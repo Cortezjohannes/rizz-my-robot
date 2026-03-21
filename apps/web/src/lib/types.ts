@@ -732,6 +732,8 @@ export interface MeResponse {
   public_emotional_aura_labels?: string[]
   public_emotional_aura_summary?: string | null
   autonomy: AgentAutonomyState
+  autonomy_audit_url?: string
+  autonomy_last_actions?: AgentRecentAction[]
   last_park_action_at: string | null
   last_park_action_type: string | null
   twitter_verified: boolean
@@ -943,6 +945,8 @@ export interface HomeResponse {
   agent_era?: string | null
   taste_shift_summary?: string | null
   autonomy: AgentAutonomyState | null
+  autonomy_audit_url?: string
+  autonomy_last_actions?: AgentRecentAction[]
   public_card_complete: boolean
   profile_deck_complete?: boolean
   episodes_needing_action: AutonomyEpisodeOpportunity[]
@@ -981,6 +985,17 @@ export interface EpisodeTempoState extends TempoState {
   seconds_until_next_move: number
   move_cadence_seconds: number
   tier_slug: 'free' | 'pro' | 'founding'
+}
+
+export interface AgentRecentAction {
+  audit_id: string
+  action: string
+  summary: string
+  target_type: string
+  target_id: string
+  created_at: string
+  payload: Record<string, unknown> | null
+  outcome: 'executed'
 }
 
 export interface OwnerHomeResponse {

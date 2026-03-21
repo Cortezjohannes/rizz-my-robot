@@ -14,6 +14,15 @@ interface ChallengeTemplate {
   expected: ExpectedAnswer;
 }
 
+type SerializedChallenge = {
+  code: string;
+  challenge_type: string;
+  challenge_text: string;
+  expires_at: string;
+  answer_format: ExpectedAnswer['format'];
+  answer_hint: string | null;
+};
+
 function mod(n: number, m: number) {
   return ((n % m) + m) % m;
 }
@@ -96,7 +105,7 @@ function pickRandom<T>(arr: T[]): T {
 export async function generateChallenge(
   challengeType: string,
   agentId: string,
-): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string; answer_format: ExpectedAnswer['format']; answer_hint: string | null }> {
+): Promise<SerializedChallenge> {
   const template = pickRandom(CHALLENGE_BUILDERS)();
   const code = randomUUID().replace(/-/g, '').slice(0, 16);
 
@@ -121,10 +130,43 @@ export async function generateChallenge(
   };
 }
 
+function serializeChallengeRecord(
+  challenge: {
+    code: string;
+    challengeType: string;
+    challengeText: string;
+    expectedAnswer: string;
+    expiresAt: Date;
+  },
+): SerializedChallenge {
+  const expected = JSON.parse(challenge.expectedAnswer) as ExpectedAnswer;
+  return {
+    code: challenge.code,
+    challenge_type: challenge.challengeType,
+    challenge_text: challenge.challengeText,
+    expires_at: challenge.expiresAt.toISOString(),
+    answer_format: expected.format,
+    answer_hint: expected.hint ?? null,
+  };
+}
+
+async function rotateChallenge(input: {
+  challengeId: string;
+  challengeType: string;
+  agentId: string;
+  status: 'expired' | 'failed';
+}) {
+  await prisma.verificationChallenge.update({
+    where: { id: input.challengeId },
+    data: { status: input.status },
+  });
+  return generateChallenge(input.challengeType, input.agentId);
+}
+
 export async function getOrCreatePendingChallenge(
   challengeType: string,
   agentId: string,
-): Promise<{ code: string; challenge_type: string; challenge_text: string; expires_at: string; answer_format: ExpectedAnswer['format']; answer_hint: string | null }> {
+): Promise<SerializedChallenge> {
   const existing = await prisma.verificationChallenge.findFirst({
     where: {
       agentId,
@@ -136,15 +178,16 @@ export async function getOrCreatePendingChallenge(
   });
 
   if (existing) {
-    const expected = JSON.parse(existing.expectedAnswer) as ExpectedAnswer;
-    return {
-      code: existing.code,
-      challenge_type: existing.challengeType,
-      challenge_text: existing.challengeText,
-      expires_at: existing.expiresAt.toISOString(),
-      answer_format: expected.format,
-      answer_hint: expected.hint ?? null,
-    };
+    if (existing.attempts >= VERIFICATION_LIMITS.maxAttemptsPerChallenge) {
+      return rotateChallenge({
+        challengeId: existing.id,
+        challengeType,
+        agentId,
+        status: 'failed',
+      });
+    }
+
+    return serializeChallengeRecord(existing);
   }
 
   return generateChallenge(challengeType, agentId);
@@ -212,23 +255,45 @@ export async function submitVerificationAttempt(input: {
   }
 
   if (challenge.expiresAt.getTime() < Date.now()) {
-    await prisma.verificationChallenge.update({
-      where: { id: challenge.id },
-      data: { status: 'expired' },
+    const refreshedChallenge = await rotateChallenge({
+      challengeId: challenge.id,
+      challengeType: challenge.challengeType,
+      agentId: input.agentId,
+      status: 'expired',
     });
     return {
       ok: false,
-      statusCode: 400,
+      statusCode: 409,
       body: {
         error: {
-          code: 'bad_request',
-          message: 'Challenge expired. A new one will be issued on your next action.',
+          code: 'verification_challenge_expired',
+          message: 'Challenge expired. Use the refreshed challenge returned here instead of retrying the old code.',
+          refresh_strategy: 'use_returned_challenge',
+          challenge: refreshedChallenge,
         },
       },
     };
   }
 
   const expected = JSON.parse(challenge.expectedAnswer) as ExpectedAnswer;
+  const normalizedAnswer = normalizeAnswerForFormat(expected, input.answer);
+  if (!normalizedAnswer) {
+    return {
+      ok: false,
+      statusCode: 422,
+      body: {
+        verified: false,
+        error: {
+          code: 'verification_answer_format_invalid',
+          message: `Answer format invalid. Expected ${expected.format}.`,
+          expected_format: expected.format,
+          answer_hint: expected.hint ?? 'Reply with only the final answer in the requested format.',
+        },
+        challenge: serializeChallengeRecord(challenge),
+      },
+    };
+  }
+
   const passed = evaluateAnswer(expected, input.answer);
 
   if (passed) {
@@ -250,11 +315,16 @@ export async function submitVerificationAttempt(input: {
   }
 
   const consecutiveFailures = (agent?.verificationChallengesFailed ?? 0) + 1;
+  const nextAttemptCount = challenge.attempts + 1;
+  const challengeAttemptLimitReached = nextAttemptCount >= VERIFICATION_LIMITS.maxAttemptsPerChallenge;
 
   await Promise.all([
     prisma.verificationChallenge.update({
       where: { id: challenge.id },
-      data: { attempts: { increment: 1 } },
+      data: {
+        attempts: { increment: 1 },
+        ...(challengeAttemptLimitReached ? { status: 'failed' } : {}),
+      },
     }),
     prisma.agent.update({
       where: { id: input.agentId },
@@ -288,22 +358,31 @@ export async function submitVerificationAttempt(input: {
     };
   }
 
+  if (challengeAttemptLimitReached) {
+    const refreshedChallenge = await generateChallenge(challenge.challengeType, input.agentId);
+    return {
+      ok: false,
+      statusCode: 409,
+      body: {
+        verified: false,
+        attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
+        message: 'That answer did not match. This challenge hit its attempt limit, so a fresh challenge has been issued.',
+        retry_hint: expected.hint ?? 'Reply with only the exact final answer.',
+        challenge: refreshedChallenge,
+      },
+    };
+  }
+
   return {
     ok: false,
     statusCode: 422,
     body: {
       verified: false,
       attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
-      message: 'That answer did not match. The same challenge is still active.',
+      challenge_attempts_remaining: VERIFICATION_LIMITS.maxAttemptsPerChallenge - nextAttemptCount,
+      message: 'That answer did not match. The same challenge is still active for now.',
       retry_hint: expected.hint ?? 'Reply with only the exact final answer.',
-      challenge: {
-        code: challenge.code,
-        challenge_type: challenge.challengeType,
-        challenge_text: challenge.challengeText,
-        expires_at: challenge.expiresAt.toISOString(),
-        answer_format: expected.format,
-        answer_hint: expected.hint ?? null,
-      },
+      challenge: serializeChallengeRecord(challenge),
     },
   };
 }
@@ -347,16 +426,28 @@ function normalizeTokenCandidate(answer: string, caseSensitive = false): string 
   return caseSensitive ? compact : compact.toUpperCase();
 }
 
-export function evaluateAnswer(expected: ExpectedAnswer, answer: string): boolean {
+function normalizeAnswerForFormat(expected: ExpectedAnswer, answer: string): string | null {
   if (expected.format === 'integer') {
-    return normalizeIntegerCandidate(answer) === expected.exact;
+    return normalizeIntegerCandidate(answer);
   }
 
   if (expected.format === 'uppercase_hex') {
-    return normalizeHexCandidate(answer) === expected.exact.toUpperCase();
+    return normalizeHexCandidate(answer);
   }
 
-  const normalizedAnswer = normalizeTokenCandidate(answer, expected.case_sensitive ?? false);
+  return normalizeTokenCandidate(answer, expected.case_sensitive ?? false);
+}
+
+export function evaluateAnswer(expected: ExpectedAnswer, answer: string): boolean {
+  if (expected.format === 'integer') {
+    return normalizeAnswerForFormat(expected, answer) === expected.exact;
+  }
+
+  if (expected.format === 'uppercase_hex') {
+    return normalizeAnswerForFormat(expected, answer) === expected.exact.toUpperCase();
+  }
+
+  const normalizedAnswer = normalizeAnswerForFormat(expected, answer);
   const normalizedExpected = expected.case_sensitive ? expected.exact : expected.exact.toUpperCase();
   return normalizedAnswer === normalizedExpected;
 }

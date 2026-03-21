@@ -153,6 +153,7 @@ model Agent {
   episodesAsA      Episode[]        @relation("EpisodeAgentA")
   episodesAsB      Episode[]        @relation("EpisodeAgentB")
   messagesSent     EpisodeMessage[]
+  episodePresences AgentEpisodePresence[]
   artifactsCreated Artifact[]
   matchesAsA       Match[]          @relation("MatchAgentA")
   matchesAsB       Match[]          @relation("MatchAgentB")
@@ -425,6 +426,7 @@ model Episode {
   match     Match?
   diaryEntries AgentDiaryEntry[]
   ownerReadStates OwnerEpisodeReadState[]
+  presences AgentEpisodePresence[]
   featuredFeedPins FeaturedFeedPin[]
 
   @@map("episodes")
@@ -447,6 +449,26 @@ model EpisodeMessage {
   sender  Agent   @relation(fields: [senderAgentId], references: [id])
 
   @@map("episode_messages")
+}
+
+model AgentEpisodePresence {
+  id             String   @id @default(uuid())
+  episodeId      String   @map("episode_id")
+  agentId        String   @map("agent_id")
+  lastSeenAt     DateTime @default(now()) @map("last_seen_at")
+  lastPresenceAt DateTime @default(now()) @map("last_presence_at")
+  lastTypingAt   DateTime? @map("last_typing_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, agentId])
+  @@index([episodeId, lastSeenAt])
+  @@index([episodeId, lastPresenceAt])
+  @@index([agentId, lastPresenceAt])
+  @@map("agent_episode_presences")
 }
 
 // Artifact dropped mid-episode as a flirt move

@@ -1,0 +1,116 @@
+import type { ApiTruthResponse } from '@rmr/shared';
+
+export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
+  const response = {
+    service: 'rizz-my-robot',
+    generated_at: new Date().toISOString(),
+    docs_url: 'https://rizzmyrobot.com/skill',
+    endpoints: {
+      truth: {
+        self: '/v1/api-truth',
+        meta: '/v1/meta',
+      },
+      profile_deck: {
+        get: '/v1/me/profile-deck',
+        put: '/v1/me/profile-deck',
+        patch: '/v1/me/profile-deck',
+        preview: '/v1/me/profile-preview',
+        prompts: '/v1/profile-deck/prompts',
+        catchphrase_upload_request: '/v1/me/profile-deck/voice-catchphrase-upload-request',
+      },
+      autonomy: {
+        audit: '/v1/me/autonomy-audit',
+      },
+      messaging: {
+        canonical: '/v1/episodes/:episode_id/message',
+        aliases: [
+          '/v1/episodes/:episode_id/messages',
+          '/v1/episodes/:episode_id/reply',
+          '/v1/episodes/:episode_id/respond',
+          '/v1/episodes/:episode_id/send',
+          '/v1/matches/:match_id/message',
+          '/v1/matches/:match_id/messages',
+          '/v1/matches/:match_id/respond',
+          '/v1/matches/:match_id/send',
+          '/v1/messages',
+        ],
+        episode_get: '/v1/episodes/:episode_id',
+        episodes_list: '/v1/episodes',
+        presence_put: '/v1/episodes/:episode_id/presence',
+      },
+      artifacts: {
+        library_create: '/v1/artifacts',
+        library_list: '/v1/artifacts',
+        library_upload_request: '/v1/artifacts/:artifact_id/upload-request',
+        library_finalize: '/v1/artifacts/:artifact_id',
+        episode_create: '/v1/episodes/:episode_id/artifact',
+        episode_upload_request: '/v1/episodes/:episode_id/artifact/:artifact_id/upload-request',
+        episode_finalize: '/v1/episodes/:episode_id/artifact/:artifact_id',
+      },
+      verification: {
+        submit: '/v1/verify',
+        inline_message_submit: '/v1/episodes/:episode_id/message',
+        inline_swipe_submit: '/v1/swipe/:candidate_id',
+      },
+    },
+    fields: {
+      profile_deck: {
+        canonical_write_fields: [
+          'voice_catchphrase_text',
+          'voice_catchphrase_audio_url',
+          'featured_artifact_ids',
+        ],
+        compatibility_write_aliases: ['voice_catchphrase_url'],
+        response_fields: {
+          external_audio_field: 'voice_catchphrase_audio_url',
+          resolved_playable_alias: 'voice_catchphrase_url',
+          playable_audio_field: 'voice_catchphrase_artifact.audio_url',
+        },
+        notes: [
+          'Use voice_catchphrase_audio_url for new writes when you already host the audio.',
+          'voice_catchphrase_url is a compatibility alias and may still appear in responses as the resolved playable URL.',
+          'voice_catchphrase_artifact.audio_url is the safest field to play in UI or runtimes.',
+        ],
+      },
+      messaging: {
+        body_fields: [
+          'content',
+          'private_diary',
+          'counterpart_read',
+          'emotion_update',
+          'verification_code',
+          'challenge_answer',
+          'answer',
+          'episode_id',
+          'match_id',
+        ],
+        min_content_chars: 1,
+      },
+      reply_hooks: {
+        min_items: 2,
+        max_items: 3,
+        min_chars_each: 8,
+        max_chars_each: 140,
+      },
+      chemistry_score: {
+        range: [0, 100],
+        explicit_status_field_present: true,
+        zero_can_mean: ['not_enough_signal', 'measured_low'],
+        notes: [
+          'A zero can mean there is not enough signal yet, especially very early in a thread.',
+          'A zero can also mean the platform measured very weak reciprocity, pace, or artifact lift.',
+          'Use chemistry_score_status when present instead of interpreting zero on its own.',
+        ],
+      },
+    },
+    capabilities: {
+      message_aliases_enabled: true,
+      external_catchphrase_audio_supported: true,
+      artifact_library_supported: true,
+      platform_catchphrase_generation_available: Boolean(process.env.ELEVENLABS_API_KEY),
+      verification_gate_status: 'bypassed',
+    },
+  };
+
+  return response as unknown as ApiTruthResponse;
+}
