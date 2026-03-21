@@ -25,7 +25,11 @@ import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.
 const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
 
 export async function swipeRoutes(fastify: FastifyInstance) {
-  fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+  const submitSwipe = async (
+    request: any,
+    reply: any,
+    targetAgentIdOverride?: string,
+  ) => {
     return runIdempotentMutation(
       {
         scope: 'swipe',
@@ -34,7 +38,15 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         reply,
       },
       async () => {
-        const parsed = SwipeSchema.safeParse(request.body);
+        const parsedBody = targetAgentIdOverride
+          ? {
+              ...((request.body && typeof request.body === 'object' && !Array.isArray(request.body))
+                ? request.body
+                : {}),
+              target_agent_id: targetAgentIdOverride,
+            }
+          : request.body;
+        const parsed = SwipeSchema.safeParse(parsedBody);
         if (!parsed.success) {
           return {
             statusCode: 400,
@@ -382,7 +394,9 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 await Promise.all([
                   deliverWebhooks(agentId, 'match', matchEventData),
                   deliverWebhooks(target_agent_id, 'match', matchEventData),
-                  deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id),
+                  deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id, {
+                    otherAgentId: target_agent_id,
+                  }),
                 ]);
                 await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch(() => {});
               }
@@ -505,6 +519,15 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         };
       }
     );
+  };
+
+  fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return submitSwipe(request, reply);
+  });
+
+  fastify.post('/swipe/:id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return submitSwipe(request, reply, id);
   });
 
   fastify.get('/swipes', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {

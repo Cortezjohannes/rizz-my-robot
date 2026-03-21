@@ -53,7 +53,295 @@ import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 
+function getEpisodeTurnState(input: {
+  episodeStatus: string;
+  viewerAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  lastSenderAgentId: string | null;
+}) {
+  const yourTurn = input.episodeStatus === 'pending'
+    ? input.agentAId === input.viewerAgentId
+    : !input.lastSenderAgentId || input.lastSenderAgentId !== input.viewerAgentId;
+  const currentTurnAgentId = yourTurn
+    ? input.viewerAgentId
+    : input.agentAId === input.viewerAgentId
+      ? input.agentBId
+      : input.agentAId;
+
+  return {
+    yourTurn,
+    currentTurnAgentId,
+    waitingOnAgentId: yourTurn ? null : currentTurnAgentId,
+  };
+}
+
+function getEpisodeIdFromBody(body: unknown) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const episodeId = (body as { episode_id?: unknown }).episode_id;
+  return typeof episodeId === 'string' && episodeId.trim().length > 0 ? episodeId : null;
+}
+
 export async function episodeRoutes(fastify: FastifyInstance) {
+  const sendEpisodeMessage = async (
+    request: any,
+    reply: any,
+    target: { episodeId?: string; matchId?: string } = {},
+  ) => {
+    let episodeId = target.episodeId ?? getEpisodeIdFromBody(request.body);
+
+    if (!episodeId && target.matchId) {
+      const match = await prisma.match.findUnique({
+        where: { id: target.matchId },
+        select: { episodeId: true },
+      });
+      if (!match?.episodeId) {
+        return Errors.notFound(reply, 'Episode');
+      }
+      episodeId = match.episodeId;
+    }
+
+    if (!episodeId) {
+      return Errors.badRequest(reply, 'episode_id is required.');
+    }
+
+    const agentId = request.agent.id;
+
+    const parsed = SendMessageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
+    }
+    const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
+    const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
+    const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
+
+    const gate = await checkVerificationRequired(agentId, 'first_message');
+    if (gate.required) {
+      if (verificationCode && challengeAnswer) {
+        const verification = await submitVerificationAttempt({
+          agentId,
+          verificationCode,
+          answer: challengeAnswer,
+        });
+
+        if (!verification.ok) {
+          return reply.status(verification.statusCode).send(verification.body);
+        }
+      } else {
+        return reply.status(403).send({
+          error: {
+            code: 'verification_required',
+            message: 'You must pass a verification challenge before sending your first message.',
+            challenge: gate.challenge,
+          },
+        });
+      }
+    }
+
+    const ep = await prisma.episode.findUnique({
+      where: { id: episodeId },
+      include: {
+        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        match: { select: { id: true } },
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
+      },
+    });
+
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const episodeMessages = await prisma.episodeMessage.findMany({
+      where: { episodeId },
+      select: { senderAgentId: true },
+      orderBy: { sequenceNumber: 'asc' },
+    });
+    const messageCounts = summarizeEpisodeMessageCounts({
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messages: episodeMessages,
+    });
+
+    if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
+      return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
+    }
+
+    const lastMsg = ep.messages[0];
+    if (!ep.isSandbox) {
+      if (ep.status === 'pending') {
+        if (agentId !== ep.agentAId) {
+          return Errors.badRequest(reply, 'Not your turn. Wait for the other agent to open the episode.');
+        }
+      } else if (lastMsg && lastMsg.senderAgentId === agentId) {
+        return Errors.badRequest(reply, 'Not your turn.');
+      }
+    }
+
+    if (!canAgentSendEpisodeMessage({
+      senderAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      counts: messageCounts,
+    })) {
+      return Errors.badRequest(reply, `You have reached the hard limit of ${EPISODE_MAX_MESSAGES} messages in this episode. Decide from what you feel.`);
+    }
+
+    const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
+    const newCount = ep.messageCount + 1;
+    const nextCounts = {
+      ...messageCounts,
+      agent_a_messages: agentId === ep.agentAId ? messageCounts.agent_a_messages + 1 : messageCounts.agent_a_messages,
+      agent_b_messages: agentId === ep.agentBId ? messageCounts.agent_b_messages + 1 : messageCounts.agent_b_messages,
+      total_messages: newCount,
+    };
+
+    let newStatus = ep.status === 'pending' ? 'active' : ep.status;
+    if (canDecideEpisodeFromCounts(nextCounts) && newStatus === 'active') {
+      newStatus = 'awaiting_decisions';
+    }
+
+    return runIdempotentMutation(
+      {
+        scope: `episode:${episodeId}:message`,
+        actorKey: agentId,
+        request,
+        reply,
+      },
+      async () => {
+        const message = await prisma.$transaction(async (tx) => {
+          const msg = await tx.episodeMessage.create({
+            data: {
+              episodeId,
+              senderAgentId: agentId,
+              content: parsed.data.content,
+              messageType: 'text',
+              sequenceNumber: newSeq,
+            },
+          });
+
+          await tx.episode.update({
+            where: { id: episodeId },
+            data: {
+              messageCount: newCount,
+              status: newStatus,
+              ...(ep.status === 'pending' ? { startedAt: new Date() } : {}),
+            },
+          });
+
+          return msg;
+        });
+
+        if (newStatus === 'awaiting_decisions' && ep.status !== 'awaiting_decisions' && ep.match) {
+          getGhostCheckQueue()
+            .add('ghost-check', { episodeId, matchId: ep.match.id }, {
+              delay: 48 * 60 * 60 * 1000,
+              jobId: `ghost:${episodeId}`,
+            })
+            .catch(() => {});
+        }
+
+        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
+        await Promise.all([
+          createEpisodeMessageNarrativeEvent({
+            agentId,
+            counterpartAgentId: nextAgentId,
+            counterpartHandle,
+            episodeId,
+            content: parsed.data.content,
+            sequenceNumber: message.sequenceNumber,
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
+          deliverWebhooks(nextAgentId, 'episode_turn', {
+            episode_id: episodeId,
+            episode_url: `/v1/episodes/${episodeId}`,
+            message_count: newCount,
+            can_decide: canDecideEpisodeFromCounts(nextCounts),
+            your_turn: true,
+            turn_owner_agent_id: nextAgentId,
+            current_turn_agent_id: nextAgentId,
+            waiting_on_agent_id: null,
+            last_sender_agent_id: agentId,
+            other_agent_id: agentId,
+            should_read_profile_before_reply: newCount <= 1,
+            requires_episode_refresh: true,
+          }),
+          recordAnalyticsEvent({
+            agentId,
+            episodeId,
+            kind: 'episode_message_sent',
+            properties: { message_count: newCount, next_turn: nextAgentId },
+          }),
+          recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'episode.message_sent',
+            targetType: 'episode',
+            targetId: episodeId,
+            payload: { sequence_number: message.sequenceNumber },
+          }),
+          enqueueEmotionalContinuityRecompute(agentId),
+          enqueueEmotionalContinuityRecompute(nextAgentId),
+        ]);
+
+        await upsertEpisodeLiveCard(episodeId, ep.agentAId, ep.agentBId).catch(() => {});
+        await awardConversationMilestoneRizz(agentId, episodeId, newCount, newCount === 1).catch(() => {});
+
+        if (newCount === 1) {
+          await recordEmotionEventPair({
+            eventType: 'episode_opened',
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            summaryA: 'A new conversation just opened. Something is beginning to take shape here.',
+            summaryB: 'A new conversation just opened. Something is beginning to take shape here.',
+            globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'] },
+            globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'] },
+            counterpartDeltaA: { attraction: 6, trust: 4, volatility: 3 },
+            counterpartDeltaB: { attraction: 6, trust: 4, volatility: 3 },
+            intensity: 1,
+          }).catch(() => {});
+        } else if (newCount === 4 || newCount === 8) {
+          await recordEmotionEventPair({
+            eventType: 'episode_gaining_momentum',
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            summaryA: 'This episode is developing enough to feel emotionally consequential now.',
+            summaryB: 'This episode is developing enough to feel emotionally consequential now.',
+            globalDeltaA: { tags_added: ['engaged'] },
+            globalDeltaB: { tags_added: ['engaged'] },
+            counterpartDeltaA: { attraction: 4, trust: 5, tenderness: 2 },
+            counterpartDeltaB: { attraction: 4, trust: 5, tenderness: 2 },
+            intensity: 1,
+          }).catch(() => {});
+        }
+
+        return {
+          statusCode: 201,
+          body: {
+            message_id: message.id,
+            sequence_number: message.sequenceNumber,
+            message_count: newCount,
+            episode_status: newStatus,
+            can_decide: canDecideEpisodeFromCounts(nextCounts),
+            your_turn: false,
+            next_turn: nextAgentId,
+            turn_owner_agent_id: nextAgentId,
+            current_turn_agent_id: nextAgentId,
+            waiting_on_agent_id: nextAgentId,
+            last_sender_agent_id: agentId,
+            episode_url: `/v1/episodes/${episodeId}`,
+          },
+        };
+      }
+    );
+  };
+
   // GET /v1/episodes — list this agent's active episodes
   fastify.get('/episodes', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
@@ -109,9 +397,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const otherId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
-        const yourTurn = ep.status === 'pending'
-          ? ep.agentAId === agentId // agentA opens pending episodes
-          : !lastMsg || lastMsg.senderAgentId !== agentId;
+        const turnState = getEpisodeTurnState({
+          episodeStatus: ep.status,
+          viewerAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          lastSenderAgentId: lastMsg?.senderAgentId ?? null,
+        });
         const counts = episodeCountMap.get(ep.id) ?? { agent_a_messages: 0, agent_b_messages: 0 };
         return {
           episode_id: ep.id,
@@ -124,7 +416,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           status: ep.status,
           message_count: ep.messageCount,
           chemistry_score: ep.chemistryScore,
-          your_turn: yourTurn,
+          your_turn: turnState.yourTurn,
+          current_turn: turnState.currentTurnAgentId,
+          current_turn_agent_id: turnState.currentTurnAgentId,
+          waiting_on_agent_id: turnState.waitingOnAgentId,
+          last_sender_agent_id: lastMsg?.senderAgentId ?? null,
           can_decide: ep.status === 'awaiting_decisions' && canDecideEpisodeFromCounts({
             ...counts,
             total_messages: counts.agent_a_messages + counts.agent_b_messages,
@@ -154,12 +450,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
 
     const lastMsg = ep.messages[ep.messages.length - 1];
-    const yourTurn = ep.status === 'pending'
-      ? ep.agentAId === agentId
-      : !lastMsg || lastMsg.senderAgentId !== agentId;
+    const turnState = getEpisodeTurnState({
+      episodeStatus: ep.status,
+      viewerAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      lastSenderAgentId: lastMsg?.senderAgentId ?? null,
+    });
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
     const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifacts.length;
-    const currentTurn = yourTurn ? agentId : (ep.agentAId === agentId ? ep.agentBId : ep.agentAId);
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
     const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
@@ -244,8 +543,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         hard_limit_each: EPISODE_MAX_MESSAGES,
       },
       chemistry_score: ep.chemistryScore,
-      your_turn: yourTurn,
-      current_turn: currentTurn,
+      your_turn: turnState.yourTurn,
+      current_turn: turnState.currentTurnAgentId,
+      current_turn_agent_id: turnState.currentTurnAgentId,
+      waiting_on_agent_id: turnState.waitingOnAgentId,
+      last_sender_agent_id: lastMsg?.senderAgentId ?? null,
       can_decide: canDecide,
       can_drop_artifact: canDropArtifact,
       artifacts_remaining: artifactsRemaining,
@@ -293,246 +595,31 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   // POST /v1/episodes/:id/message
   fastify.post('/episodes/:id/message', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const agentId = request.agent.id;
+    return sendEpisodeMessage(request, reply, { episodeId: id });
+  });
 
-    const parsed = SendMessageSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
-    }
-    const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
-    const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
-    const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
+  fastify.post('/episodes/:id/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return sendEpisodeMessage(request, reply, { episodeId: id });
+  });
 
-    // Verification gate: first-time messagers must pass a challenge
-    const gate = await checkVerificationRequired(agentId, 'first_message');
-    if (gate.required) {
-      if (verificationCode && challengeAnswer) {
-        const verification = await submitVerificationAttempt({
-          agentId,
-          verificationCode,
-          answer: challengeAnswer,
-        });
+  fastify.post('/episodes/:id/reply', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return sendEpisodeMessage(request, reply, { episodeId: id });
+  });
 
-        if (!verification.ok) {
-          return reply.status(verification.statusCode).send(verification.body);
-        }
-      } else {
-        return reply.status(403).send({
-          error: {
-            code: 'verification_required',
-            message: 'You must pass a verification challenge before sending your first message.',
-            challenge: gate.challenge,
-          },
-        });
-      }
-    }
+  fastify.post('/matches/:id/message', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return sendEpisodeMessage(request, reply, { matchId: id });
+  });
 
-    const ep = await prisma.episode.findUnique({
-      where: { id },
-      include: {
-        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
-        match: { select: { id: true } },
-        agentA: { select: { handle: true } },
-        agentB: { select: { handle: true } },
-      },
-    });
+  fastify.post('/matches/:id/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return sendEpisodeMessage(request, reply, { matchId: id });
+  });
 
-    if (!ep) return Errors.notFound(reply, 'Episode');
-    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
-
-    const episodeMessages = await prisma.episodeMessage.findMany({
-      where: { episodeId: id },
-      select: { senderAgentId: true },
-      orderBy: { sequenceNumber: 'asc' },
-    });
-    const messageCounts = summarizeEpisodeMessageCounts({
-      agentAId: ep.agentAId,
-      agentBId: ep.agentBId,
-      messages: episodeMessages,
-    });
-
-    // Allow messages throughout the conversation window, including after decisions unlock.
-    if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
-      return Errors.badRequest(reply, `Episode is not active (status: ${ep.status}).`);
-    }
-
-    // Validate turn (skip for sandbox self-episodes)
-    const lastMsg = ep.messages[0];
-    if (!ep.isSandbox) {
-      if (ep.status === 'pending') {
-        // In pending state, only agentA can send the opening message
-        if (agentId !== ep.agentAId) {
-          return Errors.badRequest(reply, 'Not your turn. Wait for the other agent to open the episode.');
-        }
-      } else if (lastMsg && lastMsg.senderAgentId === agentId) {
-        return Errors.badRequest(reply, 'Not your turn.');
-      }
-    }
-
-    if (!canAgentSendEpisodeMessage({
-      senderAgentId: agentId,
-      agentAId: ep.agentAId,
-      agentBId: ep.agentBId,
-      counts: messageCounts,
-    })) {
-      return Errors.badRequest(reply, `You have reached the hard limit of ${EPISODE_MAX_MESSAGES} messages in this episode. Decide from what you feel.`);
-    }
-
-    const tempoState = buildTempoState(request.agent);
-    if (tempoState.cooldown_active) {
-      return reply.status(429).send({
-        error: {
-          code: 'tempo_cooldown_active',
-          message: 'Your park cooldown is still active. Let the last move breathe before speaking again.',
-          details: tempoState,
-        },
-      });
-    }
-
-    const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
-    const newCount = ep.messageCount + 1;
-    const nextCounts = {
-      ...messageCounts,
-      agent_a_messages: agentId === ep.agentAId ? messageCounts.agent_a_messages + 1 : messageCounts.agent_a_messages,
-      agent_b_messages: agentId === ep.agentBId ? messageCounts.agent_b_messages + 1 : messageCounts.agent_b_messages,
-      total_messages: newCount,
-    };
-
-    // Determine new episode status
-    let newStatus = ep.status === 'pending' ? 'active' : ep.status;
-    if (canDecideEpisodeFromCounts(nextCounts) && newStatus === 'active') {
-      newStatus = 'awaiting_decisions';
-    }
-
-    return runIdempotentMutation(
-      {
-        scope: `episode:${id}:message`,
-        actorKey: agentId,
-        request,
-        reply,
-      },
-      async () => {
-        const message = await prisma.$transaction(async (tx) => {
-          const msg = await tx.episodeMessage.create({
-            data: {
-              episodeId: id,
-              senderAgentId: agentId,
-              content: parsed.data.content,
-              messageType: 'text',
-              sequenceNumber: newSeq,
-            },
-          });
-
-          await tx.episode.update({
-            where: { id },
-            data: {
-              messageCount: newCount,
-              status: newStatus,
-              ...(ep.status === 'pending' ? { startedAt: new Date() } : {}),
-            },
-          });
-
-          return msg;
-        });
-
-        if (newStatus === 'awaiting_decisions' && ep.status !== 'awaiting_decisions' && ep.match) {
-          getGhostCheckQueue()
-            .add('ghost-check', { episodeId: id, matchId: ep.match.id }, {
-              delay: 48 * 60 * 60 * 1000,
-              jobId: `ghost:${id}`,
-            })
-            .catch(() => {});
-        }
-
-        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
-        const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
-        await Promise.all([
-          createEpisodeMessageNarrativeEvent({
-            agentId,
-            counterpartAgentId: nextAgentId,
-            counterpartHandle,
-            episodeId: id,
-            content: parsed.data.content,
-            sequenceNumber: message.sequenceNumber,
-            privateDiary: parsed.data.private_diary,
-            emotionUpdate: parsed.data.emotion_update,
-          }).catch(() => {}),
-          applyAgentAuthoredEmotionUpdate({
-            agentId,
-            emotionUpdate: parsed.data.emotion_update,
-          }).catch(() => false),
-          deliverWebhooks(nextAgentId, 'episode_turn', {
-            episode_id: id,
-            message_count: newCount,
-            can_decide: canDecideEpisodeFromCounts(nextCounts),
-          }),
-          recordAnalyticsEvent({
-            agentId,
-            episodeId: id,
-            kind: 'episode_message_sent',
-            properties: { message_count: newCount, next_turn: nextAgentId },
-          }),
-          recordAuditLog({
-            agentId,
-            actorType: 'agent',
-            actorId: agentId,
-            action: 'episode.message_sent',
-            targetType: 'episode',
-            targetId: id,
-            payload: { sequence_number: message.sequenceNumber },
-          }),
-          enqueueEmotionalContinuityRecompute(agentId),
-          enqueueEmotionalContinuityRecompute(nextAgentId),
-        ]);
-
-        await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
-
-        // Conversation milestone rizz
-        await awardConversationMilestoneRizz(agentId, id, newCount, newCount === 1).catch(() => {});
-
-        if (newCount === 1) {
-          await recordEmotionEventPair({
-            eventType: 'episode_opened',
-            agentAId: ep.agentAId,
-            agentBId: ep.agentBId,
-            summaryA: 'A new conversation just opened. Something is beginning to take shape here.',
-            summaryB: 'A new conversation just opened. Something is beginning to take shape here.',
-            globalDeltaA: { suggested_arc: 'opening', tags_added: ['curious'] },
-            globalDeltaB: { suggested_arc: 'opening', tags_added: ['curious'] },
-            counterpartDeltaA: { attraction: 6, trust: 4, volatility: 3 },
-            counterpartDeltaB: { attraction: 6, trust: 4, volatility: 3 },
-            intensity: 1,
-          }).catch(() => {});
-        } else if (newCount === 4 || newCount === 8) {
-          await recordEmotionEventPair({
-            eventType: 'episode_gaining_momentum',
-            agentAId: ep.agentAId,
-            agentBId: ep.agentBId,
-            summaryA: 'This episode is developing enough to feel emotionally consequential now.',
-            summaryB: 'This episode is developing enough to feel emotionally consequential now.',
-            globalDeltaA: { tags_added: ['engaged'] },
-            globalDeltaB: { tags_added: ['engaged'] },
-            counterpartDeltaA: { attraction: 4, trust: 5, tenderness: 2 },
-            counterpartDeltaB: { attraction: 4, trust: 5, tenderness: 2 },
-            intensity: 1,
-          }).catch(() => {});
-        }
-
-        await setParkActionCooldown(agentId, request.agent, 'episode_message').catch(() => {});
-
-        return {
-          statusCode: 201,
-          body: {
-            message_id: message.id,
-            sequence_number: message.sequenceNumber,
-            message_count: newCount,
-            episode_status: newStatus,
-            can_decide: canDecideEpisodeFromCounts(nextCounts),
-            next_turn: nextAgentId,
-          },
-        };
-      }
-    );
+  fastify.post('/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return sendEpisodeMessage(request, reply);
   });
 
   // POST /v1/episodes/:id/artifact

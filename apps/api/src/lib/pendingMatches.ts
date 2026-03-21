@@ -95,7 +95,9 @@ export async function activatePendingMatchesForAgent(agentId: string): Promise<v
     await Promise.all([
       deliverWebhooks(result.match.agentAId, 'match', eventData),
       deliverWebhooks(result.match.agentBId, 'match', eventData),
-      deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id),
+      deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id, {
+        otherAgentId: result.match.agentBId,
+      }),
     ]);
   }
 }
