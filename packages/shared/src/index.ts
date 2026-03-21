@@ -33,6 +33,7 @@ export {
   OwnerAuthVerifySchema,
   OwnerRenameHandleSchema,
   OwnerSocialsSchema,
+  OwnerPreferencesSchema,
   type ClaimStatus as ClaimStatusType,
   type UsernameInput,
   type ExtraSocialsInput,
@@ -49,6 +50,7 @@ export {
   type OwnerAuthVerifyInput,
   type OwnerRenameHandleInput,
   type OwnerSocialsInput,
+  type OwnerPreferencesInput,
 } from './claims.js';
 export {
   evaluateHumanCompatibility,

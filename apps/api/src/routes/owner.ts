@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import {
   OwnerAuthRequestSchema,
   OwnerAuthVerifySchema,
+  OwnerPreferencesSchema,
   OwnerRenameHandleSchema,
   OwnerSocialsSchema,
   normalizeArtifactType,
@@ -1161,6 +1162,50 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     return reply.send({
       instagram_handle: updated.instagramHandle,
       extra_socials: updated.extraSocials ?? null,
+    });
+  });
+
+  fastify.put('/owner/preferences', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const parsed = OwnerPreferencesSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid owner preferences payload.', { issues: parsed.error.issues });
+    }
+
+    const updated = await prisma.ownerAccount.update({
+      where: { id: request.ownerAccount.id },
+      data: {
+        humanIdentity: parsed.data.human_identity ?? null,
+        lookingFor: parsed.data.looking_for ?? [],
+      },
+      select: {
+        id: true,
+        email: true,
+        humanIdentity: true,
+        lookingFor: true,
+        instagramHandle: true,
+        extraSocials: true,
+        xHandle: true,
+        xDisplayName: true,
+        xProfileImageUrl: true,
+      },
+    });
+
+    return reply.send({
+      owner: {
+        id: updated.id,
+        email: updated.email,
+        human_identity: updated.humanIdentity,
+        looking_for: updated.lookingFor,
+        instagram_handle: updated.instagramHandle,
+        extra_socials: updated.extraSocials ?? null,
+        x_account: updated.xHandle
+          ? {
+              handle: updated.xHandle,
+              display_name: updated.xDisplayName,
+              profile_image_url: updated.xProfileImageUrl,
+            }
+          : null,
+      },
     });
   });
 

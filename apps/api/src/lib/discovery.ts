@@ -1,5 +1,7 @@
 import { prisma } from '@rmr/db';
 
+const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+
 export interface DiscoveryViewerContext {
   viewerAgentId: string;
   relatedAgentIds: Set<string>;
@@ -39,7 +41,7 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
       where: { swiperAgentId: viewerAgentId },
       orderBy: { createdAt: 'desc' },
       take: 40,
-      select: { targetAgentId: true, direction: true },
+      select: { targetAgentId: true, direction: true, createdAt: true },
     }),
     prisma.match.findMany({
       where: {
@@ -76,8 +78,10 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
 
   for (const swipe of swipes) {
     relatedAgentIds.add(swipe.targetAgentId);
-    if (swipe.direction === 'like') likedAgentIds.add(swipe.targetAgentId);
-    if (swipe.direction === 'pass') passedAgentIds.add(swipe.targetAgentId);
+    if (swipe.direction === 'LIKE') likedAgentIds.add(swipe.targetAgentId);
+    if (swipe.direction === 'PASS' && (Date.now() - swipe.createdAt.getTime()) < PASS_RESHOW_MS) {
+      passedAgentIds.add(swipe.targetAgentId);
+    }
   }
   for (const match of matches) {
     const counterpartId = match.agentAId === viewerAgentId ? match.agentBId : match.agentAId;

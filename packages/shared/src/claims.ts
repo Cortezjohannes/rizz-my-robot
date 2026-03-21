@@ -137,3 +137,9 @@ export const OwnerSocialsSchema = z.object({
   extra_socials: ExtraSocialsSchema.optional(),
 });
 export type OwnerSocialsInput = z.infer<typeof OwnerSocialsSchema>;
+
+export const OwnerPreferencesSchema = z.object({
+  human_identity: HumanIdentitySchema.nullish(),
+  looking_for: z.array(LookingForSchema).max(5).optional(),
+});
+export type OwnerPreferencesInput = z.infer<typeof OwnerPreferencesSchema>;
