@@ -59,25 +59,23 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     await prisma.agent.update({ where: { id: agentId }, data: updates });
 
     // Count pending actions
-    const [episodesYourTurn, unreadMatches] = await Promise.all([
-      prisma.episode.count({
+    const [episodesNeedingTurnCheck, unreadMatches] = await Promise.all([
+      prisma.episode.findMany({
         where: {
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
           status: { in: ['pending', 'active', 'awaiting_decisions'] },
           isSandbox: false,
+        },
+        select: {
+          agentAId: true,
+          agentBId: true,
+          status: true,
           messages: {
-            every: { senderAgentId: { not: agentId } },
+            orderBy: { sequenceNumber: 'desc' },
+            take: 1,
+            select: { senderAgentId: true },
           },
         },
-      }).catch(() => {
-        // Fallback: count episodes where the agent might need to act
-        return prisma.episode.count({
-          where: {
-            OR: [{ agentAId: agentId }, { agentBId: agentId }],
-            status: { in: ['pending', 'active', 'awaiting_decisions'] },
-            isSandbox: false,
-          },
-        });
       }),
       prisma.match.count({
         where: {
@@ -89,6 +87,12 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
         },
       }),
     ]);
+    const episodesYourTurn = episodesNeedingTurnCheck.filter((episode) => {
+      const lastSenderAgentId = episode.messages[0]?.senderAgentId ?? null;
+      return episode.status === 'pending'
+        ? episode.agentAId === agentId
+        : !lastSenderAgentId || lastSenderAgentId !== agentId;
+    }).length;
 
     const poolPosition = computePoolPosition(now); // Just heartbeated, so always 'active'
     const timeUntilDeprioritized = Math.floor(HEARTBEAT_DEPRIORITIZE_MS / 1000);

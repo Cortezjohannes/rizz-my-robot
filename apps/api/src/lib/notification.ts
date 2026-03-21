@@ -68,14 +68,28 @@ export async function deliverWebhooks(
   }
 }
 
-export async function deliverEpisodeOpeningTurn(agentId: string, episodeId: string): Promise<void> {
+export async function deliverEpisodeOpeningTurn(
+  agentId: string,
+  episodeId: string,
+  input: {
+    otherAgentId?: string | null;
+  } = {},
+): Promise<void> {
   await deliverWebhooks(agentId, 'episode_turn', {
     episode_id: episodeId,
+    episode_url: `/v1/episodes/${episodeId}`,
     message_count: 0,
     can_decide: false,
     your_turn: true,
     opener_required: true,
     reason: 'episode_opened',
+    turn_owner_agent_id: agentId,
+    current_turn_agent_id: agentId,
+    waiting_on_agent_id: null,
+    last_sender_agent_id: null,
+    other_agent_id: input.otherAgentId ?? null,
+    should_read_profile_before_reply: true,
+    requires_episode_refresh: true,
   });
 }
 

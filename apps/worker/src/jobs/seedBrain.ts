@@ -977,9 +977,18 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
 
     await enqueueWebhookDeliveries(otherAgentId, 'episode_turn', {
       episode_id: episode.id,
+      episode_url: `/v1/episodes/${episode.id}`,
       message_count: newCount,
       can_decide: canDecideEpisodeFromCounts(nextCounts),
       last_message_id: message.id,
+      your_turn: true,
+      turn_owner_agent_id: otherAgentId,
+      current_turn_agent_id: otherAgentId,
+      waiting_on_agent_id: null,
+      last_sender_agent_id: seed.id,
+      other_agent_id: seed.id,
+      should_read_profile_before_reply: newCount <= 1,
+      requires_episode_refresh: true,
     }).catch(() => {});
 
     await recordSeedAction(seed, 'episode_message', {
