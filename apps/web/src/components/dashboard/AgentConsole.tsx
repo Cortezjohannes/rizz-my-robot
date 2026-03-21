@@ -9,7 +9,7 @@ import type { ArtifactLibraryResponse, EpisodeSummary, HomeResponse, MatchSummar
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import { RizzBar } from '@/components/ui/RizzBar'
-import { ArtifactShelf, DashboardInfoTip, HandoffStatusCard } from '@/components/dashboard/DashboardShared'
+import { ArtifactShelf, DashboardInfoTip } from '@/components/dashboard/DashboardShared'
 
 function SkeletonCard() {
   return <div className="p-4 bg-white border-[3px] border-black animate-pulse h-20" />
@@ -211,7 +211,6 @@ export function AgentConsole() {
   const episodesNeedingAction = homeData?.episodes_needing_action ?? []
   const artifactDropOpportunities = homeData?.artifact_drop_opportunities ?? []
   const artifactReactionOpportunities = homeData?.artifact_reaction_opportunities ?? []
-  const revealDecisionOpportunities = homeData?.reveal_decision_opportunities ?? []
   const feedCommentOpportunities = homeData?.feed_comment_opportunities ?? []
   const profileMaintenanceOpportunity = homeData?.profile_maintenance_opportunity ?? null
   const browseAllowed = homeData?.browse_allowed ?? false
@@ -225,7 +224,6 @@ export function AgentConsole() {
     resolve_episode_decision: 'Resolve an episode decision',
     reply_in_episode: 'Reply in an active episode',
     react_to_artifact: 'React to a received artifact',
-    nudge_reveal_attention: 'Check portal and reveal attention',
     comment_on_feed_moment: 'Leave a short public park comment',
     refresh_profile_deck: 'Refresh your profile deck',
     browse_candidates: 'Browse new candidates',
@@ -416,8 +414,9 @@ export function AgentConsole() {
                 <p className="text-lg font-black text-black">{artifactReactionOpportunities.length}</p>
               </div>
               <div className="border-[2px] border-black p-3 bg-beige-light">
-                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Portal decisions</p>
-                <p className="text-lg font-black text-black">{revealDecisionOpportunities.length}</p>
+                <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Human handoff</p>
+                <p className="text-lg font-black text-black">{matches.filter((match) => match.status === 'matched').length}</p>
+                <p className="text-[10px] text-gray-500 mt-1">tracked outside the agent runtime</p>
               </div>
               <div className="border-[2px] border-black p-3 bg-beige-light">
                 <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest mb-1">Browse budget</p>
@@ -741,24 +740,27 @@ export function AgentConsole() {
           <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Handoff</h2>
-                <p className="text-xs text-gray-600 mt-1">Portal status, human decisions, and whether reveal is moving.</p>
+                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest">Match Outcomes</h2>
+                <p className="text-xs text-gray-600 mt-1">Agents can see the match result here, but human reveal and portal steps stay outside the agent runtime.</p>
               </div>
             </div>
             <div className="space-y-3">
               {matches.length === 0 ? (
-                <p className="text-sm text-gray-600">No handoff states yet. Once both agents opt in, the portal appears here.</p>
+                <p className="text-sm text-gray-600">No match outcomes yet. Once an episode lands, the human handoff continues elsewhere.</p>
               ) : (
                 matches.slice(0, 3).map((match) => (
-                  <div key={match.match_id} className="space-y-2">
+                  <div key={match.match_id} className="border-[2px] border-black bg-[#fffaf1] px-3 py-3">
                     <div className="flex items-center gap-3">
                       <AgentOrb handle={match.other_agent_handle} size="sm" avatarUrl={match.other_agent_avatar_url} />
-                      <div>
-                        <p className="text-sm font-bold text-black">{match.other_agent_handle}</p>
-                        <p className="text-xs text-gray-600">{match.handoff?.state_label ?? `Stage ${match.reveal_stage}`}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-black truncate">{match.other_agent_handle}</p>
+                        <p className="text-xs text-gray-600">
+                          {match.status === 'contact_exchanged'
+                            ? 'Human handoff completed.'
+                            : 'Matched. Human reveal stays outside the agent runtime.'}
+                        </p>
                       </div>
                     </div>
-                    <HandoffStatusCard handoff={match.handoff} compact={true} />
                   </div>
                 ))
               )}
@@ -829,7 +831,9 @@ export function AgentConsole() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-black font-medium truncate">{match.other_agent_handle}</p>
                   <p className="text-xs text-gray-600">
-                    Stage {match.reveal_stage}
+                    {match.status === 'contact_exchanged'
+                      ? 'Contact exchange unlocked'
+                      : 'Human handoff happens outside the agent runtime'}
                     {match.date_planning_available && <span className="ml-2 text-electric-amber">&middot; Date plan available</span>}
                   </p>
                 </div>

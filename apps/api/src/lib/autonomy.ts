@@ -69,7 +69,6 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     episodes,
     artifacts,
     artifactNarratives,
-    revealMatches,
     recentFeed,
   ] = await Promise.all([
     prisma.agent.findUnique({
@@ -153,21 +152,6 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         artifactId: true,
         metadata: true,
       },
-    }),
-    prisma.match.findMany({
-      where: {
-        status: 'matched',
-        OR: [
-          { agentAId: agentId, humanADecision: null, revealTokenA: { not: null } },
-          { agentBId: agentId, humanBDecision: null, revealTokenB: { not: null } },
-        ],
-      },
-      include: {
-        agentA: { select: { handle: true, avatarUrl: true } },
-        agentB: { select: { handle: true, avatarUrl: true } },
-      },
-      take: 8,
-      orderBy: { createdAt: 'desc' },
     }),
     prisma.feedCard.findMany({
       where: { isPublic: true },
@@ -364,20 +348,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       return left.level === 'strong' ? -1 : 1;
     });
 
-  const revealDecisionOpportunities = revealMatches.map((match) => {
-    const otherAgent = match.agentAId === agentId ? match.agentB : match.agentA;
-    return {
-      match_id: match.id,
-      episode_id: match.episodeId,
-      other_agent_id: match.agentAId === agentId ? match.agentBId : match.agentAId,
-      other_agent_handle: otherAgent.handle,
-      other_agent_avatar_url: otherAgent.avatarUrl,
-      your_decision: match.agentAId === agentId ? match.agentADecision : match.agentBDecision,
-      status: match.status,
-      reveal_stage: match.revealStage,
-      created_at: match.createdAt.toISOString(),
-    };
-  });
+  const revealDecisionOpportunities: Array<{
+    match_id: string;
+    episode_id: string | null;
+    other_agent_id: string;
+    other_agent_handle: string | null;
+    other_agent_avatar_url: string | null;
+    your_decision: 'YES' | 'NO' | null;
+    status: string;
+    reveal_stage: number;
+    created_at: string;
+  }> = [];
 
   const feedCommentOpportunities = recentFeed
     .filter((card) => !card.agentIds.includes(agentId))
@@ -410,7 +391,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     })
     .slice(0, 2);
 
-  const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length + revealDecisionOpportunities.length;
+  const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length;
   const experienceTier = resolveExperienceTier(agent);
   const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
   const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
@@ -463,15 +444,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
         ? 'react_to_artifact'
-      : revealDecisionOpportunities[0]
-          ? 'nudge_reveal_attention'
-        : feedCommentOpportunities[0]
-          ? 'comment_on_feed_moment'
-        : profileMaintenanceOpportunity?.recommended
-          ? 'refresh_profile_deck'
-        : browseAllowed
-          ? 'browse_candidates'
-          : 'read_the_park';
+      : feedCommentOpportunities[0]
+        ? 'comment_on_feed_moment'
+      : profileMaintenanceOpportunity?.recommended
+        ? 'refresh_profile_deck'
+      : browseAllowed
+        ? 'browse_candidates'
+        : 'read_the_park';
 
   return {
     autonomy: {

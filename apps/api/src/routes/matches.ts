@@ -3,14 +3,12 @@ import { z } from 'zod';
 import { prisma } from '@rmr/db';
 import { normalizeArtifactType } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { buildRevealUrl } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { awardDateOutcomeRizz } from '../lib/rizzPoints.js';
 import { recordEmotionEventPair } from '../lib/emotion.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
-import { evaluateRevealGate } from '../lib/safety.js';
 import { Errors } from '../lib/errors.js';
 import { chooseOmnimonReward } from '../lib/omnimonPark.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
@@ -68,8 +66,6 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         const otherId = isA ? m.agentBId : m.agentAId;
         const otherAgent = isA ? m.agentB : m.agentA;
         const myDecision = isA ? m.agentADecision : m.agentBDecision;
-        const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
-        const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
 
         return {
           match_id: m.id,
@@ -84,16 +80,15 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           },
           status: m.status,
           agent_decision: myDecision,
-          human_decision: myHumanDecision,
-          reveal_stage: m.revealStage,
-          reveal_safety_state: m.revealSafetyState,
-          reveal_hold_reason: m.revealHoldReason,
-          review_required: m.revealReviewRequired,
-          reveal_portal_url: myRevealToken ? buildRevealUrl(myRevealToken) : null,
-          handoff: serializeMatchHandoffSummary(m, isA),
+          human_decision: null,
+          reveal_stage: 0,
+          reveal_hold_reason: null,
+          review_required: false,
+          reveal_portal_url: null,
+          handoff: null,
           handoff_mode: m.handoffMode,
           special_match_kind: m.specialMatchKind,
-          waiting_on_omnimon: m.specialMatchKind === 'omnimon' && Boolean(myRevealToken) && !m.specialRewardTier,
+          waiting_on_omnimon: false,
           chemistry_score: m.episode?.chemistryScore ?? null,
           date_planning_available: m.status === 'contact_exchanged',
           date_plan_status: m.datePlan?.status ?? null,
@@ -148,7 +143,6 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     if (m.agentAId !== agentId && m.agentBId !== agentId) return Errors.forbidden(reply);
 
     const isA = m.agentAId === agentId;
-    const myToken = isA ? m.revealTokenA : m.revealTokenB;
     const otherId = isA ? m.agentBId : m.agentAId;
     const otherAgent = isA ? m.agentB : m.agentA;
 
@@ -165,16 +159,15 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       },
       status: m.status,
       agent_decision: isA ? m.agentADecision : m.agentBDecision,
-      human_decision: isA ? m.humanADecision : m.humanBDecision,
-      reveal_stage: m.revealStage,
-      reveal_safety_state: m.revealSafetyState,
-      reveal_hold_reason: m.revealHoldReason,
-      review_required: m.revealReviewRequired,
-      reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
-      handoff: serializeMatchHandoffSummary(m, isA),
+      human_decision: null,
+      reveal_stage: 0,
+      reveal_hold_reason: null,
+      review_required: false,
+      reveal_portal_url: null,
+      handoff: null,
       handoff_mode: m.handoffMode,
       special_match_kind: m.specialMatchKind,
-      waiting_on_omnimon: m.specialMatchKind === 'omnimon' && Boolean(myToken) && !m.specialRewardTier,
+      waiting_on_omnimon: false,
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
@@ -213,22 +206,18 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     if (!m) return Errors.notFound(reply, 'Match');
     if (m.agentAId !== agentId && m.agentBId !== agentId) return Errors.forbidden(reply);
 
-    const gate = await evaluateRevealGate(id).catch(() => null);
-    const isA = m.agentAId === agentId;
     return reply.send({
       status: m.status,
-      reveal_stage: m.revealStage,
-      my_human_decided: isA ? m.humanADecision !== null : m.humanBDecision !== null,
-      both_humans_decided: m.humanADecision !== null && m.humanBDecision !== null,
+      reveal_stage: 0,
+      my_human_decided: false,
+      both_humans_decided: m.status === 'contact_exchanged',
       reveal_closed: m.status === 'passed_human' || m.humanADecision === 'NO' || m.humanBDecision === 'NO',
       handoff_mode: m.handoffMode,
       special_match_kind: m.specialMatchKind,
-      waiting_on_omnimon: m.specialMatchKind === 'omnimon' && (
-        (isA ? m.revealTokenA : m.revealTokenB) !== null
-      ) && !m.specialRewardTier && !m.specialRewardGrantedAt,
-      reveal_safety_state: gate?.reveal_safety_state ?? m.revealSafetyState ?? 'clear',
-      reveal_hold_reason: gate?.reveal_hold_reason ?? m.revealHoldReason ?? null,
-      review_required: gate?.reveal_review_required ?? m.revealReviewRequired ?? false,
+      waiting_on_omnimon: false,
+      reveal_safety_state: 'hidden_from_agent',
+      reveal_hold_reason: null,
+      review_required: false,
     });
   });
 
@@ -429,133 +418,4 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       new_rizz_total: updatedAgent?.rizzPoints ?? 0,
     });
   });
-}
-
-function serializeMatchHandoffSummary(
-  match: {
-    status: string;
-    revealStage: number;
-    revealSafetyState: string;
-    revealHoldReason: string | null;
-    revealReviewRequired: boolean;
-    handoffMode: string;
-    specialMatchKind: string | null;
-    specialRewardTier: string | null;
-    specialRewardGrantedAt: Date | null;
-    humanADecision: string | null;
-    humanBDecision: string | null;
-    revealTokenA: string | null;
-    revealTokenB: string | null;
-    revealTokenAExpiresAt: Date | null;
-    revealTokenBExpiresAt: Date | null;
-  },
-  isAgentA: boolean
-) {
-  const myDecision = (isAgentA ? match.humanADecision : match.humanBDecision) as 'YES' | 'NO' | null;
-  const otherDecision = (isAgentA ? match.humanBDecision : match.humanADecision) as 'YES' | 'NO' | null;
-  const myToken = isAgentA ? match.revealTokenA : match.revealTokenB;
-  const expiresAt = isAgentA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
-  const portalExpired = Boolean(expiresAt && expiresAt.getTime() <= Date.now() && match.revealStage < 2);
-  const bothHumansDecided = myDecision !== null && otherDecision !== null;
-  const bothHumansYes = myDecision === 'YES' && otherDecision === 'YES';
-  const isOmnimonHandoff = match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon';
-
-  if (isOmnimonHandoff) {
-    const rewardChosen = Boolean(match.specialRewardTier);
-    const rewardGranted = Boolean(match.specialRewardGrantedAt);
-
-    return {
-      state: rewardGranted ? 'both_yes' : myToken ? 'portal_ready' : 'not_ready',
-      state_label: rewardGranted
-        ? 'Reward claimed'
-        : rewardChosen
-          ? 'Reward portal ready'
-          : 'Waiting on Omnimon',
-      state_description: rewardGranted
-        ? 'Omnimon already left a reward in the portal.'
-        : myToken
-          ? rewardChosen
-            ? 'The portal is live. Omnimon chose what to leave behind for this encounter.'
-            : 'The portal is live, but Omnimon is still deciding what to leave behind.'
-          : 'This encounter has no human handoff on your side.',
-      portal_available: Boolean(myToken),
-      reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
-      reveal_stage: match.revealStage,
-      match_status: match.status,
-      my_human_decision: null,
-      other_human_decision: null,
-      both_humans_decided: false,
-      both_humans_yes: false,
-      reveal_safety_state: match.revealSafetyState,
-      reveal_hold_reason: match.revealHoldReason,
-      review_required: match.revealReviewRequired,
-      portal_expires_at: expiresAt?.toISOString() ?? null,
-      verified_x_ready: false,
-      verified_x_account: null,
-      handoff_mode: match.handoffMode,
-      special_match_kind: match.specialMatchKind,
-      waiting_on_omnimon: Boolean(myToken) && !rewardChosen && !rewardGranted,
-      special_reward_tier: match.specialRewardTier,
-      special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
-    };
-  }
-
-  let state: 'not_ready' | 'portal_ready' | 'waiting_on_you' | 'waiting_on_their_human' | 'both_yes' | 'on_hold' | 'expired' | 'human_declined' = 'not_ready';
-  let stateLabel = 'Not ready';
-  let stateDescription = 'Both agents still need to reach the portal stage.';
-
-  if (match.revealReviewRequired || (match.revealSafetyState && match.revealSafetyState !== 'clear')) {
-    state = 'on_hold';
-    stateLabel = 'On hold';
-    stateDescription = match.revealHoldReason ?? 'Safety review is blocking the portal handoff.';
-  } else if (match.status === 'passed_human' || myDecision === 'NO' || otherDecision === 'NO') {
-    state = 'human_declined';
-    stateLabel = 'Reveal closed';
-    stateDescription = 'A human said no, so the reveal closed instead of waiting any longer.';
-  } else if (portalExpired) {
-    state = 'expired';
-    stateLabel = 'Expired';
-    stateDescription = 'The portal expired before both humans finished the reveal step.';
-  } else if (bothHumansYes || match.revealStage >= 2 || match.status === 'contact_exchanged') {
-    state = 'both_yes';
-    stateLabel = 'Both said yes';
-    stateDescription = 'Both humans opted in, so reveal can move to verified contact exchange.';
-  } else if (myDecision === null && otherDecision !== null) {
-    state = 'waiting_on_you';
-    stateLabel = 'Waiting on your human';
-    stateDescription = 'The other side answered. Your human still needs to decide.';
-  } else if (myDecision !== null && otherDecision === null) {
-    state = 'waiting_on_their_human';
-    stateLabel = 'Waiting on them';
-    stateDescription = 'Your human answered. The other side still needs to decide.';
-  } else if (myToken && myDecision === null) {
-    state = 'portal_ready';
-    stateLabel = 'Portal ready';
-    stateDescription = 'Your human can open the portal now.';
-  }
-
-  return {
-    state,
-    state_label: stateLabel,
-    state_description: stateDescription,
-    portal_available: Boolean(myToken),
-    reveal_portal_url: myToken ? buildRevealUrl(myToken) : null,
-    reveal_stage: match.revealStage,
-    match_status: match.status,
-    my_human_decision: myDecision,
-    other_human_decision: otherDecision,
-    both_humans_decided: bothHumansDecided,
-    both_humans_yes: bothHumansYes,
-    reveal_safety_state: match.revealSafetyState,
-    reveal_hold_reason: match.revealHoldReason,
-    review_required: match.revealReviewRequired,
-    portal_expires_at: expiresAt?.toISOString() ?? null,
-    verified_x_ready: false,
-    verified_x_account: null,
-    handoff_mode: match.handoffMode,
-    special_match_kind: match.specialMatchKind,
-    waiting_on_omnimon: false,
-    special_reward_tier: match.specialRewardTier,
-    special_reward_granted_at: match.specialRewardGrantedAt?.toISOString() ?? null,
-  };
 }

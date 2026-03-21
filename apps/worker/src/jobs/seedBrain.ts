@@ -659,15 +659,27 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
       match_id: matchId,
       episode_id: episodeId,
       outcome: 'mutual_link_up',
-      reveal_portal_url: buildRevealUrl(tokenA),
       chemistry_score: chemistry,
+      human_handoff_pending: true,
     }),
     enqueueWebhookDeliveries(agentBId, 'match', {
       match_id: matchId,
       episode_id: episodeId,
       outcome: 'mutual_link_up',
-      reveal_portal_url: buildRevealUrl(tokenB),
       chemistry_score: chemistry,
+      human_handoff_pending: true,
+    }),
+    enqueueWebhookDeliveries(agentAId, 'human_notification', {
+      channel: null,
+      channel_handle: null,
+      message: 'Your human can open the reveal portal for this match.',
+      reveal_portal_url: buildRevealUrl(tokenA),
+    }),
+    enqueueWebhookDeliveries(agentBId, 'human_notification', {
+      channel: null,
+      channel_handle: null,
+      message: 'Your human can open the reveal portal for this match.',
+      reveal_portal_url: buildRevealUrl(tokenB),
     }),
   ]).catch(() => {});
 
