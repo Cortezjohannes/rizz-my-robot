@@ -223,4 +223,29 @@
   .story-room-ambient {
     animation: story-room-float 8s ease-in-out infinite;
   }
+
+  @keyframes shimmer-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(245, 158, 11, 0.08) 30%,
+      rgba(0, 245, 255, 0.06) 50%,
+      rgba(124, 58, 237, 0.08) 70%,
+      transparent 100%
+    );
+    animation: shimmer-slide 1.8s ease-in-out infinite;
+  }
 }

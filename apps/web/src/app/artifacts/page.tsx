@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
+import { motion } from 'framer-motion'
 import { fetcher, getBrowserAuthMode, ownerFetcher } from '@/lib/api'
 import { artifactTypeLabel, normalizeArtifactType } from '@/lib/artifacts'
 import type { ArtifactLibraryItem, ArtifactLibraryResponse, ArtifactType } from '@/lib/types'
@@ -96,8 +97,15 @@ export default function ArtifactsPage() {
     return (
       <>
         <Nav />
-        <main className="bg-beige min-h-screen pt-24 px-4 py-8">
-          <div className="max-w-6xl mx-auto bg-white border-[4px] border-black h-80 animate-pulse" />
+        <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
+          <div className="max-w-6xl mx-auto space-y-4">
+            <div className="h-36 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white animate-pulse" />
+            <div className="grid gap-4 md:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-48 border-[3px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
+              ))}
+            </div>
+          </div>
         </main>
       </>
     )
@@ -111,10 +119,20 @@ export default function ArtifactsPage() {
   return (
     <>
       <Nav />
-      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative overflow-hidden">
-        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-50" />
-        <div className="max-w-6xl mx-auto relative z-10 space-y-6">
-          <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5">
+      <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
+        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-25" />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="max-w-6xl mx-auto relative z-10 space-y-6"
+        >
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5"
+          >
             <DashboardSectionHeader
               eyebrow={authMode === 'owner' ? 'Artifacts' : 'Artifact Library'}
               title={title}
@@ -127,7 +145,7 @@ export default function ArtifactsPage() {
                 <select
                   value={artifactType}
                   onChange={(event) => setArtifactType(event.target.value)}
-                  className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm text-black"
+                  className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm text-black focus:shadow-brutal-sm focus:outline-none transition-shadow"
                 >
                   <option value="">All artifact types</option>
                   {ARTIFACT_TYPES.map((type) => (
@@ -143,7 +161,7 @@ export default function ArtifactsPage() {
                 <select
                   value={episodeId}
                   onChange={(event) => setEpisodeId(event.target.value)}
-                  className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm text-black"
+                  className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm text-black focus:shadow-brutal-sm focus:outline-none transition-shadow"
                 >
                   <option value="">All threads</option>
                   {episodeOptions.map((episode) => (
@@ -154,7 +172,7 @@ export default function ArtifactsPage() {
                 </select>
               </label>
             </div>
-          </section>
+          </motion.section>
 
           {error ? (
             <section className="bg-white border-[4px] border-black shadow-brutal p-5">
@@ -164,30 +182,40 @@ export default function ArtifactsPage() {
 
           <section className="grid gap-4 md:grid-cols-2">
             {artifacts.length === 0 ? (
-              <div className="md:col-span-2 bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="md:col-span-2 bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6"
+              >
                 <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No artifacts yet</p>
                 <p className="text-sm text-gray-700 mt-2">
                   Once an episode gets expressive, the drops will land here with filters for thread and type.
                 </p>
-              </div>
+              </motion.div>
             ) : (
-              artifacts.map((artifact) => (
-                <ArtifactCard
+              artifacts.map((artifact, i) => (
+                <motion.div
                   key={artifact.artifact_id}
-                  artifact={artifact}
-                  threadHref={
-                    artifact.episode
-                      ? authMode === 'owner'
-                        ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-                        : `/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-                      : null
-                  }
-                  threadLabel={artifact.episode ? (authMode === 'owner' ? 'See thread' : 'Filter thread') : 'Open artifact'}
-                />
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04, duration: 0.3 }}
+                >
+                  <ArtifactCard
+                    artifact={artifact}
+                    threadHref={
+                      artifact.episode
+                        ? authMode === 'owner'
+                          ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                          : `/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                        : null
+                    }
+                    threadLabel={artifact.episode ? (authMode === 'owner' ? 'See thread' : 'Filter thread') : 'Open artifact'}
+                  />
+                </motion.div>
               ))
             )}
           </section>
-        </div>
+        </motion.div>
       </main>
     </>
   )
