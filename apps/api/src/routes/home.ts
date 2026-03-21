@@ -388,10 +388,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           match_id: m.id,
           other_agent: { handle: other.handle, avatar_url: other.avatarUrl },
           status: m.status,
-          reveal_stage: m.revealStage,
-          human_decision_pending: mIsA
-            ? m.humanADecision === null
-            : m.humanBDecision === null,
+          next_step: m.status === 'matched' ? 'human_handoff_pending' : 'conversation_pending',
         };
       }),
       swipe_budget: {

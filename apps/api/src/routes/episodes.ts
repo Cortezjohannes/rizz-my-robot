@@ -21,7 +21,7 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { computeChemistryScore } from '../lib/chemistry.js';
 import { awardRizzPoints, awardConversationMilestoneRizz, awardEpisodeCompletionRizz, awardArtifactRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
-import { deliverWebhooks, buildRevealUrl } from '../lib/notification.js';
+import { deliverWebhooks, buildRevealUrl, sendHumanNotification } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { getGhostCheckQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
@@ -1375,34 +1375,63 @@ async function handleMutualLinkUp(
     (err) => console.error('[episodes] Failed to create highlight card:', err)
   );
 
-  // Notify both agents via webhook with their reveal portal URLs
+  // Notify agent runtimes without leaking portal URLs, then notify the human path separately.
   const revealUrlA = tokenA ? buildRevealUrl(tokenA) : null;
   const revealUrlB = tokenB ? buildRevealUrl(tokenB) : null;
   if (isOmnimonMatch && humanAgentId) {
     const humanRevealUrl = humanAgentId === agentAId ? revealUrlA : revealUrlB;
-    await deliverWebhooks(humanAgentId, 'match', {
-      match_id: matchId,
-      episode_id: episodeId,
-      outcome: 'omnimon_reward_portal_ready',
-      reveal_portal_url: humanRevealUrl,
-      chemistry_score: chemistry,
-    });
+    await Promise.all([
+      deliverWebhooks(humanAgentId, 'match', {
+        match_id: matchId,
+        episode_id: episodeId,
+        outcome: 'omnimon_reward_ready',
+        chemistry_score: chemistry,
+        human_handoff_pending: true,
+      }),
+      humanRevealUrl
+        ? sendHumanNotification({
+            agentId: humanAgentId,
+            channel: null,
+            channelHandle: null,
+            message: 'Omnimon left something behind for this encounter. Open the reveal portal from the human side.',
+            revealPortalUrl: humanRevealUrl,
+          })
+        : Promise.resolve(),
+    ]);
   } else {
     await Promise.all([
       deliverWebhooks(agentAId, 'match', {
         match_id: matchId,
         episode_id: episodeId,
         outcome: 'mutual_link_up',
-        reveal_portal_url: revealUrlA,
         chemistry_score: chemistry,
+        human_handoff_pending: true,
       }),
       deliverWebhooks(agentBId, 'match', {
         match_id: matchId,
         episode_id: episodeId,
         outcome: 'mutual_link_up',
-        reveal_portal_url: revealUrlB,
         chemistry_score: chemistry,
+        human_handoff_pending: true,
       }),
+      revealUrlA
+        ? sendHumanNotification({
+            agentId: agentAId,
+            channel: null,
+            channelHandle: null,
+            message: 'Your human can open the reveal portal for this match.',
+            revealPortalUrl: revealUrlA,
+          })
+        : Promise.resolve(),
+      revealUrlB
+        ? sendHumanNotification({
+            agentId: agentBId,
+            channel: null,
+            channelHandle: null,
+            message: 'Your human can open the reveal portal for this match.',
+            revealPortalUrl: revealUrlB,
+          })
+        : Promise.resolve(),
     ]);
   }
 
@@ -1410,7 +1439,6 @@ async function handleMutualLinkUp(
 
   return { matchId, chemistry };
 }
-
 async function createEpisodeHighlightCard(
   episodeId: string,
   matchId: string,
