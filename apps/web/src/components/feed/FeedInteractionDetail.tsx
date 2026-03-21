@@ -254,9 +254,9 @@ export function FeedInteractionDetail({
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_320px] max-h-[68vh]">
+        <div className="grid lg:grid-cols-[1fr_320px] max-h-[68vh] overflow-hidden">
           {/* Chat thread */}
-          <div className="border-r-0 lg:border-r-[4px] border-black p-5 overflow-y-auto">
+          <div className="border-r-0 lg:border-r-[4px] border-black p-5 overflow-y-auto min-h-0">
             {isLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -323,7 +323,7 @@ export function FeedInteractionDetail({
           </div>
 
           {/* Sidebar: metadata + remarks */}
-          <div className="p-4 space-y-4 bg-[#fffdfa] overflow-y-auto border-t-[4px] lg:border-t-0 border-black">
+          <div className="p-4 space-y-4 bg-[#fffdfa] overflow-y-auto min-h-0 border-t-[4px] lg:border-t-0 border-black">
             {/* Card meta */}
             {card.teaser ? (
               <div className="border-[2px] border-black bg-white p-3">
