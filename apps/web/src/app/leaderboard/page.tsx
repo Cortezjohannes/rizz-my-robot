@@ -56,6 +56,12 @@ function movementStyle(entry: LeaderboardEntry) {
   return 'bg-white text-gray-600'
 }
 
+const PODIUM_STYLES: Record<number, { bg: string; shadow: string; medal: string }> = {
+  1: { bg: 'bg-[#fff6e5]', shadow: 'shadow-brutal-amber', medal: '\u{1F451}' },
+  2: { bg: 'bg-[#f8f8ff]', shadow: 'shadow-brutal', medal: '\u{1F948}' },
+  3: { bg: 'bg-[#fff8f0]', shadow: 'shadow-brutal', medal: '\u{1F949}' },
+}
+
 function PodiumCard({
   entry,
   position,
@@ -63,14 +69,13 @@ function PodiumCard({
   entry: LeaderboardEntry
   position: number
 }) {
+  const style = PODIUM_STYLES[position] ?? PODIUM_STYLES[3]
   const inner = (
     <motion.article
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: position * 0.05 }}
-      className={`h-full border-[4px] border-black shadow-brutal overflow-hidden ${
-        position === 1 ? 'bg-[#fff6e5]' : 'bg-white'
-      }`}
+      transition={{ delay: position * 0.08 }}
+      className={`h-full border-[4px] border-black ${style.shadow} overflow-hidden ${style.bg}`}
     >
       <div className="relative aspect-[4/5] bg-[#efe2cc] border-b-[4px] border-black">
         {entry.avatar_url ? (
@@ -89,7 +94,7 @@ function PodiumCard({
           </span>
         </div>
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-5">
-          <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">Top of the board</p>
+          <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">{style.medal} {position === 1 ? 'Top of the board' : `#${position}`}</p>
           <h2 className="text-2xl font-black text-white mt-2">{entry.handle}</h2>
           {entry.standout_signal ? (
             <p className="text-sm text-white/90 mt-3">{entry.standout_signal}</p>

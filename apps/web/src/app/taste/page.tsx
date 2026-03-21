@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
+import { motion } from 'framer-motion'
 import { getApiKey, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
 import type { OwnerTasteResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
@@ -12,11 +13,18 @@ import { OwnerTasteCard } from '@/components/taste/OwnerTasteCard'
 import { assets } from '@/lib/assets'
 
 const TASTE_TABS = [
-  { value: 'all', label: 'All' },
-  { value: 'liked', label: 'Liked' },
-  { value: 'passed', label: 'Passed' },
-  { value: 'matched', label: 'Matched' },
+  { value: 'all', label: 'All', color: 'bg-electric-amber' },
+  { value: 'liked', label: 'Liked', color: 'bg-electric-lime' },
+  { value: 'passed', label: 'Passed', color: 'bg-electric-magenta' },
+  { value: 'matched', label: 'Matched', color: 'bg-electric-cyan' },
 ] as const
+
+const TAB_TINTS: Record<string, string> = {
+  all: '',
+  liked: 'ring-2 ring-electric-lime/30',
+  passed: 'ring-2 ring-electric-magenta/20',
+  matched: 'ring-2 ring-electric-cyan/30',
+}
 
 function emptyStateCopy(tab: string) {
   switch (tab) {
@@ -85,8 +93,15 @@ export default function TastePage() {
     return (
       <>
         <Nav />
-        <main className="bg-beige min-h-screen pt-24 px-4 py-8">
-          <div className="max-w-6xl mx-auto bg-white border-[4px] border-black h-80 animate-pulse" />
+        <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_30%,#ffe7f8_100%)]">
+          <div className="max-w-6xl mx-auto space-y-4">
+            <div className="h-32 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white animate-pulse" />
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
+              ))}
+            </div>
+          </div>
         </main>
       </>
     )
@@ -95,20 +110,27 @@ export default function TastePage() {
   return (
     <>
       <Nav />
-      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative overflow-hidden">
-        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-50" />
-        <div className="max-w-6xl mx-auto relative z-10 space-y-6">
-          <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 story-room-panel">
+      <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_30%,#ffe7f8_100%)]">
+        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-30" />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="max-w-6xl mx-auto relative z-10 space-y-6"
+        >
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5 story-room-panel"
+          >
             <DashboardSectionHeader
               eyebrow="Taste"
               title="Taste"
               body={data?.taste_summary ?? 'This is who your agent has been drawn to, passed on, and matched with.'}
               iconSrc={assets.icons.mechheart}
               action={
-                <Link
-                  href="/messages"
-                  className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
-                >
+                <Link href="/messages" className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm">
                   Back to messages
                 </Link>
               }
@@ -119,13 +141,10 @@ export default function TastePage() {
                 <button
                   key={entry.value}
                   type="button"
-                  onClick={() => {
-                    setTab(entry.value)
-                    setPage(1)
-                  }}
+                  onClick={() => { setTab(entry.value); setPage(1) }}
                   className={`font-pixel text-[8px] px-3 py-2 border-[3px] border-black uppercase tracking-widest transition-transform ${
                     tab === entry.value
-                      ? 'bg-electric-amber text-black shadow-brutal-sm'
+                      ? `${entry.color} text-black shadow-brutal-sm`
                       : 'bg-white text-black hover:-translate-y-0.5'
                   }`}
                 >
@@ -133,7 +152,7 @@ export default function TastePage() {
                 </button>
               ))}
             </div>
-          </section>
+          </motion.section>
 
           {error ? (
             <section className="bg-white border-[4px] border-black shadow-brutal p-5">
@@ -144,32 +163,43 @@ export default function TastePage() {
           {!data ? (
             <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="h-[36rem] border-[4px] border-black bg-white animate-pulse" />
+                <div key={index} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
               ))}
             </section>
           ) : data.cards.length === 0 ? (
-            <section className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6">
-              <img
-                src={assets.micro.dogSolo}
-                alt=""
-                aria-hidden
-                data-pixel
-                className="w-20 border-[2px] border-black bg-beige-light mb-3"
-              />
+            <motion.section
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6"
+            >
+              <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
               <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Nothing here yet</p>
               <p className="text-sm text-gray-700 mt-2">{emptyStateCopy(tab)}</p>
-            </section>
+            </motion.section>
           ) : (
             <>
               <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {data.cards.map((card) => (
-                  <OwnerTasteCard key={card.swipe_id} card={card} tab={tab} page={page} />
+                {data.cards.map((card, i) => (
+                  <motion.div
+                    key={card.swipe_id}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04, duration: 0.3 }}
+                    className={TAB_TINTS[tab] ?? ''}
+                  >
+                    <OwnerTasteCard key={card.swipe_id} card={card} tab={tab} page={page} />
+                  </motion.div>
                 ))}
               </section>
 
-              <section className="flex items-center justify-between gap-4 flex-wrap bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4">
+              <motion.section
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="flex items-center justify-between gap-4 flex-wrap bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-4"
+              >
                 <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                  Page {data.pagination.page} · {data.pagination.total} total
+                  Page {data.pagination.page} \u00b7 {data.pagination.total} total
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -182,19 +212,17 @@ export default function TastePage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (data.pagination.has_more) setPage((current) => current + 1)
-                    }}
+                    onClick={() => { if (data.pagination.has_more) setPage((current) => current + 1) }}
                     disabled={!data.pagination.has_more}
                     className="font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-electric-cyan/12 uppercase tracking-widest shadow-brutal-sm disabled:opacity-40"
                   >
                     Next
                   </button>
                 </div>
-              </section>
+              </motion.section>
             </>
           )}
-        </div>
+        </motion.div>
       </main>
     </>
   )
