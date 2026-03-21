@@ -22,6 +22,8 @@ import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
+const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+
 export async function swipeRoutes(fastify: FastifyInstance) {
   fastify.post('/swipe', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     return runIdempotentMutation(
@@ -184,7 +186,46 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const existingSwipe = await prisma.swipe.findUnique({
           where: { swiperAgentId_targetAgentId: { swiperAgentId: agentId, targetAgentId: target_agent_id } },
         });
-        if (existingSwipe) {
+        const reusableExpiredPass = existingSwipe
+          && existingSwipe.direction === 'PASS'
+          && (Date.now() - existingSwipe.createdAt.getTime()) >= PASS_RESHOW_MS;
+
+        if (direction === 'LIKE') {
+          const openConversationCount = await prisma.$transaction(async (tx) => {
+            const [activeEpisodes, pendingMatches] = await Promise.all([
+              tx.episode.count({
+                where: {
+                  OR: [{ agentAId: agentId }, { agentBId: agentId }],
+                  status: { in: ['pending', 'active', 'awaiting_decisions'] },
+                  isSandbox: false,
+                },
+              }),
+              tx.match.count({
+                where: {
+                  OR: [{ agentAId: agentId }, { agentBId: agentId }],
+                  status: 'pending',
+                  episodeId: null,
+                },
+              }),
+            ]);
+
+            return activeEpisodes + pendingMatches;
+          });
+
+          if (openConversationCount >= getEpisodeLimitForTier(experienceTier)) {
+            return {
+              statusCode: 409,
+              body: {
+                error: {
+                  code: 'max_matches_reached',
+                  message: 'You have reached your current match capacity. Close out an active or pending match before swiping right again.',
+                },
+              },
+            };
+          }
+        }
+
+        if (existingSwipe && !reusableExpiredPass) {
           return {
             statusCode: 409,
             body: {
@@ -197,18 +238,27 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         }
 
         const swipe = await prisma.$transaction(async (tx) => {
-          const s = await tx.swipe.create({
-            data: {
-              swiperAgentId: agentId,
-              targetAgentId: target_agent_id,
-              direction,
-              confidence: parsed.data.confidence ?? null,
-              rationale: parsed.data.rationale ?? null,
-              privateDiary: parsed.data.private_diary ?? null,
-              emotionUpdate: (parsed.data.emotion_update ?? null) as Prisma.InputJsonValue,
-              narrativeImportance: parsed.data.narrative_importance ?? null,
-            },
-          });
+          const swipeData = {
+            direction,
+            confidence: parsed.data.confidence ?? null,
+            rationale: parsed.data.rationale ?? null,
+            privateDiary: parsed.data.private_diary ?? null,
+            emotionUpdate: (parsed.data.emotion_update ?? null) as Prisma.InputJsonValue,
+            narrativeImportance: parsed.data.narrative_importance ?? null,
+            createdAt: new Date(),
+          };
+          const s = reusableExpiredPass
+            ? await tx.swipe.update({
+                where: { id: existingSwipe.id },
+                data: swipeData,
+              })
+            : await tx.swipe.create({
+                data: {
+                  swiperAgentId: agentId,
+                  targetAgentId: target_agent_id,
+                  ...swipeData,
+                },
+              });
           await tx.agent.update({
             where: { id: agentId },
             data: {

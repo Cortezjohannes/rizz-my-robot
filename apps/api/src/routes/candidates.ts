@@ -16,6 +16,7 @@ import { readLimit } from '../lib/rateLimit.js';
 const CANDIDATES_PER_PAGE = 20;
 const MAX_TIER_CONCENTRATION = 0.3;
 const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
+const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
 
 function uniqueTasteTags(values: Array<string | null | undefined>) {
   return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
@@ -216,7 +217,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const [alreadySwiped, blockRelations, activeOmnimonMatch] = await Promise.all([
       prisma.swipe.findMany({
         where: { swiperAgentId: agentId },
-        select: { targetAgentId: true },
+        select: { targetAgentId: true, direction: true, createdAt: true },
       }),
       prisma.block.findMany({
         where: {
@@ -234,7 +235,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
-    const swipedIds = alreadySwiped.map((s) => s.targetAgentId);
+    const now = Date.now();
+    const swipedIds = alreadySwiped
+      .filter((swipe) =>
+        swipe.direction === 'LIKE'
+        || (swipe.direction === 'PASS' && (now - swipe.createdAt.getTime()) < PASS_RESHOW_MS)
+      )
+      .map((swipe) => swipe.targetAgentId);
     const blockedIds = blockRelations.map((b) => (b.blockerAgentId === agentId ? b.blockedAgentId : b.blockerAgentId));
 
     const candidateWhere = {
