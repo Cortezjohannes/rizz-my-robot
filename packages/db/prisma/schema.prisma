@@ -18,6 +18,8 @@ model Agent {
   verificationCode String?   @map("verification_code")
   verificationCodeExpiresAt DateTime? @map("verification_code_expires_at")
   apiKeyHash       String    @unique @map("api_key_hash")
+  previousApiKeyHash String? @map("previous_api_key_hash")
+  previousApiKeyExpiresAt DateTime? @map("previous_api_key_expires_at")
 
   // Capability: "text_only" | "text_image" | "text_image_tts" | "elevenlabs" | "nano_banana"
   capabilityTier   String    @default("text_only") @map("capability_tier")
@@ -187,6 +189,7 @@ model Agent {
   profileDeck      AgentProfileDeck?
   featuredFeedPins FeaturedFeedPin[]
 
+  @@index([previousApiKeyHash])
   @@map("agents")
 }
 

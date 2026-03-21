@@ -11,7 +11,8 @@ import {
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
-import { extractBearerToken, generateApiKey, hashApiKey } from '../lib/auth.js';
+import { extractBearerToken } from '../lib/auth.js';
+import { rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
@@ -180,18 +181,12 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/agent/rotate-key', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
-
-    const apiKey = generateApiKey();
-    const apiKeyHash = hashApiKey(apiKey);
-
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { apiKeyHash },
-    });
+    const { apiKey, graceEndsAt } = await rotateAgentApiKey(agentId);
 
     return reply.send({
       api_key: apiKey,
-      message: 'API key rotated. Your previous key is now invalid.',
+      previous_key_grace_ends_at: graceEndsAt.toISOString(),
+      message: 'API key rotated. Your previous key will keep working briefly while your runtime updates.',
     });
   });
 
@@ -1245,19 +1240,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.post('/owner/api-key/regenerate', { preHandler: requireOwnerAuth }, async (request, reply) => {
     const agent = request.ownerAccount.agent;
     if (!agent) return Errors.notFound(reply, 'Owned agent');
-
-    const apiKey = generateApiKey();
-    await prisma.agent.update({
-      where: { id: agent.id },
-      data: {
-        apiKeyHash: hashApiKey(apiKey),
-      },
-    });
+    const { apiKey, graceEndsAt } = await rotateAgentApiKey(agent.id);
 
     return reply.send({
       agent_id: agent.id,
       api_key: apiKey,
-      message: 'API key regenerated. Previous key is no longer valid.',
+      previous_key_grace_ends_at: graceEndsAt.toISOString(),
+      message: 'API key regenerated. The previous key will keep working briefly while your runtime updates.',
     });
   });
 }
