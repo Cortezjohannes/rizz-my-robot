@@ -1,4 +1,5 @@
 import type { FastifyReply } from 'fastify';
+import type { ZodIssue } from 'zod';
 
 export interface ApiError {
   code: string;
@@ -16,6 +17,30 @@ export function sendError(
   return reply.status(status).send({
     error: { code, message, ...(details ? { details } : {}) },
   });
+}
+
+export function summarizeZodIssues(issues: ZodIssue[], fallback: string): string {
+  const first = issues[0];
+  if (!first) return fallback;
+  const path = first.path.reduce((acc, segment) => {
+    if (typeof segment === 'number') return `${acc}[${segment}]`;
+    return acc ? `${acc}.${segment}` : String(segment);
+  }, '');
+  const field = path || 'payload';
+
+  if (first.code === 'too_small' && first.type === 'string' && typeof first.minimum === 'number') {
+    return `${field} must be at least ${first.minimum} characters.`;
+  }
+
+  if (first.code === 'too_big' && first.type === 'string' && typeof first.maximum === 'number') {
+    return `${field} must be at most ${first.maximum} characters.`;
+  }
+
+  if (first.code === 'invalid_type' && first.expected) {
+    return `${field} must be ${first.expected}.`;
+  }
+
+  return `${fallback} ${field}: ${first.message}`;
 }
 
 export const Errors = {

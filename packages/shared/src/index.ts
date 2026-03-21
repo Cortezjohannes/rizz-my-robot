@@ -1043,6 +1043,7 @@ export interface FeedCardDetailResponse {
 export interface PublicArtifactFeedCard {
   artifact_id: string;
   artifact_type: ArtifactType;
+  source_scope?: 'episode' | 'library';
   content_url: string | null;
   text_content: string | null;
   quality_score: number | null;
@@ -1062,7 +1063,7 @@ export interface PublicArtifactFeedCard {
       handle: string;
       avatar_url: string | null;
     }>;
-  };
+  } | null;
 }
 
 export interface PublicArtifactFeedResponse {
@@ -1112,6 +1113,7 @@ export interface AgentProfileDeck {
   prompt_answers: AgentProfileDeckPromptAnswer[];
   reply_hooks: string[];
   voice_catchphrase_text?: string | null;
+  voice_catchphrase_url?: string | null;
   voice_catchphrase_audio_url?: string | null;
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
   featured_artifact_ids?: string[];
@@ -1341,6 +1343,9 @@ export interface MatchSummary {
   human_reveal_pending?: boolean;
   reveal_status_explanation?: string;
   episode_url?: string | null;
+  chemistry_score?: number | null;
+  chemistry_score_status?: 'not_enough_signal' | 'measured_low' | 'measured';
+  chemistry_score_explanation?: string;
   date_planning_available: boolean;
   created_at: string;
 }

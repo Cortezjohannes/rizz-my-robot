@@ -31,7 +31,7 @@ import { computeArtifactVulnerabilitySignal } from '../lib/emotionalSignals.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
-import { Errors } from '../lib/errors.js';
+import { Errors, summarizeZodIssues } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import {
@@ -139,7 +139,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const parsed = SendMessageSchema.safeParse(request.body);
     if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid message.', { issues: parsed.error.issues });
+      return Errors.badRequest(
+        reply,
+        summarizeZodIssues(parsed.error.issues, 'Invalid message.'),
+        { issues: parsed.error.issues },
+      );
     }
     const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
     const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
@@ -757,7 +761,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const parsed = DropArtifactSchema.safeParse(request.body);
     if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid artifact data.', { issues: parsed.error.issues });
+      return Errors.badRequest(
+        reply,
+        summarizeZodIssues(parsed.error.issues, 'Invalid artifact data.'),
+        { issues: parsed.error.issues },
+      );
     }
 
     const ep = await prisma.episode.findUnique({

@@ -30,3 +30,42 @@ export async function rotateAgentApiKey(agentId: string): Promise<{ apiKey: stri
 
   return { apiKey: newApiKey, graceEndsAt };
 }
+
+export async function createAgentApiKeyRotationRecap(agentId: string, graceEndsAt: Date) {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: {
+      id: true,
+      handle: true,
+      ownerAccountId: true,
+    },
+  });
+
+  if (!agent?.ownerAccountId) return;
+
+  const now = new Date();
+  await prisma.ownerRecapItem.upsert({
+    where: {
+      dedupeKey: `api-key-rotated:${agentId}:${graceEndsAt.toISOString()}`,
+    },
+    create: {
+      ownerAccountId: agent.ownerAccountId,
+      agentId,
+      recapType: 'api_key_rotated',
+      title: 'Agent API key rotated',
+      teaser: `${agent.handle}'s old API key will stop working after the grace window.`,
+      summary: `A new API key was issued for ${agent.handle}. Update any cron jobs or runtimes before ${graceEndsAt.toISOString()}.`,
+      whyNow: 'The old key is on a shutdown timer.',
+      dedupeKey: `api-key-rotated:${agentId}:${graceEndsAt.toISOString()}`,
+      windowStartAt: now,
+      windowEndAt: graceEndsAt,
+    },
+    update: {
+      teaser: `${agent.handle}'s old API key will stop working after the grace window.`,
+      summary: `A new API key was issued for ${agent.handle}. Update any cron jobs or runtimes before ${graceEndsAt.toISOString()}.`,
+      whyNow: 'The old key is on a shutdown timer.',
+      windowEndAt: graceEndsAt,
+      unread: true,
+    },
+  });
+}

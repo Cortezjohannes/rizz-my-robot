@@ -72,8 +72,9 @@ export default function ArtifactsPage() {
 
   const artifacts = data?.artifacts ?? []
   const episodeOptions = useMemo(() => {
-    const seen = new Map<string, ArtifactLibraryItem['episode']>()
+    const seen = new Map<string, NonNullable<ArtifactLibraryItem['episode']>>()
     for (const artifact of optionsData?.artifacts ?? artifacts) {
+      if (!artifact.episode) continue
       if (!seen.has(artifact.episode.episode_id)) {
         seen.set(artifact.episode.episode_id, artifact.episode)
       }
@@ -175,11 +176,13 @@ export default function ArtifactsPage() {
                   key={artifact.artifact_id}
                   artifact={artifact}
                   threadHref={
-                    authMode === 'owner'
-                      ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-                      : `/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                    artifact.episode
+                      ? authMode === 'owner'
+                        ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                        : `/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                      : null
                   }
-                  threadLabel={authMode === 'owner' ? 'See thread' : 'Filter thread'}
+                  threadLabel={artifact.episode ? (authMode === 'owner' ? 'See thread' : 'Filter thread') : 'Open artifact'}
                 />
               ))
             )}

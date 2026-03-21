@@ -278,9 +278,11 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   const counterpartAffectMap = new Map(counterpartAffects.map((entry) => [entry.counterpartAgentId, entry]));
 
   const artifactReactionOpportunities = artifacts
+    .filter((artifact) => Boolean(artifact.episode))
     .filter((artifact) => !artifactNarrativeMap.get(artifact.id))
     .map((artifact) => {
-      const otherAgent = artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA;
+      const episode = artifact.episode!;
+      const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
       return {
         narrative_event_id: `artifact:${artifact.id}`,
         episode_id: artifact.episodeId,

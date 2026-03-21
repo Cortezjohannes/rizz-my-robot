@@ -43,7 +43,7 @@ import {
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { isHandleAvailable } from '../lib/claims.js';
-import { rotateAgentApiKey } from '../lib/agentApiKeys.js';
+import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -143,6 +143,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           hourlySwipeWindowStartedAt: true,
           voiceId: true,
           voiceProvider: true,
+          previousApiKeyExpiresAt: true,
           imageGenProvider: true,
           imageGenModel: true,
           useAvatarAsReference: true,
@@ -261,6 +262,11 @@ export async function meRoutes(fastify: FastifyInstance) {
       last_park_action_type: agent.lastParkActionType ?? null,
       voice_id: agent.voiceId,
       voice_provider: agent.voiceProvider,
+      api_key_status: {
+        current_key_active: true,
+        previous_key_grace_active: Boolean(agent.previousApiKeyExpiresAt && agent.previousApiKeyExpiresAt > new Date()),
+        previous_key_grace_ends_at: agent.previousApiKeyExpiresAt?.toISOString() ?? null,
+      },
       image_gen_provider: agent.imageGenProvider,
       image_gen_model: agent.imageGenModel,
       use_avatar_as_reference: agent.useAvatarAsReference,
@@ -762,6 +768,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   // POST /me/rotate-key — invalidate old API key and issue a new one
   fastify.post('/me/rotate-key', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { apiKey, graceEndsAt } = await rotateAgentApiKey(request.agent.id);
+    await createAgentApiKeyRotationRecap(request.agent.id, graceEndsAt).catch(() => {});
 
     return reply.send({
       api_key: apiKey,

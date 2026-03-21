@@ -459,6 +459,7 @@ export function serializeProfileDeck(deck: {
       .map(serializePromptAnswer),
     reply_hooks: deck.replyHooks,
     voice_catchphrase_text: deck.voiceCatchphraseText ?? null,
+    voice_catchphrase_url: effectiveCatchphraseAudioUrl,
     voice_catchphrase_audio_url: externalCatchphraseAudioUrl,
     voice_catchphrase_artifact: {
       clip_id: catchphraseSource === 'generated' ? (deck.voiceCatchphraseClipId ?? null) : null,

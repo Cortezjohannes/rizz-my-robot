@@ -10,7 +10,7 @@ import {
   UpdateProfileDeckSchema,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { Errors } from '../lib/errors.js';
+import { Errors, summarizeZodIssues } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import {
   attachProfileDeckMedia,
@@ -297,7 +297,11 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   fastify.put('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = UpdateProfileDeckSchema.safeParse(request.body);
     if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid profile deck payload.', { issues: parsed.error.issues });
+      return Errors.badRequest(
+        reply,
+        summarizeZodIssues(parsed.error.issues, 'Invalid profile deck payload.'),
+        { issues: parsed.error.issues },
+      );
     }
 
     const validation = validateProfileDeckInput(parsed.data);

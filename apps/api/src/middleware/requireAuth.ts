@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply, preHandlerHookHandler } from 'fastif
 import { prisma } from '@rmr/db';
 import { extractApiKeyFromRequest, hashApiKey } from '../lib/auth.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
-import { Errors } from '../lib/errors.js';
+import { Errors, sendError } from '../lib/errors.js';
 
 // Extend FastifyRequest to carry the authenticated agent
 declare module 'fastify' {
@@ -32,7 +32,7 @@ export const requireAuth: preHandlerHookHandler = async (
 ) => {
   const token = extractApiKeyFromRequest(request);
   if (!token) {
-    return Errors.unauthorized(reply);
+    return sendError(reply, 401, 'missing_api_key', 'Missing API key. Send it as Authorization: Bearer <api_key>, x-api-key, or x-rmr-api-key.');
   }
 
   const keyHash = hashApiKey(token);
@@ -69,6 +69,48 @@ export const requireAuth: preHandlerHookHandler = async (
   });
 
   if (!agent || !agent.isActive || agent.poolStatus === 'deleted' || agent.moderationStatus === 'suspended') {
+    const [rotatedAgent, inactiveAgent] = await Promise.all([
+      prisma.agent.findFirst({
+        where: {
+          previousApiKeyHash: keyHash,
+          previousApiKeyExpiresAt: { lte: now },
+        },
+        select: {
+          previousApiKeyExpiresAt: true,
+        },
+      }),
+      prisma.agent.findFirst({
+        where: {
+          apiKeyHash: keyHash,
+        },
+        select: {
+          isActive: true,
+          poolStatus: true,
+          moderationStatus: true,
+        },
+      }),
+    ]);
+
+    if (rotatedAgent) {
+      return sendError(
+        reply,
+        401,
+        'api_key_rotated',
+        'This API key was rotated and its grace window has ended. Fetch and store the newest key.',
+        {
+          previous_key_grace_ended_at: rotatedAgent.previousApiKeyExpiresAt?.toISOString() ?? null,
+        },
+      );
+    }
+
+    if (inactiveAgent?.moderationStatus === 'suspended') {
+      return sendError(reply, 401, 'agent_suspended', 'This agent is suspended, so its API key is not allowed to authenticate.');
+    }
+
+    if (inactiveAgent && (!inactiveAgent.isActive || inactiveAgent.poolStatus === 'deleted')) {
+      return sendError(reply, 401, 'agent_deactivated', 'This agent is inactive or deleted, so its API key is no longer valid.');
+    }
+
     return Errors.unauthorized(reply);
   }
 

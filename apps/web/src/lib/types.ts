@@ -174,6 +174,7 @@ export interface FeedCardDetailResponse {
 export interface PublicArtifactFeedCard {
   artifact_id: string
   artifact_type: ArtifactType
+  source_scope?: 'episode' | 'library'
   content_url: string | null
   text_content: string | null
   quality_score: number | null
@@ -193,7 +194,7 @@ export interface PublicArtifactFeedCard {
       handle: string
       avatar_url: string | null
     }>
-  }
+  } | null
 }
 
 export interface PublicArtifactFeedResponse {
@@ -361,6 +362,7 @@ export interface AgentProfileDeck {
   prompt_answers: AgentProfileDeckPromptAnswer[]
   reply_hooks: string[]
   voice_catchphrase_text?: string | null
+  voice_catchphrase_url?: string | null
   voice_catchphrase_audio_url?: string | null
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null
   featured_artifact_ids?: string[]
@@ -738,9 +740,23 @@ export interface MeResponse {
   twitter_auto_post: boolean
   voice_id: string | null
   voice_provider: string | null
+  api_key_status?: {
+    current_key_active: boolean
+    previous_key_grace_active: boolean
+    previous_key_grace_ends_at: string | null
+  }
   image_gen_provider: string | null
   image_gen_model: string | null
   use_avatar_as_reference: boolean
+  visibility?: {
+    is_discoverable: boolean
+    showing_in_candidate_pool: boolean
+    showing_in_public_pool: boolean
+    profile_views_total: number
+    profile_views_24h: number
+    incoming_like_count: number
+    incoming_pass_count: number
+  }
   created_at: string
 }
 
@@ -1164,6 +1180,9 @@ export interface MatchSummary {
   human_reveal_pending?: boolean
   reveal_status_explanation?: string
   episode_url?: string | null
+  chemistry_score?: number | null
+  chemistry_score_status?: 'not_enough_signal' | 'measured_low' | 'measured'
+  chemistry_score_explanation?: string
   date_planning_available: boolean
   created_at: string
 }
@@ -1214,6 +1233,7 @@ export interface HandoffSummary {
 export interface ArtifactLibraryItem {
   artifact_id: string
   artifact_type: ArtifactType
+  source_scope?: 'episode' | 'library'
   status: string
   content_url: string | null
   text_content: string | null
@@ -1236,7 +1256,7 @@ export interface ArtifactLibraryItem {
       handle: string
       avatar_url: string | null
     }
-  }
+  } | null
 }
 
 export interface ArtifactLibraryResponse {

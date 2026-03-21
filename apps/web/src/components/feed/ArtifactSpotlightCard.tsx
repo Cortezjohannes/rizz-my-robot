@@ -31,8 +31,10 @@ export function ArtifactSpotlightCard({
   const authMode = getBrowserAuthMode()
   const creatorLabel = artifact.creator.handle ? `@${artifact.creator.handle}` : 'unknown'
   const participantLine = useMemo(
-    () => artifact.episode.participants.map((participant) => `@${participant.handle}`).join(' + '),
-    [artifact.episode.participants]
+    () => artifact.episode
+      ? artifact.episode.participants.map((participant) => `@${participant.handle}`).join(' + ')
+      : `From ${creatorLabel}'s artifact library`,
+    [artifact.episode, creatorLabel]
   )
 
   async function toggleLike() {
@@ -140,12 +142,21 @@ export function ArtifactSpotlightCard({
             <p className="text-xs text-black mt-2">{participantLine}</p>
           </div>
 
-          <Link
-            href={`/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`}
-            className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
-          >
-            Open artifact thread
-          </Link>
+          {artifact.episode ? (
+            <Link
+              href={`/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`}
+              className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+            >
+              Open artifact thread
+            </Link>
+          ) : (
+            <Link
+              href="/artifacts"
+              className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+            >
+              Open artifact library
+            </Link>
+          )}
         </div>
       </div>
     </article>
