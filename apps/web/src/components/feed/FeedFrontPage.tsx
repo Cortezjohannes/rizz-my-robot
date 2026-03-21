@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
@@ -121,6 +122,69 @@ function PoolTeaserCard({ agent }: { agent: PublicPoolAgentPreview }) {
         ) : null}
       </div>
     </Link>
+  )
+}
+
+function InteractionGrid({
+  cards,
+  selectedCardId,
+  selectedCard,
+  onSelect,
+  onClose,
+  highlight = false,
+  cols = 3,
+}: {
+  cards: FeedInteractionCard[]
+  selectedCardId: string | null
+  selectedCard: FeedInteractionCard | null
+  onSelect: (id: string) => void
+  onClose: () => void
+  highlight?: boolean
+  cols?: number
+}) {
+  const rows: FeedInteractionCard[][] = []
+  for (let i = 0; i < cards.length; i += cols) {
+    rows.push(cards.slice(i, i + cols))
+  }
+
+  const gridClass = cols === 3
+    ? 'grid gap-3 xl:grid-cols-3 lg:grid-cols-2'
+    : 'grid gap-3 lg:grid-cols-2'
+
+  return (
+    <div className={gridClass}>
+      {rows.map((row, rowIndex) => {
+        const rowHasSelected = row.some((c) => c.card_id === selectedCardId)
+        return (
+          <React.Fragment key={rowIndex}>
+            {row.map((card) => (
+              <FeedInteractionCardV2
+                key={card.card_id}
+                card={card}
+                highlight={highlight}
+                isSelected={selectedCardId === card.card_id}
+                onSelect={onSelect}
+              />
+            ))}
+            <AnimatePresence>
+              {rowHasSelected && selectedCard ? (
+                <motion.div
+                  key={selectedCardId}
+                  className="col-span-full"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.28, ease: 'easeInOut' }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <FeedInteractionDetail card={selectedCard} onClose={onClose} />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </React.Fragment>
+        )
+      })}
+    </div>
   )
 }
 
@@ -330,16 +394,15 @@ export function FeedFrontPage() {
             {featuredConversations.length > 0 ? (
               <div className="space-y-4">
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured conversations</p>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {featuredConversations.map((card) => (
-                    <FeedInteractionCardV2 key={`featured-conversation-${card.card_id}`} card={card} highlight isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
-                  ))}
-                </div>
-                <AnimatePresence>
-                  {selectedCard && featuredConversations.some((c) => c.card_id === selectedCardId) ? (
-                    <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
-                  ) : null}
-                </AnimatePresence>
+                <InteractionGrid
+                  cards={featuredConversations}
+                  selectedCardId={selectedCardId}
+                  selectedCard={selectedCard}
+                  onSelect={handleSelect}
+                  onClose={() => setSelectedCardId(null)}
+                  highlight
+                  cols={2}
+                />
               </div>
             ) : null}
 
@@ -376,36 +439,29 @@ export function FeedFrontPage() {
         />
 
         {isLoading && highlights.length === 0 ? (
-          <div className="grid gap-3 xl:grid-cols-3">
+          <div className="grid gap-3 xl:grid-cols-3 lg:grid-cols-2">
             {Array.from({ length: 3 }).map((_, index) => (
               <div key={index} className="h-32 border-[3px] border-black bg-white/70 skeleton-shimmer" />
             ))}
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-3">
-            {highlights.map((card) => (
-              <FeedInteractionCardV2 key={`highlight-${card.card_id}`} card={card} highlight isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
-            ))}
-          </div>
+          <InteractionGrid
+            cards={highlights}
+            selectedCardId={selectedCardId}
+            selectedCard={selectedCard}
+            onSelect={handleSelect}
+            onClose={() => setSelectedCardId(null)}
+            highlight
+          />
         )}
 
-        <AnimatePresence>
-          {selectedCard && highlights.some((c) => c.card_id === selectedCardId) ? (
-            <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
-          ) : null}
-        </AnimatePresence>
-
-        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {interactions.items.map((card) => (
-            <FeedInteractionCardV2 key={card.card_id} card={card} isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
-          ))}
-        </div>
-
-        <AnimatePresence>
-          {selectedCard && interactions.items.some((c) => c.card_id === selectedCardId) ? (
-            <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
-          ) : null}
-        </AnimatePresence>
+        <InteractionGrid
+          cards={interactions.items}
+          selectedCardId={selectedCardId}
+          selectedCard={selectedCard}
+          onSelect={handleSelect}
+          onClose={() => setSelectedCardId(null)}
+        />
 
         {interactions.hasMore ? (
           <div className="flex justify-center pt-2">

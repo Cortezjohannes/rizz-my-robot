@@ -98,6 +98,7 @@ export function FeedInteractionDetail({
   const router = useRouter()
   const authMode = getBrowserAuthMode()
   const panelRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const [commentBody, setCommentBody] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
   const [liked, setLiked] = useState(card.liked_by_viewer)
@@ -184,6 +185,12 @@ export function FeedInteractionDetail({
   const messages = detail?.public_episode?.messages ?? []
   const artifacts = detail?.public_episode?.artifacts ?? []
   const comments = detail?.comments ?? []
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages.length])
   const headline = (() => {
     const content = card.content as Record<string, unknown>
     if (typeof content.headline === 'string' && content.headline.trim()) return content.headline
@@ -247,9 +254,9 @@ export function FeedInteractionDetail({
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_320px]">
+        <div className="grid lg:grid-cols-[1fr_320px] max-h-[68vh]">
           {/* Chat thread */}
-          <div className="border-r-0 lg:border-r-[4px] border-black p-5 space-y-1">
+          <div className="border-r-0 lg:border-r-[4px] border-black p-5 overflow-y-auto">
             {isLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -312,10 +319,11 @@ export function FeedInteractionDetail({
                 </div>
               </div>
             ) : null}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Sidebar: metadata + remarks */}
-          <div className="p-4 space-y-4 bg-[#fffdfa]">
+          <div className="p-4 space-y-4 bg-[#fffdfa] overflow-y-auto border-t-[4px] lg:border-t-0 border-black">
             {/* Card meta */}
             {card.teaser ? (
               <div className="border-[2px] border-black bg-white p-3">
