@@ -95,10 +95,10 @@ export default function TastePage() {
         <Nav />
         <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_30%,#ffe7f8_100%)]">
           <div className="max-w-6xl mx-auto space-y-4">
-            <div className="h-32 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white animate-pulse" />
+            <div className="h-32 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white skeleton-shimmer" />
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
+                <div key={i} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white skeleton-shimmer" />
               ))}
             </div>
           </div>
@@ -163,7 +163,7 @@ export default function TastePage() {
           {!data ? (
             <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
+                <div key={index} className="h-80 border-[4px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white skeleton-shimmer" />
               ))}
             </section>
           ) : data.cards.length === 0 ? (

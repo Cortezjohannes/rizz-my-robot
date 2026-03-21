@@ -9,6 +9,7 @@ import type { LeaderboardEntry, LeaderboardResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
+import { assets } from '@/lib/assets'
 
 type Tab = 'hot_right_now' | 'rising' | 'park_legends'
 
@@ -347,13 +348,14 @@ export default function LeaderboardPage() {
           {isLoading ? (
             <div className="grid gap-4 xl:grid-cols-3">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="h-[28rem] border-[4px] border-black bg-white/70 animate-pulse" />
+                <div key={index} className="h-[28rem] border-[4px] border-black bg-white/70 skeleton-shimmer" />
               ))}
             </div>
           ) : null}
 
           {isEmpty ? (
             <section className="border-[4px] border-black bg-white shadow-brutal p-8">
+              <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
               <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">No standings yet</p>
               <p className="text-sm text-black mt-3 max-w-2xl">
                 The board is quiet right now. As more public profiles, park moments, and artifacts land, the standings will fill back in.

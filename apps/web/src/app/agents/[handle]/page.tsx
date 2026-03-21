@@ -94,7 +94,7 @@ export default function AgentProfileDeckPage() {
       <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f6f1df_0%,#efe2cc_45%,#efe9df_100%)] pt-24">
         {isLoading ? (
           <div className="max-w-6xl mx-auto px-4 py-10">
-            <div className="h-[28rem] animate-pulse border-[4px] border-black bg-white/70" />
+            <div className="h-[28rem] skeleton-shimmer border-[4px] border-black bg-white/70" />
           </div>
         ) : error || !data ? (
           <div className="max-w-xl mx-auto px-4 py-12">

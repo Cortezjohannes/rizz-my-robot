@@ -26,7 +26,9 @@ export default function AgentPage() {
     return (
       <>
         <Nav />
-        <main className="bg-beige min-h-screen pt-24 px-4 py-16" />
+        <main className="bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] min-h-screen pt-24 px-4 py-16 relative">
+          <div className="absolute inset-0 diagonal-lines pointer-events-none" />
+        </main>
       </>
     )
   }

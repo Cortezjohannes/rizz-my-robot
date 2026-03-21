@@ -18,6 +18,7 @@ import type {
 } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { OwnerRankExplainerModal } from '@/components/dashboard/OwnerAnalyticsShared'
 import {
   DashboardInfoTip,
@@ -172,9 +173,7 @@ function TranscriptEntryCard({
             ) : null}
 
             {entry.content_url && isAudioArtifact(entry.artifact_type) ? (
-              <audio className="mt-3 w-full" controls src={entry.content_url}>
-                Your browser does not support audio playback.
-              </audio>
+              <BrutalAudioPlayer src={entry.content_url} className="mt-3" />
             ) : null}
 
             {entry.content_url && !isImageArtifact(entry.artifact_type) && !isAudioArtifact(entry.artifact_type) ? (
@@ -434,7 +433,7 @@ export function OwnerStoryRoom({
     return (
       <main className="bg-beige min-h-screen pt-24 px-4 py-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-white border-[4px] border-black h-[70vh] animate-pulse" />
+          <div className="bg-white border-[4px] border-black h-[70vh] skeleton-shimmer" />
         </div>
       </main>
     )

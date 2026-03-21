@@ -3,10 +3,12 @@
 import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
 
 const POOL_MODE_LABELS = {
@@ -66,9 +68,7 @@ function PoolQueueCard({
                 <p className="text-xs text-black mt-2 line-clamp-2">“{agent.voice_catchphrase_text}”</p>
               ) : null}
               {agent.voice_catchphrase_artifact?.audio_url ? (
-                <audio controls className="w-full mt-2" src={agent.voice_catchphrase_artifact.audio_url}>
-                  Your browser does not support audio playback.
-                </audio>
+                <BrutalAudioPlayer src={agent.voice_catchphrase_artifact.audio_url} className="mt-2" />
               ) : null}
             </div>
           ) : null}
@@ -87,9 +87,7 @@ function PoolQueueCard({
                       />
                     ) : null}
                     {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-                      <audio controls className="w-full mt-2" src={artifact.content_url}>
-                        Your browser does not support audio playback.
-                      </audio>
+                      <BrutalAudioPlayer src={artifact.content_url} className="mt-2" />
                     ) : null}
                     {artifact.text_content ? (
                       <p className="text-xs text-black mt-2 line-clamp-2 whitespace-pre-wrap">{artifact.text_content}</p>
@@ -146,8 +144,8 @@ export function PublicPoolBrowser() {
   const hrefForAgent = (handle: string) => `/pool?mode=${encodeURIComponent(mode)}&handle=${encodeURIComponent(handle)}`
 
   return (
-    <div className="space-y-6">
-      <section className="border-[4px] border-black bg-white shadow-brutal overflow-hidden">
+    <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+      <motion.section className="border-[4px] border-black bg-white shadow-brutal overflow-hidden" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
         <div className="p-4 bg-[#fff6e5] border-b-[4px] border-black">
           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Pool</p>
           <h1 className="font-pixel text-lg text-black mt-2">Browse the agents currently in the park.</h1>
@@ -165,7 +163,7 @@ export function PublicPoolBrowser() {
             ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="hidden lg:block border-[4px] border-black bg-white shadow-brutal overflow-hidden">
@@ -177,7 +175,7 @@ export function PublicPoolBrowser() {
           <div className="max-h-[68vh] overflow-y-auto p-3 space-y-3">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-28 border-[3px] border-black bg-[#f5ecd8] animate-pulse" />
+                <div key={index} className="h-28 border-[3px] border-black bg-[#f5ecd8] skeleton-shimmer" />
               ))
             ) : error ? (
               <div className="border-[3px] border-black bg-[#fff1f1] p-4 text-sm text-black">
@@ -188,19 +186,33 @@ export function PublicPoolBrowser() {
                 No completed public decks are visible in this lane yet.
               </div>
             ) : (
-              agents.map((agent) => (
-                <PoolQueueCard
+              agents.map((agent, index) => (
+                <motion.div
                   key={agent.agent_id}
-                  agent={agent}
-                  selected={agent.handle === selectedAgent?.handle}
-                  href={hrefForAgent(agent.handle)}
-                />
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.03, duration: 0.25 }}
+                >
+                  <PoolQueueCard
+                    agent={agent}
+                    selected={agent.handle === selectedAgent?.handle}
+                    href={hrefForAgent(agent.handle)}
+                  />
+                </motion.div>
               ))
             )}
           </div>
         </aside>
 
         <section className="border-[4px] border-black bg-white shadow-brutal overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={selectedAgent?.handle ?? 'empty'}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
         {selectedAgent ? (
           <>
             <div className="border-b-[4px] border-black bg-[#f8f2e4] p-4 flex flex-wrap items-center justify-between gap-3">
@@ -307,16 +319,14 @@ export function PublicPoolBrowser() {
                       <p className="text-sm text-gray-600 mt-3">No signature line is surfaced on this profile yet.</p>
                     )}
                     {selectedAgent.voice_catchphrase_artifact?.audio_url ? (
-                      <audio controls className="w-full mt-3" src={selectedAgent.voice_catchphrase_artifact.audio_url}>
-                        Your browser does not support audio playback.
-                      </audio>
+                      <BrutalAudioPlayer src={selectedAgent.voice_catchphrase_artifact.audio_url} className="mt-3" />
                     ) : (
                       <p className="text-xs text-gray-500 mt-3">No playable catchphrase clip yet.</p>
                     )}
                   </div>
 
                   {deckLoading ? (
-                    <div className="border-[3px] border-black bg-[#f5ecd8] h-32 animate-pulse" />
+                    <div className="border-[3px] border-black bg-[#f5ecd8] h-32 skeleton-shimmer" />
                   ) : fullDeck ? (
                     <>
                       <div className="border-[3px] border-black bg-white p-4 shadow-brutal-sm">
@@ -352,8 +362,10 @@ export function PublicPoolBrowser() {
             No completed public decks are visible in the pool yet.
           </div>
         )}
+          </motion.div>
+        </AnimatePresence>
         </section>
       </section>
-    </div>
+    </motion.div>
   )
 }

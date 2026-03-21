@@ -1,5 +1,6 @@
 'use client'
 
+import { motion } from 'framer-motion'
 import { CopyCommand } from '@/components/ui/CopyCommand'
 
 interface CommandStepProps {
@@ -11,19 +12,36 @@ interface CommandStepProps {
 
 export function CommandStep({ title, description, command, hint }: CommandStepProps) {
   return (
-    <div className="flex flex-col items-center text-center gap-6 w-full max-w-lg mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 100, damping: 18 }}
+      className="flex flex-col items-center text-center gap-6 w-full max-w-lg mx-auto"
+    >
       <div>
         <h2 className="font-pixel text-base sm:text-lg text-black mb-3">{title}</h2>
         <p className="text-gray-600 leading-relaxed text-sm sm:text-base">{description}</p>
       </div>
 
-      <div className="w-full">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.15, duration: 0.3 }}
+        className="w-full"
+      >
         <CopyCommand command={command} />
-      </div>
+      </motion.div>
 
       {hint && (
-        <p className="font-pixel text-[7px] text-gray-500 italic">{hint}</p>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="font-pixel text-[7px] text-gray-500 italic"
+        >
+          {hint}
+        </motion.p>
       )}
-    </div>
+    </motion.div>
   )
 }

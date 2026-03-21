@@ -130,9 +130,9 @@ export default function DiaryPage() {
         <Nav />
         <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)]">
           <div className="max-w-5xl mx-auto space-y-4">
-            <div className="h-32 border-[4px] border-black bg-gradient-to-r from-white via-electric-cyan/5 to-white animate-pulse" />
+            <div className="h-32 border-[4px] border-black bg-gradient-to-r from-white via-electric-cyan/5 to-white skeleton-shimmer" />
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 border-[3px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white animate-pulse" />
+              <div key={i} className="h-24 border-[3px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white skeleton-shimmer" />
             ))}
           </div>
         </main>

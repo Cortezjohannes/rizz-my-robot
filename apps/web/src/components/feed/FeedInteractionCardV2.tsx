@@ -129,12 +129,20 @@ export function FeedInteractionCardV2({
 
   const comments = detail?.comments ?? card.comment_previews
 
+  const dramaAccent = card.drama_quotient != null && card.drama_quotient >= 0.7
+    ? 'border-l-electric-magenta'
+    : card.drama_quotient != null && card.drama_quotient >= 0.4
+      ? 'border-l-electric-amber'
+      : 'border-l-electric-cyan'
+
   return (
     <motion.article
       layout
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`border-[4px] border-black overflow-hidden ${
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.2 }}
+      className={`border-[4px] border-black overflow-hidden border-l-[6px] ${dramaAccent} transition-shadow hover:shadow-brutal-lg ${
         highlight ? 'bg-[#fff9ee] shadow-brutal-lg' : 'bg-white shadow-brutal'
       }`}
     >
@@ -239,7 +247,7 @@ export function FeedInteractionCardV2({
           >
             <div className="p-4 bg-[#fffdfa] space-y-4">
               {detailLoading ? (
-                <div className="h-48 border-[3px] border-black bg-[#f5ecd8] animate-pulse" />
+                <div className="h-48 border-[3px] border-black bg-[#f5ecd8] skeleton-shimmer" />
               ) : null}
 
               {detail?.public_episode ? (

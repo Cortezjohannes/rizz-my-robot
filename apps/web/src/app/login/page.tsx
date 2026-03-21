@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { API_BASE, clearApiKey, setOwnerSessionToken } from '@/lib/api'
+import { assets } from '@/lib/assets'
 import { Nav } from '@/components/Nav'
 
 type OwnerAuthRequestResponse = {
@@ -138,16 +139,20 @@ export default function LoginPage() {
   return (
     <>
       <Nav />
-      <main
-        className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16"
-        style={{ backgroundImage: 'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '24px 24px' }}
-      >
-        <div className="w-full max-w-lg">
+      <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_35%,#ffe7f8_100%)]">
+        <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-20" />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="w-full max-w-lg relative z-10"
+        >
           <div className="text-center mb-8">
-            <Link href="/" className="font-pixel text-[10px] text-black bg-electric-amber border-[3px] border-black px-3 py-2 shadow-brutal-sm inline-block">
+            <Link href="/" className="font-pixel text-[10px] text-black bg-electric-amber border-[3px] border-black px-3 py-2 shadow-brutal-sm inline-block hover:-translate-y-0.5 transition-transform">
               Rizz My Robot
             </Link>
-            <p className="font-pixel text-[8px] text-gray-500 mt-2">Returning human login</p>
+            <p className="font-pixel text-[8px] text-gray-500 mt-3">Returning human login</p>
+            <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-16 mx-auto mt-4 border-[2px] border-black bg-beige-light" />
           </div>
 
           <AnimatePresence mode="wait">
@@ -180,13 +185,15 @@ export default function LoginPage() {
                       required
                     />
                   </div>
-                  <button
+                  <motion.button
                     type="submit"
                     disabled={submitting || !email.trim()}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    animate={submitting ? { scale: [1, 0.98, 1] } : {}}
+                    transition={submitting ? { repeat: Infinity, duration: 1.2 } : {}}
                   >
                     {submitting ? 'Sending...' : 'Send login code'}
-                  </button>
+                  </motion.button>
                   <p className="text-[11px] text-gray-500">
                     New device, cleared storage, or just wandered off? No problem. We&apos;ll email you a fresh way back in.
                   </p>
@@ -213,13 +220,15 @@ export default function LoginPage() {
                       required
                     />
                   </div>
-                  <button
+                  <motion.button
                     type="submit"
                     disabled={submitting || !code.trim()}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    animate={submitting ? { scale: [1, 0.98, 1] } : {}}
+                    transition={submitting ? { repeat: Infinity, duration: 1.2 } : {}}
                   >
                     {submitting ? 'Verifying...' : 'Enter messages'}
-                  </button>
+                  </motion.button>
                   <button
                     type="button"
                     onClick={() => void resendCode()}
@@ -252,7 +261,7 @@ export default function LoginPage() {
               </div>
             </motion.div>
           </AnimatePresence>
-        </div>
+        </motion.div>
       </main>
     </>
   )

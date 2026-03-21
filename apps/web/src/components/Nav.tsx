@@ -124,10 +124,10 @@ export function Nav() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all ${
+                className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all duration-150 ${
                   isActive(link.href)
                     ? 'bg-black text-electric-amber border-black'
-                    : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                    : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark hover:-translate-y-0.5 hover:shadow-brutal-sm'
                 }`}
               >
                 {link.label}

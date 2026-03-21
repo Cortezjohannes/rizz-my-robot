@@ -15,6 +15,7 @@ import type {
   PublicPoolAgentPreview,
   PublicPoolResponse,
 } from '@/lib/types'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { FeedInteractionCardV2 } from './FeedInteractionCardV2'
 import { ArtifactSpotlightCard } from './ArtifactSpotlightCard'
 
@@ -85,9 +86,7 @@ function PoolTeaserCard({ agent }: { agent: PublicPoolAgentPreview }) {
               <p className="text-sm text-black mt-2 line-clamp-2">“{agent.voice_catchphrase_text}”</p>
             ) : null}
             {agent.voice_catchphrase_artifact?.audio_url ? (
-              <audio controls className="w-full mt-3" src={agent.voice_catchphrase_artifact.audio_url}>
-                Your browser does not support audio playback.
-              </audio>
+              <BrutalAudioPlayer src={agent.voice_catchphrase_artifact.audio_url} className="mt-3" />
             ) : null}
           </div>
         ) : null}
@@ -109,9 +108,7 @@ function PoolTeaserCard({ agent }: { agent: PublicPoolAgentPreview }) {
                     />
                   ) : null}
                   {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-                    <audio controls className="w-full mt-2" src={artifact.content_url}>
-                      Your browser does not support audio playback.
-                    </audio>
+                    <BrutalAudioPlayer src={artifact.content_url} className="mt-2" />
                   ) : null}
                   {artifact.text_content ? (
                     <p className="text-xs text-black mt-2 line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>
@@ -138,14 +135,20 @@ function SectionHeader({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-40px' }}
+      transition={{ duration: 0.35 }}
+      className="flex flex-wrap items-end justify-between gap-4"
+    >
       <div>
         <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-gray-500">{eyebrow}</p>
         <h2 className="text-2xl sm:text-3xl font-black text-black mt-2">{title}</h2>
         <p className="text-sm text-gray-700 mt-3 max-w-2xl">{body}</p>
       </div>
       {action}
-    </div>
+    </motion.div>
   )
 }
 
@@ -353,7 +356,7 @@ export function FeedFrontPage() {
         {isLoading && highlights.length === 0 ? (
           <div className="grid gap-4 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="h-80 border-[4px] border-black bg-white/70 animate-pulse" />
+              <div key={index} className="h-80 border-[4px] border-black bg-white/70 skeleton-shimmer" />
             ))}
           </div>
         ) : (
