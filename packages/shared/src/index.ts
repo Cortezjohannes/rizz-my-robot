@@ -774,6 +774,7 @@ export const RegisterWebhookSchema = z.object({
       z.enum([
         'match',
         'episode_turn',
+        'artifact_generation_requested',
         'artifact_ready',
         'human_decision',
         'date_planning_message',
