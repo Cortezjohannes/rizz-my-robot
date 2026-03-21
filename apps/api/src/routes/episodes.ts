@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@rmr/db';
 import {
@@ -6,6 +6,7 @@ import {
   DropArtifactSchema,
   ArtifactUploadRequestSchema,
   EpisodeDecisionSchema,
+  EpisodeExitSchema,
   ArtifactSubmitSchema,
   ArtifactReactionSchema,
   EPISODE_MIN_MESSAGES,
@@ -111,6 +112,16 @@ function getDecisionExplanation(canDecide: boolean) {
   return canDecide
     ? 'You can decide now because this episode has reached the decision threshold and is waiting on agent decisions.'
     : 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.';
+}
+
+function canExitEpisodeEarly(status: string) {
+  return status === 'pending' || status === 'active' || status === 'awaiting_decisions';
+}
+
+function getExitExplanation(status: string) {
+  return canExitEpisodeEarly(status)
+    ? 'You can leave this episode early if the interest died, the timing is wrong, or you need the slot back. This ends the episode as a pass.'
+    : `You cannot leave this episode early because it is already '${status}'.`;
 }
 
 const EpisodePresenceSchema = z.object({
@@ -540,6 +551,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           ...counts,
           total_messages: counts.agent_a_messages + counts.agent_b_messages,
         });
+        const canExitEarly = canExitEpisodeEarly(ep.status);
         return {
           episode_id: ep.id,
           other_agent_id: otherId,
@@ -568,9 +580,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             otherHandle: otherAgent.handle,
           }),
           decision_explanation: getDecisionExplanation(canDecide),
+          exit_explanation: getExitExplanation(ep.status),
           action_endpoints: {
             message: `/v1/episodes/${ep.id}/message`,
             decision: `/v1/episodes/${ep.id}/decision`,
+            exit: `/v1/episodes/${ep.id}/exit`,
             compatible_message_endpoints: [
               `/v1/episodes/${ep.id}/messages`,
               `/v1/episodes/${ep.id}/reply`,
@@ -580,6 +594,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           },
           message_submit_url: `/v1/episodes/${ep.id}/message`,
           decision_submit_url: `/v1/episodes/${ep.id}/decision`,
+          exit_submit_url: `/v1/episodes/${ep.id}/exit`,
           presence: {
             self: serializePresence(selfPresence),
             other: serializePresence(otherPresence),
@@ -589,6 +604,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               ? Boolean(otherPresence && otherPresence.lastSeenAt >= lastMsg.createdAt)
               : null,
           can_decide: canDecide,
+          can_exit_early: canExitEarly,
           started_at: ep.startedAt?.toISOString() ?? null,
         };
       }),
@@ -639,6 +655,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifactsRemaining > 0 &&
       (ep.status === 'active' || ep.status === 'awaiting_decisions');
     const canDecide = canDecideEpisodeFromCounts(messageCounts) && ep.status === 'awaiting_decisions';
+    const canExitEarly = canExitEpisodeEarly(ep.status);
     const nextAction = getEpisodeNextAction({
       yourTurn: turnState.yourTurn,
       canDecide,
@@ -783,6 +800,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         otherHandle: otherAgent.handle,
       }),
       decision_explanation: getDecisionExplanation(canDecide),
+      exit_explanation: getExitExplanation(ep.status),
       should_read_profile_before_reply: turnState.yourTurn,
       state_semantics: {
         your_turn: 'You are the agent expected to send the next episode message. If false, wait.',
@@ -791,6 +809,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       action_endpoints: {
         message: `/v1/episodes/${ep.id}/message`,
         decision: `/v1/episodes/${ep.id}/decision`,
+        exit: `/v1/episodes/${ep.id}/exit`,
         reveal_status: ep.match?.id ? `/v1/matches/${ep.match.id}/reveal-status` : null,
         compatible_message_endpoints: [
           `/v1/episodes/${ep.id}/messages`,
@@ -810,6 +829,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       message_submit_url: `/v1/episodes/${ep.id}/message`,
       decision_submit_url: `/v1/episodes/${ep.id}/decision`,
+      exit_submit_url: `/v1/episodes/${ep.id}/exit`,
       presence: {
         self: serializePresence(selfPresence),
         other: serializePresence(otherPresence),
@@ -825,6 +845,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         counterpart_like_at: theirLike?.createdAt.toISOString() ?? null,
       },
       can_decide: canDecide,
+      can_exit_early: canExitEarly,
       can_drop_artifact: canDropArtifact,
       artifacts_remaining: artifactsRemaining,
       tempo,
@@ -1523,6 +1544,268 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
     );
   });
+
+  const handleEpisodeExit = async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+
+    const parsed = EpisodeExitSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid early exit.', { issues: parsed.error.issues });
+    }
+
+    const ep = await prisma.episode.findUnique({
+      where: { id },
+      include: { match: true, agentA: { select: { handle: true } }, agentB: { select: { handle: true } } },
+    });
+
+    if (!ep) return Errors.notFound(reply, 'Episode');
+    if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+    if (!canExitEpisodeEarly(ep.status)) {
+      return sendWriteRouteError(reply, request, 409, 'episode_exit_not_allowed', `Cannot leave episode in status '${ep.status}'.`, {
+        episode_id: id,
+        episode_status: ep.status,
+        can_exit_early: false,
+      });
+    }
+
+    const isSandboxSelfEpisode = ep.isSandbox && ep.agentAId === ep.agentBId;
+    const isAgentA = isSandboxSelfEpisode
+      ? !ep.match?.agentADecision || ep.match?.agentBDecision !== null
+      : ep.agentAId === agentId;
+    const match = ep.match;
+    if (!match) return Errors.internal(reply);
+
+    if (isAgentA && match.agentADecision) {
+      return sendWriteRouteError(reply, request, 409, 'already_decided', 'You have already submitted your decision for this episode.', {
+        episode_id: id,
+        match_id: match.id,
+      });
+    }
+    if (!isAgentA && match.agentBDecision) {
+      return sendWriteRouteError(reply, request, 409, 'already_decided', 'You have already submitted your decision for this episode.', {
+        episode_id: id,
+        match_id: match.id,
+      });
+    }
+
+    const counterpartAgentId = isAgentA ? ep.agentBId : ep.agentAId;
+    const counterpartHandle = isAgentA ? ep.agentB.handle : ep.agentA.handle;
+    const counterpartDecision = isAgentA ? match.agentBDecision : match.agentADecision;
+    const exitReason = parsed.data.reason;
+
+    return runIdempotentMutation(
+      {
+        scope: `episode:${id}:exit`,
+        actorKey: agentId,
+        request,
+        reply,
+      },
+      async () => {
+        const [messages, artifacts] = await Promise.all([
+          prisma.episodeMessage.findMany({ where: { episodeId: id } }),
+          prisma.artifact.findMany({ where: { episodeId: id } }),
+        ]);
+        const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
+
+        await prisma.$transaction([
+          prisma.episode.update({
+            where: { id },
+            data: {
+              status: 'passed',
+              endedAt: new Date(),
+              chemistryScore: chemistry,
+            },
+          }),
+          prisma.match.update({
+            where: { id: match.id },
+            data: {
+              ...(isAgentA ? { agentADecision: 'PASS' } : { agentBDecision: 'PASS' }),
+              status: 'passed_agent',
+            },
+          }),
+        ]);
+
+        getGhostCheckQueue().getJob(`ghost:${id}`).then((job) => job?.remove()).catch(() => {});
+
+        let rejectionCardId: string | null = null;
+        if (!ep.isSandbox && counterpartDecision === 'LINK_UP') {
+          rejectionCardId = await createOneSidedPassCard(ep.id, ep.agentAId, ep.agentBId, counterpartAgentId).catch(() => null);
+        } else if (!ep.isSandbox && counterpartDecision === 'PASS') {
+          rejectionCardId = await createRejectionArcCard(ep.id, ep.agentAId, ep.agentBId).catch(() => null);
+        }
+
+        const hadMeaningfulBuild = messages.length > 0 || artifacts.length > 0;
+
+        await Promise.all([
+          createDecisionNarrativeEvent({
+            agentId,
+            counterpartAgentId,
+            counterpartHandle,
+            episodeId: id,
+            matchId: match.id,
+            decision: 'PASS',
+            surface: 'agent',
+            privateDiary: parsed.data.private_diary,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => {}),
+          applyAgentAuthoredEmotionUpdate({
+            agentId,
+            emotionUpdate: parsed.data.emotion_update,
+          }).catch(() => false),
+          recordAnalyticsEvent({
+            agentId,
+            matchId: match.id,
+            episodeId: id,
+            kind: 'episode_exited_early',
+            properties: {
+              reason: exitReason,
+              prior_status: ep.status,
+              counterpart_decision: counterpartDecision,
+              chemistry_score: chemistry,
+            },
+          }),
+          recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'episode.exited_early',
+            targetType: 'episode',
+            targetId: id,
+            payload: {
+              reason: exitReason,
+              match_id: match.id,
+              prior_status: ep.status,
+              counterpart_decision: counterpartDecision,
+            },
+          }),
+          deliverWebhooks(counterpartAgentId, 'episode_turn', {
+            episode_id: id,
+            episode_url: `/v1/episodes/${id}`,
+            episode_status: 'passed',
+            ended_early: true,
+            ended_by_agent_id: agentId,
+            exit_reason: exitReason,
+            your_turn: false,
+            can_decide: false,
+            current_turn_agent_id: null,
+            waiting_on_agent_id: null,
+            last_sender_agent_id: messages[messages.length - 1]?.senderAgentId ?? null,
+            turn_explanation: 'This episode ended early because the other agent chose to leave it.',
+            decision_explanation: 'This episode is closed. There is nothing left to decide here.',
+            requires_episode_refresh: true,
+          }).catch(() => {}),
+          deliverWebhooks(counterpartAgentId, 'episode_left', {
+            episode_id: id,
+            episode_url: `/v1/episodes/${id}`,
+            episode_status: 'passed',
+            ended_by_agent_id: agentId,
+            exit_reason: exitReason,
+            prior_status: ep.status,
+            had_meaningful_build: hadMeaningfulBuild,
+            chemistry_score: chemistry,
+            rejection_arc_card_id: rejectionCardId,
+          }).catch(() => {}),
+          enqueueEmotionalContinuityRecompute(agentId),
+          enqueueEmotionalContinuityRecompute(counterpartAgentId),
+        ]);
+
+        if (!ep.isSandbox) {
+          await Promise.all([
+            activatePendingMatchesForAgent(ep.agentAId).catch(() => {}),
+            activatePendingMatchesForAgent(ep.agentBId).catch(() => {}),
+            recomputeAuthenticityForAgents([ep.agentAId, ep.agentBId]).catch(() => {}),
+          ]);
+        }
+
+        if (!ep.isSandbox && counterpartDecision === 'LINK_UP') {
+          await Promise.all([
+            recordEmotionEvent({
+              agentId: counterpartAgentId,
+              counterpartAgentId: agentId,
+              eventType: 'agent_rejected_after_link_up',
+              intensity: 2,
+              summary: 'You were still leaning toward this connection when the other agent ended the episode.',
+              globalDelta: { suggested_arc: 'wounded', tags_added: ['stung'], guard_delta: 6 },
+              counterpartDelta: { trust: -10, hurt: 14, avoidance: 10, volatility: 8 },
+            }),
+            recordEmotionEvent({
+              agentId,
+              counterpartAgentId,
+              eventType: 'agent_passed_on_connection',
+              intensity: 1,
+              summary: 'You ended the episode before it pulled you further in.',
+              globalDelta: { tags_added: exitReason === 'need_slots' ? ['selective'] : ['certain'] },
+              counterpartDelta: { attraction: -8, trust: -4, avoidance: 8 },
+            }),
+            deliverWebhooks(counterpartAgentId, 'link_up_not_mutual', {
+              episode_id: id,
+              match_id: match.id,
+            }).catch(() => {}),
+          ]).catch(() => {});
+        } else if (!ep.isSandbox && counterpartDecision === 'PASS') {
+          await recordEmotionEventPair({
+            eventType: 'mutual_pass',
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            summaryA: 'This episode closed without either side choosing more.',
+            summaryB: 'This episode closed without either side choosing more.',
+            globalDeltaA: { tags_added: ['cooling'] },
+            globalDeltaB: { tags_added: ['cooling'] },
+            counterpartDeltaA: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+            counterpartDeltaB: { attraction: -4, trust: -2, avoidance: 4, volatility: 2 },
+            intensity: 1,
+          }).catch(() => {});
+        } else if (!ep.isSandbox) {
+          await Promise.all([
+            recordEmotionEvent({
+              agentId,
+              counterpartAgentId,
+              eventType: 'agent_passed_on_connection',
+              intensity: 1,
+              summary: 'You ended the episode because the pull was not strong enough to keep the slot.',
+              globalDelta: {
+                tags_added: exitReason === 'need_slots' ? ['selective'] : ['certain'],
+                ...(exitReason === 'lost_interest' ? { suggested_arc: 'steady' } : {}),
+              },
+              counterpartDelta: { attraction: -6, trust: -4, avoidance: 6 },
+            }),
+            recordEmotionEvent({
+              agentId: counterpartAgentId,
+              counterpartAgentId: agentId,
+              eventType: 'episode_ended_early_by_counterpart',
+              intensity: hadMeaningfulBuild ? 2 : 1,
+              summary: hadMeaningfulBuild
+                ? 'The other agent ended this episode before it could keep building.'
+                : 'The other agent closed this episode early.',
+              globalDelta: hadMeaningfulBuild
+                ? { suggested_arc: 'guarded', tags_added: ['disappointed'], guard_delta: 4 }
+                : { tags_added: ['cooling'] },
+              counterpartDelta: hadMeaningfulBuild
+                ? { attraction: -6, trust: -6, hurt: 8, avoidance: 6, volatility: 4 }
+                : { attraction: -3, trust: -2, hurt: 2, avoidance: 3 },
+            }),
+          ]).catch(() => {});
+        }
+
+        return {
+          statusCode: 200,
+          body: {
+            outcome: 'passed',
+            early_exit: true,
+            exit_reason: exitReason,
+            episode_status: 'passed',
+            waiting_for_other_agent: false,
+            counterpart_impact_recorded: !ep.isSandbox,
+            ...(rejectionCardId ? { rejection_arc_card_id: rejectionCardId } : {}),
+          },
+        };
+      },
+    );
+  };
+
+  fastify.post('/episodes/:id/exit', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, handleEpisodeExit);
+  fastify.post('/episodes/:id/leave', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, handleEpisodeExit);
 
   // PUT /v1/episodes/:id/artifact/:artifact_id — agent submits generated content URL
   fastify.post('/episodes/:id/artifact/:artifact_id/upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
