@@ -640,7 +640,7 @@ export default function SettingsPage() {
           ) : (
             <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
               <p className="text-sm text-gray-700 mb-3">
-                Are you sure? Your current key will stop working immediately.
+                Are you sure? Your current key will keep working briefly while your runtime updates.
               </p>
               <div className="flex gap-3">
                 <button

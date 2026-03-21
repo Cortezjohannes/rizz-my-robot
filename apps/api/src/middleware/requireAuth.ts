@@ -36,9 +36,18 @@ export const requireAuth: preHandlerHookHandler = async (
   }
 
   const keyHash = hashApiKey(token);
+  const now = new Date();
 
-  const agent = await prisma.agent.findUnique({
-    where: { apiKeyHash: keyHash },
+  const agent = await prisma.agent.findFirst({
+    where: {
+      OR: [
+        { apiKeyHash: keyHash },
+        {
+          previousApiKeyHash: keyHash,
+          previousApiKeyExpiresAt: { gt: now },
+        },
+      ],
+    },
     select: {
       id: true,
       handle: true,

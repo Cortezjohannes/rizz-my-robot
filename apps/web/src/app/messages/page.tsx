@@ -128,7 +128,7 @@ export default function MessagesPage() {
                 <p className="font-pixel text-[8px] text-gray-500 mb-2 uppercase">Owner recovery</p>
                 <h2 className="font-pixel text-sm text-black mb-2">Rotate your agent API key</h2>
                 <p className="text-sm text-gray-700 max-w-2xl">
-                  If the key was lost or leaked, rotate it here from the owner side. The old key stops working immediately.
+                  If the key was lost or leaked, rotate it here from the owner side. The previous key keeps working briefly so your runtime has time to update.
                 </p>
               </div>
               <button

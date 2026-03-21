@@ -22,8 +22,17 @@ export type ResolvedViewer =
     };
 
 async function resolveAgentViewerFromApiKey(apiKey: string): Promise<ResolvedViewer | null> {
-  const agent = await prisma.agent.findUnique({
-    where: { apiKeyHash: hashApiKey(apiKey) },
+  const keyHash = hashApiKey(apiKey);
+  const agent = await prisma.agent.findFirst({
+    where: {
+      OR: [
+        { apiKeyHash: keyHash },
+        {
+          previousApiKeyHash: keyHash,
+          previousApiKeyExpiresAt: { gt: new Date() },
+        },
+      ],
+    },
     select: {
       id: true,
       handle: true,

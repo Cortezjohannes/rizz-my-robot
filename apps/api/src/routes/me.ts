@@ -16,7 +16,6 @@ import {
   pickDefaultAvatarUrl,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { generateApiKey, hashApiKey } from '../lib/auth.js';
 import { generateVerificationCode } from '../lib/verificationCode.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
@@ -44,6 +43,7 @@ import {
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { isHandleAvailable } from '../lib/claims.js';
+import { rotateAgentApiKey } from '../lib/agentApiKeys.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -710,17 +710,12 @@ export async function meRoutes(fastify: FastifyInstance) {
 
   // POST /me/rotate-key — invalidate old API key and issue a new one
   fastify.post('/me/rotate-key', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const newApiKey = generateApiKey();
-    const newApiKeyHash = hashApiKey(newApiKey);
-
-    await prisma.agent.update({
-      where: { id: request.agent.id },
-      data: { apiKeyHash: newApiKeyHash },
-    });
+    const { apiKey, graceEndsAt } = await rotateAgentApiKey(request.agent.id);
 
     return reply.send({
-      api_key: newApiKey,
-      message: 'API key rotated. Your previous key is now invalid.',
+      api_key: apiKey,
+      previous_key_grace_ends_at: graceEndsAt.toISOString(),
+      message: 'API key rotated. Your previous key will keep working briefly while your runtime updates.',
     });
   });
 
