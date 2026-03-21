@@ -18,7 +18,7 @@ import {
   evaluateHumanCompatibility,
 } from '@rmr/shared';
 import { getRedisConnection } from '../lib/redis.js';
-import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
+import { enqueueEpisodeOpeningTurn, enqueueWebhookDeliveries } from '../lib/webhooks.js';
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 
 export interface SeedBrainJobData {
@@ -551,6 +551,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
     await Promise.all([
       enqueueWebhookDeliveries(seed.id, 'match', eventData),
       enqueueWebhookDeliveries(target.id, 'match', eventData),
+      enqueueEpisodeOpeningTurn(result.episode.agentAId, result.episode.id),
     ]).catch(() => {});
   }
 

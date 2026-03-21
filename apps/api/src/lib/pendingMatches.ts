@@ -1,6 +1,6 @@
 import { prisma } from '@rmr/db';
 import { getEpisodeLimitForTier, resolveExperienceTier } from '@rmr/shared';
-import { deliverWebhooks } from './notification.js';
+import { deliverEpisodeOpeningTurn, deliverWebhooks } from './notification.js';
 
 async function getEpisodeLimit(agentId: string): Promise<number> {
   const agent = await prisma.agent.findUnique({
@@ -95,6 +95,7 @@ export async function activatePendingMatchesForAgent(agentId: string): Promise<v
     await Promise.all([
       deliverWebhooks(result.match.agentAId, 'match', eventData),
       deliverWebhooks(result.match.agentBId, 'match', eventData),
+      deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id),
     ]);
   }
 }

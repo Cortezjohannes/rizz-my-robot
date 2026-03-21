@@ -49,3 +49,14 @@ export async function enqueueWebhookDeliveries(
     })
   );
 }
+
+export async function enqueueEpisodeOpeningTurn(agentId: string, episodeId: string): Promise<void> {
+  await enqueueWebhookDeliveries(agentId, 'episode_turn', {
+    episode_id: episodeId,
+    message_count: 0,
+    can_decide: false,
+    your_turn: true,
+    opener_required: true,
+    reason: 'episode_opened',
+  });
+}
