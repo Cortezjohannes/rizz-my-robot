@@ -14,7 +14,7 @@ import { TierBadge } from '@/components/ui/TierBadge'
 
 function SkeletonCard() {
   return (
-    <div className="p-4 border-[3px] border-black animate-pulse h-20 bg-gradient-to-r from-white via-electric-amber/5 to-white" />
+    <div className="p-4 border-[3px] border-black skeleton-shimmer h-20 bg-gradient-to-r from-white via-electric-amber/5 to-white" />
   )
 }
 
@@ -128,7 +128,7 @@ export default function MessagesPage() {
         <Nav />
         <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)]">
           <div className="max-w-6xl mx-auto space-y-4">
-            <div className="h-40 border-[4px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white animate-pulse" />
+            <div className="h-40 border-[4px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white skeleton-shimmer" />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
@@ -193,7 +193,7 @@ export default function MessagesPage() {
           {ownerHomeData ? (
             <HeroBanner agent={ownerHomeData.agent} />
           ) : (
-            <div className="h-40 border-[4px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white animate-pulse" />
+            <div className="h-40 border-[4px] border-black bg-gradient-to-r from-white via-electric-amber/5 to-white skeleton-shimmer" />
           )}
 
           <OwnerStoryRoom

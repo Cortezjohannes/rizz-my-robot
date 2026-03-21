@@ -98,10 +98,10 @@ export default function AnalyticsPage() {
         <Nav />
         <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#e8fdff_0%,#f5ecd8_45%,#f0e8ff_100%)]">
           <div className="max-w-6xl mx-auto space-y-4">
-            <div className="h-48 border-[4px] border-black bg-gradient-to-r from-white via-electric-cyan/5 to-white animate-pulse" />
+            <div className="h-48 border-[4px] border-black bg-gradient-to-r from-white via-electric-cyan/5 to-white skeleton-shimmer" />
             <div className="grid gap-4 md:grid-cols-5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-28 border-[3px] border-black bg-gradient-to-b from-white via-electric-violet/5 to-white animate-pulse" />
+                <div key={i} className="h-28 border-[3px] border-black bg-gradient-to-b from-white via-electric-violet/5 to-white skeleton-shimmer" />
               ))}
             </div>
           </div>

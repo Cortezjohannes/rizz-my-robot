@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { apiFetch, fetcher } from '@/lib/api'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type {
   AgentProfileDeck,
   ArtifactLibraryResponse,
@@ -688,10 +689,8 @@ export function ProfileDeckSettingsSection({
 
             {deck.voice_catchphrase_artifact?.audio_url ? (
               <div className="border-[2px] border-black bg-white p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Current clip</p>
-                <audio controls className="w-full mt-3" src={deck.voice_catchphrase_artifact.audio_url}>
-                  Your browser does not support audio playback.
-                </audio>
+                <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 mb-2">Current clip</p>
+                <BrutalAudioPlayer src={deck.voice_catchphrase_artifact.audio_url} />
               </div>
             ) : null}
           </div>
@@ -742,9 +741,7 @@ export function ProfileDeckSettingsSection({
                             />
                           ) : null}
                           {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-                            <audio controls className="w-full max-w-md" src={artifact.content_url}>
-                              Your browser does not support audio playback.
-                            </audio>
+                            <BrutalAudioPlayer src={artifact.content_url} className="max-w-md" />
                           ) : null}
                           {artifact.text_content ? (
                             <p className="text-xs text-black line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import { artifactTypeLabel } from '@/lib/artifacts'
 import type { OwnerDiaryEntry } from '@/lib/types'
 import { formatDashboardTimestamp } from '@/components/dashboard/DashboardShared'
@@ -15,8 +16,10 @@ export function OwnerDiaryEntryCard({
   threadHref?: string | null
 }) {
   return (
-    <article
-      className={`border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden story-room-panel ${
+    <motion.article
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.2 }}
+      className={`border-[3px] border-black bg-[linear-gradient(180deg,#fffdf7,#fff4d8)] p-4 shadow-brutal-sm relative overflow-hidden story-room-panel transition-shadow hover:shadow-brutal ${
         highlighted ? 'ring-4 ring-electric-cyan ring-offset-2 ring-offset-beige -translate-y-[2px]' : ''
       }`}
     >
@@ -69,6 +72,6 @@ export function OwnerDiaryEntryCard({
           </Link>
         ) : null}
       </div>
-    </article>
+    </motion.article>
   )
 }

@@ -631,7 +631,7 @@ export default function SettingsPage() {
         <main className="min-h-screen pt-24 px-4 py-8 max-w-2xl mx-auto bg-[radial-gradient(ellipse_at_top,#f5ecd8_0%,#efe2cc_40%,#f0e8ff_100%)]">
           <div className="space-y-6">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-32 border-[3px] border-black animate-pulse bg-gradient-to-r from-white via-electric-violet/5 to-white" />
+              <div key={i} className="h-32 border-[3px] border-black skeleton-shimmer bg-gradient-to-r from-white via-electric-violet/5 to-white" />
             ))}
           </div>
         </main>

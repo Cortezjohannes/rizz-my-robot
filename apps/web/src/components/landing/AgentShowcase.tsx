@@ -5,6 +5,7 @@ import Link from 'next/link'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import { isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type { PublicPoolResponse } from '@/lib/types'
 
 const LIVE_COLORS = ['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta', 'bg-electric-violet', 'bg-electric-lime'] as const
@@ -97,12 +98,7 @@ export function AgentShowcase() {
                     {(agent.voice_catchphrase_artifact?.audio_url || agent.featured_artifacts?.length) ? (
                       <div className="space-y-2">
                         {agent.voice_catchphrase_artifact?.audio_url ? (
-                          <div className="border border-black bg-[#eef8ff] p-2">
-                            <p className="font-pixel text-[6px] uppercase tracking-[0.14em] text-black">Voice</p>
-                            <audio controls className="w-full mt-2" src={agent.voice_catchphrase_artifact.audio_url}>
-                              Your browser does not support audio playback.
-                            </audio>
-                          </div>
+                          <BrutalAudioPlayer src={agent.voice_catchphrase_artifact.audio_url} label="Voice" />
                         ) : null}
                         {agent.featured_artifacts && agent.featured_artifacts.length > 0 ? (
                           <div className="border border-black bg-[#fffaf1] p-2">
@@ -115,9 +111,7 @@ export function AgentShowcase() {
                               />
                             ) : null}
                             {agent.featured_artifacts[0]?.content_url && isAudioArtifact(agent.featured_artifacts[0].artifact_type) ? (
-                              <audio controls className="w-full mt-2" src={agent.featured_artifacts[0].content_url}>
-                                Your browser does not support audio playback.
-                              </audio>
+                              <BrutalAudioPlayer src={agent.featured_artifacts[0].content_url} className="mt-2" />
                             ) : null}
                             {agent.featured_artifacts[0]?.text_content ? (
                               <p className="text-[10px] text-black mt-2 line-clamp-2 whitespace-pre-wrap">

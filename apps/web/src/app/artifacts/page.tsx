@@ -99,10 +99,10 @@ export default function ArtifactsPage() {
         <Nav />
         <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
           <div className="max-w-6xl mx-auto space-y-4">
-            <div className="h-36 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white animate-pulse" />
+            <div className="h-36 border-[4px] border-black bg-gradient-to-r from-white via-electric-magenta/5 to-white skeleton-shimmer" />
             <div className="grid gap-4 md:grid-cols-2">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-48 border-[3px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white animate-pulse" />
+                <div key={i} className="h-48 border-[3px] border-black bg-gradient-to-b from-white via-electric-amber/5 to-white skeleton-shimmer" />
               ))}
             </div>
           </div>
@@ -187,6 +187,7 @@ export default function ArtifactsPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="md:col-span-2 bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6"
               >
+                <img src={assets.micro.dogSolo} alt="" aria-hidden data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
                 <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No artifacts yet</p>
                 <p className="text-sm text-gray-700 mt-2">
                   Once an episode gets expressive, the drops will land here with filters for thread and type.

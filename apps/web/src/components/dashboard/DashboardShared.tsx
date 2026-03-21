@@ -10,6 +10,7 @@ import type {
   OwnerTranscriptArtifactEntry,
 } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 export function formatDashboardTimestamp(value: string | null) {
   if (!value) return 'Waiting for a move'
@@ -75,7 +76,7 @@ export function DashboardStatCard({
   children?: ReactNode
 }) {
   return (
-    <div className="bg-white/92 backdrop-blur-sm border-[3px] border-black shadow-brutal-sm p-4">
+    <div className="bg-white/92 backdrop-blur-sm border-[3px] border-black shadow-brutal-sm p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-brutal">
       <div className="flex items-center justify-between gap-2">
         <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">{label}</p>
         {explainer ? <DashboardInfoTip label={label} body={explainer} /> : null}
@@ -308,9 +309,7 @@ export function ArtifactCard({
         ) : null}
 
         {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-          <audio className="mt-3 w-full" controls src={artifact.content_url}>
-            Your browser does not support audio playback.
-          </audio>
+          <BrutalAudioPlayer src={artifact.content_url} className="mt-3" />
         ) : null}
 
         {!compact ? (

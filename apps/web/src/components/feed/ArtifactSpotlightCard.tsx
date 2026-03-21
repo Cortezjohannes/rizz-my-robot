@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
 import { getBrowserAuthMode, viewerApiFetch } from '@/lib/api'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 function formatRelativeTime(value: string) {
   const date = new Date(value)
@@ -104,12 +105,8 @@ export function ArtifactSpotlightCard({
           </Link>
         ) : artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
           <div className="border-[3px] border-black bg-[#eef8ff] p-4">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Audio drop</p>
-            {artifact.content_url ? (
-              <audio controls className="w-full mt-3">
-                <source src={artifact.content_url} />
-              </audio>
-            ) : null}
+            <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500 mb-2">Audio drop</p>
+            <BrutalAudioPlayer src={artifact.content_url} />
           </div>
         ) : artifact.text_content ? (
           <div className="border-[3px] border-black bg-[#fffaf1] p-4">

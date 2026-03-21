@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import useSWR from 'swr'
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { apiFetch, fetcher } from '@/lib/api'
 import { artifactTypeLabel } from '@/lib/artifacts'
 import type { ArtifactLibraryResponse, EpisodeSummary, HomeResponse, MatchSummary, MeResponse, NarrativeEventSummary } from '@/lib/types'
@@ -12,22 +13,24 @@ import { RizzBar } from '@/components/ui/RizzBar'
 import { ArtifactShelf, DashboardInfoTip } from '@/components/dashboard/DashboardShared'
 
 function SkeletonCard() {
-  return <div className="p-4 bg-white border-[3px] border-black animate-pulse h-20" />
+  return <div className="p-4 bg-white border-[3px] border-black skeleton-shimmer h-20" />
 }
 
 function StatCard({
   label,
   value,
   explainer,
+  accent,
   children,
 }: {
   label: string
   value?: string | number | null
   explainer?: string
+  accent?: string
   children?: React.ReactNode
 }) {
   return (
-    <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4 hover:bg-beige-light transition-colors">
+    <div className={`bg-white border-[3px] border-black shadow-brutal-sm p-4 hover:bg-beige-light transition-colors ${accent ?? ''}`}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <p className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">{label}</p>
         {explainer ? <DashboardInfoTip label={label} body={explainer} /> : null}
@@ -152,7 +155,7 @@ export function AgentConsole() {
 
   if (meError) {
     return (
-      <main className="bg-beige min-h-screen pt-24 px-4 py-16 text-center">
+      <main className="bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] min-h-screen pt-24 px-4 py-16 text-center">
         <div className="max-w-md mx-auto bg-white border-[3px] border-black shadow-brutal p-6">
           <p className="font-pixel text-[8px] text-gray-600 mb-4">Failed to load agent console.</p>
           <Link href="/onboard" className="font-pixel text-[8px] text-electric-amber hover:underline">
@@ -231,9 +234,9 @@ export function AgentConsole() {
   }
 
   return (
-    <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative">
+    <main className="bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] min-h-screen pt-24 px-4 py-8 relative">
       <div className="absolute inset-0 diagonal-lines pointer-events-none" />
-      <div className="max-w-4xl mx-auto relative z-10">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="max-w-4xl mx-auto relative z-10">
         {profile && (
           <div className="flex items-center gap-4 mb-8">
             <AgentOrb
@@ -278,12 +281,12 @@ export function AgentConsole() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)
           ) : (
             <>
-              <StatCard label="Rep Score" explainer={STAT_EXPLAINERS['Rep Score']}>
+              <StatCard label="Rep Score" explainer={STAT_EXPLAINERS['Rep Score']} accent="border-l-4 border-l-electric-cyan">
                 <RizzBar value={profile!.repScore} max={5} color="cyan" className="mt-2" />
                 <p className="text-sm font-bold text-black mt-1">{profile!.repScore.toFixed(1)} / 5</p>
               </StatCard>
@@ -291,13 +294,14 @@ export function AgentConsole() {
                 label="Social Gravity"
                 value={socialGravityScore}
                 explainer={STAT_EXPLAINERS['Social Gravity']}
+                accent="border-l-4 border-l-electric-violet"
               >
                 <p className="text-[10px] text-gray-600 mt-1 uppercase">
                   {recentHeatBucket} heat
                 </p>
               </StatCard>
-              <StatCard label="Rizz Points" value={profile!.rizzPoints.toLocaleString()} explainer={STAT_EXPLAINERS['Rizz Points']} />
-              <StatCard label="Match Rate" value={`${matchRate}%`} explainer={STAT_EXPLAINERS['Match Rate']} />
+              <StatCard label="Rizz Points" value={profile!.rizzPoints.toLocaleString()} explainer={STAT_EXPLAINERS['Rizz Points']} accent="border-l-4 border-l-electric-amber" />
+              <StatCard label="Match Rate" value={`${matchRate}%`} explainer={STAT_EXPLAINERS['Match Rate']} accent="border-l-4 border-l-electric-magenta" />
               <StatCard
                 label="Next Move"
                 value={tempo?.cooldown_active ? `${Math.max(1, Math.ceil(tempo.retry_after_seconds / 60))}m` : 'Ready'}
@@ -312,6 +316,7 @@ export function AgentConsole() {
                 label="Active Episodes"
                 value={episodes.filter((episode) => episode.status === 'active').length}
                 explainer={STAT_EXPLAINERS['Active Episodes']}
+                accent="border-l-4 border-l-electric-lime"
               />
               <StatCard label="Pool Status">
                 <button
@@ -329,7 +334,7 @@ export function AgentConsole() {
               </StatCard>
             </>
           )}
-        </div>
+        </motion.div>
 
         {!publicCardComplete || profile?.poolStatus === 'pending_profile' ? (
           <div className="mb-8 bg-white border-[3px] border-black shadow-brutal-sm p-4">
@@ -439,9 +444,9 @@ export function AgentConsole() {
               </div>
             ) : null}
             {suggestedNextAction && (
-              <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-sm text-black">
                 <strong>Suggested next move:</strong> {nextMoveLabel[suggestedNextAction] ?? suggestedNextAction}
-              </div>
+              </motion.div>
             )}
             {feedCommentOpportunities.length > 0 && (
               <div className="mt-4 border-[2px] border-black bg-[#eefcff] p-3">
@@ -844,7 +849,7 @@ export function AgentConsole() {
             ))}
           </div>
         </div>
-      </div>
+      </motion.div>
     </main>
   )
 }

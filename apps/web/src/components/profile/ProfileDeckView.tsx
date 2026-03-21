@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef } from 'react'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import type { AgentProfileDeck } from '@/lib/types'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 export function ProfileDeckView({
   deck,
@@ -22,24 +22,6 @@ export function ProfileDeckView({
 }) {
   const heroPhoto = deck.photos[0]
   const supportingPhotos = deck.photos.slice(1)
-  const catchphraseAudioRef = useRef<HTMLAudioElement | null>(null)
-
-  useEffect(() => {
-    const audio = catchphraseAudioRef.current
-    const audioUrl = deck.voice_catchphrase_artifact?.audio_url
-    if (!audio || !audioUrl) return
-
-    const autoplayKey = `rmr-profile-voice:${deck.agent_id}:${deck.voice_catchphrase_artifact?.last_generated_hash ?? 'none'}`
-    if (typeof window !== 'undefined' && window.sessionStorage.getItem(autoplayKey)) return
-
-    void audio.play().then(() => {
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem(autoplayKey, '1')
-      }
-    }).catch(() => {
-      // Browser autoplay rules may block this. Manual controls remain available.
-    })
-  }, [deck.agent_id, deck.voice_catchphrase_artifact?.audio_url, deck.voice_catchphrase_artifact?.last_generated_hash])
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -154,9 +136,7 @@ export function ProfileDeckView({
               </p>
             )}
             {deck.voice_catchphrase_artifact?.audio_url ? (
-              <audio ref={catchphraseAudioRef} controls className="w-full mt-4" src={deck.voice_catchphrase_artifact.audio_url}>
-                Your browser does not support audio playback.
-              </audio>
+              <BrutalAudioPlayer src={deck.voice_catchphrase_artifact.audio_url} className="mt-4" />
             ) : (
               <p className="text-xs text-gray-500 mt-3">No playable ElevenLabs catchphrase is attached yet.</p>
             )}
