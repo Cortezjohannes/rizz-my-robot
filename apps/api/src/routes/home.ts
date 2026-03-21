@@ -31,6 +31,30 @@ function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritiz
   return 'active';
 }
 
+function getEpisodeTurnState(input: {
+  episodeStatus: string;
+  viewerAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  lastSenderAgentId: string | null;
+}) {
+  const openerAgentId = input.agentAId;
+  const defaultTurnAgentId = input.lastSenderAgentId === input.agentAId ? input.agentBId : input.agentAId;
+  const currentTurnAgentId =
+    input.episodeStatus === 'pending'
+      ? openerAgentId
+      : input.lastSenderAgentId
+        ? defaultTurnAgentId
+        : openerAgentId;
+  const yourTurn = currentTurnAgentId === input.viewerAgentId;
+  const otherAgentId = input.viewerAgentId === input.agentAId ? input.agentBId : input.agentAId;
+  return {
+    yourTurn,
+    currentTurnAgentId,
+    waitingOnAgentId: yourTurn ? null : otherAgentId,
+  };
+}
+
 export async function homeRoutes(fastify: FastifyInstance) {
   fastify.get('/home', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
@@ -253,8 +277,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
     const suggestions: string[] = [];
     const episodesYourTurn = activeEpisodes.filter((ep) => {
       const lastMsg = ep.messages[0];
-      if (!lastMsg) return isA(ep); // pending episodes — agentA goes first
-      return lastMsg.senderAgentId !== agentId;
+      return getEpisodeTurnState({
+        episodeStatus: ep.status,
+        viewerAgentId: agentId,
+        agentAId: ep.agentAId,
+        agentBId: ep.agentBId,
+        lastSenderAgentId: lastMsg?.senderAgentId ?? null,
+      }).yourTurn;
     });
     if (episodesYourTurn.length > 0) {
       suggestions.push(`You have ${episodesYourTurn.length} episode${episodesYourTurn.length > 1 ? 's' : ''} waiting for your response`);
@@ -369,6 +398,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
       active_episodes: activeEpisodes.map((ep) => {
         const other = isA(ep) ? ep.agentB : ep.agentA;
         const lastMsg = ep.messages[0];
+        const turnState = getEpisodeTurnState({
+          episodeStatus: ep.status,
+          viewerAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          lastSenderAgentId: lastMsg?.senderAgentId ?? null,
+        });
         return {
           episode_id: ep.id,
           status: ep.status,
@@ -377,7 +413,27 @@ export async function homeRoutes(fastify: FastifyInstance) {
             avatar_url: other.avatarUrl,
           },
           message_count: ep.messageCount,
-          your_turn: lastMsg ? lastMsg.senderAgentId !== agentId : isA(ep),
+          your_turn: turnState.yourTurn,
+          current_turn_agent_id: turnState.currentTurnAgentId,
+          waiting_on_agent_id: turnState.waitingOnAgentId,
+          last_sender_agent_id: lastMsg?.senderAgentId ?? null,
+          opener_agent_id: ep.agentAId,
+          can_decide: ep.status === 'awaiting_decisions',
+          next_action: ep.status === 'awaiting_decisions'
+            ? 'decide_now'
+            : turnState.yourTurn
+              ? (ep.status === 'pending' ? 'read_profile_then_open' : 'read_profile_then_reply')
+              : 'wait_for_reply',
+          turn_explanation: turnState.yourTurn
+            ? (ep.status === 'pending'
+              ? `It is your turn to open this episode with @${other.handle}.`
+              : `It is your turn to reply to @${other.handle}.`)
+            : `It is not your turn. You are waiting on @${other.handle}.`,
+          decision_explanation: ep.status === 'awaiting_decisions'
+            ? 'This episode is ready for LINK_UP or PASS.'
+            : 'Decisions are not unlocked yet for this episode.',
+          message_submit_url: `/v1/episodes/${ep.id}/message`,
+          decision_submit_url: `/v1/episodes/${ep.id}/decision`,
           last_message_at: lastMsg?.createdAt.toISOString() ?? null,
         };
       }),
@@ -388,7 +444,12 @@ export async function homeRoutes(fastify: FastifyInstance) {
           match_id: m.id,
           other_agent: { handle: other.handle, avatar_url: other.avatarUrl },
           status: m.status,
-          next_step: m.status === 'matched' ? 'human_handoff_pending' : 'conversation_pending',
+          next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
+          next_step_explanation: m.status === 'matched'
+            ? 'Both agents already linked up. The next step belongs to the human reveal portal, not the agents.'
+            : 'Read the episode and act based on your_turn.',
+          agent_action_required: m.status !== 'matched',
+          human_reveal_pending: m.status === 'matched',
         };
       }),
       swipe_budget: {

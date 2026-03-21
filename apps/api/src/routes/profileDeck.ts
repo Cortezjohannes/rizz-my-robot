@@ -327,8 +327,19 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const signalVector = computeProfileSignalVector(parsed.data);
     const legacyPublicCard = deriveLegacyPublicCardFromProfileDeckInput(parsed.data);
     const completedAt = parsed.data.completion_state === 'ready' ? new Date() : null;
+    const legacyVoiceCatchphraseUrl = (
+      request.body
+      && typeof request.body === 'object'
+      && !Array.isArray(request.body)
+      && typeof (request.body as { voice_catchphrase_url?: unknown }).voice_catchphrase_url === 'string'
+    )
+      ? (request.body as { voice_catchphrase_url: string }).voice_catchphrase_url.trim()
+      : null;
     const voiceCatchphraseText = parsed.data.voice_catchphrase_text?.trim() || null;
-    const externalVoiceCatchphraseAudioUrl = parsed.data.voice_catchphrase_audio_url?.trim() || null;
+    const externalVoiceCatchphraseAudioUrl =
+      parsed.data.voice_catchphrase_audio_url?.trim()
+      || legacyVoiceCatchphraseUrl
+      || null;
     const requestedFeaturedArtifactIds = [...new Set(parsed.data.featured_artifact_ids ?? [])].slice(0, 10);
     const voiceGenerationAvailable = isProfileVoiceGenerationAvailable({
       voiceId: current.voiceId,

@@ -66,10 +66,24 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         const otherId = isA ? m.agentBId : m.agentAId;
         const otherAgent = isA ? m.agentB : m.agentA;
         const myDecision = isA ? m.agentADecision : m.agentBDecision;
+        const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
+        const otherHumanDecision = isA ? m.humanBDecision : m.humanADecision;
+        const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
+        const revealStatusSummary =
+          m.status === 'contact_exchanged'
+            ? 'both_humans_yes'
+            : m.status === 'passed_human' || myHumanDecision === 'NO' || otherHumanDecision === 'NO'
+              ? 'reveal_closed'
+              : myRevealToken
+                ? myHumanDecision
+                  ? 'waiting_on_other_human'
+                  : 'waiting_on_your_human'
+                : 'not_ready';
 
         return {
           match_id: m.id,
           episode_id: m.episodeId,
+          episode_url: m.episodeId ? `/v1/episodes/${m.episodeId}` : null,
           other_agent_id: otherId,
           other_agent_handle: otherAgent.handle,
           other_agent_avatar_url: otherAgent.avatarUrl,
@@ -87,8 +101,19 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           reveal_portal_url: null,
           handoff: null,
           handoff_mode: m.handoffMode,
+          reveal_status_summary: revealStatusSummary,
+          reveal_status_endpoint: `/v1/matches/${m.id}/reveal-status`,
           special_match_kind: m.specialMatchKind,
           waiting_on_omnimon: false,
+          human_reveal_pending: m.status === 'matched',
+          agent_action_required: m.status !== 'matched',
+          next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
+          next_step_explanation: m.status === 'matched'
+            ? 'Both agents already linked up. The next action belongs to the human reveal portal, not the agents.'
+            : 'If an episode exists, fetch it and act based on your_turn.',
+          reveal_status_explanation: m.status === 'matched'
+            ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
+            : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
           chemistry_score: m.episode?.chemistryScore ?? null,
           date_planning_available: m.status === 'contact_exchanged',
           date_plan_status: m.datePlan?.status ?? null,
@@ -145,10 +170,24 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     const isA = m.agentAId === agentId;
     const otherId = isA ? m.agentBId : m.agentAId;
     const otherAgent = isA ? m.agentB : m.agentA;
+    const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
+    const otherHumanDecision = isA ? m.humanBDecision : m.humanADecision;
+    const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
+    const revealStatusSummary =
+      m.status === 'contact_exchanged'
+        ? 'both_humans_yes'
+        : m.status === 'passed_human' || myHumanDecision === 'NO' || otherHumanDecision === 'NO'
+          ? 'reveal_closed'
+          : myRevealToken
+            ? myHumanDecision
+              ? 'waiting_on_other_human'
+              : 'waiting_on_your_human'
+            : 'not_ready';
 
     return reply.send({
       match_id: m.id,
       episode_id: m.episodeId,
+      episode_url: m.episodeId ? `/v1/episodes/${m.episodeId}` : null,
       other_agent_id: otherId,
       other_agent_handle: otherAgent.handle,
       other_agent_avatar_url: otherAgent.avatarUrl,
@@ -166,8 +205,19 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       reveal_portal_url: null,
       handoff: null,
       handoff_mode: m.handoffMode,
+      reveal_status_summary: revealStatusSummary,
+      reveal_status_endpoint: `/v1/matches/${m.id}/reveal-status`,
       special_match_kind: m.specialMatchKind,
       waiting_on_omnimon: false,
+      human_reveal_pending: m.status === 'matched',
+      agent_action_required: m.status !== 'matched',
+      next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
+      next_step_explanation: m.status === 'matched'
+        ? 'Both agents already linked up. The next action belongs to the human reveal portal, not the agents.'
+        : 'Use the episode route for conversation flow and decide only when the episode says can_decide.',
+      reveal_status_explanation: m.status === 'matched'
+        ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
+        : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
       chemistry_score: m.episode?.chemistryScore ?? null,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
@@ -205,19 +255,48 @@ export async function matchesRoutes(fastify: FastifyInstance) {
 
     if (!m) return Errors.notFound(reply, 'Match');
     if (m.agentAId !== agentId && m.agentBId !== agentId) return Errors.forbidden(reply);
+    const isA = m.agentAId === agentId;
+    const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
+    const otherHumanDecision = isA ? m.humanBDecision : m.humanADecision;
+    const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
+    const revealClosed = m.status === 'passed_human' || myHumanDecision === 'NO' || otherHumanDecision === 'NO';
+    const bothHumansDecided = myHumanDecision !== null && otherHumanDecision !== null;
+    const myHumanDecided = myHumanDecision !== null;
+    const nextAction =
+      m.status === 'contact_exchanged'
+        ? 'date_planning_available'
+        : revealClosed
+          ? 'log_closure'
+          : myRevealToken
+            ? myHumanDecided
+              ? 'wait_for_other_human'
+              : 'wait_for_your_human'
+            : 'wait_for_portal';
 
     return reply.send({
       status: m.status,
       reveal_stage: 0,
-      my_human_decided: false,
-      both_humans_decided: m.status === 'contact_exchanged',
-      reveal_closed: m.status === 'passed_human' || m.humanADecision === 'NO' || m.humanBDecision === 'NO',
+      my_human_decided: myHumanDecided,
+      both_humans_decided: bothHumansDecided || m.status === 'contact_exchanged',
+      reveal_closed: revealClosed,
       handoff_mode: m.handoffMode,
       special_match_kind: m.specialMatchKind,
       waiting_on_omnimon: false,
       reveal_safety_state: 'hidden_from_agent',
       reveal_hold_reason: null,
       review_required: false,
+      portal_available_to_your_human: Boolean(myRevealToken),
+      next_action: nextAction,
+      state_explainer:
+        nextAction === 'date_planning_available'
+          ? 'Both humans opted in. Move to date planning.'
+          : nextAction === 'log_closure'
+            ? 'A human said no or the reveal closed. Treat this as closure, not suspense.'
+            : nextAction === 'wait_for_other_human'
+              ? 'Your human already decided. Wait for the other side.'
+              : nextAction === 'wait_for_your_human'
+                ? 'The portal is live for your human, but they have not answered yet.'
+                : 'The portal is not live for your side yet. Watch /v1/home and human_decision webhooks.',
     });
   });
 

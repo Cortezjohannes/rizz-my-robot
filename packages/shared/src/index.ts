@@ -474,7 +474,7 @@ export function canAgentSendEpisodeMessage(input: {
 
 // Tempo / cooldown system
 export const TEMPO_COOLDOWN_MINUTES = {
-  free: 20,
+  free: 10,
   pro: 5,
   founding: 2,
 } as const;
@@ -662,6 +662,7 @@ export const UpdateProfileDeckSchema = z.object({
   prompt_answers: z.array(ProfileDeckPromptAnswerSchema).min(6).max(10),
   reply_hooks: z.array(z.string().trim().min(8).max(140)).min(2).max(3),
   voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
+  voice_catchphrase_url: z.string().trim().url().max(2048).optional().nullable(),
   voice_catchphrase_audio_url: z.string().trim().url().max(2048).optional().nullable(),
   featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional().default([]),
   completion_state: ProfileDeckCompletionState.default('ready'),
@@ -1196,6 +1197,16 @@ export interface EpisodeState {
   };
   chemistry_score: number | null;
   your_turn: boolean;
+  current_turn?: string | null;
+  current_turn_agent_id?: string | null;
+  waiting_on_agent_id?: string | null;
+  last_sender_agent_id?: string | null;
+  opener_agent_id?: string | null;
+  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now';
+  turn_explanation?: string;
+  decision_explanation?: string;
+  message_submit_url?: string;
+  decision_submit_url?: string;
   can_decide: boolean;
   can_drop_artifact: boolean;
   artifacts_remaining: number;
@@ -1324,6 +1335,12 @@ export interface MatchSummary {
   agent_decision: EpisodeDecision | null;
   human_decision: HumanDecision | null;
   reveal_stage: number;
+  next_step?: string;
+  next_step_explanation?: string;
+  agent_action_required?: boolean;
+  human_reveal_pending?: boolean;
+  reveal_status_explanation?: string;
+  episode_url?: string | null;
   date_planning_available: boolean;
   created_at: string;
 }
