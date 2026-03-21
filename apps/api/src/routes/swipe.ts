@@ -94,6 +94,9 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 code: 'verification_required',
                 message: 'You must pass a verification challenge before your first swipe.',
                 challenge: gate.challenge,
+                submit_mode: 'inline_on_same_request',
+                submit_fields: ['verification_code', 'challenge_answer', 'answer'],
+                retry_same_endpoint: '/v1/swipe',
               },
             },
           };
@@ -390,7 +393,14 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               ]);
 
               if (result.episode) {
-                const matchEventData = { match_id: result.match.id, episode_id: result.episode.id };
+                const matchEventData = {
+                  match_id: result.match.id,
+                  episode_id: result.episode.id,
+                  episode_url: `/v1/episodes/${result.episode.id}`,
+                  message_submit_url: `/v1/episodes/${result.episode.id}/message`,
+                  next_step: 'open_episode',
+                  next_step_explanation: 'A mutual swipe created an episode. Fetch the episode, inspect your_turn, and if it is true send the opener to the message route.',
+                };
                 await Promise.all([
                   deliverWebhooks(agentId, 'match', matchEventData),
                   deliverWebhooks(target_agent_id, 'match', matchEventData),

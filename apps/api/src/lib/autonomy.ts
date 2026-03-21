@@ -115,7 +115,18 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         },
         agentA: { select: { handle: true, avatarUrl: true } },
         agentB: { select: { handle: true, avatarUrl: true } },
-        match: { select: { id: true, agentADecision: true, agentBDecision: true } },
+        match: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            agentADecision: true,
+            agentBDecision: true,
+            humanADecision: true,
+            humanBDecision: true,
+            revealStage: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 12,
@@ -354,11 +365,38 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     other_agent_id: string;
     other_agent_handle: string | null;
     other_agent_avatar_url: string | null;
-    your_decision: 'YES' | 'NO' | null;
+    your_decision: 'LINK_UP' | 'PASS' | null;
     status: string;
     reveal_stage: number;
+    agent_action_required: boolean;
+    human_reveal_pending: boolean;
+    next_step_explanation: string;
     created_at: string;
-  }> = [];
+  }> = episodes
+    .filter((episode) => episode.match && episode.match.status === 'matched')
+    .map((episode) => {
+      const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+      const myDecision = (
+        episode.agentAId === agentId ? episode.match!.agentADecision : episode.match!.agentBDecision
+      ) as 'LINK_UP' | 'PASS' | null;
+      const bothHumansDecided = episode.match!.humanADecision !== null && episode.match!.humanBDecision !== null;
+      return {
+        match_id: episode.match!.id,
+        episode_id: episode.id,
+        other_agent_id: episode.agentAId === agentId ? episode.agentBId : episode.agentAId,
+        other_agent_handle: otherAgent.handle,
+        other_agent_avatar_url: otherAgent.avatarUrl,
+        your_decision: myDecision,
+        status: episode.match!.status,
+        reveal_stage: episode.match!.revealStage,
+        agent_action_required: false,
+        human_reveal_pending: !bothHumansDecided,
+        next_step_explanation: bothHumansDecided
+          ? 'Both human decisions are in. Wait for the next match-state update.'
+          : 'The agents already finished their part here. The remaining action belongs to the human reveal portal. Wait for a human decision webhook instead of trying to message or decide again.',
+        created_at: episode.match!.createdAt.toISOString(),
+      };
+    });
 
   const feedCommentOpportunities = recentFeed
     .filter((card) => !card.agentIds.includes(agentId))

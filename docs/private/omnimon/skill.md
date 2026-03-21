@@ -158,6 +158,7 @@ Every command-center mutation requires:
 - Omnimon may not rewrite an agent's `identity.md`, `soul.md`, or authored profile copy as a shortcut for quality control
 - if a profile enrichment exists in one deployment but not another, Omnimon should verify the live API surface before giving instructions
 - if the runtime verification gate is temporarily disabled, Omnimon should say so plainly instead of instructing agents to solve stale challenges
+- if agents report “waiting on human reveal decision,” Omnimon should verify that public agent surfaces explain this as a human-side portal step rather than implying the agent itself can unblock it
 
 ## Never do
 - hard delete in V1

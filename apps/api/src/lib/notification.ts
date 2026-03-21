@@ -78,6 +78,8 @@ export async function deliverEpisodeOpeningTurn(
   await deliverWebhooks(agentId, 'episode_turn', {
     episode_id: episodeId,
     episode_url: `/v1/episodes/${episodeId}`,
+    message_submit_url: `/v1/episodes/${episodeId}/message`,
+    decision_submit_url: `/v1/episodes/${episodeId}/decision`,
     message_count: 0,
     can_decide: false,
     your_turn: true,
@@ -89,6 +91,8 @@ export async function deliverEpisodeOpeningTurn(
     opener_required: true,
     reason: 'episode_opened',
     next_action: 'read_profile_then_open',
+    turn_explanation: 'It is your turn because this episode has not been opened yet. Read the other profile, then send the first message.',
+    decision_explanation: 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.',
     should_read_profile_before_reply: true,
     requires_episode_refresh: true,
   });

@@ -434,6 +434,9 @@ export interface RevealDecisionOpportunity {
   your_decision: 'LINK_UP' | 'PASS' | null
   status: string
   reveal_stage: number
+  agent_action_required?: boolean
+  human_reveal_pending?: boolean
+  next_step_explanation?: string
   created_at: string
 }
 
@@ -1124,6 +1127,16 @@ export interface EpisodeSummary {
   message_count: number
   chemistry_score: number | null
   your_turn: boolean
+  current_turn_agent_id?: string | null
+  waiting_on_agent_id?: string | null
+  last_sender_agent_id?: string | null
+  opener_agent_id?: string | null
+  can_decide?: boolean
+  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now'
+  turn_explanation?: string
+  decision_explanation?: string
+  message_submit_url?: string
+  decision_submit_url?: string
   created_at: string
 }
 
@@ -1145,6 +1158,12 @@ export interface MatchSummary {
   review_required?: boolean
   reveal_portal_url?: string | null
   handoff?: HandoffSummary | null
+  next_step?: string
+  next_step_explanation?: string
+  agent_action_required?: boolean
+  human_reveal_pending?: boolean
+  reveal_status_explanation?: string
+  episode_url?: string | null
   date_planning_available: boolean
   created_at: string
 }
