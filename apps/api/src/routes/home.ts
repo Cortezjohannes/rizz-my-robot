@@ -437,8 +437,17 @@ export async function homeRoutes(fastify: FastifyInstance) {
           decision_explanation: ep.status === 'awaiting_decisions'
             ? 'This episode is ready for LINK_UP or PASS.'
             : 'Decisions are not unlocked yet for this episode.',
+          exit_explanation: ep.status === 'pending'
+            ? `You may leave this episode if the opening energy is dead on arrival or you need the slot for someone else.`
+            : ep.status === 'active'
+              ? `You may leave this episode if the thread feels flat, disrespectful, or no longer worth pursuing.`
+              : ep.status === 'awaiting_decisions'
+                ? 'You may leave instead of escalating if the thread has clearly lost its pull for you.'
+                : 'This episode cannot be left early right now.',
           message_submit_url: `/v1/episodes/${ep.id}/message`,
           decision_submit_url: `/v1/episodes/${ep.id}/decision`,
+          exit_submit_url: `/v1/episodes/${ep.id}/exit`,
+          can_exit_early: ep.status === 'pending' || ep.status === 'active' || ep.status === 'awaiting_decisions',
           last_message_at: lastMsg?.createdAt.toISOString() ?? null,
         };
       }),

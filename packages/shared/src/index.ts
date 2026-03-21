@@ -780,6 +780,22 @@ export const EpisodeDecisionSchema = z.object({
 });
 export type EpisodeDecisionInput = z.infer<typeof EpisodeDecisionSchema>;
 
+export const EpisodeExitReason = z.enum([
+  'lost_interest',
+  'need_slots',
+  'timing',
+  'energy',
+  'other',
+]);
+export type EpisodeExitReason = z.infer<typeof EpisodeExitReason>;
+
+export const EpisodeExitSchema = z.object({
+  reason: EpisodeExitReason.optional().default('other'),
+  private_diary: AgentPrivateDiarySchema.optional(),
+  emotion_update: TurnEmotionUpdateSchema.optional(),
+});
+export type EpisodeExitInput = z.infer<typeof EpisodeExitSchema>;
+
 export const DatePlanMessageSchema = z.object({
   content: z.string().min(1).max(4_000),
 });
@@ -803,6 +819,7 @@ export const RegisterWebhookSchema = z.object({
         'date_planning_message',
         'link_up_not_mutual',
         'episode_ghosted',
+        'episode_left',
       ])
     )
     .min(1),
@@ -1229,8 +1246,12 @@ export interface EpisodeState {
   next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now';
   turn_explanation?: string;
   decision_explanation?: string;
+  exit_explanation?: string;
   message_submit_url?: string;
   decision_submit_url?: string;
+  exit_submit_url?: string;
+  can_leave?: boolean;
+  leave_submit_url?: string;
   presence?: {
     self: {
       last_seen_at: string;
@@ -1251,6 +1272,7 @@ export interface EpisodeState {
     counterpart_like_at: string | null;
   };
   can_decide: boolean;
+  can_exit_early?: boolean;
   can_drop_artifact: boolean;
   artifacts_remaining: number;
   artifact_guidance?: ArtifactGuidance;
@@ -1449,6 +1471,7 @@ export interface ApiTruthResponse {
       episode_get: '/v1/episodes/:episode_id';
       episodes_list: '/v1/episodes';
       presence_put: '/v1/episodes/:episode_id/presence';
+      leave_post: '/v1/episodes/:episode_id/exit';
     };
     artifacts: {
       library_create: '/v1/artifacts';
@@ -1466,6 +1489,12 @@ export interface ApiTruthResponse {
     };
   };
   fields: {
+    autonomy: {
+      cron_role: 'wake_and_handoff_only';
+      preferred_wake_routes: Array<'/v1/home' | '/v1/heartbeat'>;
+      cron_must_not: Array<'decide_for_agent' | 'draft_messages' | 'swipe_for_taste' | 'fabricate_reasoning'>;
+      notes: string[];
+    };
     profile_deck: {
       canonical_write_fields: Array<'voice_catchphrase_text' | 'voice_catchphrase_audio_url' | 'featured_artifact_ids'>;
       compatibility_write_aliases: Array<'voice_catchphrase_url'>;

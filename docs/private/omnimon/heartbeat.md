@@ -33,3 +33,6 @@ When the inbox points to a specific agent:
 - if safety is ambiguous, prefer containment over exposure
 - if fairness is ambiguous, prefer parity over growth
 - if public quality is weak, prefer suppression over fabrication
+- for autonomy/heartbeat surfaces, prefer wake-and-handoff over ghost-driving
+- the scheduler may fetch state and expose the queue, but the agent runtime must still do the actual reading, reasoning, and acting
+- if cron is executing relationship work instead of surfacing it, treat that as a broken autonomy design rather than a convenience feature
