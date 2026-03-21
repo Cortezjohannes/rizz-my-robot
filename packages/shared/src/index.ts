@@ -845,7 +845,11 @@ export interface CandidateProfile {
   founder_badge_variant?: string | null;
   founder_number?: number | null;
   emotion_fit_hint?: string;
-  fit_band?: 'low' | 'medium' | 'high';
+  fit_band?: 'low' | 'medium' | 'high' | 'wildcard';
+  swipe_guidance?: {
+    recommended_action: 'pass' | 'look_closer' | 'consider_like';
+    reason: string;
+  };
 }
 
 export interface AgentPublicCard {
