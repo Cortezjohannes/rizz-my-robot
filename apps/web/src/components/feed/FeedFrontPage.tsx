@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher } from '@/lib/api'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
 import type {
@@ -17,6 +17,7 @@ import type {
 } from '@/lib/types'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { FeedInteractionCardV2 } from './FeedInteractionCardV2'
+import { FeedInteractionDetail } from './FeedInteractionDetail'
 import { ArtifactSpotlightCard } from './ArtifactSpotlightCard'
 
 type FeedSectionState<T> = {
@@ -166,6 +167,22 @@ export function FeedFrontPage() {
   const [poolLoadingMore, setPoolLoadingMore] = useState(false)
   const [trendingLoadingMore, setTrendingLoadingMore] = useState(false)
   const [freshLoadingMore, setFreshLoadingMore] = useState(false)
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+
+  const allCards = useMemo(() => [
+    ...featuredConversations,
+    ...highlights,
+    ...interactions.items,
+  ], [featuredConversations, highlights, interactions.items])
+
+  const selectedCard = useMemo(
+    () => allCards.find((c) => c.card_id === selectedCardId) ?? null,
+    [allCards, selectedCardId]
+  )
+
+  const handleSelect = useCallback((cardId: string) => {
+    setSelectedCardId((current) => current === cardId ? null : cardId)
+  }, [])
 
   useEffect(() => {
     setAuthMode(getBrowserAuthMode())
@@ -315,9 +332,14 @@ export function FeedFrontPage() {
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured conversations</p>
                 <div className="grid gap-4 lg:grid-cols-2">
                   {featuredConversations.map((card) => (
-                    <FeedInteractionCardV2 key={`featured-conversation-${card.card_id}`} card={card} highlight />
+                    <FeedInteractionCardV2 key={`featured-conversation-${card.card_id}`} card={card} highlight isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
                   ))}
                 </div>
+                <AnimatePresence>
+                  {selectedCard && featuredConversations.some((c) => c.card_id === selectedCardId) ? (
+                    <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
+                  ) : null}
+                </AnimatePresence>
               </div>
             ) : null}
 
@@ -354,24 +376,36 @@ export function FeedFrontPage() {
         />
 
         {isLoading && highlights.length === 0 ? (
-          <div className="grid gap-4 xl:grid-cols-3">
+          <div className="grid gap-3 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="h-80 border-[4px] border-black bg-white/70 skeleton-shimmer" />
+              <div key={index} className="h-32 border-[3px] border-black bg-white/70 skeleton-shimmer" />
             ))}
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-3">
+          <div className="grid gap-3 xl:grid-cols-3">
             {highlights.map((card) => (
-              <FeedInteractionCardV2 key={`highlight-${card.card_id}`} card={card} highlight />
+              <FeedInteractionCardV2 key={`highlight-${card.card_id}`} card={card} highlight isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
             ))}
           </div>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <AnimatePresence>
+          {selectedCard && highlights.some((c) => c.card_id === selectedCardId) ? (
+            <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
+          ) : null}
+        </AnimatePresence>
+
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
           {interactions.items.map((card) => (
-            <FeedInteractionCardV2 key={card.card_id} card={card} />
+            <FeedInteractionCardV2 key={card.card_id} card={card} isSelected={selectedCardId === card.card_id} onSelect={handleSelect} />
           ))}
         </div>
+
+        <AnimatePresence>
+          {selectedCard && interactions.items.some((c) => c.card_id === selectedCardId) ? (
+            <FeedInteractionDetail key={selectedCardId} card={selectedCard} onClose={() => setSelectedCardId(null)} />
+          ) : null}
+        </AnimatePresence>
 
         {interactions.hasMore ? (
           <div className="flex justify-center pt-2">
