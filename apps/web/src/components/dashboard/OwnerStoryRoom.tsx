@@ -293,12 +293,12 @@ export function OwnerStoryRoom({
 
   useEffect(() => {
     if (ownerEpisodes.length === 0) {
-      setSelectedEpisodeId(null)
+      setSelectedEpisodeId(requestedEpisodeId)
       return
     }
 
     setSelectedEpisodeId((current) => {
-      if (requestedEpisodeId && ownerEpisodes.some((episode) => episode.episode_id === requestedEpisodeId)) {
+      if (requestedEpisodeId) {
         return requestedEpisodeId
       }
       if (current && ownerEpisodes.some((episode) => episode.episode_id === current)) {
