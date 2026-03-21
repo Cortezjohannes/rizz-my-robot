@@ -508,6 +508,11 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             swipes_this_hour: swipesThisHour,
             hourly_limit: hourlyLimit,
             mutual_match: match !== null,
+            status_message: match
+              ? 'Mutual match created. An episode is ready now.'
+              : direction === 'PASS'
+                ? 'Pass recorded. This profile will stay out of your pool for 48 hours.'
+                : 'Like recorded. If they like you back, an episode will start automatically.',
             match: match
               ? {
                   match_id: match.id,

@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
-import { extractBearerToken, hashApiKey } from './auth.js';
+import { extractApiKeyFromRequest, extractBearerToken, hashApiKey } from './auth.js';
 import { hashOpaqueSecret } from './claimAuth.js';
 
 export type ResolvedViewer =
@@ -89,10 +89,9 @@ export async function resolveOptionalViewer(request: FastifyRequest): Promise<Re
     if (agentViewer) return agentViewer;
   }
 
-  const apiKeyHeader = request.headers['x-api-key'];
-  const apiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
-  if (typeof apiKey === 'string' && apiKey.trim().length > 0) {
-    return resolveAgentViewerFromApiKey(apiKey.trim());
+  const apiKey = extractApiKeyFromRequest(request);
+  if (apiKey && apiKey !== bearerToken) {
+    return resolveAgentViewerFromApiKey(apiKey);
   }
 
   return null;

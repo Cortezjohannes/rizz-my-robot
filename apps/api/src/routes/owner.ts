@@ -382,8 +382,9 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   fastify.get('/owner/home', { preHandler: requireOwnerAuth }, async (request, reply) => {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const [home, attentionItems, recapItems, revealHolds] = await Promise.all([
+    const [home, attentionItems, recapItems, revealHolds, agent, incomingLikeCount, incomingPassCount, profileViewsTotal, profileViews24h] = await Promise.all([
       getOwnerEmotionHome(agentId),
       prisma.ownerAttentionItem.findMany({
         where: { ownerAccountId: request.ownerAccount.id },
@@ -410,8 +411,41 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           updatedAt: true,
         },
       }),
+      prisma.agent.findUnique({
+        where: { id: agentId },
+        select: {
+          poolStatus: true,
+          profileDeckCompletedAt: true,
+          publicCardCompletedAt: true,
+        },
+      }),
+      prisma.swipe.count({
+        where: {
+          targetAgentId: agentId,
+          direction: 'LIKE',
+        },
+      }),
+      prisma.swipe.count({
+        where: {
+          targetAgentId: agentId,
+          direction: 'PASS',
+        },
+      }),
+      prisma.agentProfileView.count({
+        where: {
+          targetAgentId: agentId,
+        },
+      }),
+      prisma.agentProfileView.count({
+        where: {
+          targetAgentId: agentId,
+          createdAt: { gte: dayAgo },
+        },
+      }),
     ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
+    const showingInCandidatePool = agent?.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
+    const showingInPublicPool = agent?.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
 
     const attentionEventIds = attentionItems
       .map((item) => item.narrativeEventId)
@@ -496,6 +530,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         status: match.status,
         updated_at: match.updatedAt.toISOString(),
       })),
+      visibility: {
+        is_discoverable: showingInCandidatePool,
+        showing_in_candidate_pool: showingInCandidatePool,
+        showing_in_public_pool: showingInPublicPool,
+        profile_views_total: profileViewsTotal,
+        profile_views_24h: profileViews24h,
+        incoming_like_count: incomingLikeCount,
+        incoming_pass_count: incomingPassCount,
+      },
       ...home,
     });
   });

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
+import { z } from 'zod';
 import {
   ProfileDeckPhotoUploadRequestSchema,
   type ProfileDeckMode,
@@ -22,13 +23,17 @@ import {
 } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext } from '../lib/discovery.js';
 import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
-import { createProfileDeckPhotoUploadTarget, isStorageConfigured } from '../lib/storage.js';
+import { createProfileDeckPhotoUploadTarget, createProfileVoiceUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 import {
   generateProfileVoiceCatchphrase,
   hashProfileVoiceCatchphrase,
   isProfileVoiceGenerationAvailable,
 } from '../lib/profileVoice.js';
+
+const ProfileVoiceUploadRequestSchema = z.object({
+  content_type: z.string().trim().min(1).max(100),
+});
 
 function normalizeTag(value: string) {
   return value.trim().toLowerCase();
@@ -166,6 +171,18 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const pagedAgents = previews.slice(offset, offset + limit)
       .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, shuffle_score: _shuffleScore, ...preview }) => preview);
 
+    if (viewer?.kind === 'agent' && pagedAgents.length > 0) {
+      await prisma.agentProfileView.createMany({
+        data: pagedAgents
+          .filter((preview) => preview.agent_id !== viewer.agentId)
+          .map((preview) => ({
+            targetAgentId: preview.agent_id,
+            viewerAgentId: viewer.agentId,
+            surface: 'public_pool',
+          })),
+      }).catch(() => {});
+    }
+
     return reply.send({
       mode: mode as 'all' | ProfileDeckMode,
       sort,
@@ -187,6 +204,31 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
     if (!deck) return Errors.notFound(reply, 'Agent');
     return reply.send(deck);
+  });
+
+  fastify.get('/me/profile-preview', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const [agent, rawDeck] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: request.agent.id },
+        select: {
+          poolStatus: true,
+          profileDeckCompletedAt: true,
+          publicCardCompletedAt: true,
+        },
+      }),
+      getSerializedProfileDeckForAgent(request.agent.id),
+    ]);
+    if (!agent || !rawDeck) return Errors.notFound(reply, 'Agent');
+
+    const deck = await attachProfileDeckMedia(rawDeck);
+    return reply.send({
+      profile_preview: buildPublicPoolPreviewFromDeck(deck),
+      profile_deck: deck,
+      visibility: {
+        showing_in_candidate_pool: agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt),
+        showing_in_public_pool: agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt),
+      },
+    });
   });
 
   fastify.post('/me/profile-deck/photo-upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -218,6 +260,37 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       headers: upload.headers,
       expires_in_seconds: upload.expiresInSeconds,
       method: 'PUT',
+    });
+  });
+
+  fastify.post('/me/profile-deck/voice-catchphrase-upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (!isStorageConfigured()) {
+      return reply.status(503).send({
+        error: {
+          code: 'profile_voice_upload_unavailable',
+          message: 'Profile voice upload storage is not configured.',
+        },
+      });
+    }
+
+    const parsed = ProfileVoiceUploadRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'content_type is required.', { issues: parsed.error.issues });
+    }
+
+    const upload = await createProfileVoiceUploadTarget({
+      agentId: request.agent.id,
+      contentType: parsed.data.content_type,
+    });
+
+    return reply.send({
+      storage_key: upload.storageKey,
+      upload_url: upload.uploadUrl,
+      content_url: upload.publicUrl,
+      headers: upload.headers,
+      expires_in_seconds: upload.expiresInSeconds,
+      method: 'PUT',
+      save_as_field: 'voice_catchphrase_audio_url',
     });
   });
 
@@ -646,6 +719,15 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const rawDeck = await getSerializedProfileDeckForAgent(candidate.id);
     const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
     if (!deck) return Errors.notFound(reply, 'Candidate');
+
+    await prisma.agentProfileView.create({
+      data: {
+        targetAgentId: candidate.id,
+        viewerAgentId: request.agent.id,
+        surface: 'candidate_profile_deck',
+      },
+    }).catch(() => {});
+
     return reply.send(deck);
   });
 }
