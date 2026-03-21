@@ -68,6 +68,17 @@ export async function deliverWebhooks(
   }
 }
 
+export async function deliverEpisodeOpeningTurn(agentId: string, episodeId: string): Promise<void> {
+  await deliverWebhooks(agentId, 'episode_turn', {
+    episode_id: episodeId,
+    message_count: 0,
+    can_decide: false,
+    your_turn: true,
+    opener_required: true,
+    reason: 'episode_opened',
+  });
+}
+
 export function buildRevealUrl(token: string): string {
   const base = process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/portal';
   return `${base}/${token}`;

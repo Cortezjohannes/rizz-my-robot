@@ -3,7 +3,7 @@ import { prisma, type Prisma } from '@rmr/db';
 import { HOURLY_SWIPE_WINDOW_MS, SwipeSchema, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { awardRizzPoints, awardMatchStreakRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
-import { deliverWebhooks } from '../lib/notification.js';
+import { deliverEpisodeOpeningTurn, deliverWebhooks } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { applyAgentAuthoredEmotionUpdate, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
@@ -332,6 +332,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 await Promise.all([
                   deliverWebhooks(agentId, 'match', matchEventData),
                   deliverWebhooks(target_agent_id, 'match', matchEventData),
+                  deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id),
                 ]);
                 await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch(() => {});
               }
