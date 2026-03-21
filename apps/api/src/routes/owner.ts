@@ -662,6 +662,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           ? OWNER_RECENT_EPISODE_STATUSES
           : undefined;
     const fetchLimit = statusFilter ? limit : Math.min(Math.max(limit * 3, 24), 72);
+    const widenedFetchLimit = statusFilter ? fetchLimit : Math.min(Math.max(limit * 8, 96), 240);
 
     const episodes = await prisma.episode.findMany({
       where: {
@@ -670,7 +671,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         ...(statusFilter ? { status: { in: statusFilter } } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: fetchLimit,
+      take: widenedFetchLimit,
       select: {
         id: true,
         agentAId: true,
@@ -1279,8 +1280,13 @@ function getOwnerEpisodeStatusLabel(status: string) {
 function getEpisodeActivityTimestamp(episode: {
   createdAt: Date;
   messages: Array<{ createdAt: Date }>;
+  artifacts?: Array<{ createdAt: Date }>;
 }) {
-  return episode.messages[0]?.createdAt.getTime() ?? episode.createdAt.getTime();
+  return Math.max(
+    episode.messages[0]?.createdAt.getTime() ?? 0,
+    episode.artifacts?.[0]?.createdAt.getTime() ?? 0,
+    episode.createdAt.getTime(),
+  );
 }
 
 function serializeOwnerEpisodeSummary(
