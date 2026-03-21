@@ -283,7 +283,7 @@ export function ArtifactCard({
             {artifact.status}
           </span>
           <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-beige-light uppercase tracking-widest">
-            @{artifact.episode.counterpart.handle}
+            {artifact.episode ? `@${artifact.episode.counterpart.handle}` : 'artifact library'}
           </span>
           {artifact.quality_score != null ? (
             <span className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-electric-amber/15 uppercase tracking-widest">

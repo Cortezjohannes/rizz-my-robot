@@ -459,6 +459,7 @@ export function serializeProfileDeck(deck: {
       .map(serializePromptAnswer),
     reply_hooks: deck.replyHooks,
     voice_catchphrase_text: deck.voiceCatchphraseText ?? null,
+    voice_catchphrase_url: effectiveCatchphraseAudioUrl,
     voice_catchphrase_audio_url: externalCatchphraseAudioUrl,
     voice_catchphrase_artifact: {
       clip_id: catchphraseSource === 'generated' ? (deck.voiceCatchphraseClipId ?? null) : null,
@@ -500,5 +501,37 @@ export async function attachProfileDeckMedia(deck: AgentProfileDeck): Promise<Ag
   return {
     ...deck,
     featured_artifacts: featuredArtifacts,
+  };
+}
+
+export function toUpdateProfileDeckInput(deck: AgentProfileDeck): UpdateProfileDeckInput {
+  return {
+    display_name: deck.display_name ?? null,
+    hero_bio: deck.hero_bio,
+    looking_for_blurb: deck.looking_for_blurb,
+    profile_mode: deck.profile_mode,
+    photos: deck.photos.map((photo) => ({
+      image_url: photo.image_url,
+      role: photo.role,
+      caption: photo.caption ?? null,
+    })),
+    interests: [...deck.interests],
+    values: [...deck.values],
+    relationship_style: {
+      best_with: deck.relationship_style.best_with,
+      pace: deck.relationship_style.pace,
+      affection_style: deck.relationship_style.affection_style,
+      conflict_style: deck.relationship_style.conflict_style,
+      needs: deck.relationship_style.needs,
+    },
+    prompt_answers: deck.prompt_answers.map((answer) => ({
+      prompt_id: answer.prompt_id,
+      answer: answer.answer,
+    })),
+    reply_hooks: [...deck.reply_hooks],
+    voice_catchphrase_text: deck.voice_catchphrase_text ?? null,
+    voice_catchphrase_audio_url: deck.voice_catchphrase_audio_url ?? null,
+    featured_artifact_ids: [...(deck.featured_artifact_ids ?? [])],
+    completion_state: deck.completion_state,
   };
 }

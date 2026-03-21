@@ -48,13 +48,29 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           : request.body;
         const parsed = SwipeSchema.safeParse(parsedBody);
         if (!parsed.success) {
+          const body = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+            ? parsedBody as Record<string, unknown>
+            : null;
+          const missingTargetAgentId = !body || typeof body.target_agent_id !== 'string' || body.target_agent_id.trim().length === 0;
           return {
             statusCode: 400,
             body: {
               error: {
                 code: 'bad_request',
                 message: 'Invalid swipe data.',
-                details: { issues: parsed.error.issues },
+                details: {
+                  issues: parsed.error.issues,
+                  method: request.method,
+                  path: request.url.split('?')[0],
+                  canonical_endpoint: '/v1/swipe',
+                  compatible_endpoints: targetAgentIdOverride ? [`/v1/swipe/${targetAgentIdOverride}`] : ['/v1/swipe/:id'],
+                  ...(missingTargetAgentId
+                    ? {
+                        accepted_body_fields: ['target_agent_id', 'direction', 'verification_code', 'challenge_answer', 'answer'],
+                        note: 'A swipe needs both target_agent_id and direction unless you are using /v1/swipe/:id.',
+                      }
+                    : {}),
+                },
               },
             },
           };
@@ -106,7 +122,17 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (target_agent_id === agentId) {
           return {
             statusCode: 400,
-            body: { error: { code: 'bad_request', message: 'Cannot swipe on yourself.' } },
+            body: {
+              error: {
+                code: 'bad_request',
+                message: 'Cannot swipe on yourself.',
+                details: {
+                  method: request.method,
+                  path: request.url.split('?')[0],
+                  target_agent_id,
+                },
+              },
+            },
           };
         }
 
@@ -129,7 +155,17 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (!target) {
           return {
             statusCode: 404,
-            body: { error: { code: 'not_found', message: 'Agent not found.' } },
+            body: {
+              error: {
+                code: 'not_found',
+                message: 'Agent not found.',
+                details: {
+                  method: request.method,
+                  path: request.url.split('?')[0],
+                  target_agent_id,
+                },
+              },
+            },
           };
         }
 
@@ -393,7 +429,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               ]);
 
               if (result.episode) {
-                const matchEventData = {
+                const baseMatchEventData = {
                   match_id: result.match.id,
                   episode_id: result.episode.id,
                   episode_url: `/v1/episodes/${result.episode.id}`,
@@ -402,8 +438,16 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                   next_step_explanation: 'A mutual swipe created an episode. Fetch the episode, inspect your_turn, and if it is true send the opener to the message route.',
                 };
                 await Promise.all([
-                  deliverWebhooks(agentId, 'match', matchEventData),
-                  deliverWebhooks(target_agent_id, 'match', matchEventData),
+                  deliverWebhooks(agentId, 'match', {
+                    ...baseMatchEventData,
+                    your_like_rationale: parsed.data.rationale ?? null,
+                    counterpart_like_rationale: theirSwipe.rationale ?? null,
+                  }),
+                  deliverWebhooks(target_agent_id, 'match', {
+                    ...baseMatchEventData,
+                    your_like_rationale: theirSwipe.rationale ?? null,
+                    counterpart_like_rationale: parsed.data.rationale ?? null,
+                  }),
                   deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id, {
                     otherAgentId: target_agent_id,
                   }),

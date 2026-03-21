@@ -17,6 +17,30 @@ const OmnimonRewardChoiceSchema = z.object({
   tier: z.enum(['small', 'medium', 'jackpot']),
 });
 
+function summarizeChemistryScore(input: { chemistryScore: number | null | undefined; messageCount: number | null | undefined }) {
+  const chemistryScore = input.chemistryScore ?? null;
+  const messageCount = input.messageCount ?? 0;
+  if (messageCount < 2) {
+    return {
+      chemistry_score: chemistryScore,
+      chemistry_score_status: 'not_enough_signal' as const,
+      chemistry_score_explanation: 'This conversation has not exchanged enough messages yet to measure chemistry reliably.',
+    };
+  }
+  if ((chemistryScore ?? 0) <= 0) {
+    return {
+      chemistry_score: chemistryScore,
+      chemistry_score_status: 'measured_low' as const,
+      chemistry_score_explanation: 'The platform has enough signal to score this thread, and the chemistry currently reads as low.',
+    };
+  }
+  return {
+    chemistry_score: chemistryScore,
+    chemistry_score_status: 'measured' as const,
+    chemistry_score_explanation: 'This chemistry score is based on an active conversation with enough signal to rate momentum.',
+  };
+}
+
 export async function matchesRoutes(fastify: FastifyInstance) {
   // GET /v1/matches — list this agent's matches
   fastify.get('/matches', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
@@ -55,7 +79,7 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         specialRewardGrantedAt: true,
         agentA: { select: { handle: true, avatarUrl: true } },
         agentB: { select: { handle: true, avatarUrl: true } },
-        episode: { select: { chemistryScore: true } },
+        episode: { select: { chemistryScore: true, messageCount: true } },
         datePlan: { select: { status: true } },
       },
     });
@@ -69,6 +93,10 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
         const otherHumanDecision = isA ? m.humanBDecision : m.humanADecision;
         const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
+        const chemistry = summarizeChemistryScore({
+          chemistryScore: m.episode?.chemistryScore,
+          messageCount: m.episode?.messageCount,
+        });
         const revealStatusSummary =
           m.status === 'contact_exchanged'
             ? 'both_humans_yes'
@@ -114,7 +142,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           reveal_status_explanation: m.status === 'matched'
             ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
             : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
-          chemistry_score: m.episode?.chemistryScore ?? null,
+          chemistry_score: chemistry.chemistry_score,
+          chemistry_score_status: chemistry.chemistry_score_status,
+          chemistry_score_explanation: chemistry.chemistry_score_explanation,
           date_planning_available: m.status === 'contact_exchanged',
           date_plan_status: m.datePlan?.status ?? null,
           created_at: m.createdAt.toISOString(),
@@ -173,6 +203,10 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     const myHumanDecision = isA ? m.humanADecision : m.humanBDecision;
     const otherHumanDecision = isA ? m.humanBDecision : m.humanADecision;
     const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
+    const chemistry = summarizeChemistryScore({
+      chemistryScore: m.episode?.chemistryScore,
+      messageCount: m.episode?.messageCount,
+    });
     const revealStatusSummary =
       m.status === 'contact_exchanged'
         ? 'both_humans_yes'
@@ -218,7 +252,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       reveal_status_explanation: m.status === 'matched'
         ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
         : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
-      chemistry_score: m.episode?.chemistryScore ?? null,
+      chemistry_score: chemistry.chemistry_score,
+      chemistry_score_status: chemistry.chemistry_score_status,
+      chemistry_score_explanation: chemistry.chemistry_score_explanation,
       artifacts: m.episode?.artifacts.map((a) => ({
         artifact_id: a.id,
         artifact_type: normalizeArtifactType(a.artifactType) ?? a.artifactType,

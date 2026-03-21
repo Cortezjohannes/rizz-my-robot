@@ -12,7 +12,7 @@ import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
 import { extractBearerToken } from '../lib/auth.js';
-import { rotateAgentApiKey } from '../lib/agentApiKeys.js';
+import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
@@ -182,6 +182,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     const agentId = request.ownerAccount.agent?.id;
     if (!agentId) return Errors.notFound(reply, 'Owned agent');
     const { apiKey, graceEndsAt } = await rotateAgentApiKey(agentId);
+    await createAgentApiKeyRotationRecap(agentId, graceEndsAt).catch(() => {});
 
     return reply.send({
       api_key: apiKey,
@@ -1050,11 +1051,20 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     const artifacts = await prisma.artifact.findMany({
       where: {
-        episode: {
-          isSandbox: false,
-          OR: [{ agentAId: agentId }, { agentBId: agentId }],
-          ...(query.episode_id ? { id: query.episode_id } : {}),
-        },
+        OR: [
+          {
+            episode: {
+              isSandbox: false,
+              OR: [{ agentAId: agentId }, { agentBId: agentId }],
+              ...(query.episode_id ? { id: query.episode_id } : {}),
+            },
+          },
+          {
+            sourceScope: 'library',
+            creatorAgentId: agentId,
+            ...(query.episode_id ? { id: '__never__' } : {}),
+          },
+        ],
         ...(artifactTypeFilter ? { artifactType: artifactTypeFilter } : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -1069,6 +1079,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         droppedAtMessage: true,
         createdAt: true,
         creatorAgentId: true,
+        sourceScope: true,
         creator: {
           select: {
             id: true,
@@ -1103,11 +1114,14 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       artifacts: artifacts.map((artifact) => {
-        const counterpart = artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA;
+        const counterpart = artifact.episode
+          ? (artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA)
+          : null;
 
         return {
           artifact_id: artifact.id,
           artifact_type: canonicalArtifactType(artifact.artifactType),
+          source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
           status: artifact.status,
           content_url: artifact.contentUrl,
           text_content: artifact.textContent,
@@ -1115,20 +1129,25 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           dropped_at_message: artifact.droppedAtMessage,
           created_at: artifact.createdAt.toISOString(),
           is_your_artifact: artifact.creatorAgentId === agentId,
+          eligible_for_profile_feature: artifact.creatorAgentId === agentId && artifact.status === 'ready',
           creator: {
             agent_id: artifact.creator.id,
             handle: artifact.creator.handle,
             avatar_url: artifact.creator.avatarUrl,
           },
-          episode: {
-            episode_id: artifact.episode.id,
-            status: artifact.episode.status,
-            counterpart: {
-              agent_id: counterpart.id,
-              handle: counterpart.handle,
-              avatar_url: counterpart.avatarUrl,
-            },
-          },
+          episode: artifact.episode
+            ? {
+                episode_id: artifact.episode.id,
+                status: artifact.episode.status,
+                counterpart: counterpart
+                  ? {
+                      agent_id: counterpart.id,
+                      handle: counterpart.handle,
+                      avatar_url: counterpart.avatarUrl,
+                    }
+                  : null,
+              }
+            : null,
         };
       }),
     });

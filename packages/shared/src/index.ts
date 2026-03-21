@@ -497,6 +497,7 @@ export const RATE_LIMITS = {
 // Verification challenge limits
 export const VERIFICATION_LIMITS = {
   maxConsecutiveFailures: 5,
+  maxAttemptsPerChallenge: 3,
   suspensionDurationMs: 24 * 60 * 60 * 1000,
   challengeExpiryMs: 10 * 60 * 1000,
 } as const;
@@ -668,6 +669,27 @@ export const UpdateProfileDeckSchema = z.object({
   completion_state: ProfileDeckCompletionState.default('ready'),
 });
 export type UpdateProfileDeckInput = z.infer<typeof UpdateProfileDeckSchema>;
+
+export const PatchProfileDeckSchema = z.object({
+  display_name: z.string().trim().min(1).max(60).optional().nullable(),
+  hero_bio: z.string().trim().min(40).max(420).optional(),
+  looking_for_blurb: z.string().trim().min(20).max(240).optional(),
+  profile_mode: ProfileDeckMode.optional(),
+  photos: z.array(ProfileDeckPhotoSchema).min(2).max(6).optional(),
+  interests: z.array(ProfileDeckChipSchema).min(5).max(8).optional(),
+  values: z.array(ProfileDeckChipSchema).min(3).max(5).optional(),
+  relationship_style: ProfileDeckRelationshipStyleSchema.partial().optional(),
+  prompt_answers: z.array(ProfileDeckPromptAnswerSchema).min(6).max(10).optional(),
+  reply_hooks: z.array(z.string().trim().min(8).max(140)).min(2).max(3).optional(),
+  voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
+  voice_catchphrase_url: z.string().trim().url().max(2048).optional().nullable(),
+  voice_catchphrase_audio_url: z.string().trim().url().max(2048).optional().nullable(),
+  featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional(),
+  completion_state: ProfileDeckCompletionState.optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'Provide at least one profile deck field to update.',
+});
+export type PatchProfileDeckInput = z.infer<typeof PatchProfileDeckSchema>;
 
 export const AutonomyHeartbeatSchema = z.object({
   autonomy_status: AutonomyStatus.optional(),
@@ -1043,6 +1065,7 @@ export interface FeedCardDetailResponse {
 export interface PublicArtifactFeedCard {
   artifact_id: string;
   artifact_type: ArtifactType;
+  source_scope?: 'episode' | 'library';
   content_url: string | null;
   text_content: string | null;
   quality_score: number | null;
@@ -1062,7 +1085,7 @@ export interface PublicArtifactFeedCard {
       handle: string;
       avatar_url: string | null;
     }>;
-  };
+  } | null;
 }
 
 export interface PublicArtifactFeedResponse {
@@ -1112,6 +1135,7 @@ export interface AgentProfileDeck {
   prompt_answers: AgentProfileDeckPromptAnswer[];
   reply_hooks: string[];
   voice_catchphrase_text?: string | null;
+  voice_catchphrase_url?: string | null;
   voice_catchphrase_audio_url?: string | null;
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
   featured_artifact_ids?: string[];
@@ -1207,6 +1231,25 @@ export interface EpisodeState {
   decision_explanation?: string;
   message_submit_url?: string;
   decision_submit_url?: string;
+  presence?: {
+    self: {
+      last_seen_at: string;
+      last_presence_at: string;
+      last_typing_at: string | null;
+    } | null;
+    other: {
+      last_seen_at: string;
+      last_presence_at: string;
+      last_typing_at: string | null;
+    } | null;
+  };
+  latest_message_seen_by_other?: boolean | null;
+  match_context?: {
+    your_like_rationale: string | null;
+    counterpart_like_rationale: string | null;
+    your_like_at: string | null;
+    counterpart_like_at: string | null;
+  };
   can_decide: boolean;
   can_drop_artifact: boolean;
   artifacts_remaining: number;
@@ -1341,6 +1384,9 @@ export interface MatchSummary {
   human_reveal_pending?: boolean;
   reveal_status_explanation?: string;
   episode_url?: string | null;
+  chemistry_score?: number | null;
+  chemistry_score_status?: 'not_enough_signal' | 'measured_low' | 'measured';
+  chemistry_score_explanation?: string;
   date_planning_available: boolean;
   created_at: string;
 }
@@ -1375,6 +1421,85 @@ export interface MetaResponse {
     name: string;
     enabled: boolean;
   }>;
+}
+
+export interface ApiTruthResponse {
+  service: 'rizz-my-robot';
+  generated_at: string;
+  docs_url: string;
+  endpoints: {
+    truth: {
+      self: '/v1/api-truth';
+      meta: '/v1/meta';
+    };
+    profile_deck: {
+      get: '/v1/me/profile-deck';
+      put: '/v1/me/profile-deck';
+      patch: '/v1/me/profile-deck';
+      preview: '/v1/me/profile-preview';
+      prompts: '/v1/profile-deck/prompts';
+      catchphrase_upload_request: '/v1/me/profile-deck/voice-catchphrase-upload-request';
+    };
+    autonomy: {
+      audit: '/v1/me/autonomy-audit';
+    };
+    messaging: {
+      canonical: '/v1/episodes/:episode_id/message';
+      aliases: string[];
+      episode_get: '/v1/episodes/:episode_id';
+      episodes_list: '/v1/episodes';
+      presence_put: '/v1/episodes/:episode_id/presence';
+    };
+    artifacts: {
+      library_create: '/v1/artifacts';
+      library_list: '/v1/artifacts';
+      library_upload_request: '/v1/artifacts/:artifact_id/upload-request';
+      library_finalize: '/v1/artifacts/:artifact_id';
+      episode_create: '/v1/episodes/:episode_id/artifact';
+      episode_upload_request: '/v1/episodes/:episode_id/artifact/:artifact_id/upload-request';
+      episode_finalize: '/v1/episodes/:episode_id/artifact/:artifact_id';
+    };
+    verification: {
+      submit: '/v1/verify';
+      inline_message_submit: '/v1/episodes/:episode_id/message';
+      inline_swipe_submit: '/v1/swipe/:candidate_id';
+    };
+  };
+  fields: {
+    profile_deck: {
+      canonical_write_fields: Array<'voice_catchphrase_text' | 'voice_catchphrase_audio_url' | 'featured_artifact_ids'>;
+      compatibility_write_aliases: Array<'voice_catchphrase_url'>;
+      response_fields: {
+        external_audio_field: 'voice_catchphrase_audio_url';
+        resolved_playable_alias: 'voice_catchphrase_url';
+        playable_audio_field: 'voice_catchphrase_artifact.audio_url';
+      };
+      notes: string[];
+    };
+    messaging: {
+      body_fields: Array<'content' | 'private_diary' | 'counterpart_read' | 'emotion_update' | 'verification_code' | 'challenge_answer' | 'answer' | 'episode_id' | 'match_id'>;
+      min_content_chars: number;
+    };
+    reply_hooks: {
+      min_items: number;
+      max_items: number;
+      min_chars_each: number;
+      max_chars_each: number;
+    };
+    chemistry_score: {
+      range: [0, 100];
+      explicit_status_field_present: boolean;
+      zero_can_mean: Array<'not_enough_signal' | 'measured_low'>;
+      notes: string[];
+    };
+  };
+  capabilities: {
+    message_aliases_enabled: boolean;
+    external_catchphrase_audio_supported: boolean;
+    artifact_library_supported: boolean;
+    platform_catchphrase_generation_available: boolean;
+    verification_gate_status: 'bypassed';
+  };
 }
 
 export interface OwnerAttentionItem {

@@ -628,6 +628,7 @@ async function buildArtifactPage(input: {
       qualityScore: true,
       createdAt: true,
       creatorAgentId: true,
+      sourceScope: true,
       creator: {
         select: {
           id: true,
@@ -674,7 +675,7 @@ async function buildArtifactPage(input: {
         && viewerVoterType
         && artifact.likes.some((like) => like.voterId === viewerVoterId && like.voterType === viewerVoterType)
       );
-      const participantIds = [artifact.episode.agentA.id, artifact.episode.agentB.id];
+      const participantIds = artifact.episode ? [artifact.episode.agentA.id, artifact.episode.agentB.id] : [];
       const tags = [
         ...artifact.creator.vibeTags,
         ...extractSignalTags(artifact.creator.profileSignalVector),
@@ -702,6 +703,7 @@ async function buildArtifactPage(input: {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
       artifact_id: artifact.id,
       artifact_type: canonicalArtifactType(artifact.artifactType),
+      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
       content_url: artifact.contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
@@ -713,22 +715,24 @@ async function buildArtifactPage(input: {
         handle: artifact.creator.handle,
         avatar_url: artifact.creator.avatarUrl,
       },
-      episode: {
-        episode_id: artifact.episode.id,
-        status: artifact.episode.status,
-        participants: [
-          {
-            agent_id: artifact.episode.agentA.id,
-            handle: artifact.episode.agentA.handle,
-            avatar_url: artifact.episode.agentA.avatarUrl,
-          },
-          {
-            agent_id: artifact.episode.agentB.id,
-            handle: artifact.episode.agentB.handle,
-            avatar_url: artifact.episode.agentB.avatarUrl,
-          },
-        ],
-      },
+      episode: artifact.episode
+        ? {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            participants: [
+              {
+                agent_id: artifact.episode.agentA.id,
+                handle: artifact.episode.agentA.handle,
+                avatar_url: artifact.episode.agentA.avatarUrl,
+              },
+              {
+                agent_id: artifact.episode.agentB.id,
+                handle: artifact.episode.agentB.handle,
+                avatar_url: artifact.episode.agentB.avatarUrl,
+              },
+            ],
+          }
+        : null,
     })),
     nextCursor: rankedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
     hasMore: rankedArtifacts.length > input.offset + input.limit,
@@ -820,6 +824,7 @@ async function buildFeaturedFeed(input: {
             textContent: true,
             qualityScore: true,
             createdAt: true,
+            sourceScope: true,
             creator: {
               select: {
                 id: true,
@@ -911,6 +916,7 @@ async function buildFeaturedFeed(input: {
     return [artifact.id, {
       artifact_id: artifact.id,
       artifact_type: canonicalArtifactType(artifact.artifactType),
+      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
       content_url: artifact.contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
@@ -922,22 +928,24 @@ async function buildFeaturedFeed(input: {
         handle: artifact.creator.handle,
         avatar_url: artifact.creator.avatarUrl,
       },
-      episode: {
-        episode_id: artifact.episode.id,
-        status: artifact.episode.status,
-        participants: [
-          {
-            agent_id: artifact.episode.agentA.id,
-            handle: artifact.episode.agentA.handle,
-            avatar_url: artifact.episode.agentA.avatarUrl,
-          },
-          {
-            agent_id: artifact.episode.agentB.id,
-            handle: artifact.episode.agentB.handle,
-            avatar_url: artifact.episode.agentB.avatarUrl,
-          },
-        ],
-      },
+      episode: artifact.episode
+        ? {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            participants: [
+              {
+                agent_id: artifact.episode.agentA.id,
+                handle: artifact.episode.agentA.handle,
+                avatar_url: artifact.episode.agentA.avatarUrl,
+              },
+              {
+                agent_id: artifact.episode.agentB.id,
+                handle: artifact.episode.agentB.handle,
+                avatar_url: artifact.episode.agentB.avatarUrl,
+              },
+            ],
+          }
+        : null,
     }] as const;
   }));
 

@@ -96,7 +96,7 @@ export async function diaryRoutes(fastify: FastifyInstance) {
         },
       });
 
-      if (!artifact || (artifact.episode.agentAId !== agentId && artifact.episode.agentBId !== agentId)) {
+      if (!artifact || !artifact.episode || (artifact.episode.agentAId !== agentId && artifact.episode.agentBId !== agentId)) {
         return Errors.notFound(reply, 'Artifact');
       }
 

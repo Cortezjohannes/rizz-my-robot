@@ -22,6 +22,7 @@ import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents 
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
+import { listAgentRecentActions } from '../lib/agentAudit.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -78,6 +79,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       emotionalArcSummary,
       tasteFingerprint,
       continuitySnapshot,
+      recentAutonomyActions,
     ] = await Promise.all([
       // Agent profile + human info
       prisma.agent.findUnique({
@@ -222,6 +224,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       deriveEmotionalArcSummary(agentId),
       deriveTasteFingerprint(agentId),
       getOrCreateEmotionalContinuitySnapshot(agentId),
+      listAgentRecentActions(agentId, 5),
     ]);
 
     if (!agent) {
@@ -358,6 +361,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       emotional_arc_summary: emotionalArcSummary,
       taste_fingerprint: tasteFingerprint,
       autonomy: autonomyWork?.autonomy ?? null,
+      autonomy_audit_url: '/v1/me/autonomy-audit',
+      autonomy_last_actions: recentAutonomyActions,
       public_card_complete: autonomyWork?.public_card_complete ?? false,
       profile_deck_complete: Boolean(agent.profileDeckCompletedAt),
       episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],

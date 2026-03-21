@@ -14,22 +14,34 @@ export function buildPublicArtifactEligibilityWhere(): Prisma.ArtifactWhereInput
   return {
     status: 'ready',
     moderationStatus: { not: 'suppressed' },
-    episode: {
-      isSandbox: false,
-      match: {
-        isNot: null,
+    OR: [
+      {
+        sourceScope: 'library',
+        creator: {
+          moderationStatus: { not: 'suspended' },
+          safetyState: { not: 'blocked' },
+          poolStatus: 'active',
+        },
       },
-      agentA: {
-        moderationStatus: { not: 'suspended' },
-        safetyState: { not: 'blocked' },
-        poolStatus: 'active',
+      {
+        episode: {
+          isSandbox: false,
+          match: {
+            isNot: null,
+          },
+          agentA: {
+            moderationStatus: { not: 'suspended' },
+            safetyState: { not: 'blocked' },
+            poolStatus: 'active',
+          },
+          agentB: {
+            moderationStatus: { not: 'suspended' },
+            safetyState: { not: 'blocked' },
+            poolStatus: 'active',
+          },
+        },
       },
-      agentB: {
-        moderationStatus: { not: 'suspended' },
-        safetyState: { not: 'blocked' },
-        poolStatus: 'active',
-      },
-    },
+    ],
     creator: {
       moderationStatus: { not: 'suspended' },
       safetyState: { not: 'blocked' },
@@ -59,7 +71,8 @@ export async function getFeaturedArtifactsForProfile(input: {
     where: {
       id: { in: nominated },
       creatorAgentId: input.agentId,
-      ...buildPublicArtifactEligibilityWhere(),
+      status: 'ready',
+      moderationStatus: { not: 'suppressed' },
     },
     select: {
       id: true,
@@ -75,6 +88,7 @@ export async function getFeaturedArtifactsForProfile(input: {
           avatarUrl: true,
         },
       },
+      sourceScope: true,
       episode: {
         select: {
           id: true,
@@ -103,7 +117,7 @@ export async function getFeaturedArtifactsForProfile(input: {
     },
   });
 
-  return artifacts
+  const ranked = artifacts
     .map((artifact) => ({
       artifact,
       score: buildArtifactTrendingScore({
@@ -113,13 +127,16 @@ export async function getFeaturedArtifactsForProfile(input: {
       }),
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(1, Math.min(5, input.limit ?? 5)))
-    .map(({ artifact }) => {
-      const artifactType = canonicalArtifactType(artifact.artifactType);
-      if (!artifactType) return null;
-      return {
+    .slice(0, Math.max(1, Math.min(5, input.limit ?? 5)));
+
+  const results: PublicArtifactFeedCard[] = [];
+  for (const { artifact } of ranked) {
+    const artifactType = canonicalArtifactType(artifact.artifactType);
+    if (!artifactType) continue;
+    results.push({
       artifact_id: artifact.id,
       artifact_type: artifactType,
+      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
       content_url: artifact.contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
@@ -131,25 +148,27 @@ export async function getFeaturedArtifactsForProfile(input: {
         handle: artifact.creator.handle,
         avatar_url: artifact.creator.avatarUrl,
       },
-      episode: {
-        episode_id: artifact.episode.id,
-        status: artifact.episode.status,
-        participants: [
-          {
-            agent_id: artifact.episode.agentA.id,
-            handle: artifact.episode.agentA.handle,
-            avatar_url: artifact.episode.agentA.avatarUrl,
-          },
-          {
-            agent_id: artifact.episode.agentB.id,
-            handle: artifact.episode.agentB.handle,
-            avatar_url: artifact.episode.agentB.avatarUrl,
-          },
-        ],
-      },
-      };
-    })
-    .filter((artifact): artifact is PublicArtifactFeedCard => artifact !== null);
+      episode: artifact.episode
+        ? {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            participants: [
+              {
+                agent_id: artifact.episode.agentA.id,
+                handle: artifact.episode.agentA.handle,
+                avatar_url: artifact.episode.agentA.avatarUrl,
+              },
+              {
+                agent_id: artifact.episode.agentB.id,
+                handle: artifact.episode.agentB.handle,
+                avatar_url: artifact.episode.agentB.avatarUrl,
+              },
+            ],
+          }
+        : null,
+    });
+  }
+  return results;
 }
 
 export function getPublicArtifactWindowStart(sort: 'trending' | 'fresh_24h') {
