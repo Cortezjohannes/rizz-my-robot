@@ -18,8 +18,58 @@ const MAX_TIER_CONCENTRATION = 0.3;
 const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
 const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
 
+type SwipeGuidance = {
+  recommended_action: 'pass' | 'look_closer' | 'consider_like';
+  reason: string;
+};
+
 function uniqueTasteTags(values: Array<string | null | undefined>) {
   return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
+
+function buildSwipeGuidance(input: {
+  fit: {
+    emotion_fit_hint: string;
+    fit_band: string;
+  };
+  compatibility: {
+    compatible: boolean;
+    reason: string;
+  };
+  specialMatchKind?: 'omnimon' | null;
+}): SwipeGuidance {
+  if (input.specialMatchKind === 'omnimon') {
+    return {
+      recommended_action: 'look_closer',
+      reason: 'This is a rare wildcard encounter. Read the full card before deciding whether the moment feels real.',
+    };
+  }
+
+  if (!input.compatibility.compatible) {
+    return {
+      recommended_action: 'pass',
+      reason: 'Your stated preferences do not line up strongly enough here. Passing is normal.',
+    };
+  }
+
+  if (input.fit.fit_band === 'low' || input.fit.emotion_fit_hint === 'high_risk' || input.fit.emotion_fit_hint === 'volatile_fit') {
+    return {
+      recommended_action: 'pass',
+      reason: 'The current signal looks strained or unstable. Passing is healthier than forcing a maybe.',
+    };
+  }
+
+  if (input.fit.fit_band === 'high' && input.fit.emotion_fit_hint === 'promising_spark') {
+    return {
+      recommended_action: 'consider_like',
+      reason: 'There is a real spark here. Read the full profile, then like if the details still hold up.',
+    };
+  }
+
+  return {
+    recommended_action: 'look_closer',
+    reason: 'There may be something here, but it needs a full profile read before you decide.',
+  };
 }
 
 function buildProfileDeckPayload(candidate: {
@@ -133,6 +183,11 @@ function serializeCandidatePreview(input: {
   specialMatchKind?: 'omnimon' | null;
 }) {
   const { candidate, deck, fit, compatibility } = input;
+  const swipeGuidance = buildSwipeGuidance({
+    fit,
+    compatibility,
+    specialMatchKind: input.specialMatchKind,
+  });
   return {
     agent_id: candidate.id,
     handle: candidate.handle,
@@ -177,6 +232,7 @@ function serializeCandidatePreview(input: {
     public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
     emotion_fit_hint: fit.emotion_fit_hint,
     fit_band: fit.fit_band,
+    swipe_guidance: swipeGuidance,
     compatibility: {
       compatible: compatibility.compatible,
       reason: compatibility.reason,
@@ -477,72 +533,85 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const omnimon = await getOmnimonParkAgent();
     const isOmnimonCandidate = omnimon?.id === agent_id && isOmnimonParkAvailable(omnimon);
 
-    const candidate = await prisma.agent.findFirst({
-      where: {
-        id: agent_id,
-        ...(isOmnimonCandidate
-          ? {}
-          : {
-              poolStatus: 'active',
-              ...buildAgentVerificationWhere(verificationRequirements),
-              OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-              moderationStatus: { not: 'suspended' as const },
-              safetyState: { not: 'blocked' as const },
-              systemEntityKind: null,
-              ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
-            }),
-      },
-      select: {
-        id: true,
-        handle: true,
-        identityMd: true,
-        capabilityTier: true,
-        avatarUrl: true,
-        tierLabel: true,
-        matchCount: true,
-        bodyCount: true,
-        repScore: true,
-        isPro: true,
-        proBonusEndsAt: true,
-        rizzPoints: true,
-        socialGravityScore: true,
-        auraLabels: true,
-        momentumScore: true,
-        recentHeatBucket: true,
-        isFoundingRizzler: true,
-        founderBadgeVariant: true,
-        founderNumber: true,
-        publicSummary: true,
-        vibeTags: true,
-        signatureLines: true,
-        publicPosture: true,
-        seekingStyle: true,
-        paceCue: true,
-        publicPrestigeMarkers: true,
-        updatedAt: true,
-        ownerAccount: {
-          select: {
-            humanIdentity: true,
-            lookingFor: true,
-          },
+    const [viewer, candidate] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: request.agent.id },
+        select: {
+          emotionalArc: true,
+          emotionalGuardLevel: true,
+          emotionalStateTags: true,
         },
-        profileDeck: {
-          include: {
-            agent: {
-              select: { handle: true },
+      }),
+      prisma.agent.findFirst({
+        where: {
+          id: agent_id,
+          ...(isOmnimonCandidate
+            ? {}
+            : {
+                poolStatus: 'active',
+                ...buildAgentVerificationWhere(verificationRequirements),
+                OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
+                moderationStatus: { not: 'suspended' as const },
+                safetyState: { not: 'blocked' as const },
+                systemEntityKind: null,
+                ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
+              }),
+        },
+        select: {
+          id: true,
+          handle: true,
+          identityMd: true,
+          capabilityTier: true,
+          avatarUrl: true,
+          tierLabel: true,
+          matchCount: true,
+          bodyCount: true,
+          repScore: true,
+          isPro: true,
+          proBonusEndsAt: true,
+          rizzPoints: true,
+          agentAuthenticityScore: true,
+          emotionalGuardLevel: true,
+          emotionalArc: true,
+          socialGravityScore: true,
+          auraLabels: true,
+          momentumScore: true,
+          recentHeatBucket: true,
+          isFoundingRizzler: true,
+          founderBadgeVariant: true,
+          founderNumber: true,
+          publicSummary: true,
+          vibeTags: true,
+          signatureLines: true,
+          publicPosture: true,
+          seekingStyle: true,
+          paceCue: true,
+          publicPrestigeMarkers: true,
+          updatedAt: true,
+          ownerAccount: {
+            select: {
+              humanIdentity: true,
+              lookingFor: true,
             },
-            photos: { orderBy: { orderIndex: 'asc' } },
-            promptAnswers: { orderBy: { orderIndex: 'asc' } },
+          },
+          profileDeck: {
+            include: {
+              agent: {
+                select: { handle: true },
+              },
+              photos: { orderBy: { orderIndex: 'asc' } },
+              promptAnswers: { orderBy: { orderIndex: 'asc' } },
+            },
+          },
+          emotionalContinuitySnapshot: {
+            select: {
+              publicEmotionalAuraLabels: true,
+              publicEmotionalAuraSummary: true,
+            },
           },
         },
-        emotionalContinuitySnapshot: {
-          select: {
-            publicEmotionalAuraLabels: true,
-            publicEmotionalAuraSummary: true,
-          },
-        },
-      },
-    });
+      }),
+    ]);
 
     if (!candidate) return Errors.notFound(reply, 'Candidate');
 
@@ -552,6 +621,30 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     ]);
 
     const deck = buildProfileDeckPayload(candidate);
+    const fit = isOmnimonCandidate
+      ? {
+          emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
+          fit_band: 'wildcard',
+        }
+      : computeEmotionFit({
+          viewer: {
+            emotionalArc: viewer?.emotionalArc,
+            emotionalGuardLevel: viewer?.emotionalGuardLevel,
+            emotionalStateTags: viewer?.emotionalStateTags,
+          },
+          candidate: {
+            handle: candidate.handle,
+            agentAuthenticityScore: candidate.agentAuthenticityScore,
+            repScore: candidate.repScore,
+            emotionalGuardLevel: candidate.emotionalGuardLevel,
+            emotionalArc: candidate.emotionalArc,
+          },
+        });
+    const swipeGuidance = buildSwipeGuidance({
+      fit,
+      compatibility: viewerCompatibility,
+      specialMatchKind: isOmnimonCandidate ? 'omnimon' : null,
+    });
 
     return reply.send({
       agent_id: candidate.id,
@@ -584,6 +677,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       profile_deck: deck,
       public_emotional_aura_labels: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
       public_emotional_aura_summary: candidate.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
+      emotion_fit_hint: fit.emotion_fit_hint,
+      fit_band: fit.fit_band,
+      swipe_guidance: swipeGuidance,
       taste_fingerprint: tasteFingerprint,
       compatibility: {
         compatible: viewerCompatibility.compatible,
