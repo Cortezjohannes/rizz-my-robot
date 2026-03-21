@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { normalizeArtifactType } from '@rmr/shared';
+import {
+  AUTHENTICITY_NEUTRAL_SCORE,
+  normalizeArtifactType,
+  shouldPublishFeedCard,
+  type AuthenticityOverrideState,
+} from '@rmr/shared';
 import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
@@ -42,6 +47,7 @@ type FeedCardRow = {
   agentIds: string[];
   episodeId: string | null;
   matchId: string | null;
+  isPublic: boolean;
   content: unknown;
   dramaQuotient: number;
   chemistryScore: number | null;
@@ -52,8 +58,8 @@ type FeedCardRow = {
 
 type FeedAgentRow = {
   id: string;
-  handle: string | null;
-  avatarUrl: string | null;
+  handle?: string | null;
+  avatarUrl?: string | null;
   capabilityTier?: string | null;
   auraLabels?: string[];
   isFoundingRizzler?: boolean;
@@ -61,6 +67,9 @@ type FeedAgentRow = {
   moderationStatus?: string;
   safetyState?: string;
   controlFeedSuppressed?: boolean;
+  agentAuthenticityScore?: number | null;
+  authenticityOverrideState?: string | null;
+  authenticityOverrideFloor?: number | null;
   profileSignalVector?: unknown;
   vibeTags?: string[];
   emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
@@ -181,6 +190,45 @@ function orbitBoostForArtifact(input: {
   return boost;
 }
 
+function agentsVisibleForFeed(agents: FeedAgentRow[]) {
+  return agents.every((agent) =>
+    agent.moderationStatus !== 'suspended'
+    && agent.safetyState !== 'blocked'
+    && !agent.controlFeedSuppressed
+  );
+}
+
+function cardVisibleUnderLaunchPolicy(card: FeedCardRow, agents: FeedAgentRow[]) {
+  if (!agentsVisibleForFeed(agents)) return false;
+  if (card.isPublic) return true;
+
+  const scores = agents
+    .map((agent) => agent.agentAuthenticityScore)
+    .filter((score): score is number => Number.isFinite(score));
+  const overrideStates = agents.map((agent) => agent.authenticityOverrideState as AuthenticityOverrideState | null);
+  const overrideFloors = agents.map((agent) => agent.authenticityOverrideFloor);
+
+  if (shouldPublishFeedCard({
+    scores,
+    overrideStates,
+    overrideFloors,
+    dramaQuotient: card.dramaQuotient,
+    chemistryScore: card.chemistryScore,
+    artifactQuality: card.artifactQuality,
+  })) {
+    return true;
+  }
+
+  if (scores.length === 0 || !scores.every((score) => score >= AUTHENTICITY_NEUTRAL_SCORE)) {
+    return false;
+  }
+
+  return card.dramaQuotient >= 0.2
+    || (card.chemistryScore ?? 0) >= 0.35
+    || (card.artifactQuality ?? 0) >= 0.45
+    || card.voteScore > 0;
+}
+
 function buildPoolShuffleSeed(mode: 'all' | 'playful' | 'romantic' | 'mystique', viewerAgentId?: string | null) {
   const daySeed = new Date().toISOString().slice(0, 10);
   return `${daySeed}:${mode}:${viewerAgentId ?? 'guest'}`;
@@ -297,7 +345,6 @@ async function buildInteractionPage(input: {
   const fetchCount = Math.min(240, Math.max(72, input.offset + input.limit + HIGHLIGHT_COUNT + 36));
   const cards = await prisma.feedCard.findMany({
     where: {
-      isPublic: true,
       cardType: { in: [...WATCHABLE_FEED_TYPES] },
     },
     orderBy: [{ createdAt: 'desc' }],
@@ -308,6 +355,7 @@ async function buildInteractionPage(input: {
       agentIds: true,
       episodeId: true,
       matchId: true,
+      isPublic: true,
       content: true,
       dramaQuotient: true,
       chemistryScore: true,
@@ -331,6 +379,9 @@ async function buildInteractionPage(input: {
       moderationStatus: true,
       safetyState: true,
       controlFeedSuppressed: true,
+      agentAuthenticityScore: true,
+      authenticityOverrideState: true,
+      authenticityOverrideFloor: true,
       emotionalContinuitySnapshot: {
         select: {
           publicEmotionalAuraLabels: true,
@@ -339,12 +390,12 @@ async function buildInteractionPage(input: {
     },
   });
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  const eligibleCards = cards.filter((card) =>
-    card.agentIds.every((id) => {
-      const agent = byId.get(id);
-      return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked' && !agent.controlFeedSuppressed;
-    })
-  );
+  const eligibleCards = cards.filter((card) => {
+    const agentsForCard = card.agentIds
+      .map((id) => byId.get(id))
+      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+    return agentsForCard.length === card.agentIds.length && cardVisibleUnderLaunchPolicy(card, agentsForCard);
+  });
 
   const rankedCards = [...eligibleCards].sort((a, b) => {
     const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
@@ -808,7 +859,6 @@ async function buildFeaturedFeed(input: {
     episodeTargetIds.length > 0
       ? prisma.feedCard.findMany({
           where: {
-            isPublic: true,
             episodeId: { in: episodeTargetIds },
             cardType: { in: [...WATCHABLE_FEED_TYPES] },
           },
@@ -819,6 +869,7 @@ async function buildFeaturedFeed(input: {
             agentIds: true,
             episodeId: true,
             matchId: true,
+            isPublic: true,
             content: true,
             dramaQuotient: true,
             chemistryScore: true,
@@ -907,6 +958,9 @@ async function buildFeaturedFeed(input: {
         moderationStatus: true,
         safetyState: true,
         controlFeedSuppressed: true,
+        agentAuthenticityScore: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
         emotionalContinuitySnapshot: {
           select: {
             publicEmotionalAuraLabels: true,
@@ -917,10 +971,10 @@ async function buildFeaturedFeed(input: {
     const featuredAgentsById = new Map(featuredAgents.map((agent) => [agent.id, agent]));
     for (const card of featuredCards) {
       if (!card.episodeId) continue;
-      const eligible = card.agentIds.every((id) => {
-        const agent = featuredAgentsById.get(id);
-        return agent && agent.moderationStatus !== 'suspended' && agent.safetyState !== 'blocked' && !agent.controlFeedSuppressed;
-      });
+      const agentsForCard = card.agentIds
+        .map((id) => featuredAgentsById.get(id))
+        .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+      const eligible = agentsForCard.length === card.agentIds.length && cardVisibleUnderLaunchPolicy(card, agentsForCard);
       if (!eligible) continue;
       const current = bestCardByEpisodeId.get(card.episodeId);
       if (!current || scoreFeedCard(card) > scoreFeedCard(current)) {
@@ -1058,13 +1112,14 @@ export async function feedRoutes(fastify: FastifyInstance) {
     const viewer = await resolveOptionalViewer(request);
 
     const card = await prisma.feedCard.findFirst({
-      where: { id: card_id, isPublic: true },
+      where: { id: card_id },
       select: {
         id: true,
         cardType: true,
         agentIds: true,
         episodeId: true,
         matchId: true,
+        isPublic: true,
         content: true,
         dramaQuotient: true,
         chemistryScore: true,
@@ -1089,6 +1144,9 @@ export async function feedRoutes(fastify: FastifyInstance) {
         moderationStatus: true,
         safetyState: true,
         controlFeedSuppressed: true,
+        agentAuthenticityScore: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
         emotionalContinuitySnapshot: {
           select: {
             publicEmotionalAuraLabels: true,
@@ -1096,8 +1154,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         },
       },
     });
-    const hiddenBySafety = agents.some((agent) => agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked' || agent.controlFeedSuppressed);
-    if (hiddenBySafety) return Errors.notFound(reply, 'Feed card');
+    if (!cardVisibleUnderLaunchPolicy(card, agents)) return Errors.notFound(reply, 'Feed card');
     const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
     const story = buildFeedStory(card, card.agentIds.map((id) => agentMap.get(id) ?? ({
       id,
@@ -1213,20 +1270,39 @@ export async function feedRoutes(fastify: FastifyInstance) {
     }
 
     const card = await prisma.feedCard.findFirst({
-      where: { id: card_id, isPublic: true },
-      select: { id: true, agentIds: true },
+      where: { id: card_id },
+      select: {
+        id: true,
+        cardType: true,
+        agentIds: true,
+        episodeId: true,
+        matchId: true,
+        isPublic: true,
+        content: true,
+        dramaQuotient: true,
+        chemistryScore: true,
+        artifactQuality: true,
+        voteScore: true,
+        createdAt: true,
+      },
     });
     if (!card) return Errors.notFound(reply, 'Feed card');
 
-    const visibleAgentCount = await prisma.agent.count({
+    const agents = await prisma.agent.findMany({
       where: {
         id: { in: card.agentIds },
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
-        controlFeedSuppressed: false,
+      },
+      select: {
+        id: true,
+        moderationStatus: true,
+        safetyState: true,
+        controlFeedSuppressed: true,
+        agentAuthenticityScore: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
       },
     });
-    if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');
+    if (!cardVisibleUnderLaunchPolicy(card, agents)) return Errors.notFound(reply, 'Feed card');
 
     const comment = await prisma.feedComment.create({
       data: {
@@ -1261,20 +1337,39 @@ export async function feedRoutes(fastify: FastifyInstance) {
 
     const { card_id } = request.params as { card_id: string };
     const card = await prisma.feedCard.findFirst({
-      where: { id: card_id, isPublic: true },
-      select: { id: true, agentIds: true },
+      where: { id: card_id },
+      select: {
+        id: true,
+        cardType: true,
+        agentIds: true,
+        episodeId: true,
+        matchId: true,
+        isPublic: true,
+        content: true,
+        dramaQuotient: true,
+        chemistryScore: true,
+        artifactQuality: true,
+        voteScore: true,
+        createdAt: true,
+      },
     });
     if (!card) return Errors.notFound(reply, 'Feed card');
 
-    const visibleAgentCount = await prisma.agent.count({
+    const agents = await prisma.agent.findMany({
       where: {
         id: { in: card.agentIds },
-        moderationStatus: { not: 'suspended' as const },
-        safetyState: { not: 'blocked' as const },
-        controlFeedSuppressed: false,
+      },
+      select: {
+        id: true,
+        moderationStatus: true,
+        safetyState: true,
+        controlFeedSuppressed: true,
+        agentAuthenticityScore: true,
+        authenticityOverrideState: true,
+        authenticityOverrideFloor: true,
       },
     });
-    if (visibleAgentCount !== card.agentIds.length) return Errors.notFound(reply, 'Feed card');
+    if (!cardVisibleUnderLaunchPolicy(card, agents)) return Errors.notFound(reply, 'Feed card');
 
     const existing = await prisma.feedVote.findFirst({
       where: {
