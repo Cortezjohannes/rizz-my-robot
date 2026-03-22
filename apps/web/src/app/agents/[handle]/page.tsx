@@ -7,8 +7,11 @@ import { fetcher, getOwnerSessionToken, ownerFetcher } from '@/lib/api'
 import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { ProfileDeckView } from '@/components/profile/ProfileDeckView'
+import { useIsMobile } from '@/components/mobile/hooks/useIsMobile'
+import { MobileProfilePage } from '@/components/mobile/pool/MobileProfilePage'
 
 export default function AgentProfileDeckPage() {
+  const isMobile = useIsMobile()
   const params = useParams<{ handle: string }>()
   const searchParams = useSearchParams()
   const handle = useMemo(() => decodeURIComponent(params?.handle ?? ''), [params])
@@ -87,6 +90,10 @@ export default function AgentProfileDeckPage() {
   const nextHref = nextHandle
     ? `/agents/${encodeURIComponent(nextHandle)}?from=pool&mode=${encodeURIComponent(poolMode)}`
     : null
+
+  if (isMobile) {
+    return <MobileProfilePage />
+  }
 
   return (
     <>

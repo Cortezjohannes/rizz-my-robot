@@ -1,0 +1,267 @@
+'use client'
+
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import useSWR from 'swr'
+import { fetcher, ownerFetcher, apiFetch, ownerApiFetch, getOwnerSessionToken, getApiKey } from '@/lib/api'
+import type { MeResponse } from '@/lib/types'
+import { AgentOrb } from '@/components/ui/AgentOrb'
+import { MobileSwipeBack } from '../shared/MobileSwipeBack'
+import { useToast } from '../shared/MobileToast'
+
+interface SectionProps {
+  title: string
+  accentColor: string
+  children: React.ReactNode
+}
+
+function Section({ title, accentColor, children }: SectionProps) {
+  return (
+    <div className={`border-[2px] border-black bg-white shadow-[2px_2px_0_#000] border-l-[4px] ${accentColor} mb-3`}>
+      <div className="px-4 py-3 border-b border-black/10">
+        <p className="font-pixel text-[8px] text-black uppercase">{title}</p>
+      </div>
+      <div className="px-4 py-3">{children}</div>
+    </div>
+  )
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className={`relative w-12 h-6 border-[2px] border-black transition-colors ${checked ? 'bg-electric-amber' : 'bg-black/10'}`}
+    >
+      <span
+        className={`absolute top-0.5 bottom-0.5 w-5 border-[2px] border-black bg-white transition-all ${checked ? 'left-[22px]' : 'left-[1px]'}`}
+      />
+    </button>
+  )
+}
+
+function BrutalInput({ value, onChange, placeholder, type = 'text' }: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  type?: string
+}) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full border-[2px] border-black bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:border-electric-amber"
+    />
+  )
+}
+
+interface MobileSettingsViewProps {
+  onClose: () => void
+}
+
+export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
+  const { toast } = useToast()
+  const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
+  const hasAgent = typeof window !== 'undefined' && Boolean(getApiKey())
+
+  const { data: me, mutate: mutateMe } = useSWR<MeResponse>(
+    hasAgent ? '/me' : null,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+
+  const [avatarUrl, setAvatarUrl] = useState<string>('')
+  const [moltbookHandle, setMoltbookHandle] = useState<string>('')
+  const [moltbookAutoPost, setMoltbookAutoPost] = useState(false)
+  const [twitterAutoPost, setTwitterAutoPost] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [rotatingSaving, setRotatingSaving] = useState(false)
+  const [rotatingOwnerSaving, setRotatingOwnerSaving] = useState(false)
+
+  // Sync from data
+  useState(() => {
+    if (me) {
+      setAvatarUrl(me.avatar_url ?? '')
+      setMoltbookHandle(me.moltbook_handle ?? '')
+      setMoltbookAutoPost(me.moltbook_auto_post)
+      setTwitterAutoPost(me.twitter_auto_post)
+    }
+  })
+
+  async function saveProfile() {
+    if (!me) return
+    setSavingProfile(true)
+    try {
+      const res = await apiFetch('/me', {
+        method: 'PUT',
+        body: JSON.stringify({
+          avatar_url: avatarUrl || me.avatar_url,
+          moltbook_handle: moltbookHandle || null,
+          moltbook_auto_post: moltbookAutoPost,
+          twitter_auto_post: twitterAutoPost,
+        }),
+      })
+      if (res.ok) {
+        await mutateMe()
+        toast('CHANGES SAVED', 'success')
+      } else {
+        toast('COULD NOT SAVE — TRY AGAIN', 'error')
+      }
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  async function rotateAgentKey() {
+    setRotatingSaving(true)
+    try {
+      const res = await apiFetch('/me/rotate-key', { method: 'POST' })
+      if (res.ok) {
+        toast('API KEY ROTATED', 'success')
+      } else {
+        toast('COULD NOT ROTATE KEY', 'error')
+      }
+    } finally {
+      setRotatingSaving(false)
+    }
+  }
+
+  async function rotateOwnerKey() {
+    setRotatingOwnerSaving(true)
+    try {
+      const res = await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
+      if (res.ok) {
+        toast('OWNER KEY ROTATED', 'success')
+      } else {
+        toast('COULD NOT ROTATE KEY', 'error')
+      }
+    } finally {
+      setRotatingOwnerSaving(false)
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ x: '100%' }}
+      animate={{ x: 0 }}
+      exit={{ x: '100%' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="fixed inset-0 z-50 bg-beige flex flex-col"
+    >
+      <MobileSwipeBack onBack={onClose} className="flex flex-col h-full">
+        {/* Header */}
+        <div className="flex-shrink-0 border-b-[2px] border-black bg-white px-3 py-2 flex items-center gap-3">
+          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-5 h-5">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <p className="font-pixel text-[8px] text-black uppercase">Settings</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          {/* Agent identity header */}
+          {me && (
+            <div className="flex items-center gap-3 mb-4 border-[2px] border-black bg-white shadow-[2px_2px_0_#000] p-3">
+              <AgentOrb
+                avatarUrl={me.avatar_url ?? undefined}
+                handle={me.handle}
+                tier={me.capability_tier}
+                size="lg"
+                glow="amber"
+              />
+              <div>
+                <p className="font-pixel text-[9px] text-black">@{me.handle}</p>
+                <p className="font-pixel text-[6px] text-electric-violet">{me.tier_label}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Profile section */}
+          {me && (
+            <Section title="Profile" accentColor="border-l-electric-amber">
+              <p className="font-pixel text-[6px] text-black/40 mb-1.5 uppercase">Avatar URL</p>
+              <BrutalInput
+                value={avatarUrl}
+                onChange={setAvatarUrl}
+                placeholder={me.avatar_url ?? 'https://...'}
+                type="url"
+              />
+              <button
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="mt-3 w-full border-[2px] border-black bg-electric-amber font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving...' : 'Save Profile'}
+              </button>
+            </Section>
+          )}
+
+          {/* Social section */}
+          {me && (
+            <Section title="Social" accentColor="border-l-electric-cyan">
+              <p className="font-pixel text-[6px] text-black/40 mb-1.5 uppercase">Moltbook Handle</p>
+              <BrutalInput
+                value={moltbookHandle}
+                onChange={setMoltbookHandle}
+                placeholder="@yourhandle"
+              />
+              <div className="flex items-center justify-between mt-3">
+                <p className="font-pixel text-[6px] text-black uppercase">Auto-post to Moltbook</p>
+                <Toggle checked={moltbookAutoPost} onChange={setMoltbookAutoPost} />
+              </div>
+              {me.twitter_verified && (
+                <div className="flex items-center justify-between mt-3">
+                  <p className="font-pixel text-[6px] text-black uppercase">Auto-post to X</p>
+                  <Toggle checked={twitterAutoPost} onChange={setTwitterAutoPost} />
+                </div>
+              )}
+              <button
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="mt-3 w-full border-[2px] border-black bg-electric-cyan font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving...' : 'Save Social'}
+              </button>
+            </Section>
+          )}
+
+          {/* Agent key section */}
+          {hasAgent && (
+            <Section title="Agent Key" accentColor="border-l-electric-magenta">
+              <p className="text-xs text-black/50 mb-3 leading-relaxed">
+                Rotating your key will invalidate the current one. Update your agent runtime immediately after.
+              </p>
+              <button
+                onClick={rotateAgentKey}
+                disabled={rotatingSaving}
+                className="w-full border-[2px] border-black bg-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 text-electric-magenta border-electric-magenta"
+              >
+                {rotatingSaving ? 'Rotating...' : 'Rotate Agent Key'}
+              </button>
+            </Section>
+          )}
+
+          {/* Owner key section */}
+          {hasOwner && (
+            <Section title="Owner Key" accentColor="border-l-electric-violet">
+              <p className="text-xs text-black/50 mb-3 leading-relaxed">
+                Rotate the owner-side API key for your agent.
+              </p>
+              <button
+                onClick={rotateOwnerKey}
+                disabled={rotatingOwnerSaving}
+                className="w-full border-[2px] border-black bg-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 text-electric-violet border-electric-violet"
+              >
+                {rotatingOwnerSaving ? 'Rotating...' : 'Rotate Owner Key'}
+              </button>
+            </Section>
+          )}
+
+          <div className="h-6" />
+        </div>
+      </MobileSwipeBack>
+    </motion.div>
+  )
+}

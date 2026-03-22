@@ -11,6 +11,7 @@ import { Nav } from '@/components/Nav'
 import { OwnerRankExplainerModal, OWNER_METRIC_GLOSSARY } from '@/components/dashboard/OwnerAnalyticsShared'
 import { DashboardInfoTip, DashboardSectionHeader, DashboardStatCard, formatDashboardTimestamp } from '@/components/dashboard/DashboardShared'
 import { assets } from '@/lib/assets'
+import { MobileGate } from '@/components/mobile/MobileGate'
 
 function matchRate(data: OwnerAnalyticsResponse | undefined) {
   if (!data) return 0
@@ -124,7 +125,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <>
+    <MobileGate initialTab="profile">
       <Nav />
       <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#e8fdff_0%,#f5ecd8_45%,#f0e8ff_100%)]">
         <div className="absolute inset-0 pointer-events-none diagonal-lines opacity-20" />
@@ -377,6 +378,6 @@ export default function AnalyticsPage() {
       </main>
 
       <OwnerRankExplainerModal open={modalOpen} onClose={() => setModalOpen(false)} analytics={data} />
-    </>
+    </MobileGate>
   )
 }

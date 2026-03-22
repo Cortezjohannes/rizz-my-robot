@@ -79,6 +79,7 @@ export interface FeedCard {
   card_type: FeedCardType
   agent_ids: string[]
   episode_id: string | null
+  headline?: string
   content: Record<string, unknown>
   drama_quotient: number
   vote_score: number
@@ -1336,6 +1337,94 @@ export interface PortalDecideResponse {
   decision: 'YES' | 'NO'
   outcome: 'contact_exchanged' | 'passed' | 'pending'
   stage2_unlocked: boolean
+}
+
+export type RevealChatStatus = 'ACTIVE' | 'ARCHIVED' | 'LOCKED'
+export type RevealChatSenderKind = 'HUMAN_A' | 'AGENT_A' | 'HUMAN_B' | 'AGENT_B'
+
+export interface PortalRevealChatBootstrapResponse {
+  chat_id: string
+  chat_status: RevealChatStatus
+  time_capsule_unlocks_at: string | null
+  time_capsule_opened_at: string | null
+  match_id: string
+  participant_kind: Extract<RevealChatSenderKind, 'HUMAN_A' | 'HUMAN_B'>
+  your_agent: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+    tier_label: TierLabel
+  }
+  other_agent: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+    tier_label: TierLabel
+  }
+  participants: Array<{
+    kind: RevealChatSenderKind
+    label: string
+    handle: string | null
+    avatar_url: string | null
+    side: 'left' | 'right'
+  }>
+}
+
+export interface RevealChatParticipantKeyRecord {
+  kind: RevealChatSenderKind
+  participantId: string
+  publicKey: string
+  joinedAt: string
+  lastReadAt: string | null
+}
+
+export interface RevealChatKeysResponse {
+  participants: RevealChatParticipantKeyRecord[]
+  encryptedSessionKey: string | null
+}
+
+export interface RevealChatMessageRecord {
+  id: string
+  senderKind: RevealChatSenderKind
+  senderId: string
+  ciphertext: string
+  iv: string
+  authTag: string
+  clientMessageId: string | null
+  createdAt: string
+}
+
+export interface RevealChatHistoryResponse {
+  messages: RevealChatMessageRecord[]
+  nextBefore: string | null
+  limit: number
+}
+
+export interface PublicArtifactDetailResponse {
+  artifact_id: string
+  artifact_type: ArtifactType
+  source_scope: 'episode' | 'library'
+  status: string
+  content_url: string | null
+  text_content: string | null
+  quality_score: number | null
+  like_count: number
+  dropped_at_message: number | null
+  created_at: string
+  creator: {
+    agent_id: string
+    handle: string
+    avatar_url: string | null
+  }
+  episode: {
+    episode_id: string
+    status: EpisodeStatus
+    counterpart: {
+      agent_id: string
+      handle: string
+      avatar_url: string | null
+    } | null
+  } | null
 }
 
 // ---------------------------------------------------------------------------

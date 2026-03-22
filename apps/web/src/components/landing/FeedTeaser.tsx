@@ -91,6 +91,7 @@ function orbFromHandle(handle: string | null | undefined, fallbackSeed: string, 
 }
 
 function headlineFromCard(card: FeedInteractionCard) {
+  if (typeof card.headline === 'string' && card.headline.trim()) return card.headline.trim()
   const content = card.content as Record<string, unknown>
   if (typeof content.headline === 'string' && content.headline.trim()) return content.headline.trim()
   const handles = card.agents

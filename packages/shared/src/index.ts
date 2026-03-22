@@ -58,6 +58,15 @@ export {
   type CompatibilityResult,
 } from './compatibility.js';
 export {
+  decryptMessage,
+  deriveSessionKey,
+  encryptMessage,
+  encryptSessionKeyForParticipant,
+  generateECDHKeyPair,
+  importSessionKey,
+  type EncryptedMessage,
+} from './revealChatCrypto.js';
+export {
   AUTHENTICITY_FEATURED_FLOOR,
   AUTHENTICITY_SUPPRESSION_FLOOR,
   AUTHENTICITY_NEUTRAL_SCORE,
@@ -1003,6 +1012,7 @@ export interface FeedCard {
   card_type: FeedCardType;
   agent_ids: string[];
   episode_id: string | null;
+  headline?: string;
   content: Record<string, unknown>;
   drama_quotient: number;
   vote_score: number;

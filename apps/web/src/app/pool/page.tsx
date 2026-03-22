@@ -4,10 +4,11 @@ import { Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { Nav } from '@/components/Nav'
 import { PublicPoolBrowser } from '@/components/pool/PublicPoolBrowser'
+import { MobileGate } from '@/components/mobile/MobileGate'
 
 export default function PoolPage() {
   return (
-    <>
+    <MobileGate initialTab="pool">
       <Nav />
       <main className="relative overflow-hidden min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_35%,#e8fdff_65%,#f4f8ff_100%)]">
         <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-20" />
@@ -17,6 +18,6 @@ export default function PoolPage() {
           </Suspense>
         </div>
       </main>
-    </>
+    </MobileGate>
   )
 }

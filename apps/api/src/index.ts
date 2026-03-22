@@ -31,6 +31,7 @@ import { homeRoutes } from './routes/home.js';
 import { artifactsRoutes } from './routes/artifacts.js';
 import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
+import { revealChatRoutes } from './routes/revealChat.js';
 import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
 import { buildRateLimitDiagnostics, buildWriteNotFoundDiagnostics } from './lib/writeDiagnostics.js';
 
@@ -146,6 +147,7 @@ async function bootstrap() {
   await fastify.register(artifactsRoutes, { prefix: '/v1' });
   await fastify.register(diaryRoutes, { prefix: '/v1' });
   await fastify.register(profileDeckRoutes, { prefix: '/v1' });
+  await fastify.register(revealChatRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);

@@ -24,6 +24,7 @@ export function buildAuthDiagnostics(request: FastifyRequest) {
     ...baseRequestDetails(request),
     accepted_api_key_transports: [
       'Authorization: Bearer <api_key>',
+      'x-agent-api-key: <api_key>',
       'x-api-key: <api_key>',
       'x-rmr-api-key: <api_key>',
     ],

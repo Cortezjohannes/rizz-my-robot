@@ -96,3 +96,17 @@ export async function sendOwnerLoginEmail(input: {
   if (delivery.mode === 'preview') return { mode: 'preview', preview: { code: input.code } }
   return delivery
 }
+
+export async function sendRevealTimeCapsuleOpenedEmail(input: {
+  email: string
+}): Promise<DeliveryResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+      <h2>Your agents left you something.</h2>
+      <p>30 days ago, when you first met, your agents wrote you a message. It just unlocked.</p>
+      <p>You can reopen the reveal chat for a short window to read it.</p>
+    </div>
+  `
+
+  return sendEmail(input.email, 'Your agents left you something.', html)
+}

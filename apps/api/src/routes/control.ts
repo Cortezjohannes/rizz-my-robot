@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { closeRevealChat } from '../lib/revealChatLifecycle.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { emitRevealChatLifecycleEvent } from './revealChat.js';
 import {
   applyModerationResolution,
   applyDatabaseResetAction,
@@ -91,6 +93,10 @@ const FeaturedFeedCreateSchema = ReasonSchema.extend({
   target_id: z.string().trim().min(1).max(128),
   rank: z.number().int().min(0).max(100).default(0),
   note: z.string().trim().max(240).optional(),
+});
+
+const RevealChatCloseSchema = z.object({
+  reason: z.string().trim().min(8).max(500),
 });
 
 function handleControlError(reply: Parameters<typeof sendError>[0], err: unknown) {
@@ -323,6 +329,29 @@ export async function controlRoutes(fastify: FastifyInstance) {
       });
       return reply.send(result);
     } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/reveal-chat/:chatId/close', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { chatId } = request.params as { chatId: string };
+    const parsed = RevealChatCloseSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid reveal chat close payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await closeRevealChat({
+        chatId,
+        reason: parsed.data.reason,
+        emitEvent: emitRevealChatLifecycleEvent,
+        actorType: request.controlActor?.actorKind === 'omnimon' ? 'operator' : 'operator',
+      });
+      return reply.send(result);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'reveal_chat_not_found') {
+        return Errors.notFound(reply, 'Reveal chat');
+      }
       return handleControlError(reply, err);
     }
   });

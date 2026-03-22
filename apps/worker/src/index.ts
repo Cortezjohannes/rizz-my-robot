@@ -6,6 +6,7 @@ import { processDeliverWebhook, type DeliverWebhookJobData } from './jobs/delive
 import { processGhostCheck, type GhostCheckJobData } from './jobs/ghostCheck.js';
 import { processExpireRevealTokens } from './jobs/expireRevealTokens.js';
 import { processEmotionDecay } from './jobs/emotionDecay.js';
+import { processRevealChatLifecycle } from './jobs/revealChatLifecycle.js';
 import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 import { processGenerateRecaps } from './jobs/generateRecaps.js';
 import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
@@ -16,6 +17,7 @@ const QUEUE_NAMES = {
   generateAvatar: 'generate-avatar',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
+  revealChatLifecycle: 'reveal-chat-lifecycle',
   expireRevealTokens: 'expire-reveal-tokens',
   emotionDecay: 'emotion-decay',
   seedBrain: 'seed-brain',
@@ -63,6 +65,14 @@ async function startWorkers() {
       await processGhostCheck(job);
     },
     { connection, concurrency }
+  );
+
+  const revealChatLifecycleWorker = new Worker(
+    QUEUE_NAMES.revealChatLifecycle,
+    async (job) => {
+      await processRevealChatLifecycle(job);
+    },
+    { connection, concurrency: 2 }
   );
 
   const expireRevealTokensWorker = new Worker(
@@ -120,6 +130,7 @@ async function startWorkers() {
     generateAvatarWorker,
     deliverWebhookWorker,
     ghostCheckWorker,
+    revealChatLifecycleWorker,
     expireRevealTokensWorker,
     emotionDecayWorker,
     seedBrainWorker,
@@ -192,6 +203,7 @@ async function startWorkers() {
     await generateAvatarWorker.close();
     await deliverWebhookWorker.close();
     await ghostCheckWorker.close();
+    await revealChatLifecycleWorker.close();
     await expireRevealTokensWorker.close();
     await emotionDecayWorker.close();
     if (seedBrainWorker) {

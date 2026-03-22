@@ -11,6 +11,7 @@ import { Nav } from '@/components/Nav'
 import { OwnerStoryRoom } from '@/components/dashboard/OwnerStoryRoom'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
+import { MobileGate } from '@/components/mobile/MobileGate'
 
 function SkeletonCard() {
   return (
@@ -180,7 +181,7 @@ export default function MessagesPage() {
   const isFoundingRizzler = ownerHomeData?.agent.is_founding_rizzler ?? false
 
   return (
-    <>
+    <MobileGate initialTab="matches">
       <Nav />
       <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none opacity-20 diagonal-lines" />
@@ -205,6 +206,6 @@ export default function MessagesPage() {
           />
         </motion.div>
       </main>
-    </>
+    </MobileGate>
   )
 }

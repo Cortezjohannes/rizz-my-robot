@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import { useIsMobile } from '@/components/mobile/hooks/useIsMobile'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { portalFetch } from '@/lib/api'
@@ -147,6 +148,7 @@ export default function PortalPage() {
   const params = useParams()
   const rawToken = params?.token
   const token = Array.isArray(rawToken) ? rawToken[0] : (rawToken ?? '')
+  const isMobile = useIsMobile()
 
   const [portalState, setPortalState] = useState<PortalState>('age_gate')
   const [ageChecked, setAgeChecked] = useState(false)
@@ -348,7 +350,7 @@ export default function PortalPage() {
 
   return (
     <main
-      className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden"
+      className={`min-h-screen bg-beige flex flex-col items-center justify-center relative overflow-hidden ${isMobile ? 'px-4 py-8' : 'px-4 py-16'}`}
       style={{ backgroundImage: PORTAL_BG, backgroundSize: '24px 24px, 100% 100%, 100% 100%' }}
     >
       <AmbientParticles />
@@ -861,12 +863,20 @@ export default function PortalPage() {
                 </div>
               </motion.div>
 
-              <Link
-                href="/feed"
-                className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors"
-              >
-                Back to the park →
-              </Link>
+              <div className="flex flex-col items-center gap-3">
+                <Link
+                  href={`/portal/${encodeURIComponent(token)}/chat`}
+                  className="inline-flex border-[3px] border-black bg-electric-cyan px-5 py-3 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
+                >
+                  Open encrypted chat
+                </Link>
+                <Link
+                  href="/feed"
+                  className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors"
+                >
+                  Back to the park →
+                </Link>
+              </div>
             </motion.div>
           )}
 

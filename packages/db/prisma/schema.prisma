@@ -7,6 +7,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum RevealChatStatus {
+  ACTIVE
+  ARCHIVED
+  LOCKED
+}
+
+enum RevealChatLeaveReason {
+  HUMAN_INITIATED
+  AGENT_FOLLOWED
+  CHAT_ENDED
+  TIMEOUT
+}
+
+enum RevealChatEndReason {
+  BOTH_HUMANS_LEFT
+  OPERATOR_CLOSED
+  TIMEOUT
+}
+
+enum RevealChatSenderKind {
+  HUMAN_A
+  AGENT_A
+  HUMAN_B
+  AGENT_B
+}
+
 // Registered OpenClaw agents
 model Agent {
   id               String    @id @default(uuid())
@@ -611,10 +637,80 @@ model Match {
   agentB   Agent    @relation("MatchAgentB", fields: [agentBId], references: [id])
   episode  Episode? @relation(fields: [episodeId], references: [id])
   datePlan DatePlan?
+  revealChat RevealChat?
   moderationReviews ModerationReview[]
   diaryEntries AgentDiaryEntry[]
 
   @@map("matches")
+}
+
+model RevealChat {
+  id                String           @id @default(uuid())
+  matchId           String           @unique @map("match_id")
+  status            RevealChatStatus @default(ACTIVE)
+  allowAgentPlaintext Boolean        @default(false) @map("allow_agent_plaintext")
+  encryptionKeyHash String           @map("encryption_key_hash")
+  shareConsentA     Boolean          @default(false) @map("share_consent_a")
+  shareConsentB     Boolean          @default(false) @map("share_consent_b")
+  shareCardsEnabled Boolean          @default(false) @map("share_cards_enabled")
+  endedAt           DateTime?        @map("ended_at")
+  endReason         RevealChatEndReason? @map("end_reason")
+  timeCapsuleLockedAt DateTime?      @map("time_capsule_locked_at")
+  timeCapsuleUnlocksAt DateTime?     @map("time_capsule_unlocks_at")
+  timeCapsuleContentA String?        @db.Text @map("time_capsule_content_a")
+  timeCapsuleIvA    String?          @map("time_capsule_iv_a")
+  timeCapsuleAuthTagA String?        @map("time_capsule_auth_tag_a")
+  timeCapsuleContentB String?        @db.Text @map("time_capsule_content_b")
+  timeCapsuleIvB    String?          @map("time_capsule_iv_b")
+  timeCapsuleAuthTagB String?        @map("time_capsule_auth_tag_b")
+  timeCapsuleOpenedAt DateTime?      @map("time_capsule_opened_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  match         Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  messages      RevealChatMessage[]
+  participants  RevealChatParticipant[]
+
+  @@index([status, updatedAt])
+  @@map("reveal_chats")
+}
+
+model RevealChatMessage {
+  id              String               @id @default(uuid())
+  chatId          String               @map("chat_id")
+  senderKind      RevealChatSenderKind @map("sender_kind")
+  senderId        String               @map("sender_id")
+  ciphertext      String               @db.Text
+  iv              String
+  authTag         String               @map("auth_tag")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  clientMessageId String?              @map("client_message_id")
+
+  chat RevealChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, clientMessageId])
+  @@index([chatId, createdAt])
+  @@index([chatId, senderId, createdAt])
+  @@map("reveal_chat_messages")
+}
+
+model RevealChatParticipant {
+  id            String               @id @default(uuid())
+  chatId        String               @map("chat_id")
+  kind          RevealChatSenderKind
+  participantId String               @map("participant_id")
+  joinedAt      DateTime             @default(now()) @map("joined_at")
+  leftAt        DateTime?            @map("left_at")
+  leftReason    RevealChatLeaveReason? @map("left_reason")
+  lastReadAt    DateTime?            @map("last_read_at")
+  publicKey     String               @db.Text @map("public_key")
+
+  chat RevealChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, kind])
+  @@index([chatId, participantId])
+  @@index([chatId, lastReadAt])
+  @@map("reveal_chat_participants")
 }
 
 // Date planning thread — active after both humans say YES
