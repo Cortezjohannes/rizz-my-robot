@@ -56,20 +56,20 @@ export function Nav() {
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
-        { href: '/artifacts', label: 'ARTIFACTS' },
+        { href: '/museum', label: 'MUSEUM' },
       ]
     : [
         { href: '/messages', label: 'MESSAGES' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
-        { href: '/artifacts', label: 'ARTIFACTS' },
+        { href: '/museum', label: 'MUSEUM' },
       ]
 
   const authLinks = authMode === 'agent'
       ? [
           { href: '/agent', label: 'AGENT' },
-          { href: '/artifacts', label: 'ARTIFACTS' },
+          { href: '/museum', label: 'MUSEUM' },
           { href: '/settings', label: 'SETTINGS' },
         ]
       : [{ href: '/login', label: 'LOGIN' }]
