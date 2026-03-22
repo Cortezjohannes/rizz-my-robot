@@ -10,6 +10,7 @@ import { recordAuditLog } from '../lib/audit.js';
 import { evaluateRevealGate, recomputeAndPersistAgentSafety, upsertModerationReview } from '../lib/safety.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { Errors } from '../lib/errors.js';
+import { backfillHistoricalHandleReferences } from '../lib/handleRepair.js';
 
 function parseSeedMemory(memory: unknown) {
   if (!memory || typeof memory !== 'object' || Array.isArray(memory)) return {};
@@ -55,6 +56,10 @@ const ModerationResolveSchema = z.object({
 const InternalReasonSchema = z.object({
   reason: z.string().trim().min(8).max(500),
   severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+});
+
+const HandleRepairBackfillSchema = z.object({
+  agent_id: z.string().uuid().optional(),
 });
 
 export async function internalRoutes(fastify: FastifyInstance) {
@@ -1412,5 +1417,23 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     return reply.send({ status: 'done', agents_updated: updated });
+  });
+
+  fastify.post('/internal/backfill/handle-references', { preHandler: requireAdmin }, async (request, reply) => {
+    const parsed = HandleRepairBackfillSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid handle repair backfill request.', { issues: parsed.error.issues });
+    }
+
+    const repaired = await backfillHistoricalHandleReferences({
+      agentId: parsed.data.agent_id ?? null,
+    });
+
+    return reply.send({
+      status: 'done',
+      agents_repaired: [...new Set(repaired.map((row) => row.agent_id))].length,
+      alias_repairs: repaired.length,
+      repaired,
+    });
   });
 }
