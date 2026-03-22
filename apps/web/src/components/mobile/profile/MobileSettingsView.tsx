@@ -167,7 +167,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
               <AgentOrb
                 avatarUrl={me.avatar_url ?? undefined}
                 handle={me.handle}
-                tier={me.capability_tier}
+                tier={me.tier_label}
                 size="lg"
                 glow="amber"
               />

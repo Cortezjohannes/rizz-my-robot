@@ -26,7 +26,7 @@ export function MobileAgentStatsCard({ data }: MobileAgentStatsCardProps) {
         <AgentOrb
           avatarUrl={agent.avatar_url ?? undefined}
           handle={agent.handle}
-          tier={agent.capability_tier}
+          tier={agent.tier_label}
           size="lg"
           glow="amber"
         />

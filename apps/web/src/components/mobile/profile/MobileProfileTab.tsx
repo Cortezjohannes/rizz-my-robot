@@ -65,7 +65,7 @@ export function MobileProfileTab() {
 
   return (
     <div className="h-full overflow-hidden">
-      <MobilePullToRefresh onRefresh={mutate} className="h-full">
+      <MobilePullToRefresh onRefresh={async () => { await mutate() }} className="h-full">
         {/* Agent header */}
         {homeData && <MobileProfileHeader data={homeData} />}
         {isLoading && !homeData && (

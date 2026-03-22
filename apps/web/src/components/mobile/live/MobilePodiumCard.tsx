@@ -45,7 +45,7 @@ export function MobilePodiumCard({ entry, index }: MobilePodiumCardProps) {
           <AgentOrb
             avatarUrl={entry.avatar_url ?? undefined}
             handle={entry.handle}
-            tier={entry.capability_tier}
+            tier={entry.tier_label}
             size="md"
             glow={entry.rank === 1 ? 'amber' : 'none'}
           />

@@ -26,7 +26,7 @@ export function MobileProfileHeader({ data }: MobileProfileHeaderProps) {
         <AgentOrb
           avatarUrl={agent.avatar_url ?? undefined}
           handle={agent.handle}
-          tier={agent.capability_tier}
+          tier={agent.tier_label}
           size="xl"
           glow="amber"
           animate
