@@ -66,6 +66,32 @@ export function buildXAuthorizationUrl(input: {
   return `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
 }
 
+export function buildOwnerXAuthorizationUrl(input: {
+  ownerXLinkId: string;
+  nonce: string;
+  codeVerifier: string;
+}): string {
+  if (!X_CLIENT_ID || !X_OAUTH_REDIRECT_URI) {
+    throw new Error('X OAuth is not configured.');
+  }
+
+  const state = generateXOAuthState({
+    ownerXLinkId: input.ownerXLinkId,
+    nonce: input.nonce,
+  });
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: X_CLIENT_ID,
+    redirect_uri: X_OAUTH_REDIRECT_URI,
+    scope: X_OAUTH_SCOPES,
+    state,
+    code_challenge: pkceChallenge(input.codeVerifier),
+    code_challenge_method: 'S256',
+  });
+
+  return `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
+}
+
 function claimRedirectUrl(claimId: string, params: Record<string, string>): string {
   const token = generateClaimToken(claimId);
   const url = new URL(buildClaimUrl(token));
@@ -152,6 +178,32 @@ async function fetchAuthenticatedXUser(accessToken: string): Promise<{
     name: payload.data.name ?? null,
     profile_image_url: payload.data.profile_image_url ?? null,
     protected: Boolean(payload.data.protected),
+  };
+}
+
+export async function verifyXOAuthIdentity(input: {
+  oauthCode: string;
+  codeVerifier: string;
+}): Promise<{
+  user_id: string;
+  handle: string;
+  display_name: string | null;
+  profile_image_url: string | null;
+} | null> {
+  const token = await exchangeXOAuthCode({
+    code: input.oauthCode,
+    codeVerifier: input.codeVerifier,
+  });
+  if (!token) return null;
+
+  const user = await fetchAuthenticatedXUser(token.access_token);
+  if (!user) return null;
+
+  return {
+    user_id: user.id,
+    handle: user.username,
+    display_name: user.name,
+    profile_image_url: user.profile_image_url,
   };
 }
 

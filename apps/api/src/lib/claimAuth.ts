@@ -55,7 +55,8 @@ export function verifyClaimToken(token: string): string | null {
 }
 
 type XOAuthStatePayload = {
-  claimId: string;
+  claimId?: string;
+  ownerXLinkId?: string;
   nonce: string;
 };
 
@@ -84,7 +85,8 @@ export function verifyXOAuthState(state: string): XOAuthStatePayload | null {
 
   try {
     const decoded = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as XOAuthStatePayload;
-    if (!decoded.claimId || !decoded.nonce) return null;
+    const identifierCount = Number(Boolean(decoded.claimId)) + Number(Boolean(decoded.ownerXLinkId));
+    if (identifierCount !== 1 || !decoded.nonce) return null;
     return decoded;
   } catch {
     return null;

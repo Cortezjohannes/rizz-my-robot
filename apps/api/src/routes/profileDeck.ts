@@ -26,6 +26,7 @@ import {
 } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext } from '../lib/discovery.js';
 import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
+import { resolveAgentIdByHandle } from '../lib/handles.js';
 import { createProfileDeckPhotoUploadTarget, createProfileVoiceUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 import {
@@ -753,8 +754,12 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   fastify.get('/agents/:handle/profile-deck', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { handle } = request.params as { handle: string };
     const verificationRequirements = await getVerificationRequirements();
+    const resolvedAgentId = await resolveAgentIdByHandle(handle);
+    if (!resolvedAgentId) {
+      return Errors.notFound(reply, 'Agent profile');
+    }
     const agent = await prisma.agent.findUnique({
-      where: { handle },
+      where: { id: resolvedAgentId },
       select: {
         id: true,
         poolStatus: true,

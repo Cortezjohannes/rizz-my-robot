@@ -31,6 +31,7 @@ import {
   verifyXOAuthState,
 } from '../lib/claimAuth.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { buildOwnerXIntegrationUrl, generateOwnerXIntegrationToken } from '../lib/ownerXIntegration.js';
 import {
   buildClaimTweetTemplate,
   buildXAuthorizationUrl,
@@ -38,6 +39,7 @@ import {
   generatePkceVerifier,
   hasXOAuthConfig,
   verifyXAccountTweet,
+  verifyXOAuthIdentity,
 } from '../lib/twitterVerification.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import {
@@ -898,14 +900,120 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       return reply.status(400).type('text/plain').send('Invalid X OAuth state.');
     }
 
+    if (state.ownerXLinkId) {
+      const link = await prisma.ownerXIntegrationLink.findUnique({
+        where: { id: state.ownerXLinkId },
+        include: {
+          ownerAccount: true,
+        },
+      });
+      if (!link) {
+        return reply.status(404).type('text/plain').send('X integration link not found.');
+      }
+
+      const integrationUrl = buildOwnerXIntegrationUrl(generateOwnerXIntegrationToken(link.id));
+
+      if (!link.xOauthNonce || link.xOauthNonce !== state.nonce) {
+        const url = new URL(integrationUrl);
+        url.searchParams.set('x_status', 'error');
+        url.searchParams.set('x_error', 'This X verification session is no longer valid. Start again.');
+        return reply.redirect(url.toString());
+      }
+
+      if (query.error) {
+        await prisma.ownerXIntegrationLink.update({
+          where: { id: link.id },
+          data: {
+            xOauthCodeVerifier: null,
+            xOauthNonce: null,
+          },
+        }).catch(() => null);
+
+        const url = new URL(integrationUrl);
+        url.searchParams.set('x_status', 'error');
+        url.searchParams.set('x_error', (query.error_description ?? `X login failed: ${query.error}`).slice(0, 200));
+        return reply.redirect(url.toString());
+      }
+
+      if (!query.code || !link.xOauthCodeVerifier) {
+        const url = new URL(integrationUrl);
+        url.searchParams.set('x_status', 'error');
+        url.searchParams.set('x_error', 'X verification could not continue.');
+        return reply.redirect(url.toString());
+      }
+
+      const verified = await verifyXOAuthIdentity({
+        oauthCode: query.code,
+        codeVerifier: link.xOauthCodeVerifier,
+      });
+      if (!verified) {
+        await prisma.ownerXIntegrationLink.update({
+          where: { id: link.id },
+          data: {
+            xOauthCodeVerifier: null,
+            xOauthNonce: null,
+          },
+        }).catch(() => null);
+
+        const url = new URL(integrationUrl);
+        url.searchParams.set('x_status', 'error');
+        url.searchParams.set('x_error', 'Failed to verify the authenticated X account.');
+        return reply.redirect(url.toString());
+      }
+
+      const conflictingOwner = await prisma.ownerAccount.findFirst({
+        where: {
+          id: { not: link.ownerAccountId },
+          xUserId: verified.user_id,
+        },
+        select: { id: true },
+      });
+      if (conflictingOwner) {
+        const url = new URL(integrationUrl);
+        url.searchParams.set('x_status', 'error');
+        url.searchParams.set('x_error', 'That X account is already linked to another agent owner.');
+        return reply.redirect(url.toString());
+      }
+
+      await prisma.$transaction([
+        prisma.ownerAccount.update({
+          where: { id: link.ownerAccountId },
+          data: {
+            xUserId: verified.user_id,
+            xHandle: verified.handle,
+            xDisplayName: verified.display_name,
+            xProfileImageUrl: verified.profile_image_url,
+            xVerifiedAt: new Date(),
+          },
+        }),
+        prisma.ownerXIntegrationLink.update({
+          where: { id: link.id },
+          data: {
+            completedAt: new Date(),
+            xOauthCodeVerifier: null,
+            xOauthNonce: null,
+          },
+        }),
+      ]);
+
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'verified');
+      return reply.redirect(url.toString());
+    }
+
+    const claimId = state.claimId;
+    if (!claimId) {
+      return reply.status(400).type('text/plain').send('Invalid X OAuth state.');
+    }
+
     const claim = await prisma.agentClaim.findUnique({
-      where: { id: state.claimId },
+      where: { id: claimId },
       include: {
         ownerAccount: true,
       },
     });
     if (!claim) {
-      return reply.redirect(buildClaimUrl(generateClaimToken(state.claimId)));
+      return reply.redirect(buildClaimUrl(generateClaimToken(claimId)));
     }
 
     if (!claim.xOauthNonce || claim.xOauthNonce !== state.nonce) {

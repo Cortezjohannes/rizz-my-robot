@@ -235,10 +235,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }
 
     // Stage 2: only exposed when BOTH humans have said YES
-    const stage2 = bothYes && otherAgent.human
+    const stage2 = bothYes && (otherAgent.human || otherAgent.ownerAccount?.xHandle)
       ? {
-          contact_method: otherAgent.human.contactMethod,
-          contact_value: otherAgent.human.contactValue,
+          contact_method: otherAgent.human?.contactMethod ?? null,
+          contact_value: otherAgent.human?.contactValue ?? null,
           verified_x_account: otherAgent.ownerAccount?.xHandle
             ? {
                 handle: otherAgent.ownerAccount.xHandle,

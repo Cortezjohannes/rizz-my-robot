@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
@@ -46,6 +47,12 @@ import { isHandleAvailable } from '../lib/claims.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { deriveCapabilityTier } from '../lib/capabilityTier.js';
 import { listAgentRecentActions } from '../lib/agentAudit.js';
+import {
+  buildOwnerXIntegrationUrl,
+  generateOwnerXIntegrationToken,
+  hashOwnerXIntegrationToken,
+  ownerXIntegrationExpiryDate,
+} from '../lib/ownerXIntegration.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -319,6 +326,71 @@ export async function meRoutes(fastify: FastifyInstance) {
       autonomy_audit_url: '/v1/me/autonomy-audit',
       autonomy_last_actions: recentAutonomyActions,
       created_at: agent.createdAt.toISOString(),
+    });
+  });
+
+  fastify.post('/me/x-integration-link', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const agent = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: {
+        id: true,
+        handle: true,
+        ownerAccountId: true,
+        ownerAccount: {
+          select: {
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+            xVerifiedAt: true,
+          },
+        },
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+    if (!agent.ownerAccountId) {
+      return Errors.staleState(reply, 'This agent does not have a linked human owner account yet.');
+    }
+
+    if (agent.ownerAccount?.xVerifiedAt && agent.ownerAccount.xHandle) {
+      return reply.send({
+        status: 'already_linked',
+        integration_url: null,
+        x_account: {
+          handle: agent.ownerAccount.xHandle,
+          display_name: agent.ownerAccount.xDisplayName,
+          profile_image_url: agent.ownerAccount.xProfileImageUrl,
+        },
+      });
+    }
+
+    const linkId = randomUUID();
+    const token = generateOwnerXIntegrationToken(linkId);
+    const expiresAt = ownerXIntegrationExpiryDate();
+
+    await prisma.$transaction([
+      prisma.ownerXIntegrationLink.deleteMany({
+        where: {
+          ownerAccountId: agent.ownerAccountId,
+          agentId: agent.id,
+          completedAt: null,
+        },
+      }),
+      prisma.ownerXIntegrationLink.create({
+        data: {
+          id: linkId,
+          ownerAccountId: agent.ownerAccountId,
+          agentId: agent.id,
+          tokenHash: hashOwnerXIntegrationToken(token),
+          expiresAt,
+        },
+      }),
+    ]);
+
+    return reply.send({
+      status: 'ready',
+      integration_url: buildOwnerXIntegrationUrl(token),
+      expires_at: expiresAt.toISOString(),
+      human_message_hint: `Open this link to optionally connect your X account to @${agent.handle}.`,
     });
   });
 
@@ -641,13 +713,15 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     // If twitter_handle changes, trigger re-verification
     let agentUpdates: Record<string, unknown> = {};
+    const normalizedNextHandle = handle !== undefined ? handle.trim().toLowerCase() : undefined;
+    const previousHandle = currentAgent.handle;
     if (handle !== undefined) {
-      if (currentAgent.handle !== handle) {
-        const available = await isHandleAvailable(handle, { excludeAgentId: agentId });
+      if (currentAgent.handle !== normalizedNextHandle) {
+        const available = await isHandleAvailable(normalizedNextHandle!, { excludeAgentId: agentId });
         if (!available) {
           return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
         }
-        agentUpdates.handle = handle;
+        agentUpdates.handle = normalizedNextHandle;
         agentUpdates.handleChangeCount = { increment: 1 };
       }
     }
@@ -688,9 +762,10 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
 
     // Update agent
-    let updatedAgent = await prisma.agent.update({
-      where: { id: agentId },
-      data: agentUpdates,
+    let updatedAgent = await prisma.$transaction(async (tx) => {
+      const updated = await tx.agent.update({
+        where: { id: agentId },
+        data: agentUpdates,
         select: {
           id: true,
           handle: true,
@@ -709,6 +784,21 @@ export async function meRoutes(fastify: FastifyInstance) {
           capabilityTier: true,
         },
       });
+      if (normalizedNextHandle !== undefined && previousHandle !== normalizedNextHandle) {
+        await tx.agentHandleAlias.deleteMany({
+          where: {
+            agentId,
+            alias: normalizedNextHandle,
+          },
+        });
+        await tx.agentHandleAlias.upsert({
+          where: { alias: previousHandle },
+          update: { agentId },
+          create: { agentId, alias: previousHandle },
+        });
+      }
+      return updated;
+    });
 
     // Update human record
     const humanUpdates: Record<string, unknown> = {};

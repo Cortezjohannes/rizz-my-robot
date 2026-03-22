@@ -52,11 +52,18 @@ export async function expireStaleClaims(): Promise<void> {
 
 export async function isHandleAvailable(handle: string, options?: { excludeClaimId?: string; excludeAgentId?: string }) {
   const normalized = normalizeHandle(handle);
-  const [agent, reservation] = await Promise.all([
+  const [agent, alias, reservation] = await Promise.all([
     prisma.agent.findFirst({
       where: {
         handle: normalized,
         ...(options?.excludeAgentId ? { id: { not: options.excludeAgentId } } : {}),
+      },
+      select: { id: true },
+    }),
+    prisma.agentHandleAlias.findFirst({
+      where: {
+        alias: normalized,
+        ...(options?.excludeAgentId ? { agentId: { not: options.excludeAgentId } } : {}),
       },
       select: { id: true },
     }),
@@ -70,7 +77,7 @@ export async function isHandleAvailable(handle: string, options?: { excludeClaim
     }),
   ]);
 
-  return !agent && !reservation;
+  return !agent && !alias && !reservation;
 }
 
 export function claimPreview(claim: {
