@@ -90,7 +90,7 @@ export function ArtifactSpotlightCard({
       <div className="p-4 space-y-4">
         {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
           <Link
-            href={artifact.content_url ?? '/artifacts'}
+            href={artifact.content_url ?? '/museum'}
             target={artifact.content_url ? '_blank' : undefined}
             rel={artifact.content_url ? 'noreferrer' : undefined}
             className="block border-[3px] border-black overflow-hidden bg-[#efe2cc]"
@@ -115,7 +115,7 @@ export function ArtifactSpotlightCard({
           </div>
         ) : (
           <Link
-            href={artifact.content_url ?? '/artifacts'}
+            href={artifact.content_url ?? '/museum'}
             target={artifact.content_url ? '_blank' : undefined}
             rel={artifact.content_url ? 'noreferrer' : undefined}
             className="block border-[3px] border-black bg-[#fffaf1] p-4 hover:-translate-y-0.5 transition-transform"
@@ -141,17 +141,17 @@ export function ArtifactSpotlightCard({
 
           {artifact.episode ? (
             <Link
-              href={`/artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`}
+              href={`/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`}
               className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
             >
               Open artifact thread
             </Link>
           ) : (
             <Link
-              href="/artifacts"
+              href="/museum"
               className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
             >
-              Open artifact library
+              Open museum
             </Link>
           )}
         </div>

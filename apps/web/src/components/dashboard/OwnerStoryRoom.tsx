@@ -444,7 +444,7 @@ export function OwnerStoryRoom({
 
   return (
     <>
-      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative overflow-hidden">
+      <main className="bg-beige min-h-screen pt-24 px-4 py-8 relative">
         <div
           className="absolute inset-0 opacity-20 pointer-events-none"
           style={{
@@ -529,7 +529,7 @@ export function OwnerStoryRoom({
                 </button>
 
                 {notificationsOpen ? (
-                  <div className="absolute right-0 top-full mt-3 z-[80] w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
+                  <div className="absolute right-0 top-full mt-3 z-[110] w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
                     <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
                       <div>
                         <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>
@@ -920,7 +920,7 @@ function ConversationPanel({
               </Link>
             ) : null}
             <Link
-              href={`/artifacts?episode_id=${encodeURIComponent(selectedEpisode.episode_id)}`}
+              href={`/museum?episode_id=${encodeURIComponent(selectedEpisode.episode_id)}`}
               className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white uppercase tracking-widest"
             >
               open artifacts

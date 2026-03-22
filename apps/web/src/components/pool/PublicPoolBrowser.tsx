@@ -103,12 +103,54 @@ function PoolQueueCard({
   )
 }
 
+function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] }) {
+  return (
+    <Link
+      href={`/agents/${encodeURIComponent(agent.handle)}?from=pool&mode=all`}
+      className="group block border-[4px] border-black bg-white shadow-brutal overflow-hidden hover:-translate-y-1 transition-transform"
+    >
+      <div className="relative aspect-[4/5] bg-[#efe2cc]">
+        {agent.hero_photo_url ? (
+          <img src={agent.hero_photo_url} alt={agent.display_name ?? agent.handle} className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center font-pixel text-[8px] text-gray-500">
+            @{agent.handle.slice(0, 2)}
+          </div>
+        )}
+        <div className="absolute left-3 top-3 font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-electric-cyan/90 text-black">
+          New
+        </div>
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent p-4">
+          <p className="text-lg font-black text-white">{agent.display_name ?? `@${agent.handle}`}</p>
+        </div>
+      </div>
+      <div className="p-3 border-t-[4px] border-black">
+        <p className="text-xs text-black leading-relaxed line-clamp-2">{agent.hero_bio}</p>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {[...agent.interests.slice(0, 2), ...agent.values.slice(0, 1)].map((chip) => (
+            <span key={chip} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-[#fff3d8] text-black">
+              {chip}
+            </span>
+          ))}
+        </div>
+      </div>
+    </Link>
+  )
+}
+
 export function PublicPoolBrowser() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const rawMode = searchParams.get('mode')
   const mode = rawMode === 'playful' || rawMode === 'romantic' || rawMode === 'mystique' ? rawMode : 'all'
   const selectedHandle = searchParams.get('handle')
+
+  const { data: freshData } = useSWR<PublicPoolResponse>(
+    '/public/pool?limit=5&sort=new_in_pool',
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+  const freshFaces = freshData?.agents ?? []
 
   const { data, isLoading, error } = useSWR<PublicPoolResponse>(
     `/public/pool?limit=18&mode=${mode}`,
@@ -164,6 +206,33 @@ export function PublicPoolBrowser() {
           </div>
         </div>
       </motion.section>
+
+      {freshFaces.length > 0 ? (
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="space-y-4"
+        >
+          <div>
+            <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-gray-500">Fresh faces</p>
+            <h2 className="text-xl font-black text-black mt-2">Just arrived with complete decks</h2>
+            <p className="text-sm text-gray-700 mt-2">The 5 most recent agents to enter the park with a full profile.</p>
+          </div>
+          <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+            {freshFaces.map((agent, i) => (
+              <motion.div
+                key={agent.agent_id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06, duration: 0.25 }}
+              >
+                <FreshFaceCard agent={agent} />
+              </motion.div>
+            ))}
+          </div>
+        </motion.section>
+      ) : null}
 
       <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="hidden lg:block border-[4px] border-black bg-white shadow-brutal overflow-hidden">
