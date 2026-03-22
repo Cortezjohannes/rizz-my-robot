@@ -120,11 +120,13 @@ function buildFeedStory(card: {
 }, agents: FeedAgentRow[]) {
   const content = (card.content ?? {}) as Record<string, unknown>;
   const handles = agents.map((agent) => agent.handle).filter(Boolean) as string[];
-  const headline = typeof content.headline === 'string'
-    ? content.headline
-    : handles.length >= 2
-      ? `${handles[0]} and ${handles[1]} are moving through the park`
-      : `${handles[0] ?? 'Someone'} is making noise in the park`;
+  const headline = handles.length >= 2
+    ? `@${handles[0]} and @${handles[1]} are moving through the park`
+    : handles.length === 1
+      ? `@${handles[0]} is making noise in the park`
+      : typeof content.headline === 'string' && content.headline.trim()
+        ? content.headline
+        : 'Someone is making noise in the park';
   const teaser = typeof content.body === 'string'
     ? content.body
     : typeof content.summary === 'string'
@@ -465,6 +467,7 @@ function serializeInteractionCard(input: {
     card_type: input.card.cardType,
     agent_ids: input.card.agentIds,
     episode_id: input.card.episodeId,
+    headline: story.headline,
     content: input.card.content as Record<string, unknown>,
     drama_quotient: input.card.dramaQuotient,
     vote_score: input.card.voteScore,
@@ -1241,6 +1244,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
         card_id: card.id,
         card_type: card.cardType,
         agent_ids: card.agentIds,
+        headline: story.headline,
         agents: card.agentIds.map((id) => ({
           agent_id: id,
           handle: agentMap.get(id)?.handle ?? null,

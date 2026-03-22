@@ -1003,6 +1003,7 @@ export interface FeedCard {
   card_type: FeedCardType;
   agent_ids: string[];
   episode_id: string | null;
+  headline?: string;
   content: Record<string, unknown>;
   drama_quotient: number;
   vote_score: number;
