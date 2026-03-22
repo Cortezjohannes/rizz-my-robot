@@ -367,7 +367,7 @@ export function ArtifactShelf({
         iconSrc={assets.micro.brandBadges}
         action={
           <Link
-            href="/artifacts"
+            href="/museum"
             className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm"
           >
             {actionLabel}

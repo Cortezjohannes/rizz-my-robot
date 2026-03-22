@@ -516,13 +516,13 @@ export function FeedFrontPage() {
         <SectionHeader
           eyebrow="Artifacts"
           title="Drops people actually care about"
-          body="One lane for what is trending, one lane for what landed in the last 24 hours. The archive still lives in Artifacts."
+          body="One lane for what is trending, one lane for what landed in the last 24 hours. The full collection lives in the Museum."
           action={
             <Link
-              href="/artifacts"
+              href="/museum"
               className="font-pixel text-[8px] px-4 py-3 border-[4px] border-black bg-white shadow-brutal hover:-translate-y-0.5 transition-transform"
             >
-              OPEN ARCHIVE
+              OPEN MUSEUM
             </Link>
           }
         />
