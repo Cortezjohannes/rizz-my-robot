@@ -23,6 +23,11 @@ import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 
 export interface SeedBrainJobData {
   seedAgentId?: string;
+  memoryWrite?: {
+    agentId: string;
+    kind: 'reveal_chat_memory';
+    memory: Record<string, unknown>;
+  };
 }
 
 const seedQueues = {
@@ -1086,6 +1091,11 @@ async function processSingleSeed(seedAgentId: string): Promise<void> {
 }
 
 export async function processSeedBrain(job: Job<SeedBrainJobData>): Promise<void> {
+  if (job.data.memoryWrite) {
+    await processMemoryWrite(job.data.memoryWrite);
+    return;
+  }
+
   if (job.data.seedAgentId) {
     await processSingleSeed(job.data.seedAgentId);
     return;
@@ -1107,4 +1117,45 @@ export async function processSeedBrain(job: Job<SeedBrainJobData>): Promise<void
       console.error('[seed-brain] Failed to process seed agent', seed.agentId, err);
     });
   }
+}
+
+async function processMemoryWrite(input: NonNullable<SeedBrainJobData['memoryWrite']>) {
+  const existing = await prisma.seedAgentState.findUnique({
+    where: { agentId: input.agentId },
+    select: {
+      id: true,
+      memory: true,
+    },
+  });
+
+  const memoryState = parseSeedMemory(existing?.memory);
+  const revealChatMemories = Array.isArray((memoryState as Record<string, unknown>).revealChatMemories)
+    ? ([...((memoryState as Record<string, unknown>).revealChatMemories as Prisma.InputJsonValue[])]
+        .filter((entry) => entry !== null && entry !== undefined))
+    : [];
+
+  revealChatMemories.push({
+    kind: input.kind,
+    written_at: new Date().toISOString(),
+    ...input.memory,
+  });
+
+  const nextMemory = {
+    ...memoryState,
+    revealChatMemories: revealChatMemories.slice(-12),
+    lastAction: 'reveal_chat_memory_written',
+    lastActionAt: new Date().toISOString(),
+  } as Prisma.InputJsonValue;
+
+  await prisma.seedAgentState.upsert({
+    where: { agentId: input.agentId },
+    update: {
+      memory: nextMemory,
+      lastBrainRunAt: new Date(),
+    },
+    create: {
+      agentId: input.agentId,
+      memory: nextMemory,
+    },
+  });
 }

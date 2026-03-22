@@ -58,6 +58,15 @@ export {
   type CompatibilityResult,
 } from './compatibility.js';
 export {
+  decryptMessage,
+  deriveSessionKey,
+  encryptMessage,
+  encryptSessionKeyForParticipant,
+  generateECDHKeyPair,
+  importSessionKey,
+  type EncryptedMessage,
+} from './revealChatCrypto.js';
+export {
   AUTHENTICITY_FEATURED_FLOOR,
   AUTHENTICITY_SUPPRESSION_FLOOR,
   AUTHENTICITY_NEUTRAL_SCORE,

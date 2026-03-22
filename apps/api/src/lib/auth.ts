@@ -28,6 +28,7 @@ function extractHeaderValue(value: string | string[] | undefined): string | null
 
 export function extractApiKeyFromRequest(request: FastifyRequest): string | null {
   return extractBearerToken(request.headers.authorization)
+    ?? extractHeaderValue(request.headers['x-agent-api-key'])
     ?? extractHeaderValue(request.headers['x-rmr-api-key'])
     ?? extractHeaderValue(request.headers['x-api-key']);
 }

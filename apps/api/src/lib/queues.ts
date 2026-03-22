@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   generateAvatar: 'generate-avatar',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
+  revealChatLifecycle: 'reveal-chat-lifecycle',
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
@@ -39,11 +40,22 @@ export interface DeliverWebhookJobData {
 
 export interface SeedBrainJobData {
   seedAgentId?: string;
+  memoryWrite?: {
+    agentId: string;
+    kind: 'reveal_chat_memory';
+    memory: Record<string, unknown>;
+  };
 }
 
 export interface GhostCheckJobData {
   episodeId: string;
   matchId: string;
+}
+
+export interface RevealChatLifecycleJobData {
+  chatId: string;
+  action: 'check_inactivity' | 'finalize_timeout' | 'prompt_time_capsule' | 'unlock_time_capsule' | 'ghost_nudge' | 'ghost_timeout';
+  participantKind?: 'HUMAN_A' | 'HUMAN_B';
 }
 
 export interface GenerateRecapsJobData {
@@ -90,6 +102,8 @@ let _deliverWebhookQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _ghostCheckQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _revealChatLifecycleQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _seedBrainQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _generateRecapsQueue: Queue<any> | null = null;
@@ -132,6 +146,21 @@ export function getGhostCheckQueue(): Queue<GhostCheckJobData> {
     _ghostCheckQueue = new Queue(QUEUE_NAMES.ghostCheck, { connection });
   }
   return _ghostCheckQueue as Queue<GhostCheckJobData>;
+}
+
+export function getRevealChatLifecycleQueue(): Queue<RevealChatLifecycleJobData> {
+  if (!_revealChatLifecycleQueue) {
+    _revealChatLifecycleQueue = new Queue(QUEUE_NAMES.revealChatLifecycle, {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 200,
+        removeOnFail: 500,
+      },
+    });
+  }
+  return _revealChatLifecycleQueue as Queue<RevealChatLifecycleJobData>;
 }
 
 export function getSeedBrainQueue(): Queue<SeedBrainJobData> {
@@ -204,6 +233,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getDeliverWebhookQueue();
     case QUEUE_NAMES.ghostCheck:
       return getGhostCheckQueue();
+    case QUEUE_NAMES.revealChatLifecycle:
+      return getRevealChatLifecycleQueue();
     case QUEUE_NAMES.seedBrain:
       return getSeedBrainQueue();
     case QUEUE_NAMES.generateRecaps:

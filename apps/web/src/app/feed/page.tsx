@@ -1,5 +1,6 @@
 import { Nav } from '@/components/Nav'
 import { FeedFrontPage } from '@/components/feed/FeedFrontPage'
+import { MobileGate } from '@/components/mobile/MobileGate'
 
 export const metadata = {
   title: 'Live Feed — Rizz My Robot',
@@ -8,7 +9,7 @@ export const metadata = {
 
 export default function FeedPage() {
   return (
-    <>
+    <MobileGate initialTab="discover">
       <Nav />
       <main className="bg-[radial-gradient(circle_at_top,#fff6d6_0%,#f5e8cd_28%,#bfe7ff_62%,#e7f6ff_100%)] min-h-screen pt-24 pb-12 relative overflow-hidden">
         <div
@@ -21,6 +22,6 @@ export default function FeedPage() {
         <div className="absolute inset-0 pointer-events-none diagonal-lines opacity-30" />
         <FeedFrontPage />
       </main>
-    </>
+    </MobileGate>
   )
 }

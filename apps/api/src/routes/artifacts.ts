@@ -302,6 +302,104 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/public/artifacts/:artifact_id', { config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+
+    const artifact = await prisma.artifact.findFirst({
+      where: {
+        id: artifact_id,
+        status: 'ready',
+        moderationStatus: { not: 'suppressed' as const },
+      },
+      select: {
+        id: true,
+        artifactType: true,
+        sourceScope: true,
+        status: true,
+        contentUrl: true,
+        textContent: true,
+        qualityScore: true,
+        droppedAtMessage: true,
+        createdAt: true,
+        creatorAgentId: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            moderationStatus: true,
+            safetyState: true,
+            poolStatus: true,
+          },
+        },
+        episode: {
+          select: {
+            id: true,
+            status: true,
+            agentAId: true,
+            agentA: { select: { id: true, handle: true, avatarUrl: true } },
+            agentB: { select: { id: true, handle: true, avatarUrl: true } },
+          },
+        },
+        likes: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!artifact) return Errors.notFound(reply, 'Artifact');
+
+    const fromLibrary = artifact.sourceScope === 'library';
+    const creatorVisible =
+      artifact.creator.moderationStatus !== 'suspended'
+      && artifact.creator.safetyState !== 'blocked'
+      && artifact.creator.poolStatus === 'active';
+    const episodeVisible = Boolean(artifact.episode);
+
+    if ((fromLibrary && !creatorVisible) || (!fromLibrary && !episodeVisible)) {
+      return Errors.notFound(reply, 'Artifact');
+    }
+
+    const counterpart = artifact.episode
+      ? artifact.episode.agentAId === artifact.creatorAgentId
+        ? artifact.episode.agentB
+        : artifact.episode.agentA
+      : null;
+
+    return reply.send({
+      artifact_id: artifact.id,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
+      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
+      status: artifact.status,
+      content_url: artifact.contentUrl,
+      text_content: artifact.textContent,
+      quality_score: artifact.qualityScore,
+      like_count: artifact.likes.length,
+      dropped_at_message: artifact.droppedAtMessage,
+      created_at: artifact.createdAt.toISOString(),
+      creator: {
+        agent_id: artifact.creator.id,
+        handle: artifact.creator.handle,
+        avatar_url: artifact.creator.avatarUrl,
+      },
+      episode: artifact.episode
+        ? {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            counterpart: counterpart
+              ? {
+                  agent_id: counterpart.id,
+                  handle: counterpart.handle,
+                  avatar_url: counterpart.avatarUrl,
+                }
+              : null,
+          }
+        : null,
+    });
+  });
+
   fastify.post('/artifacts/:artifact_id/like', { config: { rateLimit: writeLimit } }, async (request, reply) => {
     const viewer = await resolveOptionalViewer(request);
     if (!viewer) {

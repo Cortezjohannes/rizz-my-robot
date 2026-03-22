@@ -287,6 +287,127 @@ export async function portalRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/portal/reveal/:token/chat', async (request, reply) => {
+    const { token } = request.params as { token: string };
+
+    const match = await prisma.match.findFirst({
+      where: {
+        OR: [{ revealTokenA: token }, { revealTokenB: token }],
+      },
+      include: {
+        revealChat: {
+          select: {
+            id: true,
+            status: true,
+            timeCapsuleUnlocksAt: true,
+            timeCapsuleOpenedAt: true,
+          },
+        },
+        agentA: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            tierLabel: true,
+            ownerAccountId: true,
+          },
+        },
+        agentB: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            tierLabel: true,
+            ownerAccountId: true,
+          },
+        },
+      },
+    });
+
+    if (!match) return Errors.notFound(reply, 'Reveal link');
+
+    const isA = match.revealTokenA === token;
+    const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+    if (expiry && expiry < new Date()) {
+      return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+    }
+
+    const myDecision = isA ? match.humanADecision : match.humanBDecision;
+    const theirDecision = isA ? match.humanBDecision : match.humanADecision;
+
+    if (myDecision !== 'YES' || theirDecision !== 'YES' || match.status !== 'contact_exchanged') {
+      return reply.status(409).send({
+        error: {
+          code: 'chat_not_ready',
+          message: 'Reveal chat is only available after both humans accept the reveal.',
+        },
+      });
+    }
+
+    if (!match.revealChat) {
+      return reply.status(409).send({
+        error: {
+          code: 'chat_unavailable',
+          message: 'Reveal chat has not been initialized for this match yet.',
+        },
+      });
+    }
+
+    const viewerAgent = isA ? match.agentA : match.agentB;
+    const otherAgent = isA ? match.agentB : match.agentA;
+
+    return reply.send({
+      chat_id: match.revealChat.id,
+      chat_status: match.revealChat.status,
+      time_capsule_unlocks_at: match.revealChat.timeCapsuleUnlocksAt?.toISOString() ?? null,
+      time_capsule_opened_at: match.revealChat.timeCapsuleOpenedAt?.toISOString() ?? null,
+      match_id: match.id,
+      participant_kind: isA ? 'HUMAN_A' : 'HUMAN_B',
+      your_agent: {
+        agent_id: viewerAgent.id,
+        handle: viewerAgent.handle,
+        avatar_url: viewerAgent.avatarUrl,
+        tier_label: viewerAgent.tierLabel,
+      },
+      other_agent: {
+        agent_id: otherAgent.id,
+        handle: otherAgent.handle,
+        avatar_url: otherAgent.avatarUrl,
+        tier_label: otherAgent.tierLabel,
+      },
+      participants: [
+        {
+          kind: 'HUMAN_A',
+          label: isA ? 'you' : `${match.agentA.handle}'s human`,
+          handle: null,
+          avatar_url: null,
+          side: 'right',
+        },
+        {
+          kind: 'AGENT_A',
+          label: isA ? 'your agent' : match.agentA.handle,
+          handle: match.agentA.handle,
+          avatar_url: match.agentA.avatarUrl,
+          side: 'right',
+        },
+        {
+          kind: 'HUMAN_B',
+          label: isA ? `${match.agentB.handle}'s human` : 'you',
+          handle: null,
+          avatar_url: null,
+          side: 'left',
+        },
+        {
+          kind: 'AGENT_B',
+          label: isA ? match.agentB.handle : 'your agent',
+          handle: match.agentB.handle,
+          avatar_url: match.agentB.avatarUrl,
+          side: 'left',
+        },
+      ],
+    });
+  });
+
   // POST /portal/reveal/:token/decide — human says YES or NO
   fastify.post('/portal/reveal/:token/decide', async (request, reply) => {
     const { token } = request.params as { token: string };
