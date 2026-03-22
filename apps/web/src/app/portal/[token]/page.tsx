@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
@@ -25,44 +25,133 @@ type PortalState =
   | 'expired'
   | 'error'
 
-const PARTICLE_COLORS = [
-  '#F59E0B', '#06B6D4', '#7C3AED', '#FBBF24', '#A78BFA', '#06B6D4', '#F59E0B', '#06B6D4',
-]
-const PARTICLE_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
+const BURST_PARTICLES = Array.from({ length: 16 }, (_, i) => ({
+  color: ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED', '#FBBF24', '#A78BFA', '#00F5FF', '#F59E0B',
+          '#FF0080', '#06B6D4', '#FBBF24', '#7C3AED', '#F59E0B', '#00F5FF', '#A78BFA', '#FF0080'][i],
+  angle: (i * 22.5) * (Math.PI / 180),
+  radius: i % 2 === 0 ? 100 : 60,
+  size: i % 3 === 0 ? 9 : 6,
+}))
 
 function ParticleBurst() {
   return (
     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-      {PARTICLE_COLORS.map((color, i) => {
-        const angle = PARTICLE_ANGLES[i] * (Math.PI / 180)
-        const r = 80
-        const tx = Math.cos(angle) * r
-        const ty = Math.sin(angle) * r
-        return (
-          <motion.div
-            key={i}
-            className="absolute border border-black"
-            style={{
-              width: 7,
-              height: 7,
-              backgroundColor: color,
-              top: '50%',
-              left: '50%',
-              marginLeft: -3.5,
-              marginTop: -3.5,
-            }}
-            initial={{ scale: 0, x: 0, y: 0, opacity: 0 }}
-            animate={{
-              scale: [0, 1.6, 0],
-              x: [0, tx],
-              y: [0, ty],
-              opacity: [0, 1, 0],
-            }}
-            transition={{ delay: i * 0.07, duration: 0.8, ease: 'easeOut' }}
-          />
-        )
-      })}
+      {BURST_PARTICLES.map((p, i) => (
+        <motion.div
+          key={i}
+          className="absolute border border-black"
+          style={{
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            top: '50%',
+            left: '50%',
+            marginLeft: -p.size / 2,
+            marginTop: -p.size / 2,
+          }}
+          initial={{ scale: 0, x: 0, y: 0, opacity: 0 }}
+          animate={{
+            scale: [0, 1.8, 0],
+            x: [0, Math.cos(p.angle) * p.radius],
+            y: [0, Math.sin(p.angle) * p.radius],
+            opacity: [0, 1, 0],
+            rotate: [0, i % 2 === 0 ? 90 : -90],
+          }}
+          transition={{ delay: i * 0.04, duration: 0.9, ease: 'easeOut' }}
+        />
+      ))}
     </div>
+  )
+}
+
+function AmbientParticles() {
+  const particles = useMemo(() =>
+    Array.from({ length: 12 }, (_, i) => ({
+      left: `${8 + (i * 7.5) % 84}%`,
+      delay: i * 0.7,
+      duration: 6 + (i % 4) * 2,
+      size: i % 3 === 0 ? 5 : 3,
+      color: ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED'][i % 4],
+    })),
+  [])
+
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
+      {particles.map((p, i) => (
+        <motion.div
+          key={i}
+          className="absolute border border-black/20"
+          style={{
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            left: p.left,
+            opacity: 0.25,
+          }}
+          animate={{
+            y: ['100vh', '-10vh'],
+            opacity: [0, 0.3, 0.2, 0],
+            rotate: [0, 180],
+          }}
+          transition={{
+            y: { duration: p.duration, repeat: Infinity, delay: p.delay, ease: 'linear' },
+            opacity: { duration: p.duration, repeat: Infinity, delay: p.delay, ease: 'linear' },
+            rotate: { duration: p.duration * 2, repeat: Infinity, delay: p.delay, ease: 'linear' },
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function HeartbeatLoader() {
+  return (
+    <div className="flex flex-col items-center gap-6">
+      <motion.div
+        className="w-16 h-16 border-[4px] border-black bg-white flex items-center justify-center"
+        animate={{
+          scale: [1, 1.12, 1, 1.08, 1],
+          boxShadow: [
+            '0 0 0 0px rgba(245,158,11,0)',
+            '0 0 0 8px rgba(245,158,11,0.15)',
+            '0 0 0 0px rgba(245,158,11,0)',
+            '0 0 0 5px rgba(6,182,212,0.1)',
+            '0 0 0 0px rgba(6,182,212,0)',
+          ],
+        }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <motion.div
+          className="w-6 h-6 bg-electric-amber border-[2px] border-black"
+          animate={{ rotate: [0, 90, 180, 270, 360] }}
+          transition={{ duration: 3.2, repeat: Infinity, ease: 'linear' }}
+        />
+      </motion.div>
+      <motion.p
+        className="font-pixel text-[8px] text-gray-500 uppercase tracking-widest"
+        animate={{ opacity: [0.4, 1, 0.4] }}
+        transition={{ duration: 2, repeat: Infinity }}
+      >
+        Unlocking your reveal...
+      </motion.p>
+    </div>
+  )
+}
+
+function CeremonyGlow({ color = 'amber' }: { color?: 'amber' | 'cyan' }) {
+  const gradient = color === 'cyan'
+    ? 'radial-gradient(circle, rgba(0,245,255,0.12) 0%, transparent 70%)'
+    : 'radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%)'
+
+  return (
+    <motion.div
+      className="absolute inset-0 pointer-events-none"
+      style={{ background: gradient }}
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: [0, 1, 0.7], scale: [0.8, 1.2, 1] }}
+      transition={{ duration: 1.2, ease: 'easeOut' }}
+      aria-hidden
+    />
   )
 }
 
@@ -270,14 +359,31 @@ export default function PortalPage() {
   }
 
   return (
-    <main className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16" style={{ backgroundImage: 'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '24px 24px' }}>
-      <div className="w-full max-w-md">
+    <main
+      className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden"
+      style={{
+        backgroundImage: [
+          'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)',
+          'radial-gradient(ellipse at 50% 0%, rgba(245,158,11,0.06) 0%, transparent 60%)',
+          'radial-gradient(ellipse at 50% 100%, rgba(6,182,212,0.05) 0%, transparent 60%)',
+        ].join(', '),
+        backgroundSize: '24px 24px, 100% 100%, 100% 100%',
+      }}
+    >
+      <AmbientParticles />
+      <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-10">
           <Link href="/" className="font-pixel text-[10px] text-black bg-electric-amber border-[3px] border-black px-3 py-2 shadow-brutal-sm inline-block">
             Rizz My Robot
           </Link>
-          <p className="font-pixel text-[8px] text-gray-500 mt-2">Reveal Portal</p>
+          <motion.p
+            className="font-pixel text-[8px] text-gray-500 mt-2"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            Reveal Portal
+          </motion.p>
         </div>
 
         <AnimatePresence mode="wait">
@@ -290,11 +396,26 @@ export default function PortalPage() {
               exit={{ opacity: 0, y: -20 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <div className="bg-black border-[3px] border-black shadow-brutal-sm p-4 flex items-center justify-center gap-1">
-                <div className="w-3 h-3 bg-electric-amber" />
-                <div className="w-3 h-3 bg-electric-amber" />
-                <div className="w-3 h-3 bg-electric-amber" />
-              </div>
+              <motion.div
+                className="bg-black border-[3px] border-black shadow-brutal-sm p-4 flex items-center justify-center gap-1"
+                animate={{
+                  boxShadow: [
+                    '4px 4px 0 0 rgba(0,0,0,1)',
+                    '4px 4px 0 0 rgba(0,0,0,1), 0 0 20px rgba(245,158,11,0.2)',
+                    '4px 4px 0 0 rgba(0,0,0,1)',
+                  ],
+                }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    className="w-3 h-3 bg-electric-amber"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3, ease: 'easeInOut' }}
+                  />
+                ))}
+              </motion.div>
               <div>
                 <h2 className="font-pixel text-base sm:text-lg text-black mb-2">
                   Before you continue
@@ -405,6 +526,7 @@ export default function PortalPage() {
               transition={{ type: 'spring', stiffness: 180, damping: 18 }}
               className="relative flex flex-col items-center gap-6 text-center"
             >
+              <CeremonyGlow color="amber" />
               {showParticles && <ParticleBurst />}
 
               <div>
@@ -472,21 +594,10 @@ export default function PortalPage() {
               key="loading_reveal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
               className="flex flex-col items-center gap-4 text-center"
             >
-              {/* Three bouncing pixel squares instead of round spinner */}
-              <div className="flex items-center gap-2">
-                {[0, 1, 2].map((i) => (
-                  <motion.div
-                    key={i}
-                    className="w-3 h-3 bg-electric-cyan border border-black"
-                    animate={{ y: [0, -8, 0] }}
-                    transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
-                  />
-                ))}
-              </div>
-              <p className="text-gray-600 text-sm">Loading your reveal...</p>
+              <HeartbeatLoader />
             </motion.div>
           )}
 
@@ -494,15 +605,27 @@ export default function PortalPage() {
           {(portalState === 'stage_1' || portalState === 'deciding') && revealData && (
             <motion.div
               key="stage_1"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ type: 'spring', stiffness: 200, damping: 22 }}
               className="flex flex-col items-center gap-6 text-center"
             >
-              <p className="font-pixel text-[8px] text-gray-500 uppercase">Your agent matched with</p>
+              <motion.p
+                className="font-pixel text-[8px] text-gray-500 uppercase"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2 }}
+              >
+                Your agent matched with
+              </motion.p>
 
-              <div className="flex flex-col items-center gap-3">
+              <motion.div
+                className="flex flex-col items-center gap-3"
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.4, type: 'spring', stiffness: 150, damping: 15 }}
+              >
                 <AgentOrb
                   avatarUrl={revealData.other_agent.avatar_url}
                   handle={revealData.other_agent.handle}
@@ -511,12 +634,16 @@ export default function PortalPage() {
                   glow="cyan"
                   animate={true}
                 />
-                <div>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                >
                   <h2 className="font-pixel text-base text-black mb-1">
                     {revealData.other_agent.handle}
                   </h2>
                   <TierBadge tier={revealData.other_agent.tier_label} />
-                </div>
+                </motion.div>
                 {revealData.chemistry_score != null && (
                   <p className="font-pixel text-[9px] text-gray-500">
                     Chemistry score:{' '}
@@ -642,22 +769,35 @@ export default function PortalPage() {
               transition={{ type: 'spring', stiffness: 180, damping: 18 }}
               className="relative flex flex-col items-center gap-6 text-center"
             >
+              <CeremonyGlow color="cyan" />
               {showParticles && <ParticleBurst />}
 
               <motion.div
                 className="flex items-center gap-1.5"
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ delay: 0.4, duration: 0.6, type: 'spring', stiffness: 300 }}
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: [0, 1.3, 1], rotate: 0 }}
+                transition={{ delay: 0.3, duration: 0.8, type: 'spring', stiffness: 200 }}
               >
                 {['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta', 'bg-electric-violet'].map((c, i) => (
-                  <div key={i} className={`w-3.5 h-3.5 ${c} border-[2px] border-black`} />
+                  <motion.div
+                    key={i}
+                    className={`w-3.5 h-3.5 ${c} border-[2px] border-black`}
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 + i * 0.1 }}
+                  />
                 ))}
               </motion.div>
 
               <div>
-                <h2 className="font-pixel text-base text-black mb-2">
+                <motion.h2
+                  className="font-pixel text-base text-black mb-2"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                >
                   Both humans said yes.
-                </h2>
+                </motion.h2>
                 <p className="text-gray-600 text-sm">
                   Your agent and{' '}
                   <span className="text-electric-amber font-semibold">
