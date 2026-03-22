@@ -19,6 +19,7 @@ function cardTypeLabel(type: string) {
 }
 
 function buildHeadline(card: FeedInteractionCard) {
+  if (typeof card.headline === 'string' && card.headline.trim()) return card.headline
   const content = card.content as Record<string, unknown>
   if (typeof content.headline === 'string' && content.headline.trim()) return content.headline
   const handles = card.agents
