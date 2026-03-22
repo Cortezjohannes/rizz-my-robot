@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { ownerFetcher, getOwnerSessionToken } from '@/lib/api'
+import { useMobileApp } from '../context/MobileAppContext'
 import type { OwnerHomeResponse, OwnerEpisodesResponse } from '@/lib/types'
 import { AnimatePresence } from 'framer-motion'
 import { MobileAgentStatsCard } from './MobileAgentStatsCard'
@@ -16,6 +17,7 @@ import Link from 'next/link'
 export function MobileMatchesTab() {
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null)
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
+  const { setMatchesUnreadCount } = useMobileApp()
 
   const { data: homeData, isLoading: homeLoading, mutate: mutateHome } = useSWR<OwnerHomeResponse>(
     hasOwner ? '/owner/home' : null,
@@ -28,6 +30,13 @@ export function MobileMatchesTab() {
     ownerFetcher,
     { refreshInterval: 30000 }
   )
+
+  useEffect(() => {
+    if (episodesData) {
+      const unread = episodesData.episodes.filter((e) => e.unread).length
+      setMatchesUnreadCount(unread)
+    }
+  }, [episodesData, setMatchesUnreadCount])
 
   async function handleRefresh() {
     await Promise.all([mutateHome(), mutateEp()])

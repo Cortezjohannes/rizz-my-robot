@@ -1,5 +1,6 @@
 'use client'
 
+import { motion } from 'framer-motion'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import type { FeedInteractionCard } from '@/lib/types'
 
@@ -37,7 +38,10 @@ export function SwipeCard({ card }: SwipeCardProps) {
   const typeLabel = CARD_TYPE_LABELS[card.card_type] ?? card.card_type.replaceAll('_', ' ').toUpperCase()
 
   return (
-    <div className="w-full h-full rounded-2xl border-3 border-black bg-white shadow-brutal overflow-hidden flex flex-col">
+    <motion.div
+      whileTap={{ scale: 0.98 }}
+      className="w-full h-full rounded-2xl border-3 border-black bg-white shadow-brutal overflow-hidden flex flex-col"
+    >
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <span className="font-pixel text-[7px] text-black/60 uppercase tracking-wide">
@@ -99,7 +103,7 @@ export function SwipeCard({ card }: SwipeCardProps) {
           Swipe to explore
         </span>
       </div>
-    </div>
+    </motion.div>
   )
 }
 

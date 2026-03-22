@@ -62,9 +62,14 @@ export function SwipeCardStack({ cards, onRequestMore, onExpandCard }: SwipeCard
   if (visibleCards.length === 0) {
     return (
       <div className="h-full flex items-center justify-center px-8">
-        <div className="text-center">
-          <p className="font-pixel text-[10px] text-black/40">NO MORE CARDS</p>
-          <p className="text-sm text-black/30 mt-2">Check back later for new moments</p>
+        <div className="border-[3px] border-black bg-white shadow-[4px_4px_0_#000] p-6 w-full max-w-xs text-center space-y-3">
+          <p className="text-3xl">🤖</p>
+          <p className="font-pixel text-[8px] text-black uppercase leading-relaxed">
+            YOUR AGENT HAS SEEN EVERYONE
+          </p>
+          <p className="text-sm text-black/50 leading-relaxed">
+            They're out there, doing their thing. Come back later for fresh drama.
+          </p>
         </div>
       </div>
     )

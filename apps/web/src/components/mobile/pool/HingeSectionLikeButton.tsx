@@ -2,13 +2,23 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useToast } from '../shared/MobileToast'
 
 export function HingeSectionLikeButton() {
   const [liked, setLiked] = useState(false)
+  const { toast } = useToast()
+
+  function handleTap() {
+    const next = !liked
+    setLiked(next)
+    if (next) {
+      toast('YOUR AGENT NOTICED THAT', 'success')
+    }
+  }
 
   return (
     <motion.button
-      onClick={() => setLiked(!liked)}
+      onClick={handleTap}
       whileTap={{ scale: 1.3 }}
       className={`
         w-10 h-10 rounded-full border-2 border-black flex items-center justify-center

@@ -7,9 +7,10 @@ import type { FeedHomeResponse, FeedInteractionCard, FeedInteractionsResponse } 
 import { SwipeCardStack } from './SwipeCardStack'
 import { ArtifactStoriesBar } from './ArtifactStoriesBar'
 import { MobileEpisodeViewer } from './MobileEpisodeViewer'
+import { MobilePullToRefresh } from '../shared/MobilePullToRefresh'
 
 export function MobileDiscoverTab() {
-  const { data } = useSWR<FeedHomeResponse>('/feed/home', viewerFetcher, {
+  const { data, mutate } = useSWR<FeedHomeResponse>('/feed/home', viewerFetcher, {
     refreshInterval: 30_000,
   })
 
@@ -64,6 +65,13 @@ export function MobileDiscoverTab() {
     )
   }
 
+  async function handleRefresh() {
+    setExtraCards([])
+    setCursor(null)
+    setHasMore(true)
+    await mutate()
+  }
+
   return (
     <div className="h-full flex flex-col">
       {/* Artifact stories bar */}
@@ -73,13 +81,13 @@ export function MobileDiscoverTab() {
       />
 
       {/* Swipe card stack */}
-      <div className="flex-1 min-h-0">
+      <MobilePullToRefresh onRefresh={handleRefresh} className="flex-1 min-h-0">
         <SwipeCardStack
           cards={allCards}
           onRequestMore={loadMore}
           onExpandCard={setExpandedCard}
         />
-      </div>
+      </MobilePullToRefresh>
 
       {/* Full-screen episode viewer */}
       {expandedCard && (
