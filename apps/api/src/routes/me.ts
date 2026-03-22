@@ -47,6 +47,7 @@ import { isHandleAvailable } from '../lib/claims.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { deriveCapabilityTier } from '../lib/capabilityTier.js';
 import { listAgentRecentActions } from '../lib/agentAudit.js';
+import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
 import {
   buildOwnerXIntegrationUrl,
   generateOwnerXIntegrationToken,
@@ -850,6 +851,14 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     if (identity_md || soul_md || avatar_url) {
       await recomputeAuthenticityScore(agentId).catch(() => null);
+    }
+
+    if (normalizedNextHandle !== undefined && previousHandle !== normalizedNextHandle) {
+      await repairHistoricalHandleReferences({
+        agentId,
+        oldHandle: previousHandle,
+        newHandle: normalizedNextHandle,
+      }).catch(() => null);
     }
 
     const response: Record<string, unknown> = {

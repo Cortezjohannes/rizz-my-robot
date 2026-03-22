@@ -13,6 +13,7 @@ import { Errors, sendError } from '../lib/errors.js';
 import { emailCodeExpiryDate, expireStaleClaims, isHandleAvailable, ownerSessionExpiryDate } from '../lib/claims.js';
 import { extractBearerToken } from '../lib/auth.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
+import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
 import { generateOwnerSessionToken, generateShortCode, hashOpaqueSecret } from '../lib/claimAuth.js';
 import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js';
 import { sendOwnerLoginEmail } from '../lib/email.js';
@@ -1546,6 +1547,14 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       }
       return next;
     });
+
+    if (agent.handle !== normalizedHandle) {
+      await repairHistoricalHandleReferences({
+        agentId: agent.id,
+        oldHandle: agent.handle,
+        newHandle: normalizedHandle,
+      }).catch(() => null);
+    }
 
     return reply.send({
       agent_id: updated.id,
