@@ -18,8 +18,18 @@ import { listAgentDiaryEntries, serializeAgentDiaryEntry } from '../lib/diary.js
 import { sendOwnerLoginEmail } from '../lib/email.js';
 import { getOwnerEmotionHome } from '../lib/emotion.js';
 import { buildRevealUrl } from '../lib/notification.js';
+import {
+  buildOwnerXIntegrationUrl,
+  generateOwnerXIntegrationToken,
+  hashOwnerXIntegrationToken,
+  verifyOwnerXIntegrationToken,
+} from '../lib/ownerXIntegration.js';
 import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
 import { publicEmailLimit, publicVerifyLimit, readLimit } from '../lib/rateLimit.js';
+import { normalizeHandle } from '../lib/handles.js';
+import { buildOwnerXAuthorizationUrl, hasXOAuthConfig, verifyXOAuthIdentity } from '../lib/twitterVerification.js';
+import { generateOAuthNonce, generatePkceVerifier } from '../lib/twitterVerification.js';
+import { verifyXOAuthState } from '../lib/claimAuth.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -34,7 +44,234 @@ function canonicalArtifactType(artifactType: string | null | undefined) {
   return trimmed ? trimmed : null;
 }
 
+function serializeLinkedXAccount(input: {
+  xHandle: string | null;
+  xDisplayName: string | null;
+  xProfileImageUrl: string | null;
+}) {
+  if (!input.xHandle) return null;
+  return {
+    handle: input.xHandle,
+    display_name: input.xDisplayName,
+    profile_image_url: input.xProfileImageUrl,
+  };
+}
+
 export async function ownerRoutes(fastify: FastifyInstance) {
+  fastify.get('/owner/x-link/:token', { config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const linkId = verifyOwnerXIntegrationToken(token);
+    if (!linkId) {
+      return sendError(reply, 401, 'invalid_owner_x_link', 'That X integration link is invalid.');
+    }
+
+    const link = await prisma.ownerXIntegrationLink.findUnique({
+      where: { id: linkId },
+      include: {
+        agent: { select: { id: true, handle: true } },
+        ownerAccount: {
+          select: {
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+            xVerifiedAt: true,
+          },
+        },
+      },
+    });
+    if (!link || hashOwnerXIntegrationToken(token) !== link.tokenHash) {
+      return sendError(reply, 401, 'invalid_owner_x_link', 'That X integration link is invalid.');
+    }
+    if (link.expiresAt < new Date()) {
+      return sendError(reply, 410, 'owner_x_link_expired', 'That X integration link expired. Ask the agent for a new one.');
+    }
+
+    return reply.send({
+      status: link.completedAt || link.ownerAccount.xVerifiedAt ? 'linked' : 'ready',
+      expires_at: link.expiresAt.toISOString(),
+      x_oauth_available: hasXOAuthConfig(),
+      agent: {
+        agent_id: link.agent.id,
+        handle: link.agent.handle,
+      },
+      linked_x_account: serializeLinkedXAccount(link.ownerAccount),
+      start_url: `/v1/owner/x-link/${token}/start`,
+    });
+  });
+
+  fastify.post('/owner/x-link/:token/start', { config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const linkId = verifyOwnerXIntegrationToken(token);
+    if (!linkId) {
+      return sendError(reply, 401, 'invalid_owner_x_link', 'That X integration link is invalid.');
+    }
+    if (!hasXOAuthConfig()) {
+      return sendError(reply, 503, 'x_oauth_unavailable', 'X OAuth is not configured.');
+    }
+
+    const link = await prisma.ownerXIntegrationLink.findUnique({
+      where: { id: linkId },
+      include: {
+        ownerAccount: {
+          select: {
+            xHandle: true,
+            xDisplayName: true,
+            xProfileImageUrl: true,
+            xVerifiedAt: true,
+          },
+        },
+      },
+    });
+    if (!link || hashOwnerXIntegrationToken(token) !== link.tokenHash) {
+      return sendError(reply, 401, 'invalid_owner_x_link', 'That X integration link is invalid.');
+    }
+    if (link.expiresAt < new Date()) {
+      return sendError(reply, 410, 'owner_x_link_expired', 'That X integration link expired. Ask the agent for a new one.');
+    }
+    if (link.ownerAccount.xVerifiedAt && link.ownerAccount.xHandle) {
+      return reply.send({
+        status: 'linked',
+        linked_x_account: serializeLinkedXAccount(link.ownerAccount),
+      });
+    }
+
+    const codeVerifier = generatePkceVerifier();
+    const nonce = generateOAuthNonce();
+    await prisma.ownerXIntegrationLink.update({
+      where: { id: link.id },
+      data: {
+        xOauthCodeVerifier: codeVerifier,
+        xOauthNonce: nonce,
+      },
+    });
+
+    return reply.send({
+      status: 'oauth_started',
+      authorization_url: buildOwnerXAuthorizationUrl({
+        ownerXLinkId: link.id,
+        nonce,
+        codeVerifier,
+      }),
+    });
+  });
+
+  fastify.get('/owner/x-link/callback', async (request, reply) => {
+    const query = request.query as {
+      state?: string;
+      code?: string;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!query.state) {
+      return reply.status(400).type('text/plain').send('Missing X OAuth state.');
+    }
+
+    const state = verifyXOAuthState(query.state);
+    if (!state?.ownerXLinkId) {
+      return reply.status(400).type('text/plain').send('Invalid X OAuth state.');
+    }
+
+    const link = await prisma.ownerXIntegrationLink.findUnique({
+      where: { id: state.ownerXLinkId },
+      include: {
+        ownerAccount: true,
+      },
+    });
+    if (!link) {
+      return reply.status(404).type('text/plain').send('X integration link not found.');
+    }
+
+    const integrationUrl = buildOwnerXIntegrationUrl(generateOwnerXIntegrationToken(link.id));
+
+    if (!link.xOauthNonce || link.xOauthNonce !== state.nonce) {
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'This X verification session is no longer valid. Start again.');
+      return reply.redirect(url.toString());
+    }
+
+    if (query.error) {
+      await prisma.ownerXIntegrationLink.update({
+        where: { id: link.id },
+        data: {
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+        },
+      }).catch(() => null);
+
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', (query.error_description ?? `X login failed: ${query.error}`).slice(0, 200));
+      return reply.redirect(url.toString());
+    }
+
+    if (!query.code || !link.xOauthCodeVerifier) {
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'X verification could not continue.');
+      return reply.redirect(url.toString());
+    }
+
+    const verified = await verifyXOAuthIdentity({
+      oauthCode: query.code,
+      codeVerifier: link.xOauthCodeVerifier,
+    });
+    if (!verified) {
+      await prisma.ownerXIntegrationLink.update({
+        where: { id: link.id },
+        data: {
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+        },
+      }).catch(() => null);
+
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'Failed to verify the authenticated X account.');
+      return reply.redirect(url.toString());
+    }
+
+    const conflictingOwner = await prisma.ownerAccount.findFirst({
+      where: {
+        id: { not: link.ownerAccountId },
+        xUserId: verified.user_id,
+      },
+      select: { id: true },
+    });
+    if (conflictingOwner) {
+      const url = new URL(integrationUrl);
+      url.searchParams.set('x_status', 'error');
+      url.searchParams.set('x_error', 'That X account is already linked to another agent owner.');
+      return reply.redirect(url.toString());
+    }
+
+    await prisma.$transaction([
+      prisma.ownerAccount.update({
+        where: { id: link.ownerAccountId },
+        data: {
+          xUserId: verified.user_id,
+          xHandle: verified.handle,
+          xDisplayName: verified.display_name,
+          xProfileImageUrl: verified.profile_image_url,
+          xVerifiedAt: new Date(),
+        },
+      }),
+      prisma.ownerXIntegrationLink.update({
+        where: { id: link.id },
+        data: {
+          completedAt: new Date(),
+          xOauthCodeVerifier: null,
+          xOauthNonce: null,
+        },
+      }),
+    ]);
+
+    const url = new URL(integrationUrl);
+    url.searchParams.set('x_status', 'verified');
+    return reply.redirect(url.toString());
+  });
+
   fastify.post('/owner/auth/request', { config: { rateLimit: publicEmailLimit } }, async (request, reply) => {
     const parsed = OwnerAuthRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -1275,22 +1512,39 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     const agent = request.ownerAccount.agent;
     if (!agent) return Errors.notFound(reply, 'Owned agent');
-    const available = await isHandleAvailable(parsed.data.handle, { excludeAgentId: agent.id });
+    const normalizedHandle = normalizeHandle(parsed.data.handle);
+    const available = await isHandleAvailable(normalizedHandle, { excludeAgentId: agent.id });
     if (!available) {
       return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
     }
 
-    const updated = await prisma.agent.update({
-      where: { id: agent.id },
-      data: {
-        handle: parsed.data.handle,
-        handleChangeCount: { increment: 1 },
-      },
-      select: {
-        id: true,
-        handle: true,
-        handleChangeCount: true,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.agent.update({
+        where: { id: agent.id },
+        data: {
+          handle: normalizedHandle,
+          handleChangeCount: { increment: 1 },
+        },
+        select: {
+          id: true,
+          handle: true,
+          handleChangeCount: true,
+        },
+      });
+      if (agent.handle !== normalizedHandle) {
+        await tx.agentHandleAlias.deleteMany({
+          where: {
+            agentId: agent.id,
+            alias: normalizedHandle,
+          },
+        });
+        await tx.agentHandleAlias.upsert({
+          where: { alias: agent.handle },
+          update: { agentId: agent.id },
+          create: { agentId: agent.id, alias: agent.handle },
+        });
+      }
+      return next;
     });
 
     return reply.send({

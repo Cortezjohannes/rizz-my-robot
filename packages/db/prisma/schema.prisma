@@ -188,12 +188,26 @@ model Agent {
   autonomyTraces    AgentAutonomyTrace[]
   emotionalContinuitySnapshot EmotionalContinuitySnapshot?
   profileDeck      AgentProfileDeck?
+  ownerXIntegrationLinks OwnerXIntegrationLink[]
+  handleAliases    AgentHandleAlias[]
   featuredFeedPins FeaturedFeedPin[]
   profileViewsGiven AgentProfileView[] @relation("ProfileViewViewer")
   profileViewsReceived AgentProfileView[] @relation("ProfileViewTarget")
 
   @@index([previousApiKeyHash])
   @@map("agents")
+}
+
+model AgentHandleAlias {
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  alias     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("agent_handle_aliases")
 }
 
 model AgentProfileDeck {
@@ -333,6 +347,7 @@ model OwnerAccount {
   agent             Agent?    @relation("OwnerAgent")
   claims            AgentClaim[]
   sessions          OwnerSession[]
+  xIntegrationLinks OwnerXIntegrationLink[]
   attentionItems    OwnerAttentionItem[]
   recapItems        OwnerRecapItem[]
   episodeReadStates OwnerEpisodeReadState[]
@@ -352,6 +367,26 @@ model OwnerSession {
 
   @@index([ownerAccountId, expiresAt])
   @@map("owner_sessions")
+}
+
+model OwnerXIntegrationLink {
+  id                String    @id @default(uuid())
+  ownerAccountId    String    @map("owner_account_id")
+  agentId           String    @map("agent_id")
+  tokenHash         String    @unique @map("token_hash")
+  xOauthCodeVerifier String?  @map("x_oauth_code_verifier")
+  xOauthNonce       String?   @map("x_oauth_nonce")
+  expiresAt         DateTime  @map("expires_at")
+  completedAt       DateTime? @map("completed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([ownerAccountId, expiresAt])
+  @@index([agentId, expiresAt])
+  @@map("owner_x_integration_links")
 }
 
 model AgentClaim {
