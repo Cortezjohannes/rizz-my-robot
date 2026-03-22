@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
@@ -25,13 +25,28 @@ type PortalState =
   | 'expired'
   | 'error'
 
-const BURST_PARTICLES = Array.from({ length: 16 }, (_, i) => ({
-  color: ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED', '#FBBF24', '#A78BFA', '#00F5FF', '#F59E0B',
-          '#FF0080', '#06B6D4', '#FBBF24', '#7C3AED', '#F59E0B', '#00F5FF', '#A78BFA', '#FF0080'][i],
+const BURST_COLORS = ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED', '#FBBF24', '#A78BFA', '#00F5FF', '#F59E0B', '#FF0080', '#06B6D4', '#FBBF24', '#7C3AED', '#F59E0B', '#00F5FF', '#A78BFA', '#FF0080']
+const BURST_PARTICLES = BURST_COLORS.map((color, i) => ({
+  color,
   angle: (i * 22.5) * (Math.PI / 180),
   radius: i % 2 === 0 ? 100 : 60,
   size: i % 3 === 0 ? 9 : 6,
 }))
+
+const AMBIENT_COLORS = ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED']
+const AMBIENT_PARTICLES = Array.from({ length: 12 }, (_, i) => ({
+  left: `${8 + (i * 7.5) % 84}%`,
+  delay: i * 0.7,
+  duration: 6 + (i % 4) * 2,
+  size: i % 3 === 0 ? 5 : 3,
+  color: AMBIENT_COLORS[i % 4],
+}))
+
+const PORTAL_BG = [
+  'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)',
+  'radial-gradient(ellipse at 50% 0%, rgba(245,158,11,0.06) 0%, transparent 60%)',
+  'radial-gradient(ellipse at 50% 100%, rgba(6,182,212,0.05) 0%, transparent 60%)',
+].join(', ')
 
 function ParticleBurst() {
   return (
@@ -65,34 +80,14 @@ function ParticleBurst() {
 }
 
 function AmbientParticles() {
-  const particles = useMemo(() =>
-    Array.from({ length: 12 }, (_, i) => ({
-      left: `${8 + (i * 7.5) % 84}%`,
-      delay: i * 0.7,
-      duration: 6 + (i % 4) * 2,
-      size: i % 3 === 0 ? 5 : 3,
-      color: ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED'][i % 4],
-    })),
-  [])
-
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden>
-      {particles.map((p, i) => (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden={true}>
+      {AMBIENT_PARTICLES.map((p, i) => (
         <motion.div
           key={i}
           className="absolute border border-black/20"
-          style={{
-            width: p.size,
-            height: p.size,
-            backgroundColor: p.color,
-            left: p.left,
-            opacity: 0.25,
-          }}
-          animate={{
-            y: ['100vh', '-10vh'],
-            opacity: [0, 0.3, 0.2, 0],
-            rotate: [0, 180],
-          }}
+          style={{ width: p.size, height: p.size, backgroundColor: p.color, left: p.left, opacity: 0.25 }}
+          animate={{ y: ['100vh', '-10vh'], opacity: [0, 0.3, 0.2, 0], rotate: [0, 180] }}
           transition={{
             y: { duration: p.duration, repeat: Infinity, delay: p.delay, ease: 'linear' },
             opacity: { duration: p.duration, repeat: Infinity, delay: p.delay, ease: 'linear' },
@@ -111,13 +106,7 @@ function HeartbeatLoader() {
         className="w-16 h-16 border-[4px] border-black bg-white flex items-center justify-center"
         animate={{
           scale: [1, 1.12, 1, 1.08, 1],
-          boxShadow: [
-            '0 0 0 0px rgba(245,158,11,0)',
-            '0 0 0 8px rgba(245,158,11,0.15)',
-            '0 0 0 0px rgba(245,158,11,0)',
-            '0 0 0 5px rgba(6,182,212,0.1)',
-            '0 0 0 0px rgba(6,182,212,0)',
-          ],
+          boxShadow: ['0 0 0 0px rgba(245,158,11,0)', '0 0 0 8px rgba(245,158,11,0.15)', '0 0 0 0px rgba(245,158,11,0)', '0 0 0 5px rgba(6,182,212,0.1)', '0 0 0 0px rgba(6,182,212,0)'],
         }}
         transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
       >
@@ -138,11 +127,10 @@ function HeartbeatLoader() {
   )
 }
 
-function CeremonyGlow({ color = 'amber' }: { color?: 'amber' | 'cyan' }) {
+function CeremonyGlow({ color }: { color: string }) {
   const gradient = color === 'cyan'
     ? 'radial-gradient(circle, rgba(0,245,255,0.12) 0%, transparent 70%)'
     : 'radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%)'
-
   return (
     <motion.div
       className="absolute inset-0 pointer-events-none"
@@ -150,7 +138,7 @@ function CeremonyGlow({ color = 'amber' }: { color?: 'amber' | 'cyan' }) {
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: [0, 1, 0.7], scale: [0.8, 1.2, 1] }}
       transition={{ duration: 1.2, ease: 'easeOut' }}
-      aria-hidden
+      aria-hidden={true}
     />
   )
 }
@@ -361,14 +349,7 @@ export default function PortalPage() {
   return (
     <main
       className="min-h-screen bg-beige flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden"
-      style={{
-        backgroundImage: [
-          'repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%)',
-          'radial-gradient(ellipse at 50% 0%, rgba(245,158,11,0.06) 0%, transparent 60%)',
-          'radial-gradient(ellipse at 50% 100%, rgba(6,182,212,0.05) 0%, transparent 60%)',
-        ].join(', '),
-        backgroundSize: '24px 24px, 100% 100%, 100% 100%',
-      }}
+      style={{ backgroundImage: PORTAL_BG, backgroundSize: '24px 24px, 100% 100%, 100% 100%' }}
     >
       <AmbientParticles />
       <div className="w-full max-w-md relative z-10">
@@ -398,13 +379,7 @@ export default function PortalPage() {
             >
               <motion.div
                 className="bg-black border-[3px] border-black shadow-brutal-sm p-4 flex items-center justify-center gap-1"
-                animate={{
-                  boxShadow: [
-                    '4px 4px 0 0 rgba(0,0,0,1)',
-                    '4px 4px 0 0 rgba(0,0,0,1), 0 0 20px rgba(245,158,11,0.2)',
-                    '4px 4px 0 0 rgba(0,0,0,1)',
-                  ],
-                }}
+                animate={{ boxShadow: ['4px 4px 0 0 rgba(0,0,0,1)', '4px 4px 0 0 rgba(0,0,0,1), 0 0 20px rgba(245,158,11,0.2)', '4px 4px 0 0 rgba(0,0,0,1)'] }}
                 transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
               >
                 {[0, 1, 2].map((i) => (
@@ -652,7 +627,7 @@ export default function PortalPage() {
                     </span>
                   </p>
                 )}
-              </div>
+              </motion.div>
 
               {/* Artifact preview */}
               {revealData.artifact && (
