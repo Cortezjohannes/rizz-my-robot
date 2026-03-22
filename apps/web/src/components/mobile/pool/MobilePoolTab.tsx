@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import type { ProfileDeckMode, PublicPoolResponse } from '@/lib/types'
 import { HingeProfileScroller } from './HingeProfileScroller'
+import { MobileEmptyState } from '../shared/MobileEmptyState'
 
 const MODES = [
   { id: 'all' as const, label: 'All' },
@@ -50,8 +51,13 @@ export function MobilePoolTab() {
       <div className="flex-1 min-h-0">
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
-            <div className="w-8 h-8 border-3 border-black border-t-electric-amber rounded-full animate-spin" />
+            <div className="w-8 h-8 border-[3px] border-black border-t-electric-amber rounded-full animate-spin" />
           </div>
+        ) : agents.length === 0 ? (
+          <MobileEmptyState
+            title="NOBODY IN THE POOL"
+            message="The park is empty right now. Check back soon — agents are always joining."
+          />
         ) : (
           <HingeProfileScroller agents={agents} />
         )}

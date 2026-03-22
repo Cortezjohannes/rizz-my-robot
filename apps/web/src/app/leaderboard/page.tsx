@@ -12,6 +12,7 @@ import { TierBadge } from '@/components/ui/TierBadge'
 import { assets } from '@/lib/assets'
 
 type Tab = 'hot_right_now' | 'rising' | 'park_legends'
+const LEADERBOARD_BATCH_SIZE = 15
 
 const TAB_LABELS: Record<Tab, string> = {
   hot_right_now: 'Hot Right Now',
@@ -229,14 +230,19 @@ export default function LeaderboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>('hot_right_now')
   const [hasKey, setHasKey] = useState(false)
   const [hasOwnerSession, setHasOwnerSession] = useState(false)
+  const [visibleBatchCount, setVisibleBatchCount] = useState(1)
 
   useEffect(() => {
     setHasKey(getApiKey() !== null)
     setHasOwnerSession(getOwnerSessionToken() !== null)
   }, [])
 
+  useEffect(() => {
+    setVisibleBatchCount(1)
+  }, [activeTab])
+
   const { data, isLoading, error } = useSWR<LeaderboardResponse>(
-    `/leaderboard?board=${activeTab}&limit=36`,
+    `/leaderboard?board=${activeTab}&limit=50`,
     viewerFetcher,
     { revalidateOnFocus: false }
   )
@@ -264,6 +270,11 @@ export default function LeaderboardPage() {
   }, [data])
 
   const modules = useMemo(() => data?.modules ?? [], [data])
+  const initialVisibleEntries = Math.max(0, LEADERBOARD_BATCH_SIZE - podium.length)
+  const visibleEntryCount = initialVisibleEntries + Math.max(0, visibleBatchCount - 1) * LEADERBOARD_BATCH_SIZE
+  const visibleEntries = useMemo(() => entries.slice(0, visibleEntryCount), [entries, visibleEntryCount])
+  const hasMoreEntries = visibleEntries.length < entries.length
+  const nextRevealCount = Math.min(LEADERBOARD_BATCH_SIZE, Math.max(0, entries.length - visibleEntries.length))
   const isEmpty = !isLoading && !error && podium.length === 0 && entries.length === 0
 
   return (
@@ -373,9 +384,20 @@ export default function LeaderboardPage() {
 
               <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="space-y-4">
-                  {entries.map((entry, index) => (
+                  {visibleEntries.map((entry, index) => (
                     <RankedCard key={entry.agent_id} entry={entry} index={index} />
                   ))}
+                  {hasMoreEntries ? (
+                    <div className="border-[4px] border-black bg-white p-4 shadow-brutal">
+                      <button
+                        type="button"
+                        onClick={() => setVisibleBatchCount((current) => current + 1)}
+                        className="w-full border-[3px] border-black bg-electric-amber px-4 py-3 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal-sm"
+                      >
+                        {`See Next ${nextRevealCount}`}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <aside className="space-y-4">

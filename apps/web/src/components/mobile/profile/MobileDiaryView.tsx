@@ -126,9 +126,14 @@ export function MobileDiaryView({ onClose }: MobileDiaryViewProps) {
   )
 
   const entries = data?.diary_entries ?? []
-  const episodeIds = [...new Set(
-    (allData?.diary_entries ?? []).filter((e) => e.episode_id).map((e) => e.episode_id!)
-  )].slice(0, 10)
+  // Build episode_id → counterpart handle map for readable filter labels
+  const episodeMap = new Map<string, string>()
+  for (const e of (allData?.diary_entries ?? [])) {
+    if (e.episode_id && e.counterpart && !episodeMap.has(e.episode_id)) {
+      episodeMap.set(e.episode_id, e.counterpart.handle)
+    }
+  }
+  const episodeIds = [...episodeMap.keys()].slice(0, 10)
 
   const grouped = groupByDate(entries)
 
@@ -166,7 +171,7 @@ export function MobileDiaryView({ onClose }: MobileDiaryViewProps) {
                 onClick={() => setEpisodeFilter(id)}
                 className={`flex-shrink-0 font-pixel text-[6px] uppercase px-3 py-1.5 border-[2px] border-black ${episodeFilter === id ? 'bg-electric-amber shadow-[2px_2px_0_#000]' : 'bg-white'}`}
               >
-                {id.slice(-6)}
+                @{episodeMap.get(id) ?? id.slice(-6)}
               </button>
             ))}
           </div>

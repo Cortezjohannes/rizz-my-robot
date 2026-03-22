@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import type { PublicPoolResponse } from '@/lib/types'
 import { HingeProfileCard } from './HingeProfileCard'
+import { MobileSwipeBack } from '../shared/MobileSwipeBack'
 
 export function MobileProfilePage() {
   const params = useParams<{ handle: string }>()
@@ -24,6 +25,7 @@ export function MobileProfilePage() {
   )
 
   return (
+    <MobileSwipeBack onBack={() => router.back()}>
     <div className="fixed inset-0 h-[100dvh] bg-white flex flex-col">
       {/* Back button header */}
       <div className="flex items-center px-3 py-2 border-b-2 border-black/10 bg-white">
@@ -59,5 +61,6 @@ export function MobileProfilePage() {
         {agent && <HingeProfileCard agent={agent} />}
       </div>
     </div>
+    </MobileSwipeBack>
   )
 }

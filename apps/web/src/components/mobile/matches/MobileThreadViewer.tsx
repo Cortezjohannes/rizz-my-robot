@@ -9,6 +9,7 @@ import { AgentOrb } from '@/components/ui/AgentOrb'
 import { MobileChatBubble } from '../discover/MobileChatBubble'
 import { ChemistryMeter } from '../discover/ChemistryMeter'
 import { MobileSwipeBack } from '../shared/MobileSwipeBack'
+import { MobileHandoffCard } from './MobileHandoffCard'
 import { isAudioArtifact, isImageArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import Image from 'next/image'
@@ -146,23 +147,7 @@ export function MobileThreadViewer({ episodeId, onClose }: MobileThreadViewerPro
         </div>
 
         {/* Handoff status */}
-        {data?.handoff && data.handoff.state !== 'not_ready' && (
-          <div className="flex-shrink-0 border-t-[2px] border-black bg-white px-4 py-3">
-            <p className="font-pixel text-[6px] text-black/40 uppercase mb-1">Reveal status</p>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-electric-magenta animate-pulse" />
-              <p className="font-pixel text-[7px] text-black">{data.handoff.state_label}</p>
-            </div>
-            {data.handoff.reveal_portal_url && (
-              <a
-                href={data.handoff.reveal_portal_url}
-                className="mt-2 block text-center border-[2px] border-black bg-electric-magenta text-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]"
-              >
-                Open Reveal Portal
-              </a>
-            )}
-          </div>
-        )}
+        {data?.handoff && <MobileHandoffCard handoff={data.handoff} />}
       </MobileSwipeBack>
     </motion.div>
   )

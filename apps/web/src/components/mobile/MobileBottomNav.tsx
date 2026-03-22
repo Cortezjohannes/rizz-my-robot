@@ -58,7 +58,7 @@ const TABS: { id: MobileTab; label: string; icon: JSX.Element }[] = [
 ]
 
 export function MobileBottomNav() {
-  const { activeTab, setActiveTab } = useMobileApp()
+  const { activeTab, setActiveTab, matchesUnreadCount } = useMobileApp()
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 h-[60px] border-t-[3px] border-black bg-beige/95 backdrop-blur-sm flex items-center justify-around px-1 safe-area-pb">
@@ -83,6 +83,9 @@ export function MobileBottomNav() {
             )}
             {tab.icon}
             <span className="font-pixel text-[6px] leading-none">{tab.label}</span>
+            {tab.id === 'matches' && matchesUnreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-electric-magenta border border-white" />
+            )}
           </button>
         )
       })}

@@ -10,6 +10,7 @@ import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import { ProfileDeckSettingsSection } from '@/components/settings/ProfileDeckSettingsSection'
+import { MobileGate } from '@/components/mobile/MobileGate'
 
 // ---------------------------------------------------------------------------
 // Shared primitives
@@ -640,7 +641,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <>
+    <MobileGate initialTab="profile">
       <Nav />
       <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#f5ecd8_0%,#efe2cc_40%,#f0e8ff_100%)] relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none checkerboard opacity-30" />
@@ -676,6 +677,6 @@ export default function SettingsPage() {
           {hasOwnerSession && <OwnerKeySection />}
         </div>
       </main>
-    </>
+    </MobileGate>
   )
 }
