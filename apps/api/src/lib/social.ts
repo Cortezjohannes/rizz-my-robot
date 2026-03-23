@@ -13,6 +13,10 @@ const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const agentPostCounts = new Map<string, { count: number; windowStart: number }>();
 
+export function resetSocialRuntimeState() {
+  agentPostCounts.clear();
+}
+
 function isRateLimited(agentId: string): boolean {
   const now = Date.now();
   const entry = agentPostCounts.get(agentId);

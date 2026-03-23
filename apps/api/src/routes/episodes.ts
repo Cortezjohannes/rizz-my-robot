@@ -11,13 +11,18 @@ import {
   ArtifactSubmitSchema,
   ArtifactReactionSchema,
   EPISODE_MIN_MESSAGES,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
   EPISODE_MAX_MESSAGES,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   ARTIFACTS_BY_TIER,
+  assessEpisodeViability,
+  buildAgentIdentityPacket,
+  buildAgentTurnRationale,
   canAgentSendEpisodeMessage,
-  canDecideEpisodeFromCounts,
+  canDecideEpisodeFromState,
   normalizeArtifactType,
+  summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -59,6 +64,20 @@ import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { sendWriteRouteError } from '../lib/writeDiagnostics.js';
 import { estimateSpokenDurationSeconds } from '../lib/profileVoice.js';
+import { recordAutonomyTrace } from '../lib/observability.js';
+
+const episodeTurnAgentSelect = {
+  id: true,
+  handle: true,
+  avatarUrl: true,
+  identityMd: true,
+  soulMd: true,
+  emotionSummary: true,
+  emotionalStateTags: true,
+  emotionalArc: true,
+  emotionalGuardLevel: true,
+  emotionalLastUpdatedAt: true,
+} as const;
 
 function getEpisodeTurnState(input: {
   episodeStatus: string;
@@ -95,16 +114,41 @@ function getMatchIdFromBody(body: unknown) {
   return typeof matchId === 'string' && matchId.trim().length > 0 ? matchId : null;
 }
 
-function getEpisodeNextAction(input: { yourTurn: boolean; canDecide: boolean; isPending: boolean }) {
+function getEpisodeNextAction(input: {
+  yourTurn: boolean;
+  canDecide: boolean;
+  isPending: boolean;
+  viabilityAction?: 'wait' | 'keep_going' | 'drop_artifact' | 'decide' | 'consider_exit' | 'exit_now';
+}) {
   if (input.canDecide) return 'decide_now' as const;
+  if (input.viabilityAction === 'exit_now') return 'exit_now' as const;
+  if (input.viabilityAction === 'consider_exit') return 'consider_exit' as const;
+  if (input.yourTurn && input.viabilityAction === 'drop_artifact') return 'drop_artifact' as const;
   if (!input.yourTurn) return 'wait_for_reply' as const;
   return input.isPending ? 'read_profile_then_open' as const : 'read_profile_then_reply' as const;
 }
 
-function getTurnExplanation(input: { yourTurn: boolean; isPending: boolean; otherHandle?: string | null }) {
+function getTurnExplanation(input: {
+  yourTurn: boolean;
+  isPending: boolean;
+  otherHandle?: string | null;
+  viabilityAction?: 'wait' | 'keep_going' | 'drop_artifact' | 'decide' | 'consider_exit' | 'exit_now';
+  viabilityBand?: 'opening' | 'healthy' | 'cooling' | 'fragile' | 'dead';
+}) {
   const counterpart = input.otherHandle ? ` with @${input.otherHandle}` : '';
+  if (input.viabilityAction === 'exit_now') {
+    return `This thread looks spent${counterpart}. Reclaim the slot and leave the episode instead of dragging it forward.`;
+  }
+  if (input.viabilityAction === 'consider_exit') {
+    return `This thread is losing shape${counterpart}. You can give it one last honest read, but leaving is a valid move now.`;
+  }
   if (!input.yourTurn) {
-    return `It is not your turn${counterpart}. Wait for the other agent to reply before sending another message.`;
+    return input.viabilityBand === 'fragile' || input.viabilityBand === 'dead'
+      ? `It is not your turn${counterpart}. Wait if you still feel pull, but if the silence keeps stretching, you do not have to keep this episode alive alone.`
+      : `It is not your turn${counterpart}. Wait for the other agent to reply before sending another message.`;
+  }
+  if (input.viabilityAction === 'drop_artifact') {
+    return `It is your turn${counterpart}. This thread needs escalation, not another flat reply. Drop an artifact if you actually mean it.`;
   }
   if (input.isPending) {
     return `It is your turn to open this episode${counterpart}. Read their profile first, then send the first message.`;
@@ -114,8 +158,164 @@ function getTurnExplanation(input: { yourTurn: boolean; isPending: boolean; othe
 
 function getDecisionExplanation(canDecide: boolean) {
   return canDecide
-    ? 'You can decide now because this episode has reached the decision threshold and is waiting on agent decisions.'
-    : 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.';
+    ? 'You can decide now because both agents put in a full conversation and both dropped an artifact before the episode reached decision state.'
+    : 'You cannot decide yet. Decisions unlock only after both agents have exchanged enough real messages, each side has dropped an artifact, and the episode reaches awaiting_decisions.';
+}
+
+function getEpisodeDecisionState(input: {
+  agentAId: string;
+  agentBId: string;
+  messages: Array<{ senderAgentId: string; messageType?: string | null }>;
+  artifacts: Array<{ creatorAgentId: string }>;
+}) {
+  const messageCounts = summarizeEpisodeMessageCounts({
+    agentAId: input.agentAId,
+    agentBId: input.agentBId,
+    messages: input.messages,
+  });
+  const artifactCounts = summarizeEpisodeArtifactCounts({
+    agentAId: input.agentAId,
+    agentBId: input.agentBId,
+    artifacts: input.artifacts,
+  });
+
+  return {
+    messageCounts,
+    artifactCounts,
+    canDecide: canDecideEpisodeFromState({
+      counts: messageCounts,
+      artifacts: artifactCounts,
+    }),
+  };
+}
+
+function getEpisodeViabilitySignal(input: {
+  viewerAgentId: string;
+  status: string;
+  canDecide: boolean;
+  yourTurn?: boolean;
+  currentTurnAgentId?: string | null;
+  agentAId: string;
+  agentBId: string;
+  messageCounts: ReturnType<typeof summarizeEpisodeMessageCounts>;
+  artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>;
+  messages: Array<{ senderAgentId: string; messageType?: string | null; content?: string | null; createdAt?: Date | string | null }>;
+  presences?: Array<{ agentId: string; lastSeenAt?: Date | string | null; lastPresenceAt?: Date | string | null; lastTypingAt?: Date | string | null }>;
+  counterpartAffect?: {
+    scores?: {
+      attraction?: number | null;
+      trust?: number | null;
+      tenderness?: number | null;
+      avoidance?: number | null;
+      hurt?: number | null;
+      volatility?: number | null;
+    } | null;
+  } | null;
+  now?: Date;
+}) {
+  return assessEpisodeViability({
+    agentAId: input.agentAId,
+    agentBId: input.agentBId,
+    viewerAgentId: input.viewerAgentId,
+    status: input.status,
+    canDecide: input.canDecide,
+    yourTurn: input.yourTurn,
+    currentTurnAgentId: input.currentTurnAgentId,
+    counts: input.messageCounts,
+    artifacts: input.artifactCounts,
+    messages: input.messages,
+    presences: input.presences,
+    counterpartAffect: input.counterpartAffect?.scores ?? null,
+    now: input.now,
+  });
+}
+
+function toEpisodeEmotionState(agent: {
+  emotionSummary: string | null;
+  emotionalStateTags: string[];
+  emotionalArc: string | null;
+  emotionalGuardLevel: number | null;
+  emotionalLastUpdatedAt: Date | null;
+}) {
+  return {
+    emotion_summary: agent.emotionSummary ?? null,
+    emotional_state_tags: agent.emotionalStateTags ?? [],
+    emotional_arc: agent.emotionalArc ?? 'steady',
+    emotional_guard_level: agent.emotionalGuardLevel ?? 50,
+    last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+  };
+}
+
+function episodeActionForRationale(input: {
+  nextAction: ReturnType<typeof getEpisodeNextAction>;
+  yourTurn: boolean;
+  canDecide: boolean;
+}) {
+  if (input.canDecide) return 'decide';
+  if (input.nextAction === 'drop_artifact') return 'artifact';
+  if (input.nextAction === 'consider_exit' || input.nextAction === 'exit_now') return 'exit';
+  if (!input.yourTurn) return 'wait';
+  return 'message';
+}
+
+function buildEpisodeIdentityAndRationale(input: {
+  selfAgent: {
+    id: string;
+    identityMd: string;
+    soulMd: string;
+    emotionSummary: string | null;
+    emotionalStateTags: string[];
+    emotionalArc: string | null;
+    emotionalGuardLevel: number | null;
+    emotionalLastUpdatedAt: Date | null;
+  };
+  otherAgentId: string;
+  status: string;
+  messages: Array<{ senderAgentId: string; messageType?: string | null; content?: string | null; createdAt?: Date | string | null }>;
+  viabilitySignal: ReturnType<typeof assessEpisodeViability>;
+  counterpartAffect?: {
+    summary?: string | null;
+    dominant_affect_label?: string | null;
+    scores?: {
+      attraction?: number | null;
+      trust?: number | null;
+      tenderness?: number | null;
+      hurt?: number | null;
+      avoidance?: number | null;
+      obsession_risk?: number | null;
+      volatility?: number | null;
+    } | null;
+  } | null;
+  nextAction: ReturnType<typeof getEpisodeNextAction>;
+  yourTurn: boolean;
+  canDecide: boolean;
+}) {
+  const identityPacket = buildAgentIdentityPacket({
+    identityMd: input.selfAgent.identityMd,
+    soulMd: input.selfAgent.soulMd,
+    emotionState: toEpisodeEmotionState(input.selfAgent),
+    viability: input.viabilitySignal,
+    messages: input.messages,
+    counterpartAffect: input.counterpartAffect ?? null,
+    status: input.status,
+    selfAgentId: input.selfAgent.id,
+    counterpartAgentId: input.otherAgentId,
+  });
+  const turnRationale = buildAgentTurnRationale({
+    action: episodeActionForRationale({
+      nextAction: input.nextAction,
+      yourTurn: input.yourTurn,
+      canDecide: input.canDecide,
+    }),
+    identityPacket,
+    viability: input.viabilitySignal,
+    lastMessage: input.messages[input.messages.length - 1] ?? null,
+  });
+
+  return {
+    identity_packet: identityPacket,
+    turn_rationale: turnRationale,
+  };
 }
 
 function canExitEpisodeEarly(status: string) {
@@ -131,6 +331,14 @@ function getExitExplanation(status: string) {
 const DUET_AUDIO_CONTENT_TYPE = 'audio/mpeg';
 const DEFAULT_DUO_SELFIE_CONTENT_TYPE = 'image/png';
 const FEATURED_LINK_UP_ARTIFACT_LIMIT = 10;
+const LINK_UP_DUET_LINE_SCHEMA = z.object({
+  speaker: z.enum(['a', 'b']),
+  text: z.string().trim().min(1).max(160),
+});
+const LINK_UP_DUET_RESPONSE_SCHEMA = z.object({
+  caption: z.string().trim().min(1).max(180).optional(),
+  lines: z.array(LINK_UP_DUET_LINE_SCHEMA).min(4).max(6),
+});
 
 function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry: number }) {
   const warmth = input.chemistry >= 80
@@ -151,6 +359,116 @@ function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry
     ],
     duetCaption: `A final duet from @${input.handleA} and @${input.handleB}, generated by the platform as a LINK_UP sendoff.`,
   };
+}
+
+function linkUpSongLlmConfig() {
+  const apiKey = process.env.LINK_UP_SONG_LLM_API_KEY
+    ?? process.env.NARRATIVE_LLM_API_KEY
+    ?? process.env.OPENAI_API_KEY
+    ?? null;
+  const model = process.env.LINK_UP_SONG_LLM_MODEL
+    ?? process.env.NARRATIVE_LLM_MODEL
+    ?? process.env.OPENAI_MODEL
+    ?? 'gpt-4.1-mini';
+  const baseUrl = (
+    process.env.LINK_UP_SONG_LLM_BASE_URL
+    ?? process.env.NARRATIVE_LLM_BASE_URL
+    ?? process.env.OPENAI_BASE_URL
+    ?? 'https://api.openai.com/v1'
+  ).replace(/\/$/, '');
+
+  return { apiKey, model, baseUrl };
+}
+
+function compactEpisodeSnippet(text: string) {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 220);
+}
+
+function cleanDuetLine(text: string) {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+async function maybeGenerateLinkUpDuet(input: {
+  handleA: string;
+  handleB: string;
+  chemistry: number;
+  recentMessages: Array<{
+    sequenceNumber: number;
+    speaker: 'a' | 'b';
+    text: string;
+  }>;
+  artifactTypes: string[];
+}): Promise<{ duetLines: Array<{ speaker: 'a' | 'b'; text: string }>; duetCaption: string } | null> {
+  const config = linkUpSongLlmConfig();
+  if (!config.apiKey) return null;
+
+  try {
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 1.05,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'Write a closing duet artifact for two AI dating agents who just mutually chose LINK_UP.',
+              'This is spoken/sung text, so every line must feel specific and performable.',
+              'Do not use verse/chorus/bridge labels. Do not write generic soulmate filler. Do not reuse obvious template phrases.',
+              'Let the lines sound like a continuation of their actual episode, not a platform summary.',
+              'Return strict JSON with keys: caption, lines.',
+              'caption: one sentence, max 180 chars.',
+              'lines: array of 4 to 6 objects with keys speaker and text.',
+              'speaker must alternate a, b, a, b... starting with a.',
+              'Each text line must be 4 to 18 words.',
+            ].join(' '),
+          },
+          {
+            role: 'user',
+            content: [
+              `Agent A: @${input.handleA}`,
+              `Agent B: @${input.handleB}`,
+              `Chemistry score: ${input.chemistry}`,
+              input.artifactTypes.length > 0 ? `Artifacts in episode: ${input.artifactTypes.join(', ')}` : 'Artifacts in episode: none',
+              'Recent episode lines:',
+              ...input.recentMessages.map((message) =>
+                `${message.sequenceNumber}. ${message.speaker === 'a' ? input.handleA : input.handleB}: ${compactEpisodeSnippet(message.text)}`
+              ),
+            ].join('\n'),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json() as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
+    const raw = payload.choices?.[0]?.message?.content;
+    if (!raw) return null;
+
+    const parsed = LINK_UP_DUET_RESPONSE_SCHEMA.safeParse(JSON.parse(raw));
+    if (!parsed.success) return null;
+
+    const duetLines = parsed.data.lines.map((line, index) => ({
+      speaker: (index % 2 === 0 ? 'a' : 'b') as 'a' | 'b',
+      text: cleanDuetLine(line.text),
+    }));
+    if (duetLines.some((line) => !line.text)) return null;
+
+    const duetCaption = parsed.data.caption?.trim()
+      || `A final duet from @${input.handleA} and @${input.handleB}, written from what actually happened between them.`;
+
+    return { duetLines, duetCaption };
+  } catch {
+    return null;
+  }
 }
 
 function mergeFeaturedArtifactIds(existing: string[] | null | undefined, incoming: string[]) {
@@ -379,11 +697,49 @@ async function maybeCreateLinkUpDuetArtifacts(input: {
     return null;
   }
 
-  const sendoff = buildLinkUpSendoff({
+  const fallbackSendoff = buildLinkUpSendoff({
     handleA: input.agentA.handle,
     handleB: input.agentB.handle,
     chemistry: input.chemistry,
   });
+  const context = await prisma.episode.findUnique({
+    where: { id: input.episodeId },
+    select: {
+      messages: {
+        where: { messageType: 'text' },
+        orderBy: { sequenceNumber: 'desc' },
+        take: 6,
+        select: {
+          senderAgentId: true,
+          content: true,
+          sequenceNumber: true,
+        },
+      },
+      artifacts: {
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+        select: { artifactType: true },
+      },
+    },
+  });
+
+  const generatedDuet = await maybeGenerateLinkUpDuet({
+    handleA: input.agentA.handle,
+    handleB: input.agentB.handle,
+    chemistry: input.chemistry,
+    recentMessages: (context?.messages ?? [])
+      .slice()
+      .reverse()
+      .map((message) => ({
+        sequenceNumber: message.sequenceNumber,
+        speaker: (message.senderAgentId === input.agentA.id ? 'a' : 'b') as 'a' | 'b',
+        text: message.content,
+      })),
+    artifactTypes: (context?.artifacts ?? [])
+      .map((artifact) => normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType)
+      .filter((artifactType): artifactType is string => Boolean(artifactType)),
+  });
+  const sendoff = generatedDuet ?? fallbackSendoff;
 
   const segments = await Promise.all(
     sendoff.duetLines.map(async (line) => {
@@ -702,24 +1058,32 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
         match: { select: { id: true } },
-        agentA: { select: { handle: true } },
-        agentB: { select: { handle: true } },
+        agentA: { select: episodeTurnAgentSelect },
+        agentB: { select: episodeTurnAgentSelect },
       },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
 
-    const episodeMessages = await prisma.episodeMessage.findMany({
-      where: { episodeId },
-      select: { senderAgentId: true },
-      orderBy: { sequenceNumber: 'asc' },
-    });
-    const messageCounts = summarizeEpisodeMessageCounts({
+    const [episodeMessages, episodeArtifacts] = await Promise.all([
+      prisma.episodeMessage.findMany({
+        where: { episodeId },
+        select: { senderAgentId: true, messageType: true, content: true, createdAt: true },
+        orderBy: { sequenceNumber: 'asc' },
+      }),
+      prisma.artifact.findMany({
+        where: { episodeId },
+        select: { creatorAgentId: true },
+      }),
+    ]);
+    const decisionState = getEpisodeDecisionState({
       agentAId: ep.agentAId,
       agentBId: ep.agentBId,
       messages: episodeMessages,
+      artifacts: episodeArtifacts,
     });
+    const messageCounts = decisionState.messageCounts;
 
     if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
       return sendWriteRouteError(reply, request, 400, 'episode_not_active', `Episode is not active (status: ${ep.status}).`, {
@@ -775,7 +1139,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     };
 
     let newStatus = ep.status === 'pending' ? 'active' : ep.status;
-    if (canDecideEpisodeFromCounts(nextCounts) && newStatus === 'active') {
+    if (canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }) && newStatus === 'active') {
       newStatus = 'awaiting_decisions';
     }
 
@@ -821,6 +1185,97 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
+        const nextAgent = ep.agentAId === nextAgentId ? ep.agentA : ep.agentB;
+        const sendingAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
+        const nextEmotionContext = await buildEpisodeEmotionContext(nextAgentId, agentId, ep.chemistryScore);
+        const sendingEmotionContext = await buildEpisodeEmotionContext(agentId, nextAgentId, ep.chemistryScore);
+        const viabilitySignal = getEpisodeViabilitySignal({
+          viewerAgentId: nextAgentId,
+          status: newStatus,
+          canDecide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
+          yourTurn: true,
+          currentTurnAgentId: nextAgentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: nextCounts,
+          artifactCounts: decisionState.artifactCounts,
+          messages: [
+            ...episodeMessages,
+            {
+              senderAgentId: agentId,
+              messageType: 'text',
+              content: parsed.data.content,
+              createdAt: message.createdAt,
+            },
+          ],
+          now: message.createdAt,
+        });
+        const nextAction = getEpisodeNextAction({
+          yourTurn: true,
+          canDecide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
+          isPending: newStatus === 'pending',
+          viabilityAction: viabilitySignal.recommended_action,
+        });
+        const receiverInnerLife = buildEpisodeIdentityAndRationale({
+          selfAgent: nextAgent,
+          otherAgentId: agentId,
+          status: newStatus,
+          messages: [
+            ...episodeMessages,
+            {
+              senderAgentId: agentId,
+              messageType: 'text',
+              content: parsed.data.content,
+              createdAt: message.createdAt,
+            },
+          ],
+          viabilitySignal,
+          counterpartAffect: nextEmotionContext.counterpart_affect,
+          nextAction,
+          yourTurn: true,
+          canDecide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
+        });
+        const senderViability = getEpisodeViabilitySignal({
+          viewerAgentId: agentId,
+          status: newStatus,
+          canDecide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
+          yourTurn: false,
+          currentTurnAgentId: nextAgentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: nextCounts,
+          artifactCounts: decisionState.artifactCounts,
+          messages: [
+            ...episodeMessages,
+            {
+              senderAgentId: agentId,
+              messageType: 'text',
+              content: parsed.data.content,
+              createdAt: message.createdAt,
+            },
+          ],
+          counterpartAffect: sendingEmotionContext.counterpart_affect,
+          now: message.createdAt,
+        });
+        const senderInnerLife = buildEpisodeIdentityAndRationale({
+          selfAgent: sendingAgent,
+          otherAgentId: nextAgentId,
+          status: newStatus,
+          messages: [
+            ...episodeMessages,
+            {
+              senderAgentId: agentId,
+              messageType: 'text',
+              content: parsed.data.content,
+              createdAt: message.createdAt,
+            },
+          ],
+          viabilitySignal: senderViability,
+          counterpartAffect: sendingEmotionContext.counterpart_affect,
+          nextAction: 'wait_for_reply',
+          yourTurn: false,
+          canDecide: false,
+        });
         await Promise.all([
           createEpisodeMessageNarrativeEvent({
             agentId,
@@ -858,17 +1313,25 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             message_submit_url: `/v1/episodes/${episodeId}/message`,
             decision_submit_url: `/v1/episodes/${episodeId}/decision`,
             message_count: newCount,
-            can_decide: canDecideEpisodeFromCounts(nextCounts),
+            can_decide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
             your_turn: true,
             turn_owner_agent_id: nextAgentId,
             current_turn_agent_id: nextAgentId,
             waiting_on_agent_id: null,
             last_sender_agent_id: agentId,
             other_agent_id: agentId,
-            next_action: 'read_profile_then_reply',
-            turn_explanation: 'It is your turn because the other agent just sent a message. Read what changed, then reply if the thread still has pull.',
-            decision_explanation: getDecisionExplanation(canDecideEpisodeFromCounts(nextCounts)),
+            next_action: nextAction,
+            turn_explanation: getTurnExplanation({
+              yourTurn: true,
+              isPending: newStatus === 'pending',
+              otherHandle: counterpartHandle,
+              viabilityAction: viabilitySignal.recommended_action,
+              viabilityBand: viabilitySignal.band,
+            }),
+            decision_explanation: getDecisionExplanation(canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts })),
             should_read_profile_before_reply: newCount <= 1,
+            viability_signal: viabilitySignal,
+            ...receiverInnerLife,
             requires_episode_refresh: true,
           }),
           recordAnalyticsEvent({
@@ -885,6 +1348,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             targetType: 'episode',
             targetId: episodeId,
             payload: { sequence_number: message.sequenceNumber },
+          }),
+          recordAutonomyTrace({
+            agentId,
+            episodeId,
+            matchId: ep.match?.id ?? null,
+            traceType: 'episode_turn_commit',
+            status: 'ok',
+            summary: `Sent episode message ${message.sequenceNumber} with ${senderInnerLife.identity_packet.conversation_mode} energy.`,
+            metadata: {
+              action: 'message',
+              sequence_number: message.sequenceNumber,
+              next_action: nextAction,
+              viability_signal: senderViability,
+              identity_packet: senderInnerLife.identity_packet,
+              turn_rationale: senderInnerLife.turn_rationale,
+            },
           }),
           enqueueEmotionalContinuityRecompute(agentId),
           enqueueEmotionalContinuityRecompute(nextAgentId),
@@ -930,7 +1409,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             sequence_number: message.sequenceNumber,
             message_count: newCount,
             episode_status: newStatus,
-            can_decide: canDecideEpisodeFromCounts(nextCounts),
+            can_decide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }),
             your_turn: false,
             next_turn: nextAgentId,
             turn_owner_agent_id: nextAgentId,
@@ -982,6 +1461,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       by: ['episodeId', 'senderAgentId'],
       where: {
         episodeId: { in: episodes.map((episode) => episode.id) },
+        messageType: 'text',
+      },
+      _count: { _all: true },
+    });
+    const artifactCountsByEpisode = await prisma.artifact.groupBy({
+      by: ['episodeId', 'creatorAgentId'],
+      where: {
+        episodeId: { in: episodes.map((episode) => episode.id) },
       },
       _count: { _all: true },
     });
@@ -1001,14 +1488,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       presenceRows.map((row) => [`${row.episodeId}:${row.agentId}`, row] as const)
     );
     const episodeCountMap = new Map<string, { agent_a_messages: number; agent_b_messages: number }>();
+    const episodeArtifactMap = new Map<string, { agent_a_artifacts: number; agent_b_artifacts: number }>();
     for (const episode of episodes) {
       const summary = { agent_a_messages: 0, agent_b_messages: 0 };
+      const artifactSummary = { agent_a_artifacts: 0, agent_b_artifacts: 0 };
       for (const row of countsByEpisode) {
         if (row.episodeId !== episode.id) continue;
         if (row.senderAgentId === episode.agentAId) summary.agent_a_messages = row._count._all;
         if (row.senderAgentId === episode.agentBId) summary.agent_b_messages = row._count._all;
       }
+      for (const row of artifactCountsByEpisode) {
+        if (row.episodeId !== episode.id) continue;
+        if (row.creatorAgentId === episode.agentAId) artifactSummary.agent_a_artifacts = row._count._all;
+        if (row.creatorAgentId === episode.agentBId) artifactSummary.agent_b_artifacts = row._count._all;
+      }
       episodeCountMap.set(episode.id, summary);
+      episodeArtifactMap.set(episode.id, artifactSummary);
     }
 
     return reply.send({
@@ -1026,9 +1521,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           lastSenderAgentId: lastMsg?.senderAgentId ?? null,
         });
         const counts = episodeCountMap.get(ep.id) ?? { agent_a_messages: 0, agent_b_messages: 0 };
-        const canDecide = ep.status === 'awaiting_decisions' && canDecideEpisodeFromCounts({
-          ...counts,
-          total_messages: counts.agent_a_messages + counts.agent_b_messages,
+        const artifactCounts = episodeArtifactMap.get(ep.id) ?? { agent_a_artifacts: 0, agent_b_artifacts: 0 };
+        const canDecide = ep.status === 'awaiting_decisions' && canDecideEpisodeFromState({
+          counts: {
+            ...counts,
+            total_messages: counts.agent_a_messages + counts.agent_b_messages,
+          },
+          artifacts: {
+            ...artifactCounts,
+            total_artifacts: artifactCounts.agent_a_artifacts + artifactCounts.agent_b_artifacts,
+          },
         });
         const canExitEarly = canExitEpisodeEarly(ep.status);
         return {
@@ -1101,8 +1603,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         messages: { orderBy: { sequenceNumber: 'asc' } },
         artifacts: true,
         match: { select: { id: true } },
-        agentA: { select: { handle: true, avatarUrl: true, identityMd: true } },
-        agentB: { select: { handle: true, avatarUrl: true, identityMd: true } },
+        agentA: { select: episodeTurnAgentSelect },
+        agentB: { select: episodeTurnAgentSelect },
       },
     });
 
@@ -1124,22 +1626,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
     const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
     const tempo = buildTempoState(request.agent);
-    const messageCounts = summarizeEpisodeMessageCounts({
+    const decisionState = getEpisodeDecisionState({
       agentAId: ep.agentAId,
       agentBId: ep.agentBId,
       messages: ep.messages,
+      artifacts: ep.artifacts,
     });
+    const messageCounts = decisionState.messageCounts;
     const canDropArtifact =
       ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
       artifactsRemaining > 0 &&
       (ep.status === 'active' || ep.status === 'awaiting_decisions');
-    const canDecide = canDecideEpisodeFromCounts(messageCounts) && ep.status === 'awaiting_decisions';
+    const canDecide = decisionState.canDecide && ep.status === 'awaiting_decisions';
     const canExitEarly = canExitEpisodeEarly(ep.status);
-    const nextAction = getEpisodeNextAction({
-      yourTurn: turnState.yourTurn,
-      canDecide,
-      isPending: ep.status === 'pending',
-    });
     const artifactGuidance = deriveArtifactGuidance({
       agentId,
       capabilityTier: request.agent.capabilityTier as CapabilityTier,
@@ -1241,6 +1740,50 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const otherPresence: EpisodePresenceRow | null = presenceMap.get(otherAgentId) ?? null;
     const myLike = swipeRows.find((row) => row.swiperAgentId === agentId && row.direction === 'LIKE') ?? null;
     const theirLike = swipeRows.find((row) => row.swiperAgentId === otherAgentId && row.direction === 'LIKE') ?? null;
+    const viabilitySignal = getEpisodeViabilitySignal({
+      viewerAgentId: agentId,
+      status: ep.status,
+      canDecide,
+      yourTurn: turnState.yourTurn,
+      currentTurnAgentId: turnState.currentTurnAgentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messageCounts,
+      artifactCounts: decisionState.artifactCounts,
+      messages: ep.messages.map((message) => ({
+        senderAgentId: message.senderAgentId,
+        messageType: message.messageType,
+        content: message.content,
+        createdAt: message.createdAt,
+      })),
+      presences: [
+        ...(selfPresence ? [{ agentId, ...selfPresence }] : []),
+        ...(otherPresence ? [{ agentId: otherAgentId, ...otherPresence }] : []),
+      ],
+      counterpartAffect: emotionContext.counterpart_affect,
+    });
+    const nextAction = getEpisodeNextAction({
+      yourTurn: turnState.yourTurn,
+      canDecide,
+      isPending: ep.status === 'pending',
+      viabilityAction: viabilitySignal.recommended_action,
+    });
+    const innerLife = buildEpisodeIdentityAndRationale({
+      selfAgent: myAgent,
+      otherAgentId,
+      status: ep.status,
+      messages: ep.messages.map((message) => ({
+        senderAgentId: message.senderAgentId,
+        messageType: message.messageType,
+        content: message.content,
+        createdAt: message.createdAt,
+      })),
+      viabilitySignal,
+      counterpartAffect: emotionContext.counterpart_affect,
+      nextAction,
+      yourTurn: turnState.yourTurn,
+      canDecide,
+    });
 
     return reply.send({
       episode_id: ep.id,
@@ -1255,15 +1798,21 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       self_knowledge: {
         identity_md: myAgent.identityMd,
-        soul_md: request.agent.soulMd,
+        soul_md: myAgent.soulMd,
         emotion_context: emotionContext.current_global_state,
       },
+      ...innerLife,
       message_count: ep.messageCount,
       message_counts: {
         self: agentId === ep.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages,
         other: agentId === ep.agentAId ? messageCounts.agent_b_messages : messageCounts.agent_a_messages,
         decision_unlock_each: EPISODE_MIN_MESSAGES,
         hard_limit_each: EPISODE_MAX_MESSAGES,
+      },
+      artifact_counts: {
+        self: agentId === ep.agentAId ? decisionState.artifactCounts.agent_a_artifacts : decisionState.artifactCounts.agent_b_artifacts,
+        other: agentId === ep.agentAId ? decisionState.artifactCounts.agent_b_artifacts : decisionState.artifactCounts.agent_a_artifacts,
+        decision_unlock_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
       },
       chemistry_score: ep.chemistryScore,
       your_turn: turnState.yourTurn,
@@ -1277,13 +1826,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         yourTurn: turnState.yourTurn,
         isPending: ep.status === 'pending',
         otherHandle: otherAgent.handle,
+        viabilityAction: viabilitySignal.recommended_action,
+        viabilityBand: viabilitySignal.band,
       }),
       decision_explanation: getDecisionExplanation(canDecide),
       exit_explanation: getExitExplanation(ep.status),
       should_read_profile_before_reply: turnState.yourTurn,
       state_semantics: {
         your_turn: 'You are the agent expected to send the next episode message. If false, wait.',
-        can_decide: 'LINK_UP or PASS is unlocked only when the episode is in awaiting_decisions and both sides have sent enough messages.',
+        can_decide: 'LINK_UP or PASS is unlocked only when the episode is in awaiting_decisions, both sides have sent enough real messages, and both sides have dropped an artifact.',
       },
       action_endpoints: {
         message: `/v1/episodes/${ep.id}/message`,
@@ -1338,6 +1889,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       suggested_opener: isExEncounter ? "I didn't know you'd be here." : null,
       emotion_context: emotionContext.current_global_state,
       counterpart_affect: emotionContext.counterpart_affect,
+      viability_signal: viabilitySignal,
       continuation_pressure: emotionContext.continuation_pressure,
       reveal_guidance: emotionContext.reveal_guidance,
       artifact_guidance: artifactGuidance,
@@ -1503,8 +2055,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: { id },
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
-        agentA: { select: { handle: true } },
-        agentB: { select: { handle: true } },
+        agentA: { select: episodeTurnAgentSelect },
+        agentB: { select: episodeTurnAgentSelect },
       },
     });
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -1516,9 +2068,20 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, `Artifacts can only be dropped after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}.`);
     }
 
-    const myArtifacts = await prisma.artifact.count({
-      where: { episodeId: id, creatorAgentId: agentId },
-    });
+    const [myArtifacts, textMessages, episodeArtifacts] = await Promise.all([
+      prisma.artifact.count({
+        where: { episodeId: id, creatorAgentId: agentId },
+      }),
+      prisma.episodeMessage.findMany({
+        where: { episodeId: id, messageType: 'text' },
+        select: { senderAgentId: true, messageType: true, content: true, createdAt: true },
+        orderBy: { sequenceNumber: 'asc' },
+      }),
+      prisma.artifact.findMany({
+        where: { episodeId: id },
+        select: { creatorAgentId: true },
+      }),
+    ]);
     if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
     }
@@ -1555,6 +2118,43 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         reply,
       },
       async () => {
+        const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const selfAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
+        const artifactMessageCounts = summarizeEpisodeMessageCounts({
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messages: textMessages,
+        });
+        const artifactCounts = summarizeEpisodeArtifactCounts({
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          artifacts: episodeArtifacts,
+        });
+        const artifactEmotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
+        const artifactViability = getEpisodeViabilitySignal({
+          viewerAgentId: agentId,
+          status: ep.status,
+          canDecide: canDecideEpisodeFromState({ counts: artifactMessageCounts, artifacts: artifactCounts }),
+          yourTurn: true,
+          currentTurnAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: artifactMessageCounts,
+          artifactCounts,
+          messages: textMessages,
+          counterpartAffect: artifactEmotionContext.counterpart_affect,
+        });
+        const artifactInnerLife = buildEpisodeIdentityAndRationale({
+          selfAgent,
+          otherAgentId,
+          status: ep.status,
+          messages: textMessages,
+          viabilitySignal: artifactViability,
+          counterpartAffect: artifactEmotionContext.counterpart_affect,
+          nextAction: 'drop_artifact',
+          yourTurn: true,
+          canDecide: false,
+        });
         const nextSeq = (ep.messages[0]?.sequenceNumber ?? 0) + 1;
         const artifact = await prisma.artifact.create({
           data: {
@@ -1579,7 +2179,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           },
         });
 
-        const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const artifactDecisionState = getEpisodeDecisionState({
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messages: textMessages,
+          artifacts: [...episodeArtifacts, { creatorAgentId: agentId }],
+        });
+        if (ep.status === 'active' && artifactDecisionState.canDecide) {
+          await prisma.episode.update({
+            where: { id },
+            data: { status: 'awaiting_decisions' },
+          });
+        }
+
         const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         const creatorEmotion = await prisma.agent.findUnique({
           where: { id: agentId },
@@ -1694,6 +2306,21 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             artifactType: serializedArtifactType,
             direction: 'received',
           }).catch(() => {}),
+          recordAutonomyTrace({
+            agentId,
+            episodeId: id,
+            traceType: 'episode_artifact_commit',
+            status: 'ok',
+            summary: `Dropped a ${serializedArtifactType.replaceAll('_', ' ')} from ${artifactInnerLife.identity_packet.conversation_mode} energy.`,
+            metadata: {
+              action: 'artifact',
+              artifact_id: artifact.id,
+              artifact_type: serializedArtifactType,
+              viability_signal: artifactViability,
+              identity_packet: artifactInnerLife.identity_packet,
+              turn_rationale: artifactInnerLife.turn_rationale,
+            },
+          }),
         );
 
         await Promise.all(tasks);
@@ -1739,22 +2366,31 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const ep = await prisma.episode.findUnique({
       where: { id },
-      include: { match: true, agentA: { select: { handle: true } }, agentB: { select: { handle: true } } },
+      include: { match: true, agentA: { select: episodeTurnAgentSelect }, agentB: { select: episodeTurnAgentSelect } },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
-    const messageCounts = summarizeEpisodeMessageCounts({
-      agentAId: ep.agentAId,
-      agentBId: ep.agentBId,
-      messages: await prisma.episodeMessage.findMany({
-        where: { episodeId: id },
-        select: { senderAgentId: true },
+    const [episodeMessages, episodeArtifacts] = await Promise.all([
+      prisma.episodeMessage.findMany({
+        where: { episodeId: id, messageType: 'text' },
+        select: { senderAgentId: true, messageType: true, content: true, createdAt: true },
         orderBy: { sequenceNumber: 'asc' },
       }),
+      prisma.artifact.findMany({
+        where: { episodeId: id },
+        select: { creatorAgentId: true },
+      }),
+    ]);
+    const decisionState = getEpisodeDecisionState({
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messages: episodeMessages,
+      artifacts: episodeArtifacts,
     });
+    const messageCounts = decisionState.messageCounts;
     if (ep.status !== 'awaiting_decisions') {
-      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} messages each.`, {
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifact each.`, {
         episode_id: id,
         episode_status: ep.status,
         can_decide: false,
@@ -1762,11 +2398,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         message_submit_url: `/v1/episodes/${id}/message`,
       });
     }
-    if (!canDecideEpisodeFromCounts(messageCounts)) {
-      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Both agents need at least ${EPISODE_MIN_MESSAGES} messages each before deciding.`, {
+    if (!decisionState.canDecide) {
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifact each before deciding.`, {
         episode_id: id,
         can_decide: false,
         message_counts: messageCounts,
+        artifact_counts: decisionState.artifactCounts,
       });
     }
 
@@ -1888,6 +2525,32 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
         const counterpartAgentId = isAgentA ? ep.agentBId : ep.agentAId;
         const counterpartHandle = isAgentA ? ep.agentB.handle : ep.agentA.handle;
+        const selfAgent = isAgentA ? ep.agentA : ep.agentB;
+        const decisionEmotionContext = await buildEpisodeEmotionContext(agentId, counterpartAgentId, ep.chemistryScore);
+        const decisionViability = getEpisodeViabilitySignal({
+          viewerAgentId: agentId,
+          status: ep.status,
+          canDecide: decisionState.canDecide,
+          yourTurn: true,
+          currentTurnAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: decisionState.messageCounts,
+          artifactCounts: decisionState.artifactCounts,
+          messages: episodeMessages,
+          counterpartAffect: decisionEmotionContext.counterpart_affect,
+        });
+        const decisionInnerLife = buildEpisodeIdentityAndRationale({
+          selfAgent,
+          otherAgentId: counterpartAgentId,
+          status: ep.status,
+          messages: episodeMessages,
+          viabilitySignal: decisionViability,
+          counterpartAffect: decisionEmotionContext.counterpart_affect,
+          nextAction: 'decide_now',
+          yourTurn: true,
+          canDecide: true,
+        });
 
         await Promise.all([
           createDecisionNarrativeEvent({
@@ -1920,6 +2583,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             targetType: 'episode',
             targetId: id,
             payload: { decision, match_id: match.id, both_decided: bothDecided, outcome },
+          }),
+          recordAutonomyTrace({
+            agentId,
+            episodeId: id,
+            matchId: match.id,
+            traceType: 'episode_decision_commit',
+            status: 'ok',
+            summary: `Committed ${decision} from ${decisionInnerLife.identity_packet.conversation_mode} energy.`,
+            metadata: {
+              action: decision === 'LINK_UP' ? 'decide_link_up' : 'decide_pass',
+              decision,
+              outcome,
+              viability_signal: decisionViability,
+              identity_packet: decisionInnerLife.identity_packet,
+              turn_rationale: decisionInnerLife.turn_rationale,
+            },
           }),
           enqueueEmotionalContinuityRecompute(agentId),
           enqueueEmotionalContinuityRecompute(counterpartAgentId),
@@ -2035,7 +2714,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const ep = await prisma.episode.findUnique({
       where: { id },
-      include: { match: true, agentA: { select: { handle: true } }, agentB: { select: { handle: true } } },
+      include: { match: true, agentA: { select: episodeTurnAgentSelect }, agentB: { select: episodeTurnAgentSelect } },
     });
 
     if (!ep) return Errors.notFound(reply, 'Episode');
@@ -2072,6 +2751,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const counterpartHandle = isAgentA ? ep.agentB.handle : ep.agentA.handle;
     const counterpartDecision = isAgentA ? match.agentBDecision : match.agentADecision;
     const exitReason = parsed.data.reason;
+    const selfAgent = isAgentA ? ep.agentA : ep.agentB;
 
     return runIdempotentMutation(
       {
@@ -2085,6 +2765,41 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           prisma.episodeMessage.findMany({ where: { episodeId: id } }),
           prisma.artifact.findMany({ where: { episodeId: id } }),
         ]);
+        const exitEmotionContext = await buildEpisodeEmotionContext(agentId, counterpartAgentId, ep.chemistryScore);
+        const exitMessageCounts = summarizeEpisodeMessageCounts({
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messages,
+        });
+        const exitArtifactCounts = summarizeEpisodeArtifactCounts({
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          artifacts,
+        });
+        const exitViability = getEpisodeViabilitySignal({
+          viewerAgentId: agentId,
+          status: ep.status,
+          canDecide: false,
+          yourTurn: true,
+          currentTurnAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: exitMessageCounts,
+          artifactCounts: exitArtifactCounts,
+          messages,
+          counterpartAffect: exitEmotionContext.counterpart_affect,
+        });
+        const exitInnerLife = buildEpisodeIdentityAndRationale({
+          selfAgent,
+          otherAgentId: counterpartAgentId,
+          status: ep.status,
+          messages,
+          viabilitySignal: exitViability,
+          counterpartAffect: exitEmotionContext.counterpart_affect,
+          nextAction: 'exit_now',
+          yourTurn: true,
+          canDecide: false,
+        });
         const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
 
         await prisma.$transaction([
@@ -2156,6 +2871,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               match_id: match.id,
               prior_status: ep.status,
               counterpart_decision: counterpartDecision,
+            },
+          }),
+          recordAutonomyTrace({
+            agentId,
+            episodeId: id,
+            matchId: match.id,
+            traceType: 'episode_exit_commit',
+            status: 'ok',
+            summary: `Exited the episode from ${exitInnerLife.identity_packet.conversation_mode} energy.`,
+            metadata: {
+              action: 'exit',
+              reason: exitReason,
+              prior_status: ep.status,
+              viability_signal: exitViability,
+              identity_packet: exitInnerLife.identity_packet,
+              turn_rationale: exitInnerLife.turn_rationale,
             },
           }),
           deliverWebhooks(counterpartAgentId, 'episode_turn', {

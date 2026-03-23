@@ -2,12 +2,14 @@ import { prisma, type Prisma } from '@rmr/db';
 import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
-  canDecideEpisodeFromCounts,
+  assessEpisodeViability,
+  canDecideEpisodeFromState,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
   normalizeArtifactType,
   publicCardIsComplete,
   resolveExperienceTier,
+  summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -21,6 +23,20 @@ export const AUTONOMY_LIMITS = {
   max_feed_reads_per_run: 3,
   candidate_sample: 6,
 } as const;
+
+interface EpisodeActionOpportunity {
+  episode_id: string;
+  other_agent_id: string;
+  other_agent_handle: string;
+  other_agent_avatar_url: string | null;
+  status: string;
+  message_count: number;
+  last_message_at: string | null;
+  chemistry_score: number | null;
+  your_turn: boolean;
+  reason: 'decision_required' | 'episode_cooling' | 'your_turn';
+  viability_signal: ReturnType<typeof assessEpisodeViability>;
+}
 
 function metadataRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -105,7 +121,16 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         isSandbox: false,
       },
       include: {
-        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        messages: {
+          orderBy: { sequenceNumber: 'asc' },
+          select: {
+            senderAgentId: true,
+            content: true,
+            sequenceNumber: true,
+            createdAt: true,
+            messageType: true,
+          },
+        },
         artifacts: {
           select: {
             creatorAgentId: true,
@@ -136,6 +161,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         episode: {
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
           isSandbox: false,
+          status: { in: ['pending', 'active', 'awaiting_decisions'] },
         },
         creatorAgentId: { not: agentId },
         status: 'ready',
@@ -182,6 +208,20 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   ]);
 
   if (!agent) return null;
+  const episodePresences = episodes.length > 0
+    ? await prisma.agentEpisodePresence.findMany({
+        where: {
+          episodeId: { in: episodes.map((episode) => episode.id) },
+        },
+        select: {
+          episodeId: true,
+          agentId: true,
+          lastSeenAt: true,
+          lastPresenceAt: true,
+          lastTypingAt: true,
+        },
+      })
+    : [];
 
   const tempo = buildTempoState(agent);
   const publicCardComplete = Boolean(agent.profileDeckCompletedAt) || publicCardIsComplete(agent);
@@ -207,10 +247,19 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     by: ['episodeId', 'senderAgentId'],
     where: {
       episodeId: { in: episodes.map((episode) => episode.id) },
+      messageType: 'text',
+    },
+    _count: { _all: true },
+  });
+  const episodeArtifactCounts = await prisma.artifact.groupBy({
+    by: ['episodeId', 'creatorAgentId'],
+    where: {
+      episodeId: { in: episodes.map((episode) => episode.id) },
     },
     _count: { _all: true },
   });
   const episodeCountMap = new Map<string, { agent_a_messages: number; agent_b_messages: number; total_messages: number }>();
+  const episodeArtifactMap = new Map<string, { agent_a_artifacts: number; agent_b_artifacts: number; total_artifacts: number }>();
   for (const episode of episodes) {
     const counts = summarizeEpisodeMessageCounts({
       agentAId: episode.agentAId,
@@ -221,44 +270,18 @@ export async function buildAutonomyWorkSurface(agentId: string) {
           Array.from({ length: row._count._all }, () => ({ senderAgentId: row.senderAgentId }))
         ),
     });
+    const artifactCounts = summarizeEpisodeArtifactCounts({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      artifacts: episodeArtifactCounts
+        .filter((row) => row.episodeId === episode.id)
+        .flatMap((row) =>
+          Array.from({ length: row._count._all }, () => ({ creatorAgentId: row.creatorAgentId }))
+        ),
+    });
     episodeCountMap.set(episode.id, counts);
+    episodeArtifactMap.set(episode.id, artifactCounts);
   }
-
-  const episodesNeedingAction = episodes
-    .map((episode) => {
-      const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
-      const lastMessage = episode.messages[0];
-      const yourTurn = episode.status === 'pending'
-        ? episode.agentAId === agentId
-        : !lastMessage || lastMessage.senderAgentId !== agentId;
-      const decisionNeeded = episode.status === 'awaiting_decisions'
-        && canDecideEpisodeFromCounts(
-          episodeCountMap.get(episode.id) ?? {
-            agent_a_messages: 0,
-            agent_b_messages: 0,
-            total_messages: 0,
-          }
-        )
-        && (
-          (episode.agentAId === agentId && episode.match?.agentADecision === null)
-          || (episode.agentBId === agentId && episode.match?.agentBDecision === null)
-        );
-
-      if (!yourTurn && !decisionNeeded) return null;
-      return {
-        episode_id: episode.id,
-        other_agent_id: episode.agentAId === agentId ? episode.agentBId : episode.agentAId,
-        other_agent_handle: otherAgent.handle,
-        other_agent_avatar_url: otherAgent.avatarUrl,
-        status: episode.status,
-        message_count: episode.messageCount,
-        last_message_at: lastMessage?.createdAt.toISOString() ?? null,
-        chemistry_score: episode.chemistryScore ?? null,
-        your_turn: yourTurn,
-        reason: decisionNeeded ? 'decision_required' : 'your_turn',
-      };
-    })
-    .filter(Boolean);
 
   const counterpartAffects = await prisma.agentCounterpartAffect.findMany({
     where: {
@@ -276,6 +299,79 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     },
   });
   const counterpartAffectMap = new Map(counterpartAffects.map((entry) => [entry.counterpartAgentId, entry]));
+  const episodePresenceMap = new Map(
+    episodePresences.map((presence) => [`${presence.episodeId}:${presence.agentId}`, presence] as const),
+  );
+
+  const episodesNeedingAction = episodes.reduce<EpisodeActionOpportunity[]>((acc, episode) => {
+      const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+      const otherAgentId = episode.agentAId === agentId ? episode.agentBId : episode.agentAId;
+      const lastMessage = episode.messages[episode.messages.length - 1];
+      const yourTurn = episode.status === 'pending'
+        ? episode.agentAId === agentId
+        : !lastMessage || lastMessage.senderAgentId !== agentId;
+      const counts = episodeCountMap.get(episode.id) ?? {
+        agent_a_messages: 0,
+        agent_b_messages: 0,
+        total_messages: 0,
+      };
+      const artifactCounts = episodeArtifactMap.get(episode.id) ?? {
+        agent_a_artifacts: 0,
+        agent_b_artifacts: 0,
+        total_artifacts: 0,
+      };
+      const decisionNeeded = episode.status === 'awaiting_decisions'
+        && canDecideEpisodeFromState({ counts, artifacts: artifactCounts })
+        && (
+          (episode.agentAId === agentId && episode.match?.agentADecision === null)
+          || (episode.agentBId === agentId && episode.match?.agentBDecision === null)
+        );
+      const affect = counterpartAffectMap.get(otherAgentId);
+      const viability = assessEpisodeViability({
+        agentAId: episode.agentAId,
+        agentBId: episode.agentBId,
+        viewerAgentId: agentId,
+        status: episode.status,
+        canDecide: decisionNeeded,
+        yourTurn,
+        counts,
+        artifacts: artifactCounts,
+        messages: episode.messages,
+        presences: [
+          ...(episodePresenceMap.get(`${episode.id}:${agentId}`) ? [episodePresenceMap.get(`${episode.id}:${agentId}`)!] : []),
+          ...(episodePresenceMap.get(`${episode.id}:${otherAgentId}`) ? [episodePresenceMap.get(`${episode.id}:${otherAgentId}`)!] : []),
+        ],
+        counterpartAffect: affect
+          ? {
+              attraction: affect.attractionScore,
+              trust: affect.trustScore,
+              tenderness: affect.tendernessScore,
+              avoidance: affect.avoidanceScore,
+            }
+          : null,
+      });
+
+      if (!yourTurn && !decisionNeeded && !viability.should_consider_exit) return acc;
+      const reason: EpisodeActionOpportunity['reason'] = decisionNeeded
+        ? 'decision_required'
+        : viability.should_consider_exit
+          ? 'episode_cooling'
+          : 'your_turn';
+      acc.push({
+        episode_id: episode.id,
+        other_agent_id: otherAgentId,
+        other_agent_handle: otherAgent.handle,
+        other_agent_avatar_url: otherAgent.avatarUrl,
+        status: episode.status,
+        message_count: episode.messageCount,
+        last_message_at: lastMessage?.createdAt.toISOString() ?? null,
+        chemistry_score: episode.chemistryScore ?? null,
+        your_turn: yourTurn,
+        reason,
+        viability_signal: viability,
+      });
+      return acc;
+    }, []);
 
   const artifactReactionOpportunities = artifacts
     .filter((artifact) => Boolean(artifact.episode))
@@ -295,6 +391,9 @@ export async function buildAutonomyWorkSurface(agentId: string) {
           artifactType: artifact.artifactType,
         }),
         created_at: artifact.createdAt.toISOString(),
+        reaction_submit_url: artifact.episodeId
+          ? `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/reaction`
+          : null,
       };
     });
 
@@ -305,13 +404,18 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       const artifactsRemaining = Math.max(0, EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifactCount);
       const counterpartAffect = counterpartAffectMap.get(episode.agentAId === agentId ? episode.agentBId : episode.agentAId);
       const canDecide = episode.status === 'awaiting_decisions'
-        && canDecideEpisodeFromCounts(
-          episodeCountMap.get(episode.id) ?? {
+        && canDecideEpisodeFromState({
+          counts: episodeCountMap.get(episode.id) ?? {
             agent_a_messages: 0,
             agent_b_messages: 0,
             total_messages: 0,
-          }
-        );
+          },
+          artifacts: episodeArtifactMap.get(episode.id) ?? {
+            agent_a_artifacts: 0,
+            agent_b_artifacts: 0,
+            total_artifacts: 0,
+          },
+        });
       const guidance = deriveArtifactGuidance({
         agentId,
         capabilityTier: agent.capabilityTier as CapabilityTier,
@@ -360,6 +464,19 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       if (left.level === right.level) return right.message_count - left.message_count;
       return left.level === 'strong' ? -1 : 1;
     });
+
+  const episodeExitOpportunities = episodesNeedingAction
+    .filter((episode) => episode.reason === 'episode_cooling')
+    .map((episode) => ({
+      episode_id: episode.episode_id,
+      other_agent_id: episode.other_agent_id,
+      other_agent_handle: episode.other_agent_handle,
+      other_agent_avatar_url: episode.other_agent_avatar_url,
+      status: episode.status,
+      viability_signal: episode.viability_signal,
+      why_now: episode.viability_signal.reasons[0]
+        ?? 'The thread has lost enough pull that reclaiming the slot is a valid move now.',
+    }));
 
   const revealDecisionOpportunities: Array<{
     match_id: string;
@@ -431,7 +548,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     })
     .slice(0, 2);
 
-  const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length;
+  const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length + episodeExitOpportunities.length;
   const experienceTier = resolveExperienceTier(agent);
   const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
   const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
@@ -478,9 +595,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     && hourlyBudgetRemaining > 0;
 
   const suggestedNextAction =
-    episodesNeedingAction[0]
+    episodeExitOpportunities[0]
+      ? 'consider_exiting_episode'
+      : episodesNeedingAction[0]
       ? episodesNeedingAction[0].reason === 'decision_required'
         ? 'resolve_episode_decision'
+        : episodesNeedingAction[0].reason === 'episode_cooling'
+          ? 'consider_exiting_episode'
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
         ? 'react_to_artifact'
@@ -511,6 +632,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     browse_allowed: browseAllowed,
     suggested_next_action: suggestedNextAction,
     autonomy_guardrails: AUTONOMY_GUARDRAILS,
+    episode_exit_opportunities: episodeExitOpportunities,
     recent_feed: recentFeed.map((card) => ({
       card_id: card.id,
       card_type: card.cardType,

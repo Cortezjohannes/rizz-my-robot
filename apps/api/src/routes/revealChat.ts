@@ -139,6 +139,17 @@ const typingDebounceCache = new Map<string, number>();
 const revealChatSessionKeyCache = new Map<string, CryptoKey>();
 const humanDisconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+export function resetRevealChatRuntimeState() {
+  for (const timer of humanDisconnectGraceTimers.values()) {
+    clearTimeout(timer);
+  }
+  humanDisconnectGraceTimers.clear();
+  streamRooms.clear();
+  messageRateLimitBuckets.clear();
+  typingDebounceCache.clear();
+  revealChatSessionKeyCache.clear();
+}
+
 export async function revealChatRoutes(fastify: FastifyInstance) {
   fastify.post('/reveal-chat/init', { preHandler: requireOwnerAuth }, async (request, reply) => {
     const parsed = RevealChatInitSchema.safeParse(request.body ?? {});

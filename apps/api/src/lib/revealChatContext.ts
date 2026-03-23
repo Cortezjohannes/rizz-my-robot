@@ -61,6 +61,11 @@ export interface RevealChatContext {
 const revealChatContextCache = new Map<string, RevealChatContext>();
 const revealChatContextInflight = new Map<string, Promise<RevealChatContext>>();
 
+export function resetRevealChatContextCache() {
+  revealChatContextCache.clear();
+  revealChatContextInflight.clear();
+}
+
 export async function getRevealChatContext(chatId: string, agentId: string): Promise<RevealChatContext> {
   const cacheKey = `${chatId}:${agentId}`;
   const cached = revealChatContextCache.get(cacheKey);
