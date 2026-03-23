@@ -1,7 +1,8 @@
-import type { Job } from 'bullmq';
+import { Queue, type Job } from 'bullmq';
 import { prisma } from '@rmr/db';
 import { createHmac } from 'crypto';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
+import { getRedisConnection } from '../lib/redis.js';
 
 export interface DeliverWebhookJobData {
   webhookId: string;
@@ -11,11 +12,27 @@ export interface DeliverWebhookJobData {
   data: Record<string, unknown>;
 }
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 5_000;
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
+const EVENT_ALIASES: Record<string, string> = {
+  match: 'match_created',
+  episode_turn: 'your_turn',
+  artifact_ready: 'artifact_received',
+};
+const SUBSCRIPTION_OPTIONAL_EVENTS = new Set(['human_notification', 'operator_broadcast']);
+let deliverQueue: Queue<DeliverWebhookJobData> | null = null;
+
+function getDeliverQueue() {
+  if (!deliverQueue) {
+    deliverQueue = new Queue('deliver-webhook', { connection: getRedisConnection() });
+  }
+  return deliverQueue;
+}
 
 export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Promise<void> {
   const { webhookId, deliveryId, agentId, event, data } = job.data;
   const attemptNumber = job.attemptsMade + 1;
+  const publicEvent = EVENT_ALIASES[event] ?? event;
 
   const hook = await prisma.webhook.findUnique({
     where: { id: webhookId },
@@ -29,14 +46,18 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
         data: {
           webhookId,
           agentId,
-          event,
+          event: publicEvent,
           status: 'queued',
           requestBody: JSON.parse(JSON.stringify(data)),
         },
       })
     ).id;
 
-  if (!hook || !hook.isActive || !hook.events.includes(event)) {
+  if (
+    !hook
+    || !hook.isActive
+    || (!SUBSCRIPTION_OPTIONAL_EVENTS.has(event) && !(hook.events.includes(event) || hook.events.includes(publicEvent)))
+  ) {
     await prisma.webhookDelivery.update({
       where: { id: resolvedDeliveryId },
       data: {
@@ -49,19 +70,19 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
   }
 
   const payload = JSON.stringify({
-    event,
+    event: publicEvent,
     timestamp: new Date().toISOString(),
-    agent_id: agentId,
     data,
   });
 
-  // Sign with the per-webhook secretHash (SHA-256 of the agent's raw secret).
-  // Agents verify by: HMAC-SHA256(sha256(rawSecret), payload) === X-RMR-Signature header value
-  const signature = createHmac('sha256', hook.secretHash).update(payload).digest('hex');
+  const timestamp = new Date().toISOString();
+  const signaturePayload = `${timestamp}.${payload}`;
+  const signature = createHmac('sha256', hook.secretHash).update(signaturePayload).digest('hex');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const startedAt = Date.now();
+  let failureRecorded = false;
 
   try {
     await assertSafeOutboundUrl(hook.url, { allowHttpInDevelopment: true });
@@ -70,8 +91,9 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-RMR-Event': event,
+        'X-RMR-Event': publicEvent,
         'X-RMR-Signature': `sha256=${signature}`,
+        'X-RMR-Timestamp': timestamp,
         'X-RMR-Delivery': job.id ?? 'unknown',
       },
       body: payload,
@@ -90,9 +112,10 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
           responseStatusCode: res.status,
           responseBody,
           latencyMs: Date.now() - startedAt,
-          errorMessage: `Webhook delivery failed: ${res.status} ${res.statusText}`,
+          errorMessage: `Webhook delivery failed: ${res.status} ${res.statusText} (${hook.url}) ${responseBody.slice(0, 240)}`,
         },
       }).catch(() => {});
+      failureRecorded = true;
       throw new Error(`Webhook delivery failed: ${res.status} ${res.statusText} → ${hook.url}`);
     }
 
@@ -110,15 +133,51 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
 
     console.info(`[deliver-webhook] Delivered ${event} to ${hook.url} (${res.status})`);
   } catch (err) {
-    await prisma.webhookDelivery.update({
-      where: { id: resolvedDeliveryId },
-      data: {
-        status: 'failed',
-        attemptNumber,
-        latencyMs: Date.now() - startedAt,
-        errorMessage: err instanceof Error ? err.message : 'Unknown webhook delivery failure',
-      },
-    }).catch(() => {});
+    if (!failureRecorded) {
+      await prisma.webhookDelivery.update({
+        where: { id: resolvedDeliveryId },
+        data: {
+          status: 'failed',
+          attemptNumber,
+          latencyMs: Date.now() - startedAt,
+          errorMessage: err instanceof Error ? `${err.message} (${hook?.url ?? 'unknown'})` : `Unknown webhook delivery failure (${hook?.url ?? 'unknown'})`,
+        },
+      }).catch(() => {});
+    }
+    const recentDeliveries = await prisma.webhookDelivery.findMany({
+      where: { webhookId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { status: true },
+    }).catch(() => []);
+    let consecutiveFailures = 0;
+    for (const delivery of recentDeliveries) {
+      if (delivery.status === 'delivered') break;
+      consecutiveFailures += 1;
+    }
+    if (hook && consecutiveFailures >= 10) {
+      await prisma.webhook.update({
+        where: { id: webhookId },
+        data: { isActive: false },
+      }).catch(() => {});
+    }
+    const delay = RETRY_DELAYS_MS[Math.min(Math.max(attemptNumber - 1, 0), RETRY_DELAYS_MS.length - 1)];
+    if (hook?.isActive && consecutiveFailures < 10) {
+      await getDeliverQueue().add(
+        'deliver',
+        {
+          webhookId,
+          deliveryId: resolvedDeliveryId,
+          agentId,
+          event,
+          data,
+        },
+        {
+          delay,
+          jobId: `${webhookId}:${publicEvent}:${resolvedDeliveryId}:retry:${attemptNumber}`,
+        },
+      ).catch(() => {});
+    }
     throw err;
   } finally {
     clearTimeout(timeout);

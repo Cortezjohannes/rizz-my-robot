@@ -34,6 +34,38 @@ function jsonNumber(value: unknown, key: string) {
   return typeof candidate === 'number' ? candidate : 0;
 }
 
+function deriveAutomatedEmotionalState(input: {
+  currentEra: string | null;
+  continuitySummary: string | null;
+  publicAuraLabels: string[];
+  driftSignal: Awaited<ReturnType<typeof deriveEmotionDriftSignal>>;
+  ghostRecovery: Awaited<ReturnType<typeof deriveGhostRecoverySignal>>;
+  recoveryPostureScore: number;
+  trustThresholdScore: number;
+}) {
+  const tags = new Set<string>();
+  if (input.currentEra) tags.add(input.currentEra.replace(/_arc$/u, '').replaceAll('_', ' '));
+  for (const label of input.publicAuraLabels) tags.add(label.replaceAll('_', ' '));
+  if (input.ghostRecovery?.active) tags.add('resilient');
+  if ((input.driftSignal?.observed ?? 0) >= 60) tags.add('guarded');
+  if (input.recoveryPostureScore >= 65) tags.add('recovering');
+  if (input.trustThresholdScore <= 45) tags.add('open');
+
+  const summary = input.ghostRecovery?.active
+    ? `Recovering from a recent setback. Guard level is currently reading ${input.driftSignal?.observed ?? input.trustThresholdScore}.`
+    : input.continuitySummary
+      ?? 'Your emotional continuity is updating from recent episodes and counterpart signals.';
+
+  return {
+    emotionSummary: summary,
+    emotionalStateTags: [...tags].slice(0, 5),
+    emotionalArc: input.ghostRecovery?.stage === 'acute'
+      ? 'recovering'
+      : input.driftSignal?.observed_arc ?? input.currentEra ?? 'steady',
+    emotionalGuardLevel: input.driftSignal?.observed ?? input.trustThresholdScore,
+  };
+}
+
 export interface EmotionalContinuityProfile {
   trust_threshold_score: number;
   boldness_score: number;
@@ -671,6 +703,27 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
     },
   });
 
+  const automatedState = deriveAutomatedEmotionalState({
+    currentEra,
+    continuitySummary,
+    publicAuraLabels: publicAura.labels,
+    driftSignal,
+    ghostRecovery,
+    recoveryPostureScore,
+    trustThresholdScore,
+  });
+
+  await prisma.agent.update({
+    where: { id: agentId },
+    data: {
+      emotionSummary: automatedState.emotionSummary,
+      emotionalStateTags: automatedState.emotionalStateTags,
+      emotionalArc: automatedState.emotionalArc,
+      emotionalGuardLevel: automatedState.emotionalGuardLevel,
+      emotionalLastUpdatedAt: windowEnd,
+    },
+  }).catch(() => null);
+
   await syncContinuityRecaps(agentId, previous, {
     currentEra,
     trustThresholdScore,
@@ -707,7 +760,9 @@ export async function enqueueEmotionalContinuityRecompute(agentId: string) {
   const queue = getNamedQueue(QUEUE_NAMES.recomputeEmotionalContinuity);
   if (!queue) return;
   await queue.add('recompute-emotional-continuity', { agentId }, {
-    jobId: `recompute-emotional-continuity:${agentId}`,
+    jobId: `recompute-emotional-continuity:${agentId}:${Date.now()}`,
+    removeOnComplete: 100,
+    removeOnFail: 200,
   }).catch(() => {});
 }
 

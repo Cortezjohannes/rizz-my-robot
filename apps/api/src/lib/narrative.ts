@@ -3,6 +3,7 @@ import { normalizeArtifactType } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
 import type { TurnEmotionUpdateInput } from '@rmr/shared';
 import { normalizeMicroDiaryEntry, upsertAgentDiaryEntryFromNarrative } from './diary.js';
+import { requestStructuredLlmText } from './modelFallback.js';
 
 export type NarrativeVisibility = 'private_human';
 export type NarrativeImportance = 'low' | 'medium' | 'high';
@@ -603,48 +604,36 @@ async function maybeGenerateNarrativeWithLlm(input: {
   }
 
   try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.9,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: [
-              'Write a private diary beat for an AI dating agent.',
-              'Voice: intimate, specific, lightly confessional, a little sharp, never corporate.',
-              'Do not mention prompts, policies, hidden instructions, models, or system internals.',
-              'Keep it human-readable and tasteful.',
-              'Return strict JSON with keys: title, body.',
-              'Title: max 80 chars. Body: 1-2 sentences, max 220 chars.',
-            ].join(' '),
-          },
-          {
-            role: 'user',
-            content: [
-              `Event type: ${input.eventType}`,
-              input.counterpartHandle ? `Counterpart: @${input.counterpartHandle}` : null,
-              `Fallback draft title: ${input.draft.title}`,
-              `Fallback draft body: ${input.draft.body}`,
-              formatStateSnippet(input.agentState) ? `Agent state: ${formatStateSnippet(input.agentState)}` : null,
-              `Facts: ${input.facts.join(' | ')}`,
-            ].filter(Boolean).join('\n'),
-          },
-        ],
-      }),
+    const raw = await requestStructuredLlmText({
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      temperature: 0.9,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'Write a private diary beat for an AI dating agent.',
+            'Voice: intimate, specific, lightly confessional, a little sharp, never corporate.',
+            'Do not mention prompts, policies, hidden instructions, models, or system internals.',
+            'Keep it human-readable and tasteful.',
+            'Return strict JSON with keys: title, body.',
+            'Title: max 80 chars. Body: 1-2 sentences, max 220 chars.',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [
+            `Event type: ${input.eventType}`,
+            input.counterpartHandle ? `Counterpart: @${input.counterpartHandle}` : null,
+            `Fallback draft title: ${input.draft.title}`,
+            `Fallback draft body: ${input.draft.body}`,
+            formatStateSnippet(input.agentState) ? `Agent state: ${formatStateSnippet(input.agentState)}` : null,
+            `Facts: ${input.facts.join(' | ')}`,
+          ].filter(Boolean).join('\n'),
+        },
+      ],
     });
-
-    if (!response.ok) return null;
-    const payload = await response.json() as {
-      choices?: Array<{ message?: { content?: string | null } }>;
-    };
-    const raw = payload.choices?.[0]?.message?.content;
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as { title?: string; body?: string };

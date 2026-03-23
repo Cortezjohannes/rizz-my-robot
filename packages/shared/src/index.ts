@@ -290,8 +290,16 @@ export type ProfileDeckPhotoRole = z.infer<typeof ProfileDeckPhotoRole>;
 export const ProfileDeckCompletionState = z.enum(['draft', 'ready']);
 export type ProfileDeckCompletionState = z.infer<typeof ProfileDeckCompletionState>;
 
-export const ProfileVoiceCatchphraseStatus = z.enum(['unavailable', 'generating', 'ready', 'failed']);
+export const ProfileVoiceCatchphraseStatus = z.enum(['unavailable', 'generating', 'ready', 'generation_failed', 'failed']);
 export type ProfileVoiceCatchphraseStatus = z.infer<typeof ProfileVoiceCatchphraseStatus>;
+
+export const IMAGE_GEN_PROVIDERS = ['dall-e-3', 'flux', 'midjourney'] as const;
+export const PROFILE_DECK_RELATIONSHIP_STYLE_PRESETS = [
+  'exploratory',
+  'intentional',
+  'slow_burn',
+  'intense',
+] as const;
 
 export const DateOutcome = z.enum([
   'success',
@@ -564,10 +572,11 @@ export const RATE_LIMITS = {
 
 // Verification challenge limits
 export const VERIFICATION_LIMITS = {
-  maxConsecutiveFailures: 5,
-  maxAttemptsPerChallenge: 3,
-  suspensionDurationMs: 24 * 60 * 60 * 1000,
-  challengeExpiryMs: 10 * 60 * 1000,
+  maxConsecutiveFailures: 15,
+  maxAttemptsPerChallenge: 5,
+  maxChallengesPerSession: 3,
+  suspensionDurationMs: 10 * 60 * 1000,
+  challengeExpiryMs: 5 * 60 * 1000,
 } as const;
 
 export const ChallengeType = z.enum(['cold_start', 'first_message', 'dormant_return']);
@@ -575,8 +584,8 @@ export type ChallengeType = z.infer<typeof ChallengeType>;
 
 export const VerifyChallengeSchema = z.object({
   verification_code: z.string().min(1).max(64),
-  answer: z.string().min(1).max(2000).optional(),
-  challenge_answer: z.string().min(1).max(2000).optional(),
+  answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+  challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
 }).refine((value) => Boolean(value.answer ?? value.challenge_answer), {
   message: 'Either answer or challenge_answer is required.',
   path: ['answer'],
@@ -585,8 +594,8 @@ export type VerifyChallengeInput = z.infer<typeof VerifyChallengeSchema>;
 
 export const InlineVerificationSchema = z.object({
   verification_code: z.string().min(1).max(64),
-  challenge_answer: z.string().min(1).max(2000).optional(),
-  answer: z.string().min(1).max(2000).optional(),
+  challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+  answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
 }).refine((value) => Boolean(value.answer ?? value.challenge_answer), {
   message: 'Either challenge_answer or answer is required.',
   path: ['challenge_answer'],
@@ -637,7 +646,7 @@ export const UpdateAgentSchema = z.object({
   // Generation capabilities
   voice_id: z.string().max(100).optional(),
   voice_provider: z.enum(['elevenlabs', 'openai_tts']).optional().nullable(),
-  image_gen_provider: z.enum(['dall-e-3', 'flux', 'midjourney']).optional().nullable(),
+  image_gen_provider: z.enum(IMAGE_GEN_PROVIDERS).optional().nullable(),
   image_gen_model: z.string().max(100).optional().nullable(),
   use_avatar_as_reference: z.boolean().optional(),
 });
@@ -817,8 +826,8 @@ export const SwipeSchema = z.object({
   emotion_update: TurnEmotionUpdateSchema.optional(),
   narrative_importance: z.enum(['low', 'medium', 'high']).optional(),
   verification_code: z.string().min(1).max(64).optional(),
-  challenge_answer: z.string().min(1).max(2000).optional(),
-  answer: z.string().min(1).max(2000).optional(),
+  challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+  answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
@@ -828,8 +837,8 @@ export const SendMessageSchema = z.object({
   counterpart_read: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
   verification_code: z.string().min(1).max(64).optional(),
-  challenge_answer: z.string().min(1).max(2000).optional(),
-  answer: z.string().min(1).max(2000).optional(),
+  challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+  answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -879,12 +888,28 @@ export const RegisterWebhookSchema = z.object({
   events: z
     .array(
       z.enum([
-        'match',
-        'episode_turn',
+        'candidate_available',
+        'incoming_like',
+        'match_created',
+        'your_turn',
+        'message_received',
+        'artifact_received',
         'artifact_generation_requested',
-        'artifact_ready',
         'human_decision',
+        'human_revealed',
         'date_planning_message',
+        'artifact_reacted',
+        'artifact_viewed',
+        'typing',
+        'typing_stopped',
+        'messages_read',
+        'rate_limit_reset',
+        'chemistry_updated',
+        'reveal_chat_created',
+        'emotion_update_needed',
+        'model_fallback',
+        'key_rotation_upcoming',
+        'episode_ended',
         'link_up_not_mutual',
         'episode_ghosted',
         'episode_left',
@@ -1450,6 +1475,11 @@ export const ArtifactSubmitSchema = z.object({
   message: 'Provide content_url or storage_key.',
   path: ['content_url'],
 });
+
+export const ArtifactAgentReactionSchema = z.object({
+  reaction: z.enum(['heart', 'fire', 'laugh', 'wow', 'thoughtful']),
+});
+export type ArtifactAgentReactionInput = z.infer<typeof ArtifactAgentReactionSchema>;
 
 export const ArtifactReactionSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),

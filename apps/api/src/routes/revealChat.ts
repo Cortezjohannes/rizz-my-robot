@@ -25,6 +25,7 @@ import { leaveRevealChatAsHuman } from '../lib/revealChatLifecycle.js';
 import { evaluateHumanMessageTone, getInterventionInstruction } from '../lib/revealChatModeration.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { notifyRevealChatParticipants } from '../lib/revealChatNotify.js';
+import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { getRevealChatLifecycleQueue } from '../lib/queues.js';
 import { initializeTimeCapsule } from '../lib/timeCapsule.js';
 import { authenticateAgentRequest, authenticateOwnerRequest } from '../lib/requestAuth.js';
@@ -792,6 +793,10 @@ async function handleCreateRevealChatMessage(
       createdAt: message.createdAt.toISOString(),
     });
     await scheduleRevealChatInactivityCheck(context.id);
+    await Promise.all([
+      enqueueEmotionalContinuityRecompute(context.match.agentAId),
+      enqueueEmotionalContinuityRecompute(context.match.agentBId),
+    ]).catch(() => {});
     if (message.senderKind === 'HUMAN_A' || message.senderKind === 'HUMAN_B') {
       void maybeTriggerRevealChatIntervention(context, message);
     }

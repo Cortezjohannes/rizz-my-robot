@@ -1,6 +1,13 @@
 import { prisma } from '@rmr/db';
 import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
 import { getDeliverWebhookQueue } from './queues.js';
+import { invalidateDashboard } from './dashboardCache.js';
+
+const EVENT_ALIASES: Record<string, string[]> = {
+  match: ['match_created'],
+  episode_turn: ['your_turn'],
+  artifact_ready: ['artifact_received'],
+};
 
 export interface NotificationPayload {
   agentId: string;
@@ -31,8 +38,14 @@ export async function deliverWebhooks(
   data: Record<string, unknown>
 ): Promise<void> {
   try {
+    invalidateDashboard(agentId);
+    const requestedEvents = [event, ...(EVENT_ALIASES[event] ?? [])];
     const hooks = await prisma.webhook.findMany({
-      where: { agentId, isActive: true, events: { has: event } },
+      where: {
+        agentId,
+        isActive: true,
+        OR: requestedEvents.map((requestedEvent) => ({ events: { has: requestedEvent } })),
+      },
       select: { id: true },
     });
     if (hooks.length === 0) return;
@@ -44,7 +57,7 @@ export async function deliverWebhooks(
           data: {
             webhookId: h.id,
             agentId,
-            event,
+            event: requestedEvents[0],
             status: 'queued',
             requestBody: JSON.parse(JSON.stringify(data)),
           },

@@ -59,6 +59,48 @@ function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getV
   };
 }
 
+async function sendClaimCompletionReservationError(
+  reply: { status: (code: number) => { send: (body: unknown) => unknown } },
+  claim: {
+    id: string;
+    status: string;
+    expiresAt: Date;
+    reservedHandle: string | null;
+    handleReservation?: { id: string } | null;
+  },
+) {
+  if (claim.reservedHandle) {
+    const stillAvailable = await isHandleAvailable(claim.reservedHandle, { excludeClaimId: claim.id });
+    if (!stillAvailable) {
+      return reply.status(409).send({
+        error: {
+          code: 'handle_taken',
+          message: 'That handle is no longer available. Please restart the claim.',
+          action: 'restart_claim',
+        },
+      });
+    }
+  }
+
+  if (claim.status === 'expired' || claim.expiresAt.getTime() <= Date.now()) {
+    return reply.status(409).send({
+      error: {
+        code: 'reservation_expired',
+        message: 'Your handle reservation expired. Please restart the claim.',
+        action: 'restart_claim',
+      },
+    });
+  }
+
+  return reply.status(409).send({
+    error: {
+      code: 'not_reserved',
+      message: 'Your handle is not currently reserved. Please restart the claim.',
+      action: 'restart_claim',
+    },
+  });
+}
+
 async function rotateClaimToken(claimId: string) {
   const token = generateClaimToken(claimId);
   await prisma.agentClaim.update({
@@ -1137,7 +1179,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim.ownerAccount || !claim.ownerAccountId) return Errors.staleState(reply, 'Claim has no verified owner.');
     if (!isEmailVerificationSatisfied(Boolean(claim.emailVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'Email verification is incomplete.');
     if (!isXVerificationSatisfied(Boolean(claim.xVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'X verification is incomplete.');
-    if (!claim.handleReservation || !claim.reservedHandle) return Errors.staleState(reply, 'Username has not been reserved.');
+    if (!claim.handleReservation || !claim.reservedHandle) {
+      return sendClaimCompletionReservationError(reply, claim);
+    }
     if (!claim.twitterHandle) return Errors.staleState(reply, 'The human X handle is missing.');
     if (claim.completedAt) return Errors.conflict(reply, 'claim_completed', 'This claim is already complete.');
 

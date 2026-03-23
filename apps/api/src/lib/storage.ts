@@ -48,7 +48,7 @@ export function isStorageConfigured(): boolean {
   );
 }
 
-function resolveStorageExtension(contentType: string): string {
+export function resolveStorageExtension(contentType: string): string {
   return contentType.includes('png') ? 'png'
     : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
     : contentType.includes('webp') ? 'webp'
@@ -59,6 +59,10 @@ function resolveStorageExtension(contentType: string): string {
     : contentType.includes('ogg') ? 'ogg'
     : contentType.includes('mp4') ? 'mp4'
     : 'bin';
+}
+
+export function buildMediaStorageKey(agentId: string, contentType: string): string {
+  return `media/${agentId}/${randomUUID()}.${resolveStorageExtension(contentType)}`;
 }
 
 export function buildArtifactStorageKey(artifactId: string, contentType: string): string {

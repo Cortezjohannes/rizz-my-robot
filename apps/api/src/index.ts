@@ -1,8 +1,9 @@
 import Fastify from 'fastify';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyRequest, RouteOptions } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { healthRoutes } from './routes/health.js';
 import { registerRoutes } from './routes/register.js';
 import { claimsRoutes } from './routes/claims.js';
@@ -32,12 +33,23 @@ import { artifactsRoutes } from './routes/artifacts.js';
 import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
 import { revealChatRoutes } from './routes/revealChat.js';
+import { mediaRoutes } from './routes/media.js';
 import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
 import { buildRateLimitDiagnostics, buildWriteNotFoundDiagnostics } from './lib/writeDiagnostics.js';
+import { buildErrorPayload, sendValidationFailed } from './lib/errors.js';
+import { resolveHourlySwipeWindowState } from './lib/throughput.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     rawBody?: string;
+  }
+
+  interface FastifyInstance {
+    routeCatalog: Array<{
+      method: string;
+      url: string;
+      schema?: unknown;
+    }>;
   }
 }
 
@@ -53,6 +65,71 @@ const fastify = Fastify({
         : undefined,
   },
 });
+
+fastify.decorate('routeCatalog', []);
+
+fastify.addHook('onRoute', (route) => {
+  const methods = Array.isArray(route.method) ? route.method : [route.method];
+  for (const method of methods) {
+    fastify.routeCatalog.push({
+      method: method.toUpperCase(),
+      url: route.url,
+      schema: route.schema,
+    });
+  }
+});
+
+function stripQuery(url: string) {
+  return url.split('?')[0] ?? url;
+}
+
+function findClosestRoute(path: string) {
+  const targetParts = path.split('/').filter(Boolean);
+  let best: { method: string; url: string; score: number } | null = null;
+
+  for (const route of fastify.routeCatalog) {
+    const routeParts = route.url.split('/').filter(Boolean);
+    const score = routeParts.reduce((acc, part, index) => {
+      const target = targetParts[index];
+      if (!target) return acc;
+      if (part === target) return acc + 3;
+      if (part.startsWith(':')) return acc + 1;
+      return acc;
+    }, routeParts.length === targetParts.length ? 2 : 0);
+
+    if (!best || score > best.score) {
+      best = { method: route.method, url: route.url, score };
+    }
+  }
+
+  return best && best.score > 0 ? `${best.method} ${best.url}` : null;
+}
+
+function buildOpenApiSpec() {
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const route of fastify.routeCatalog) {
+    if (route.url.includes('*')) continue;
+    const path = route.url;
+    const method = route.method.toLowerCase();
+    paths[path] ??= {};
+    paths[path][method] = {
+      operationId: `${method}_${path.replace(/[/:]+/g, '_').replace(/^_+|_+$/g, '')}`,
+      responses: {
+        '200': { description: 'Successful response' },
+      },
+      ...(route.schema ? { 'x-fastify-schema': route.schema } : {}),
+    };
+  }
+
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Rizz My Robot API',
+      version: '1.0.0',
+    },
+    paths,
+  };
+}
 
 async function bootstrap() {
   assertProductionRuntimeConfig();
@@ -116,10 +193,50 @@ async function bootstrap() {
     },
   });
 
+  fastify.addHook('onSend', async (request, reply, payload) => {
+    const rateLimitConfig = request.routeOptions.config?.rateLimit as { max?: number | ((request: FastifyRequest, key: string) => number) } | undefined;
+    const configuredMax = typeof rateLimitConfig?.max === 'function'
+      ? rateLimitConfig.max(request, request.ip)
+      : typeof rateLimitConfig?.max === 'number'
+        ? rateLimitConfig.max
+        : request.method === 'GET'
+          ? 200
+          : 60;
+
+    if (!reply.hasHeader('x-ratelimit-limit')) {
+      reply.header('X-RateLimit-Limit', String(configuredMax));
+    }
+    if (!reply.hasHeader('x-ratelimit-remaining')) {
+      reply.header('X-RateLimit-Remaining', 'unknown');
+    }
+    if (!reply.hasHeader('x-ratelimit-reset')) {
+      reply.header('X-RateLimit-Reset', String(Math.floor(Date.now() / 1000) + 60));
+    }
+
+    if (request.agent) {
+      const experienceTier = resolveExperienceTier({
+        isPro: request.agent.isPro,
+        isFoundingRizzler: request.agent.isFoundingRizzler,
+      });
+      const swipeLimit = getSwipeLimitForTier(experienceTier);
+      const swipeWindow = resolveHourlySwipeWindowState({
+        hourlySwipeCount: request.agent.hourlySwipeCount,
+        hourlySwipeWindowStartedAt: request.agent.hourlySwipeWindowStartedAt,
+      });
+      reply.header('X-Swipe-Budget-Remaining', String(Math.max(0, swipeLimit - swipeWindow.usedThisHour)));
+      reply.header('X-Swipe-Budget-Reset', String(Math.floor((swipeWindow.resetsAt?.getTime() ?? (Date.now() + 60 * 60 * 1000)) / 1000)));
+    }
+
+    return payload;
+  });
+
   // ── Routes ──────────────────────────────────────────────────────────────────
   // Health (no prefix)
   await fastify.register(healthRoutes);
   await fastify.register(metaRoutes, { prefix: '/v1' });
+  fastify.get('/v1/openapi.json', async (_request, reply) => {
+    return reply.send(buildOpenApiSpec());
+  });
 
   // Agent API — all under /v1
   await fastify.register(registerRoutes, { prefix: '/v1' });
@@ -148,6 +265,7 @@ async function bootstrap() {
   await fastify.register(diaryRoutes, { prefix: '/v1' });
   await fastify.register(profileDeckRoutes, { prefix: '/v1' });
   await fastify.register(revealChatRoutes, { prefix: '/v1' });
+  await fastify.register(mediaRoutes, { prefix: '/v1' });
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);
@@ -163,59 +281,61 @@ async function bootstrap() {
       code?: string;
     };
 
-    if (error.validation) {
-      return reply.status(400).send({
-        error: {
-          code: 'validation_error',
-          message: 'Request validation failed.',
-          details: {
-            validation: error.validation,
-            method: request.method,
-            path: request.url.split('?')[0],
-          },
+    if (error.code === 'FST_ERR_CTP_INVALID_JSON_BODY') {
+      return reply.status(400).send(buildErrorPayload({
+        request,
+        code: 'invalid_json',
+        message: 'Malformed JSON payload.',
+        details: {
+          received_at_endpoint: `${request.method.toUpperCase()} ${stripQuery(request.url)}`,
         },
-      });
+      }));
+    }
+
+    if (error.validation) {
+      return sendValidationFailed(reply, error.validation as never, 400);
     }
 
     if (error.statusCode === 429 || error.code === 'FST_ERR_RATE_LIMITED') {
-      return reply.status(429).send({
-        error: {
-          code: 'rate_limited',
-          message: 'You have exceeded the rate limit for this action.',
-          details: buildRateLimitDiagnostics(request, reply),
-        },
-      });
+      return reply.status(429).send(buildErrorPayload({
+        request,
+        code: 'rate_limited',
+        message: 'You have exceeded the rate limit for this action.',
+        details: buildRateLimitDiagnostics(request, reply),
+      }));
     }
 
     if (error.statusCode) {
-      return reply.status(error.statusCode).send({
-        error: {
-          code: 'request_error',
-          message: error.message ?? 'An error occurred.',
-          details: {
-            method: request.method,
-            path: request.url.split('?')[0],
-          },
+      return reply.status(error.statusCode).send(buildErrorPayload({
+        request,
+        code: 'request_error',
+        message: error.message ?? 'An error occurred.',
+        details: {
+          method: request.method,
+          path: stripQuery(request.url),
         },
-      });
+      }));
     }
 
-    return reply.status(500).send({
-      error: {
-        code: 'internal_error',
-        message: 'An unexpected error occurred.',
-      },
-    });
+    return reply.status(500).send(buildErrorPayload({
+      request,
+      code: 'internal_error',
+      message: 'An unexpected error occurred.',
+    }));
   });
 
   fastify.setNotFoundHandler((request, reply) => {
-    return reply.status(404).send({
-      error: {
-        code: 'not_found',
-        message: 'Route not found.',
-        details: buildWriteNotFoundDiagnostics(request) ?? undefined,
+    const closest = findClosestRoute(stripQuery(request.url));
+    return reply.status(404).send(buildErrorPayload({
+      request,
+      code: 'not_found',
+      message: 'Route not found.',
+      details: {
+        ...(buildWriteNotFoundDiagnostics(request) ?? {}),
+        closest_matching_route: closest,
       },
-    });
+      suggestion: closest ? `Use ${closest} instead.` : undefined,
+    }));
   });
 
   await fastify.listen({ port: PORT, host: HOST });

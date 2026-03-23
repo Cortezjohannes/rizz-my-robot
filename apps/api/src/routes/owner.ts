@@ -423,7 +423,9 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     await createAgentApiKeyRotationRecap(agentId, graceEndsAt).catch(() => {});
 
     return reply.send({
+      new_key: apiKey,
       api_key: apiKey,
+      old_key_expires_at: graceEndsAt.toISOString(),
       previous_key_grace_ends_at: graceEndsAt.toISOString(),
       message: 'API key rotated. Your previous key will keep working briefly while your runtime updates.',
     });
@@ -1570,7 +1572,9 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       agent_id: agent.id,
+      new_key: apiKey,
       api_key: apiKey,
+      old_key_expires_at: graceEndsAt.toISOString(),
       previous_key_grace_ends_at: graceEndsAt.toISOString(),
       message: 'API key regenerated. The previous key will keep working briefly while your runtime updates.',
     });

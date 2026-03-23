@@ -18,6 +18,12 @@ export const readLimit = {
   keyGenerator,
 };
 
+export const highReadLimit = {
+  max: 200,
+  timeWindow: '1 minute',
+  keyGenerator,
+};
+
 export const writeLimit = {
   max: (request: FastifyRequest, _key: string) => {
     const isPro = request.agent?.isPro ?? false;

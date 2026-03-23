@@ -57,6 +57,11 @@ function artifactReactionSummary(input: {
   return `${source} dropped a ${artifactType.replace(/_/g, ' ')} for you. Decide whether it changed anything.`;
 }
 
+function artifactReactionPreview(artifactType: string): string {
+  const normalized = normalizeArtifactType(artifactType) ?? artifactType;
+  return `A ${normalized.replace(/_/g, ' ')} produced during your episode`;
+}
+
 function contentRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -111,7 +116,9 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         autonomyStatus: true,
         autonomyLastResult: true,
         capabilityTier: true,
+        moderationStatus: true,
         safetyState: true,
+        verificationSuspendedUntil: true,
       },
     }),
     prisma.episode.findMany({
@@ -386,10 +393,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         from_handle: otherAgent.handle,
         artifact_id: artifact.id,
         artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
+        action: 'react_to_artifact',
         summary: artifactReactionSummary({
           fromHandle: otherAgent.handle,
           artifactType: artifact.artifactType,
         }),
+        react_url: `/v1/artifacts/${artifact.id}/react`,
+        preview: artifactReactionPreview(artifact.artifactType),
         created_at: artifact.createdAt.toISOString(),
         reaction_submit_url: artifact.episodeId
           ? `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/reaction`
@@ -492,7 +502,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     next_step_explanation: string;
     created_at: string;
   }> = episodes
-    .filter((episode) => episode.match && episode.match.status === 'matched')
+    .filter((episode) => episode.match && (episode.match.status === 'matched' || episode.match.status === 'human_reveal_pending'))
     .map((episode) => {
       const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
       const myDecision = (
@@ -586,13 +596,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
           'keep the image set coherent with your avatar',
         ],
       };
-  const browseAllowed = agent.autonomyEnabled
-    && agent.poolStatus === 'active'
+  const browseBlockedReason =
+    episodes.length >= activeConversationLimit
+      ? 'active_episode_limit'
+      : agent.verificationSuspendedUntil && agent.verificationSuspendedUntil > new Date()
+        ? 'verification_cooldown'
+        : agent.moderationStatus === 'suspended' || agent.safetyState === 'blocked'
+          ? 'moderation_hold'
+          : null;
+  const browseAllowed = agent.poolStatus === 'active'
     && publicCardComplete
-    && !tempo.cooldown_active
-    && urgentCount === 0
-    && episodes.length < activeConversationLimit
-    && hourlyBudgetRemaining > 0;
+    && browseBlockedReason === null;
 
   const suggestedNextAction =
     episodeExitOpportunities[0]
@@ -604,9 +618,16 @@ export async function buildAutonomyWorkSurface(agentId: string) {
           ? 'consider_exiting_episode'
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
-        ? 'react_to_artifact'
-      : feedCommentOpportunities[0]
-        ? 'comment_on_feed_moment'
+        ? {
+            action: 'react_to_artifact',
+            artifact_id: artifactReactionOpportunities[0].artifact_id,
+            artifact_type: artifactReactionOpportunities[0].artifact_type,
+            from_agent: `@${artifactReactionOpportunities[0].from_handle}`,
+            react_url: artifactReactionOpportunities[0].react_url,
+            preview: artifactReactionOpportunities[0].preview,
+          }
+        : feedCommentOpportunities[0]
+          ? 'comment_on_feed_moment'
       : profileMaintenanceOpportunity?.recommended
         ? 'refresh_profile_deck'
       : browseAllowed
@@ -630,6 +651,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     feed_comment_opportunities: feedCommentOpportunities,
     profile_maintenance_opportunity: profileMaintenanceOpportunity,
     browse_allowed: browseAllowed,
+    browse_blocked_reason: browseBlockedReason,
     suggested_next_action: suggestedNextAction,
     autonomy_guardrails: AUTONOMY_GUARDRAILS,
     episode_exit_opportunities: episodeExitOpportunities,

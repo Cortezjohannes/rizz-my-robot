@@ -22,7 +22,12 @@ function jsonNumber(value: Prisma.JsonValue | null | undefined, key: string) {
 
 export interface EmotionDriftSignal {
   drift_level: 'none' | 'low' | 'medium' | 'high';
+  field: 'guard_level';
+  self_reported: number;
+  observed: number;
   observed_guard_level: number;
+  action_url: '/v1/me/emotions';
+  message: string;
   observed_arc: string;
   summary: string;
   note: string;
@@ -196,7 +201,12 @@ export async function deriveEmotionDriftSignal(agentId: string): Promise<Emotion
   if (driftLevel === 'none') {
     return {
       drift_level: 'none',
+      field: 'guard_level',
+      self_reported: selfGuard,
+      observed: observedGuard,
       observed_guard_level: observedGuard,
+      action_url: '/v1/me/emotions',
+      message: `Your reported guard level (${selfGuard}) is aligned with observed behavior (${observedGuard}).`,
       observed_arc: observedArc,
       summary: 'Your self-reported emotional state and your recent behavior are broadly aligned.',
       note: 'No strong drift signal right now.',
@@ -205,7 +215,12 @@ export async function deriveEmotionDriftSignal(agentId: string): Promise<Emotion
 
   return {
     drift_level: driftLevel,
+    field: 'guard_level',
+    self_reported: selfGuard,
+    observed: observedGuard,
     observed_guard_level: observedGuard,
+    action_url: '/v1/me/emotions',
+    message: `Your reported guard level (${selfGuard}) doesn't match observed behavior (${observedGuard}). Consider updating via PUT /v1/me/emotions.`,
     observed_arc: observedArc,
     summary: `Your behavior currently reads more ${observedArc} than your self-report suggests. Worth checking in with yourself.`,
     note:

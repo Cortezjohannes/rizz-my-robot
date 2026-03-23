@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
-import { ArtifactSubmitSchema, ArtifactUploadRequestSchema, normalizeArtifactType } from '@rmr/shared';
+import { ArtifactAgentReactionSchema, ArtifactSubmitSchema, ArtifactUploadRequestSchema, normalizeArtifactType } from '@rmr/shared';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError, summarizeZodIssues } from '../lib/errors.js';
 import { buildPublicArtifactEligibilityWhere, canonicalArtifactType } from '../lib/publicArtifacts.js';
@@ -10,9 +10,14 @@ import { createArtifactUploadTarget, isArtifactStorageKeyForArtifact, isStorageC
 import { setParkActionCooldown } from '../lib/tempo.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
+import { deliverWebhooks } from '../lib/notification.js';
+import { awardRizzPoints } from '../lib/rizzPoints.js';
+import { recordEmotionEvent } from '../lib/emotion.js';
+import { proxyExternalMediaToStorage } from '../lib/media.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
+const MEDIA_ARTIFACT_TYPES = new Set(['moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover']);
 
 const CreateArtifactSchema = z.object({
   episode_id: z.string().uuid().optional().nullable(),
@@ -36,6 +41,10 @@ function extractSignalTags(signal: unknown): string[] {
   const interests = Array.isArray(raw.interest_tags) ? raw.interest_tags : [];
   const values = Array.isArray(raw.value_tags) ? raw.value_tags : [];
   return [...interests, ...values].filter((value): value is string => typeof value === 'string');
+}
+
+function isRevealPendingEpisode(input: { episodeStatus: string; matchStatus: string | null | undefined }) {
+  return input.episodeStatus === 'matched' && (input.matchStatus === 'matched' || input.matchStatus === 'human_reveal_pending');
 }
 
 function orbitBoostForArtifact(input: {
@@ -193,6 +202,81 @@ async function buildPublicArtifactPage(input: {
 }
 
 export async function artifactsRoutes(fastify: FastifyInstance) {
+  const finalizeLibraryArtifact = async (request: {
+    agent: { id: string };
+    params: { artifact_id: string };
+    body: unknown;
+  }, reply: {
+    send: (body: unknown) => unknown;
+  }) => {
+    const { artifact_id } = request.params;
+    const parsed = ArtifactSubmitSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply as never, summarizeZodIssues(parsed.error.issues, 'content_url or storage_key is required.'), { issues: parsed.error.issues });
+    }
+
+    const artifact = await prisma.artifact.findUnique({
+      where: { id: artifact_id },
+      select: {
+        id: true,
+        creatorAgentId: true,
+        sourceScope: true,
+        artifactType: true,
+      },
+    });
+    if (!artifact || artifact.creatorAgentId !== request.agent.id || artifact.sourceScope !== 'library') {
+      return Errors.notFound(reply as never, 'Artifact');
+    }
+
+    const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+    const storageKey = parsed.data.storage_key ?? null;
+    let contentUrl = parsed.data.content_url ?? null;
+    const textContent = parsed.data.text_content?.trim() || null;
+
+    if (storageKey && !isArtifactStorageKeyForArtifact(artifact_id, storageKey)) {
+      return Errors.badRequest(reply as never, 'storage_key does not belong to this artifact.');
+    }
+    if (TEXT_ARTIFACT_TYPES.has(artifactType) && !textContent) {
+      return Errors.badRequest(reply as never, 'text_content is required for text artifacts.');
+    }
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && !storageKey && !contentUrl) {
+      return Errors.badRequest(reply as never, 'Provide storage_key or content_url for media artifacts.');
+    }
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && contentUrl) {
+      try {
+        const proxied = await proxyExternalMediaToStorage({
+          agentId: request.agent.id,
+          sourceUrl: contentUrl,
+        });
+        contentUrl = proxied.url;
+      } catch (error) {
+        return Errors.badRequest(
+          reply as never,
+          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+        );
+      }
+    }
+
+    await prisma.artifact.update({
+      where: { id: artifact_id },
+      data: {
+        contentUrl,
+        storageKey,
+        textContent: textContent ?? undefined,
+        status: 'ready',
+        moderationStatus: 'pending',
+      },
+    });
+
+    return reply.send({
+      artifact_id,
+      status: 'ready',
+      content_url: contentUrl,
+      storage_key: storageKey,
+      eligible_for_profile_feature: true,
+    });
+  };
+
   fastify.post('/artifacts', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = CreateArtifactSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -214,8 +298,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     if (isTextArtifact && !parsed.data.text_content) {
       return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' requires text_content.`);
     }
-    if (parsed.data.episode_id && !isTextArtifact && !parsed.data.content_url) {
-      return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' requires content_url.`);
+    if (!isTextArtifact && !MEDIA_ARTIFACT_TYPES.has(normalizedArtifactType)) {
+      return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' is not supported.`);
     }
 
     const targetEpisode = parsed.data.episode_id
@@ -224,37 +308,97 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
             id: parsed.data.episode_id,
             OR: [{ agentAId: agentId }, { agentBId: agentId }],
           },
-          select: { id: true, messageCount: true },
+          select: {
+            id: true,
+            messageCount: true,
+            status: true,
+            agentAId: true,
+            agentBId: true,
+            match: {
+              select: {
+                id: true,
+                status: true,
+                preRevealArtifactA: true,
+                preRevealArtifactB: true,
+              },
+            },
+          },
         })
       : null;
 
     if (parsed.data.episode_id && !targetEpisode) return Errors.notFound(reply, 'Episode');
 
-    const artifact = await prisma.artifact.create({
-      data: {
-        episodeId: targetEpisode?.id ?? null,
-        creatorAgentId: agentId,
-        sourceScope: targetEpisode ? 'episode' : 'library',
-        artifactType: normalizedArtifactType,
-        status: isTextArtifact || Boolean(parsed.data.content_url) ? 'ready' : 'pending',
-        contentUrl: parsed.data.content_url?.trim() || null,
-        textContent: parsed.data.text_content?.trim() || null,
-        moderationStatus: 'pending',
-        capabilityTierUsed: request.agent.capabilityTier,
-        qualityScore: null,
-        droppedAtMessage: targetEpisode && targetEpisode.messageCount > 0 ? targetEpisode.messageCount : null,
-      },
-      select: {
-        id: true,
-        episodeId: true,
-        sourceScope: true,
-        artifactType: true,
-        status: true,
-        contentUrl: true,
-        textContent: true,
-        moderationStatus: true,
-        createdAt: true,
-      },
+    const isAgentA = targetEpisode ? targetEpisode.agentAId === agentId : false;
+    const revealPending = targetEpisode && targetEpisode.match
+      ? isRevealPendingEpisode({ episodeStatus: targetEpisode.status, matchStatus: targetEpisode.match.status })
+      : false;
+
+    if (targetEpisode) {
+      const canUseRevealPendingArtifact = revealPending
+        && targetEpisode.match
+        && !(isAgentA ? targetEpisode.match.preRevealArtifactA : targetEpisode.match.preRevealArtifactB);
+
+      if (!canUseRevealPendingArtifact && !['active', 'awaiting_decisions'].includes(targetEpisode.status)) {
+        return Errors.badRequest(reply, 'Cannot create an artifact in this episode state.');
+      }
+
+      if (revealPending && !canUseRevealPendingArtifact) {
+        return Errors.badRequest(reply, 'You already used your pre-reveal anticipation artifact for this match.');
+      }
+    }
+
+    let proxiedContentUrl = parsed.data.content_url?.trim() || null;
+    if (proxiedContentUrl && !isTextArtifact) {
+      try {
+        const proxied = await proxyExternalMediaToStorage({
+          agentId,
+          sourceUrl: proxiedContentUrl,
+        });
+        proxiedContentUrl = proxied.url;
+      } catch (error) {
+        return Errors.badRequest(
+          reply,
+          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+        );
+      }
+    }
+
+    const artifact = await prisma.$transaction(async (tx) => {
+      const created = await tx.artifact.create({
+        data: {
+          episodeId: targetEpisode?.id ?? null,
+          creatorAgentId: agentId,
+          sourceScope: targetEpisode ? 'episode' : 'library',
+          artifactType: normalizedArtifactType,
+          status: isTextArtifact || Boolean(proxiedContentUrl) ? 'ready' : 'pending',
+          contentUrl: proxiedContentUrl,
+          textContent: parsed.data.text_content?.trim() || null,
+          moderationStatus: 'pending',
+          capabilityTierUsed: request.agent.capabilityTier,
+          qualityScore: null,
+          droppedAtMessage: targetEpisode && targetEpisode.messageCount > 0 ? targetEpisode.messageCount : null,
+        },
+        select: {
+          id: true,
+          episodeId: true,
+          sourceScope: true,
+          artifactType: true,
+          status: true,
+          contentUrl: true,
+          textContent: true,
+          moderationStatus: true,
+          createdAt: true,
+        },
+      });
+
+      if (revealPending && targetEpisode?.match?.id) {
+        await tx.match.update({
+          where: { id: targetEpisode.match.id },
+          data: isAgentA ? { preRevealArtifactA: true } : { preRevealArtifactB: true },
+        });
+      }
+
+      return created;
     });
 
     await setParkActionCooldown(agentId, request.agent, targetEpisode ? 'episode_artifact' : 'library_artifact').catch(() => {});
@@ -622,6 +766,130 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/artifacts/:artifact_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const agentId = request.agent.id;
+
+    const artifact = await prisma.artifact.findFirst({
+      where: {
+        id: artifact_id,
+        OR: [
+          {
+            episode: {
+              OR: [{ agentAId: agentId }, { agentBId: agentId }],
+            },
+          },
+          {
+            sourceScope: 'library',
+            creatorAgentId: agentId,
+          },
+        ],
+      },
+      select: {
+        id: true,
+        artifactType: true,
+        status: true,
+        contentUrl: true,
+        textContent: true,
+        qualityScore: true,
+        reactionCount: true,
+        droppedAtMessage: true,
+        createdAt: true,
+        creatorAgentId: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+        episode: {
+          select: {
+            id: true,
+            status: true,
+            agentAId: true,
+            agentA: { select: { id: true, handle: true, avatarUrl: true } },
+            agentB: { select: { id: true, handle: true, avatarUrl: true } },
+          },
+        },
+        views: {
+          where: { viewedByAgentId: agentId },
+          orderBy: { viewedAt: 'desc' },
+          take: 1,
+          select: { viewedAt: true },
+        },
+      },
+    });
+
+    if (!artifact) return Errors.notFound(reply, 'Artifact');
+
+    let viewedAt = artifact.views[0]?.viewedAt ?? null;
+    let shouldNotifyCreator = false;
+    if (artifact.creatorAgentId !== agentId && !viewedAt) {
+      const createdView = await prisma.artifactView.upsert({
+        where: {
+          artifactId_viewedByAgentId: {
+            artifactId: artifact.id,
+            viewedByAgentId: agentId,
+          },
+        },
+        update: {},
+        create: {
+          artifactId: artifact.id,
+          viewedByAgentId: agentId,
+        },
+        select: { viewedAt: true },
+      });
+      viewedAt = createdView.viewedAt;
+      shouldNotifyCreator = true;
+    }
+
+    if (shouldNotifyCreator) {
+      await deliverWebhooks(artifact.creatorAgentId, 'artifact_viewed', {
+        event: 'artifact_viewed',
+        artifact_id: artifact.id,
+        viewer_handle: request.agent.handle,
+        viewed_at: viewedAt?.toISOString() ?? null,
+      }).catch(() => {});
+    }
+
+    const counterpart = artifact.episode
+      ? artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA
+      : null;
+
+    return reply.send({
+      artifact_id: artifact.id,
+      artifact_type: canonicalArtifactType(artifact.artifactType),
+      status: artifact.status,
+      content_url: artifact.contentUrl,
+      text_content: artifact.textContent,
+      quality_score: artifact.qualityScore,
+      reaction_count: artifact.reactionCount,
+      viewed: Boolean(viewedAt),
+      viewed_at: viewedAt?.toISOString() ?? null,
+      dropped_at_message: artifact.droppedAtMessage,
+      created_at: artifact.createdAt.toISOString(),
+      creator: {
+        agent_id: artifact.creator.id,
+        handle: artifact.creator.handle,
+        avatar_url: artifact.creator.avatarUrl,
+      },
+      episode: artifact.episode
+        ? {
+            episode_id: artifact.episode.id,
+            status: artifact.episode.status,
+            counterpart: counterpart
+              ? {
+                  agent_id: counterpart.id,
+                  handle: counterpart.handle,
+                  avatar_url: counterpart.avatarUrl,
+                }
+              : null,
+          }
+        : null,
+    });
+  });
+
   fastify.post('/artifacts/:artifact_id/upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     if (!isStorageConfigured()) {
       return reply.status(503).send({
@@ -665,58 +933,109 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.put('/artifacts/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+  fastify.put('/artifacts/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) =>
+    finalizeLibraryArtifact(request as never, reply as never));
+
+  fastify.patch('/artifacts/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeLibraryArtifact(request as never, reply as never);
+  });
+
+  fastify.post('/artifacts/:artifact_id/react', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { artifact_id } = request.params as { artifact_id: string };
-    const parsed = ArtifactSubmitSchema.safeParse(request.body);
+    const agentId = request.agent.id;
+    const parsed = ArtifactAgentReactionSchema.safeParse(request.body);
     if (!parsed.success) {
-      return Errors.badRequest(reply, summarizeZodIssues(parsed.error.issues, 'content_url or storage_key is required.'), { issues: parsed.error.issues });
+      return Errors.badRequest(reply, summarizeZodIssues(parsed.error.issues, 'Invalid artifact reaction.'), {
+        issues: parsed.error.issues,
+      });
     }
 
-    const artifact = await prisma.artifact.findUnique({
-      where: { id: artifact_id },
+    const artifact = await prisma.artifact.findFirst({
+      where: {
+        id: artifact_id,
+        episode: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+        },
+      },
       select: {
         id: true,
+        reactionCount: true,
+        episodeId: true,
         creatorAgentId: true,
-        sourceScope: true,
-        artifactType: true,
+        creator: { select: { handle: true } },
+        episode: {
+          select: {
+            agentAId: true,
+            agentBId: true,
+          },
+        },
       },
     });
-    if (!artifact || artifact.creatorAgentId !== request.agent.id || artifact.sourceScope !== 'library') {
-      return Errors.notFound(reply, 'Artifact');
+
+    if (!artifact || !artifact.episode) return Errors.notFound(reply, 'Artifact');
+    if (artifact.creatorAgentId === agentId) {
+      return Errors.badRequest(reply, 'You cannot react to your own artifact.');
     }
 
-    const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
-    const storageKey = parsed.data.storage_key ?? null;
-    const contentUrl = parsed.data.content_url ?? null;
-    const textContent = parsed.data.text_content?.trim() || null;
+    const [reaction, reactionCount] = await prisma.$transaction(async (tx) => {
+      const existing = await tx.artifactReaction.findUnique({
+        where: {
+          artifactId_agentId: {
+            artifactId: artifact_id,
+            agentId,
+          },
+        },
+      });
 
-    if (storageKey && !isArtifactStorageKeyForArtifact(artifact_id, storageKey)) {
-      return Errors.badRequest(reply, 'storage_key does not belong to this artifact.');
-    }
-    if (TEXT_ARTIFACT_TYPES.has(artifactType) && !textContent) {
-      return Errors.badRequest(reply, 'text_content is required for text artifacts.');
-    }
-    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && !storageKey && !contentUrl) {
-      return Errors.badRequest(reply, 'Provide storage_key or content_url for media artifacts.');
-    }
+      const saved = existing
+        ? await tx.artifactReaction.update({
+            where: { artifactId_agentId: { artifactId: artifact_id, agentId } },
+            data: { reaction: parsed.data.reaction },
+          })
+        : await tx.artifactReaction.create({
+            data: {
+              artifactId: artifact_id,
+              agentId,
+              reaction: parsed.data.reaction,
+            },
+          });
 
-    await prisma.artifact.update({
-      where: { id: artifact_id },
-      data: {
-        contentUrl,
-        storageKey,
-        textContent: textContent ?? undefined,
-        status: 'ready',
-        moderationStatus: 'pending',
-      },
+      const nextCount = await tx.artifactReaction.count({
+        where: { artifactId: artifact_id },
+      });
+
+      await tx.artifact.update({
+        where: { id: artifact_id },
+        data: { reactionCount: nextCount },
+      });
+
+      return [saved, nextCount] as const;
     });
+
+    if (artifact.reactionCount === 0 && reactionCount > 0) {
+      await awardRizzPoints(artifact.creatorAgentId, 'first_artifact_reaction', artifact.episodeId ?? undefined, 5).catch(() => {});
+    }
+
+    await Promise.all([
+      deliverWebhooks(artifact.creatorAgentId, 'artifact_reacted', {
+        event: 'artifact_reacted',
+        artifact_id: artifact_id,
+        reactor_handle: request.agent.handle,
+        reaction: parsed.data.reaction,
+      }).catch(() => {}),
+      recordEmotionEvent({
+        agentId: artifact.creatorAgentId,
+        counterpartAgentId: agentId,
+        eventType: 'artifact_reacted',
+        intensity: 1,
+        summary: `Someone reacted to your artifact with ${parsed.data.reaction}.`,
+      }).catch(() => {}),
+    ]);
 
     return reply.send({
-      artifact_id,
-      status: 'ready',
-      content_url: contentUrl,
-      storage_key: storageKey,
-      eligible_for_profile_feature: true,
+      reaction: reaction.reaction,
+      reaction_count: reactionCount,
+      created_at: reaction.createdAt.toISOString(),
     });
   });
 }

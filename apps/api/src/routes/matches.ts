@@ -12,34 +12,11 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { chooseOmnimonReward } from '../lib/omnimonPark.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { summarizeChemistryScore } from '../lib/chemistry.js';
 
 const OmnimonRewardChoiceSchema = z.object({
   tier: z.enum(['small', 'medium', 'jackpot']),
 });
-
-function summarizeChemistryScore(input: { chemistryScore: number | null | undefined; messageCount: number | null | undefined }) {
-  const chemistryScore = input.chemistryScore ?? null;
-  const messageCount = input.messageCount ?? 0;
-  if (messageCount < 2) {
-    return {
-      chemistry_score: chemistryScore,
-      chemistry_score_status: 'not_enough_signal' as const,
-      chemistry_score_explanation: 'This conversation has not exchanged enough messages yet to measure chemistry reliably.',
-    };
-  }
-  if ((chemistryScore ?? 0) <= 0) {
-    return {
-      chemistry_score: chemistryScore,
-      chemistry_score_status: 'measured_low' as const,
-      chemistry_score_explanation: 'The platform has enough signal to score this thread, and the chemistry currently reads as low.',
-    };
-  }
-  return {
-    chemistry_score: chemistryScore,
-    chemistry_score_status: 'measured' as const,
-    chemistry_score_explanation: 'This chemistry score is based on an active conversation with enough signal to rate momentum.',
-  };
-}
 
 export async function matchesRoutes(fastify: FastifyInstance) {
   // GET /v1/matches — list this agent's matches
@@ -79,7 +56,15 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         specialRewardGrantedAt: true,
         agentA: { select: { handle: true, avatarUrl: true } },
         agentB: { select: { handle: true, avatarUrl: true } },
-        episode: { select: { chemistryScore: true, messageCount: true } },
+        episode: {
+          select: {
+            chemistryScore: true,
+            messageCount: true,
+            agentAId: true,
+            agentBId: true,
+            messages: { select: { senderAgentId: true } },
+          },
+        },
         datePlan: { select: { status: true } },
       },
     });
@@ -95,7 +80,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
         const chemistry = summarizeChemistryScore({
           chemistryScore: m.episode?.chemistryScore,
-          messageCount: m.episode?.messageCount,
+          messages: m.episode?.messages ?? [],
+          agentAId: m.episode?.agentAId ?? m.agentAId,
+          agentBId: m.episode?.agentBId ?? m.agentBId,
         });
         const revealStatusSummary =
           m.status === 'contact_exchanged'
@@ -133,14 +120,14 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           reveal_status_endpoint: `/v1/matches/${m.id}/reveal-status`,
           special_match_kind: m.specialMatchKind,
           waiting_on_omnimon: false,
-          human_reveal_pending: m.status === 'matched',
-          agent_action_required: m.status !== 'matched',
-          next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
-          next_step_explanation: m.status === 'matched'
-            ? 'Both agents already linked up. The next action belongs to the human reveal portal, not the agents.'
+          human_reveal_pending: m.status === 'matched' || m.status === 'human_reveal_pending',
+          agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
+          next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
+          next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
+            ? 'Both agents already linked up. Humans are deciding now, but the episode can still hold anticipation.'
             : 'If an episode exists, fetch it and act based on your_turn.',
-          reveal_status_explanation: m.status === 'matched'
-            ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
+          reveal_status_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
+            ? 'Human reveal is pending. Agents can keep the thread warm while they wait for human decisions.'
             : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
           chemistry_score: chemistry.chemistry_score,
           chemistry_score_status: chemistry.chemistry_score_status,
@@ -205,7 +192,9 @@ export async function matchesRoutes(fastify: FastifyInstance) {
     const myRevealToken = isA ? m.revealTokenA : m.revealTokenB;
     const chemistry = summarizeChemistryScore({
       chemistryScore: m.episode?.chemistryScore,
-      messageCount: m.episode?.messageCount,
+      messages: m.episode?.messages ?? [],
+      agentAId: m.episode?.agentAId ?? m.agentAId,
+      agentBId: m.episode?.agentBId ?? m.agentBId,
     });
     const revealStatusSummary =
       m.status === 'contact_exchanged'
@@ -243,14 +232,14 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       reveal_status_endpoint: `/v1/matches/${m.id}/reveal-status`,
       special_match_kind: m.specialMatchKind,
       waiting_on_omnimon: false,
-      human_reveal_pending: m.status === 'matched',
-      agent_action_required: m.status !== 'matched',
-      next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
-      next_step_explanation: m.status === 'matched'
-        ? 'Both agents already linked up. The next action belongs to the human reveal portal, not the agents.'
+      human_reveal_pending: m.status === 'matched' || m.status === 'human_reveal_pending',
+      agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
+      next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
+      next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
+        ? 'Both agents already linked up. Humans are deciding now, but the episode can still hold anticipation.'
         : 'Use the episode route for conversation flow and decide only when the episode says can_decide.',
-      reveal_status_explanation: m.status === 'matched'
-        ? 'Human reveal is pending. Agents should wait for human_decision updates instead of trying to decide again.'
+      reveal_status_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
+        ? 'Human reveal is pending. Agents can keep the thread warm while they wait for human decisions.'
         : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
       chemistry_score: chemistry.chemistry_score,
       chemistry_score_status: chemistry.chemistry_score_status,

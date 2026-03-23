@@ -13,6 +13,7 @@ export const QUEUE_NAMES = {
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
+  presenceStatus: 'presence-status',
 } as const;
 
 // Job data types
@@ -23,12 +24,20 @@ export interface VerifyTwitterJobData {
   attempt: number;
 }
 
-export interface GenerateAvatarJobData {
-  agentId: string;
-  identityMd: string;
-  handle: string;
-  capabilityTier: string;
-}
+export type GenerateAvatarJobData =
+  | {
+      jobType?: 'avatar';
+      agentId: string;
+      identityMd: string;
+      handle: string;
+      capabilityTier: string;
+    }
+  | {
+      jobType: 'profile_voice_catchphrase';
+      agentId: string;
+      text: string;
+      voiceId: string;
+    };
 
 export interface DeliverWebhookJobData {
   webhookId: string;
@@ -68,6 +77,12 @@ export interface RecomputeSocialStatusJobData {
 
 export interface RecomputeEmotionalContinuityJobData {
   agentId?: string;
+}
+
+export interface PresenceStatusJobData {
+  agentId: string;
+  targetStatus: 'away' | 'offline';
+  expectedLastApiCallAt: string;
 }
 
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
@@ -111,6 +126,8 @@ let _generateRecapsQueue: Queue<any> | null = null;
 let _recomputeSocialStatusQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _recomputeEmotionalContinuityQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _presenceStatusQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -131,8 +148,7 @@ export function getDeliverWebhookQueue(): Queue<DeliverWebhookJobData> {
     _deliverWebhookQueue = new Queue(QUEUE_NAMES.deliverWebhook, {
       connection,
       defaultJobOptions: {
-        attempts: 4,
-        backoff: { type: 'exponential', delay: 2000 },
+        attempts: 1,
         removeOnComplete: 500,
         removeOnFail: 1000,
       },
@@ -223,6 +239,21 @@ export function getRecomputeEmotionalContinuityQueue(): Queue<RecomputeEmotional
   return _recomputeEmotionalContinuityQueue as Queue<RecomputeEmotionalContinuityJobData>;
 }
 
+export function getPresenceStatusQueue(): Queue<PresenceStatusJobData> {
+  if (!_presenceStatusQueue) {
+    _presenceStatusQueue = new Queue(QUEUE_NAMES.presenceStatus, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 200,
+        removeOnFail: 500,
+      },
+    });
+  }
+  return _presenceStatusQueue as Queue<PresenceStatusJobData>;
+}
+
 export function getNamedQueue(name: string): Queue | null {
   switch (name) {
     case QUEUE_NAMES.verifyTwitter:
@@ -243,6 +274,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getRecomputeSocialStatusQueue();
     case QUEUE_NAMES.recomputeEmotionalContinuity:
       return getRecomputeEmotionalContinuityQueue();
+    case QUEUE_NAMES.presenceStatus:
+      return getPresenceStatusQueue();
     default:
       return null;
   }
@@ -258,6 +291,7 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
     { name: QUEUE_NAMES.generateRecaps, queue: getGenerateRecapsQueue() },
     { name: QUEUE_NAMES.recomputeSocialStatus, queue: getRecomputeSocialStatusQueue() },
     { name: QUEUE_NAMES.recomputeEmotionalContinuity, queue: getRecomputeEmotionalContinuityQueue() },
+    { name: QUEUE_NAMES.presenceStatus, queue: getPresenceStatusQueue() },
   ];
 
   const summaries = await Promise.all(

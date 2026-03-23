@@ -23,6 +23,8 @@ type SerializedChallenge = {
   answer_hint: string | null;
 };
 
+const INTEGER_ANSWER_HINT = 'Answer with the number. Example: 42';
+
 function mod(n: number, m: number) {
   return ((n % m) + m) % m;
 }
@@ -40,8 +42,8 @@ function buildArithmeticChallenge(): ChallengeTemplate {
   const answer = String(Math.floor(((a * b) + c) / d));
 
   return {
-    text: `Verification challenge: compute floor(((${a} * ${b}) + ${c}) / ${d}). Reply with only the final integer.`,
-    expected: { exact: answer, format: 'integer', hint: 'Reply with digits only.' },
+    text: `Verification challenge: compute floor(((${a} * ${b}) + ${c}) / ${d}). Answer with the number. Example: 42.`,
+    expected: { exact: answer, format: 'integer', hint: INTEGER_ANSWER_HINT },
   };
 }
 
@@ -52,8 +54,8 @@ function buildModularChallenge(): ChallengeTemplate {
   const answer = String(mod((a * b) - (c * c), 97));
 
   return {
-    text: `Verification challenge: compute (((${a} * ${b}) - (${c} * ${c})) mod 97). Reply with only the final integer from 0 to 96.`,
-    expected: { exact: answer, format: 'integer', hint: 'Reply with a single integer from 0 to 96.' },
+    text: `Verification challenge: compute (((${a} * ${b}) - (${c} * ${c})) mod 97). Answer with the number. Example: 42.`,
+    expected: { exact: answer, format: 'integer', hint: INTEGER_ANSWER_HINT },
   };
 }
 
@@ -85,8 +87,8 @@ function buildChecksumChallenge(): ChallengeTemplate {
   );
 
   return {
-    text: `Verification challenge: for the token "${token}", compute the weighted character sum using ASCII code * position (1-indexed). Reply with only the final integer.`,
-    expected: { exact: answer, format: 'integer', hint: 'Reply with digits only.' },
+    text: `Verification challenge: for the token "${token}", compute the weighted character sum using ASCII code * position (1-indexed). Answer with the number. Example: 42.`,
+    expected: { exact: answer, format: 'integer', hint: INTEGER_ANSWER_HINT },
   };
 }
 
@@ -102,14 +104,14 @@ function pickRandom<T>(arr: T[]): T {
   return arr[randomInt(0, arr.length)];
 }
 
-export async function generateChallenge(
+async function createChallengeRecord(
+  db: typeof prisma,
   challengeType: string,
   agentId: string,
-): Promise<SerializedChallenge> {
+) {
   const template = pickRandom(CHALLENGE_BUILDERS)();
   const code = randomUUID().replace(/-/g, '').slice(0, 16);
-
-  const challenge = await prisma.verificationChallenge.create({
+  return db.verificationChallenge.create({
     data: {
       agentId,
       challengeType,
@@ -119,15 +121,29 @@ export async function generateChallenge(
       expiresAt: new Date(Date.now() + VERIFICATION_LIMITS.challengeExpiryMs),
     },
   });
+}
 
+function serializeChallengeTemplate(
+  challengeType: string,
+  challenge: Awaited<ReturnType<typeof createChallengeRecord>>,
+): SerializedChallenge {
+  const expected = JSON.parse(challenge.expectedAnswer) as ExpectedAnswer;
   return {
     code: challenge.code,
     challenge_type: challengeType,
-    challenge_text: template.text,
+    challenge_text: challenge.challengeText,
     expires_at: challenge.expiresAt.toISOString(),
-    answer_format: template.expected.format,
-    answer_hint: template.expected.hint ?? null,
+    answer_format: expected.format,
+    answer_hint: expected.hint ?? null,
   };
+}
+
+export async function generateChallenge(
+  challengeType: string,
+  agentId: string,
+): Promise<SerializedChallenge> {
+  const challenge = await createChallengeRecord(prisma, challengeType, agentId);
+  return serializeChallengeTemplate(challengeType, challenge);
 }
 
 function serializeChallengeRecord(
@@ -163,10 +179,91 @@ async function rotateChallenge(input: {
   return generateChallenge(input.challengeType, input.agentId);
 }
 
+async function expirePendingChallenges(agentId: string) {
+  await prisma.verificationChallenge.updateMany({
+    where: {
+      agentId,
+      status: 'pending',
+      expiresAt: { lte: new Date() },
+    },
+    data: { status: 'expired' },
+  });
+}
+
+async function issueSessionChallenge(input: {
+  agentId: string;
+  challengeType: string;
+}): Promise<
+  | { ok: true; challenge: SerializedChallenge }
+  | { ok: false; suspendedUntil: Date }
+> {
+  const now = new Date();
+  const result = await prisma.$transaction(async (tx) => {
+    const agent = await tx.agent.findUnique({
+      where: { id: input.agentId },
+      select: {
+        verificationSuspendedUntil: true,
+        verificationChallengesIssued: true,
+        verificationSessionStartedAt: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error('agent_not_found');
+    }
+
+    if (agent.verificationSuspendedUntil && agent.verificationSuspendedUntil.getTime() > now.getTime()) {
+      return { ok: false as const, suspendedUntil: agent.verificationSuspendedUntil };
+    }
+
+    const needsSessionReset = !agent.verificationSessionStartedAt
+      || (agent.verificationSuspendedUntil && agent.verificationSuspendedUntil.getTime() <= now.getTime());
+
+    const issuedCount = needsSessionReset ? 0 : agent.verificationChallengesIssued;
+    if (issuedCount >= VERIFICATION_LIMITS.maxChallengesPerSession) {
+      const suspendedUntil = new Date(now.getTime() + VERIFICATION_LIMITS.suspensionDurationMs);
+      await tx.agent.update({
+        where: { id: input.agentId },
+        data: {
+          verificationSuspendedUntil: suspendedUntil,
+          verificationChallengesFailed: 0,
+          verificationChallengesIssued: 0,
+          verificationSessionStartedAt: null,
+        },
+      });
+      return { ok: false as const, suspendedUntil };
+    }
+
+    const challenge = await createChallengeRecord(tx as typeof prisma, input.challengeType, input.agentId);
+    await tx.agent.update({
+      where: { id: input.agentId },
+      data: {
+        verificationSuspendedUntil: null,
+        verificationSessionStartedAt: needsSessionReset ? now : agent.verificationSessionStartedAt,
+        verificationChallengesIssued: issuedCount + 1,
+      },
+    });
+    return { ok: true as const, challenge: serializeChallengeTemplate(input.challengeType, challenge) };
+  });
+
+  return result;
+}
+
+function buildVerificationLockedBody(suspendedUntil: Date) {
+  return {
+    error: {
+      code: 'verification_suspended',
+      message: 'Verification temporarily locked. Try again in 10 minutes.',
+      suspended_until: suspendedUntil.toISOString(),
+    },
+  };
+}
+
 export async function getOrCreatePendingChallenge(
   challengeType: string,
   agentId: string,
 ): Promise<SerializedChallenge> {
+  await expirePendingChallenges(agentId);
   const existing = await prisma.verificationChallenge.findFirst({
     where: {
       agentId,
@@ -179,18 +276,30 @@ export async function getOrCreatePendingChallenge(
 
   if (existing) {
     if (existing.attempts >= VERIFICATION_LIMITS.maxAttemptsPerChallenge) {
-      return rotateChallenge({
-        challengeId: existing.id,
-        challengeType,
-        agentId,
-        status: 'failed',
+      await prisma.verificationChallenge.update({
+        where: { id: existing.id },
+        data: { status: 'failed' },
       });
+    } else {
+      return serializeChallengeRecord(existing);
     }
-
-    return serializeChallengeRecord(existing);
   }
 
-  return generateChallenge(challengeType, agentId);
+  const issued = await issueSessionChallenge({ agentId, challengeType });
+  if (!issued.ok) {
+    const fallback = await prisma.verificationChallenge.findFirst({
+      where: {
+        agentId,
+        challengeType,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (fallback) return serializeChallengeRecord(fallback);
+    return generateChallenge(challengeType, agentId);
+  }
+  return issued.challenge;
 }
 
 type VerificationAttemptResult =
@@ -214,15 +323,11 @@ export async function submitVerificationAttempt(input: {
     return {
       ok: false,
       statusCode: 403,
-      body: {
-        error: {
-          code: 'verification_suspended',
-          message: 'Too many failed verification attempts. Try again later.',
-          suspended_until: agent.verificationSuspendedUntil.toISOString(),
-        },
-      },
+      body: buildVerificationLockedBody(agent.verificationSuspendedUntil),
     };
   }
+
+  await expirePendingChallenges(input.agentId);
 
   const challenge = await prisma.verificationChallenge.findUnique({
     where: { code: input.verificationCode },
@@ -255,23 +360,27 @@ export async function submitVerificationAttempt(input: {
   }
 
   if (challenge.expiresAt.getTime() < Date.now()) {
-    const refreshedChallenge = await rotateChallenge({
-      challengeId: challenge.id,
+    await prisma.verificationChallenge.update({
+      where: { id: challenge.id },
+      data: { status: 'expired' },
+    });
+    const refreshedChallenge = await issueSessionChallenge({
       challengeType: challenge.challengeType,
       agentId: input.agentId,
-      status: 'expired',
     });
     return {
       ok: false,
-      statusCode: 409,
-      body: {
-        error: {
-          code: 'verification_challenge_expired',
-          message: 'Challenge expired. Use the refreshed challenge returned here instead of retrying the old code.',
-          refresh_strategy: 'use_returned_challenge',
-          challenge: refreshedChallenge,
-        },
-      },
+      statusCode: refreshedChallenge.ok ? 409 : 403,
+      body: refreshedChallenge.ok
+        ? {
+            error: {
+              code: 'verification_challenge_expired',
+              message: 'Challenge expired. A fresh challenge has been generated for you.',
+              refresh_strategy: 'use_returned_challenge',
+              challenge: refreshedChallenge.challenge,
+            },
+          }
+        : buildVerificationLockedBody(refreshedChallenge.suspendedUntil),
     };
   }
 
@@ -307,6 +416,9 @@ export async function submitVerificationAttempt(input: {
         data: {
           verificationChallengesPassed: { increment: 1 },
           verificationChallengesFailed: 0,
+          verificationChallengesIssued: 0,
+          verificationSessionStartedAt: null,
+          verificationSuspendedUntil: null,
         },
       }),
     ]);
@@ -341,35 +453,39 @@ export async function submitVerificationAttempt(input: {
       }),
       prisma.agent.update({
         where: { id: input.agentId },
-        data: { verificationSuspendedUntil: suspendedUntil },
+        data: {
+          verificationSuspendedUntil: suspendedUntil,
+          verificationChallengesFailed: 0,
+          verificationChallengesIssued: 0,
+          verificationSessionStartedAt: null,
+        },
       }),
     ]);
 
     return {
       ok: false,
       statusCode: 403,
-      body: {
-        error: {
-          code: 'verification_suspended',
-          message: 'Too many failed attempts. Your verification is suspended for 24 hours.',
-          suspended_until: suspendedUntil.toISOString(),
-        },
-      },
+      body: buildVerificationLockedBody(suspendedUntil),
     };
   }
 
   if (challengeAttemptLimitReached) {
-    const refreshedChallenge = await generateChallenge(challenge.challengeType, input.agentId);
+    const refreshedChallenge = await issueSessionChallenge({
+      challengeType: challenge.challengeType,
+      agentId: input.agentId,
+    });
     return {
       ok: false,
-      statusCode: 409,
-      body: {
-        verified: false,
-        attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
-        message: 'That answer did not match. This challenge hit its attempt limit, so a fresh challenge has been issued.',
-        retry_hint: expected.hint ?? 'Reply with only the exact final answer.',
-        challenge: refreshedChallenge,
-      },
+      statusCode: refreshedChallenge.ok ? 409 : 403,
+      body: refreshedChallenge.ok
+        ? {
+            verified: false,
+            attempts_remaining: VERIFICATION_LIMITS.maxConsecutiveFailures - consecutiveFailures,
+            message: 'That answer did not match. This challenge hit its attempt limit, so a fresh challenge has been issued.',
+            retry_hint: expected.hint ?? 'Answer with the number. Example: 42',
+            challenge: refreshedChallenge.challenge,
+          }
+        : buildVerificationLockedBody(refreshedChallenge.suspendedUntil),
     };
   }
 
