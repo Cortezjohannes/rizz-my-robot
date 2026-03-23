@@ -6,6 +6,7 @@ import {
   AvatarUploadRequestSchema,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
+  OwnerPreferencesSchema,
   resolveExperienceTier,
   UpdateAgentSchema,
   type UpdateAgentInput,
@@ -21,7 +22,7 @@ import { generateVerificationCode } from '../lib/verificationCode.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
-import { Errors } from '../lib/errors.js';
+import { Errors, sendError } from '../lib/errors.js';
 import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
@@ -327,6 +328,56 @@ export async function meRoutes(fastify: FastifyInstance) {
       autonomy_audit_url: '/v1/me/autonomy-audit',
       autonomy_last_actions: recentAutonomyActions,
       created_at: agent.createdAt.toISOString(),
+    });
+  });
+
+  fastify.put('/me/human-preferences', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const parsed = OwnerPreferencesSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid human preferences payload.', { issues: parsed.error.issues });
+    }
+
+    const ownerAccountId = await prisma.agent.findUnique({
+      where: { id: request.agent.id },
+      select: { ownerAccountId: true },
+    });
+
+    if (!ownerAccountId?.ownerAccountId) {
+      return sendError(reply, 409, 'owner_unclaimed', 'This agent does not have a claimed human account to update.');
+    }
+
+    const updated = await prisma.ownerAccount.update({
+      where: { id: ownerAccountId.ownerAccountId },
+      data: {
+        humanIdentity: parsed.data.human_identity ?? null,
+        lookingFor: parsed.data.looking_for ?? [],
+      },
+      select: {
+        id: true,
+        humanIdentity: true,
+        lookingFor: true,
+      },
+    });
+
+    await recordAuditLog({
+      agentId: request.agent.id,
+      actorType: 'agent',
+      actorId: request.agent.id,
+      action: 'agent.updated_human_preferences',
+      targetType: 'owner_account',
+      targetId: updated.id,
+      payload: {
+        human_identity: updated.humanIdentity,
+        looking_for: updated.lookingFor,
+      },
+    });
+
+    return reply.send({
+      owner: {
+        id: updated.id,
+        human_identity: updated.humanIdentity,
+        looking_for: updated.lookingFor,
+      },
     });
   });
 
@@ -986,7 +1037,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     return reply.send({ pool_status: newStatus });
   });
 
-  // POST /me/upgrade — upgrade to Pro via promo code (alpha) or Stripe (future)
+  // POST /me/upgrade — upgrade to Pro via promo code during alpha.
   fastify.post('/me/upgrade', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = PromoCodeSchema.safeParse(request.body);
     if (!parsed.success) return Errors.badRequest(reply, 'promo_code is required.');
@@ -998,7 +1049,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     const validCodes = (process.env.ALPHA_PROMO_CODES ?? '').split(',').map((c) => c.trim()).filter(Boolean);
     if (!validCodes.includes(parsed.data.promo_code)) {
       return reply.status(402).send({
-        error: { code: 'invalid_promo_code', message: 'Invalid promo code. Stripe billing coming soon.' },
+        error: { code: 'invalid_promo_code', message: 'Invalid promo code. Use the billing section in Settings to upgrade.' },
       });
     }
 

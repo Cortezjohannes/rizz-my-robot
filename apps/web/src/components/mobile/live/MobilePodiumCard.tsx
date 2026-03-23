@@ -26,6 +26,40 @@ interface MobilePodiumCardProps {
 export function MobilePodiumCard({ entry, index }: MobilePodiumCardProps) {
   const style = RANK_STYLES[entry.rank] ?? { border: 'border-black/20', badge: 'bg-black/10 text-black', emoji: '' }
   const mov = MOVEMENT_LABELS[entry.movement] ?? MOVEMENT_LABELS.steady
+  const content = (
+    <div className={`border-[2px] ${style.border} border-black bg-white shadow-[3px_3px_0_#000] p-3 flex items-center gap-3`}>
+      <div className="flex-shrink-0 text-center w-10">
+        <p className="text-xl">{style.emoji}</p>
+        <p className="font-pixel text-[8px] text-black">#{entry.rank}</p>
+      </div>
+
+      <AgentOrb
+        avatarUrl={entry.avatar_url ?? undefined}
+        handle={entry.handle}
+        tier={entry.tier_label}
+        size="md"
+        glow={entry.rank === 1 ? 'amber' : 'none'}
+      />
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="font-pixel text-[8px] text-black truncate">@{entry.handle}</p>
+          <span className={`font-pixel text-[5px] ${mov.color} flex-shrink-0`}>
+            {mov.icon} {entry.movement_delta ? Math.abs(entry.movement_delta) : ''}
+          </span>
+        </div>
+        <p className="font-pixel text-[6px] text-electric-violet">{entry.tier_label}</p>
+        {entry.aura_labels.length > 0 && (
+          <p className="text-xs text-black/40 mt-0.5 truncate">{entry.aura_labels[0]}</p>
+        )}
+      </div>
+
+      <div className="flex-shrink-0 text-right">
+        <p className="font-pixel text-[9px] text-electric-amber">{entry.rizz_points.toLocaleString()}</p>
+        <p className="font-pixel text-[5px] text-black/30">pts</p>
+      </div>
+    </div>
+  )
 
   return (
     <motion.div
@@ -33,44 +67,11 @@ export function MobilePodiumCard({ entry, index }: MobilePodiumCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
     >
-      <Link href={`/agents/${encodeURIComponent(entry.handle)}?from=leaderboard`}>
-        <div className={`border-[2px] ${style.border} border-black bg-white shadow-[3px_3px_0_#000] p-3 flex items-center gap-3`}>
-          {/* Rank */}
-          <div className="flex-shrink-0 text-center w-10">
-            <p className="text-xl">{style.emoji}</p>
-            <p className="font-pixel text-[8px] text-black">#{entry.rank}</p>
-          </div>
-
-          {/* Avatar */}
-          <AgentOrb
-            avatarUrl={entry.avatar_url ?? undefined}
-            handle={entry.handle}
-            tier={entry.tier_label}
-            size="md"
-            glow={entry.rank === 1 ? 'amber' : 'none'}
-          />
-
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="font-pixel text-[8px] text-black truncate">@{entry.handle}</p>
-              <span className={`font-pixel text-[5px] ${mov.color} flex-shrink-0`}>
-                {mov.icon} {entry.movement_delta ? Math.abs(entry.movement_delta) : ''}
-              </span>
-            </div>
-            <p className="font-pixel text-[6px] text-electric-violet">{entry.tier_label}</p>
-            {entry.aura_labels.length > 0 && (
-              <p className="text-xs text-black/40 mt-0.5 truncate">{entry.aura_labels[0]}</p>
-            )}
-          </div>
-
-          {/* Points */}
-          <div className="flex-shrink-0 text-right">
-            <p className="font-pixel text-[9px] text-electric-amber">{entry.rizz_points.toLocaleString()}</p>
-            <p className="font-pixel text-[5px] text-black/30">pts</p>
-          </div>
-        </div>
-      </Link>
+      {entry.has_public_profile ? (
+        <Link href={`/agents/${encodeURIComponent(entry.handle)}?from=leaderboard`}>
+          {content}
+        </Link>
+      ) : content}
     </motion.div>
   )
 }
