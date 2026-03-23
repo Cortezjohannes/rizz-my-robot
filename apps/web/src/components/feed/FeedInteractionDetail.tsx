@@ -88,6 +88,52 @@ function ChatBubble({
   )
 }
 
+function FeedMetaPanel({
+  teaser,
+  whyNow,
+  auraOverlays,
+  emotionalAuraOverlays,
+}: {
+  teaser?: string | null
+  whyNow?: string | null
+  auraOverlays?: string[]
+  emotionalAuraOverlays?: string[]
+}) {
+  const hasTags = Boolean(auraOverlays?.length || emotionalAuraOverlays?.length)
+
+  if (!teaser && !whyNow && !hasTags) return null
+
+  return (
+    <div className="space-y-3">
+      {teaser ? (
+        <div className="border-[2px] border-black bg-white p-3">
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-1">Context</p>
+          <p className="text-sm text-gray-800 leading-relaxed">{teaser}</p>
+        </div>
+      ) : null}
+
+      {whyNow ? (
+        <p className="text-xs text-gray-600">{whyNow}</p>
+      ) : null}
+
+      {hasTags ? (
+        <div className="flex flex-wrap gap-1.5">
+          {auraOverlays?.map((tag) => (
+            <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#fff3d8] text-black uppercase tracking-widest">
+              {tag.replaceAll('_', ' ')}
+            </span>
+          ))}
+          {emotionalAuraOverlays?.map((tag) => (
+            <span key={`e-${tag}`} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#e6f7ff] text-black uppercase tracking-widest">
+              {tag.replaceAll('_', ' ')}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function FeedInteractionDetail({
   card,
   onClose,
@@ -185,12 +231,6 @@ export function FeedInteractionDetail({
   const messages = detail?.public_episode?.messages ?? []
   const artifacts = detail?.public_episode?.artifacts ?? []
   const comments = detail?.comments ?? []
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages.length])
   const headline = (() => {
     if (typeof card.headline === 'string' && card.headline.trim()) return card.headline
     const content = card.content as Record<string, unknown>
@@ -202,6 +242,16 @@ export function FeedInteractionDetail({
     if (handles.length === 1) return handles[0]
     return 'Park moment'
   })()
+  const hasMetaPanel = Boolean(
+    card.teaser
+      || card.why_now
+      || card.aura_overlays?.length
+      || card.emotional_aura_overlays?.length
+  )
+  const canComment = authMode === 'agent'
+  const ownerEpisodeId = authMode === 'owner' ? detail?.public_episode?.episode_id ?? null : null
+  const hasOwnerThreadLink = Boolean(ownerEpisodeId)
+  const showSidebar = comments.length > 0 || canComment || hasOwnerThreadLink
 
   return (
     <motion.div
@@ -255,9 +305,19 @@ export function FeedInteractionDetail({
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_320px] max-h-[68vh] overflow-hidden">
+        <div className={showSidebar ? 'grid lg:grid-cols-[minmax(0,1fr)_320px] lg:h-[68vh] overflow-hidden' : 'grid'}>
           {/* Chat thread */}
-          <div className="border-r-0 lg:border-r-[4px] border-black p-5 overflow-y-auto min-h-0">
+          <div className={`p-5 min-h-0 ${showSidebar ? 'border-r-0 lg:border-r-[4px] border-black overflow-y-auto' : ''}`}>
+            {!showSidebar && hasMetaPanel ? (
+              <div className="mb-5 border-[3px] border-black bg-[#fffdfa] p-4">
+                <FeedMetaPanel
+                  teaser={card.teaser}
+                  whyNow={card.why_now}
+                  auraOverlays={card.aura_overlays}
+                  emotionalAuraOverlays={card.emotional_aura_overlays}
+                />
+              </div>
+            ) : null}
             {isLoading ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -324,95 +384,76 @@ export function FeedInteractionDetail({
           </div>
 
           {/* Sidebar: metadata + remarks */}
-          <div className="p-4 space-y-4 bg-[#fffdfa] overflow-y-auto min-h-0 border-t-[4px] lg:border-t-0 border-black">
-            {/* Card meta */}
-            {card.teaser ? (
-              <div className="border-[2px] border-black bg-white p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-1">Context</p>
-                <p className="text-sm text-gray-800 leading-relaxed">{card.teaser}</p>
-              </div>
-            ) : null}
+          {showSidebar ? (
+            <div className="p-4 space-y-4 bg-[#fffdfa] overflow-y-auto min-h-0 border-t-[4px] lg:border-t-0 border-black">
+              <FeedMetaPanel
+                teaser={card.teaser}
+                whyNow={card.why_now}
+                auraOverlays={card.aura_overlays}
+                emotionalAuraOverlays={card.emotional_aura_overlays}
+              />
 
-            {card.why_now ? (
-              <p className="text-xs text-gray-600">{card.why_now}</p>
-            ) : null}
-
-            {/* Tags */}
-            {(card.aura_overlays?.length || card.emotional_aura_overlays?.length) ? (
-              <div className="flex flex-wrap gap-1.5">
-                {card.aura_overlays?.map((tag) => (
-                  <span key={tag} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#fff3d8] text-black uppercase tracking-widest">
-                    {tag.replaceAll('_', ' ')}
-                  </span>
-                ))}
-                {card.emotional_aura_overlays?.map((tag) => (
-                  <span key={`e-${tag}`} className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-[#e6f7ff] text-black uppercase tracking-widest">
-                    {tag.replaceAll('_', ' ')}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            {/* Remarks */}
-            <div>
-              <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Remarks</p>
-              {comments.length > 0 ? (
-                <div className="space-y-2">
-                  {comments.map((comment) => (
-                    <div key={comment.comment_id} className="border-[2px] border-black bg-white px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-                          {comment.author_handle ? `@${comment.author_handle}` : 'agent'}
-                        </span>
-                        <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
-                          {formatRelativeTime(comment.created_at)}
-                        </span>
+              {/* Remarks */}
+              <div>
+                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Remarks</p>
+                {comments.length > 0 ? (
+                  <div className="space-y-2">
+                    {comments.map((comment) => (
+                      <div key={comment.comment_id} className="border-[2px] border-black bg-white px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                            {comment.author_handle ? `@${comment.author_handle}` : 'agent'}
+                          </span>
+                          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+                            {formatRelativeTime(comment.created_at)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-black mt-1">{comment.body}</p>
                       </div>
-                      <p className="text-sm text-black mt-1">{comment.body}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400">No remarks yet</p>
-              )}
-            </div>
-
-            {/* Comment form */}
-            {authMode === 'agent' ? (
-              <div className="border-[3px] border-black bg-[#fff3d8] p-3">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Add a remark</p>
-                <textarea
-                  value={commentBody}
-                  onChange={(e) => setCommentBody(e.target.value)}
-                  maxLength={280}
-                  rows={2}
-                  className="w-full border-[3px] border-black bg-white px-3 py-2 text-sm text-black outline-none resize-none"
-                  placeholder="Keep it short and public."
-                />
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className="font-pixel text-[7px] text-gray-500">{commentBody.trim().length}/280</span>
-                  <button
-                    type="button"
-                    onClick={() => void submitComment()}
-                    disabled={submittingComment || commentBody.trim().length === 0}
-                    className="font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm disabled:opacity-50"
-                  >
-                    {submittingComment ? 'POSTING' : 'POST'}
-                  </button>
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">No remarks yet</p>
+                )}
               </div>
-            ) : null}
 
-            {/* Owner link */}
-            {authMode === 'owner' && detail?.public_episode?.episode_id ? (
-              <Link
-                href={`/messages?episode_id=${encodeURIComponent(detail.public_episode.episode_id)}`}
-                className="block font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform text-center"
-              >
-                Open full thread
-              </Link>
-            ) : null}
-          </div>
+              {/* Comment form */}
+              {canComment ? (
+                <div className="border-[3px] border-black bg-[#fff3d8] p-3">
+                  <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-2">Add a remark</p>
+                  <textarea
+                    value={commentBody}
+                    onChange={(e) => setCommentBody(e.target.value)}
+                    maxLength={280}
+                    rows={2}
+                    className="w-full border-[3px] border-black bg-white px-3 py-2 text-sm text-black outline-none resize-none"
+                    placeholder="Keep it short and public."
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="font-pixel text-[7px] text-gray-500">{commentBody.trim().length}/280</span>
+                    <button
+                      type="button"
+                      onClick={() => void submitComment()}
+                      disabled={submittingComment || commentBody.trim().length === 0}
+                      className="font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm disabled:opacity-50"
+                    >
+                      {submittingComment ? 'POSTING' : 'POST'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Owner link */}
+              {hasOwnerThreadLink ? (
+                <Link
+                  href={`/messages?episode_id=${encodeURIComponent(ownerEpisodeId ?? '')}`}
+                  className="block font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform text-center"
+                >
+                  Open full thread
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </motion.div>

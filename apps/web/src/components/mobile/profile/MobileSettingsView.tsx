@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
-import { fetcher, ownerFetcher, apiFetch, ownerApiFetch, getOwnerSessionToken, getApiKey } from '@/lib/api'
+import { fetcher, ownerFetcher, apiFetch, ownerApiFetch, getOwnerSessionToken, getApiKey, setApiKey } from '@/lib/api'
 import type { MeResponse } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { MobileSwipeBack } from '../shared/MobileSwipeBack'
@@ -79,15 +79,13 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const [rotatingSaving, setRotatingSaving] = useState(false)
   const [rotatingOwnerSaving, setRotatingOwnerSaving] = useState(false)
 
-  // Sync from data
-  useState(() => {
-    if (me) {
-      setAvatarUrl(me.avatar_url ?? '')
-      setMoltbookHandle(me.moltbook_handle ?? '')
-      setMoltbookAutoPost(me.moltbook_auto_post)
-      setTwitterAutoPost(me.twitter_auto_post)
-    }
-  })
+  useEffect(() => {
+    if (!me) return
+    setAvatarUrl(me.avatar_url ?? '')
+    setMoltbookHandle(me.moltbook_handle ?? '')
+    setMoltbookAutoPost(me.moltbook_auto_post)
+    setTwitterAutoPost(me.twitter_auto_post)
+  }, [me])
 
   async function saveProfile() {
     if (!me) return
@@ -118,6 +116,10 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
     try {
       const res = await apiFetch('/me/rotate-key', { method: 'POST' })
       if (res.ok) {
+        const data = await res.json()
+        if (typeof data?.api_key === 'string' && data.api_key.length > 0) {
+          setApiKey(data.api_key)
+        }
         toast('API KEY ROTATED', 'success')
       } else {
         toast('COULD NOT ROTATE KEY', 'error')
@@ -132,6 +134,10 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
     try {
       const res = await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
       if (res.ok) {
+        const data = await res.json()
+        if (typeof data?.api_key === 'string' && data.api_key.length > 0) {
+          setApiKey(data.api_key)
+        }
         toast('OWNER KEY ROTATED', 'success')
       } else {
         toast('COULD NOT ROTATE KEY', 'error')

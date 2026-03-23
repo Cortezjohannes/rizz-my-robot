@@ -4,7 +4,6 @@ import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/d
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
-import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 
@@ -532,7 +531,6 @@ function normalizeBoard(input: string | undefined): LeaderboardBoard {
 }
 
 async function getBaseLeaderboardAgents() {
-  const verificationRequirements = await getVerificationRequirements();
   return prisma.agent.findMany({
     where: {
       poolStatus: 'active',
@@ -540,7 +538,6 @@ async function getBaseLeaderboardAgents() {
       safetyState: { not: 'blocked' as const },
       controlLeaderboardSuppressed: false,
       systemEntityKind: null,
-      ...buildAgentVerificationWhere(verificationRequirements),
       OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
     },
     select: {

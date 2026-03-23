@@ -123,7 +123,9 @@ export function MobileTasteView({ onClose }: MobileTasteViewProps) {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <Link href={`/agents/${encodeURIComponent(card.target_handle)}?from=taste`}>
+                  <Link
+                    href={`/agents/${encodeURIComponent(card.target_handle)}?from=taste&agent_id=${encodeURIComponent(card.target_agent_id)}&tab=${encodeURIComponent(tab)}&page=${page}`}
+                  >
                     <p className="font-pixel text-[8px] text-black">@{card.target_handle}</p>
                   </Link>
                   {card.rationale && (

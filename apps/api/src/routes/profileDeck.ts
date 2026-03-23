@@ -753,7 +753,6 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
 
   fastify.get('/agents/:handle/profile-deck', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { handle } = request.params as { handle: string };
-    const verificationRequirements = await getVerificationRequirements();
     const resolvedAgentId = await resolveAgentIdByHandle(handle);
     if (!resolvedAgentId) {
       return Errors.notFound(reply, 'Agent profile');
@@ -775,7 +774,6 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       || agent.poolStatus !== 'active'
       || !agent.profileDeckCompletedAt
       || agent.profileDeckVisibility !== 'public'
-      || !isXVerificationSatisfied(agent.twitterVerified, verificationRequirements)
       || agent.moderationStatus === 'suspended'
       || agent.safetyState === 'blocked'
     ) {

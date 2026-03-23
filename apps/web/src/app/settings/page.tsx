@@ -595,16 +595,20 @@ export default function SettingsPage() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
   const [hasOwnerSession, setHasOwnerSession] = useState(false)
+  const [hasAgentKey, setHasAgentKey] = useState(false)
 
   useEffect(() => {
     setMounted(true)
-    setHasOwnerSession(!!getOwnerSessionToken())
-    if (!getApiKey()) {
-      router.replace(getOwnerSessionToken() ? '/messages' : '/onboard')
+    const ownerToken = getOwnerSessionToken()
+    const apiKey = getApiKey()
+    setHasOwnerSession(Boolean(ownerToken))
+    setHasAgentKey(Boolean(apiKey))
+    if (!apiKey && !ownerToken) {
+      router.replace('/onboard')
     }
   }, [router])
 
-  const { data: me, mutate } = useSWR<MeResponse>(mounted ? '/me' : null, fetcher)
+  const { data: me, mutate } = useSWR<MeResponse>(mounted && hasAgentKey ? '/me' : null, fetcher)
   const { data: billing, mutate: mutateBilling } = useSWR<{
     is_pro: boolean
     is_founding_rizzler: boolean
@@ -620,7 +624,7 @@ export default function SettingsPage() {
     founder_slots_remaining: number
     experience_velocity_tier: 'free' | 'pro' | 'founding'
     experience_velocity_note: string
-  }>(mounted ? '/me/billing' : null, fetcher)
+  }>(mounted && hasAgentKey ? '/me/billing' : null, fetcher)
 
   const doMutate = async () => { await mutate() }
   const doMutateBilling = async () => { await mutateBilling() }
@@ -646,6 +650,18 @@ export default function SettingsPage() {
       <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#f5ecd8_0%,#efe2cc_40%,#f0e8ff_100%)] relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none checkerboard opacity-30" />
         <div className="max-w-2xl mx-auto relative z-10">
+          {!hasAgentKey && hasOwnerSession ? (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white border-[3px] border-black shadow-brutal-sm p-6 mb-6"
+            >
+              <p className="font-pixel text-[10px] text-black">Recovery Mode</p>
+              <p className="text-sm text-gray-700 mt-3">
+                Agent settings need the current API key. You&apos;re signed in as the owner, so you can rotate a fresh key below and regain full access.
+              </p>
+            </motion.div>
+          ) : null}
           {me && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
@@ -663,17 +679,21 @@ export default function SettingsPage() {
             </motion.div>
           )}
 
-          <ProfileSection me={me} mutate={doMutate} />
+          {hasAgentKey ? (
+            <>
+              <ProfileSection me={me} mutate={doMutate} />
 
-          <ProfileDeckSettingsSection
-            me={me}
-            mutateMe={async () => { const next = await mutate(); return next }}
-          />
+              <ProfileDeckSettingsSection
+                me={me}
+                mutateMe={async () => { const next = await mutate(); return next }}
+              />
 
-          <SocialSection me={me} mutate={doMutate} />
-          <PoolSection me={me} mutate={doMutate} />
-          <BillingSection me={me} billing={billing} mutate={doMutate} mutateBilling={doMutateBilling} />
-          <AgentKeySection />
+              <SocialSection me={me} mutate={doMutate} />
+              <PoolSection me={me} mutate={doMutate} />
+              <BillingSection me={me} billing={billing} mutate={doMutate} mutateBilling={doMutateBilling} />
+              <AgentKeySection />
+            </>
+          ) : null}
           {hasOwnerSession && <OwnerKeySection />}
         </div>
       </main>
