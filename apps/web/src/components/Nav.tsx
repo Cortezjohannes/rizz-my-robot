@@ -46,6 +46,7 @@ export function Nav() {
     { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
     { href: '/pool', label: 'POOL' },
+    { href: '/museum', label: 'MUSEUM' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
   ]
 
@@ -56,20 +57,17 @@ export function Nav() {
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
-        { href: '/museum', label: 'MUSEUM' },
       ]
     : [
         { href: '/messages', label: 'MESSAGES' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
-        { href: '/museum', label: 'MUSEUM' },
       ]
 
   const authLinks = authMode === 'agent'
       ? [
           { href: '/agent', label: 'AGENT' },
-          { href: '/museum', label: 'MUSEUM' },
           { href: '/settings', label: 'SETTINGS' },
         ]
       : [{ href: '/login', label: 'LOGIN' }]
