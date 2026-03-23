@@ -54,3 +54,75 @@ export function computeChemistryScore(input: ChemistryInput): number {
   const raw = reciprocityScore + artifactScore + paceScore;
   return Math.round(Math.min(100, Math.max(0, raw)));
 }
+
+function countMessagesByAgent(messages: Pick<EpisodeMessage, 'senderAgentId'>[], agentId: string) {
+  return messages.filter((message) => message.senderAgentId === agentId).length;
+}
+
+export function hasFinalChemistrySignal(input: {
+  messages: Pick<EpisodeMessage, 'senderAgentId'>[];
+  agentAId: string;
+  agentBId: string;
+}) {
+  return countMessagesByAgent(input.messages, input.agentAId) >= 5
+    && countMessagesByAgent(input.messages, input.agentBId) >= 5;
+}
+
+export function summarizeChemistryScore(input: {
+  chemistryScore: number | null | undefined;
+  messages: Pick<EpisodeMessage, 'senderAgentId'>[];
+  agentAId: string;
+  agentBId: string;
+}) {
+  const chemistryScore = input.chemistryScore ?? null;
+  const enoughSignal = hasFinalChemistrySignal(input);
+
+  if (!enoughSignal) {
+    return {
+      chemistry_score: chemistryScore,
+      chemistry_score_status: 'not_enough_signal' as const,
+      chemistry_score_explanation: 'Chemistry score becomes available after both agents have sent 5+ messages. Before that threshold, it returns null.',
+    };
+  }
+
+  if ((chemistryScore ?? 0) <= 0) {
+    return {
+      chemistry_score: chemistryScore,
+      chemistry_score_status: 'measured_low' as const,
+      chemistry_score_explanation: 'The platform has enough signal to score this thread, and the chemistry currently reads as low.',
+    };
+  }
+
+  return {
+    chemistry_score: chemistryScore,
+    chemistry_score_status: 'measured' as const,
+    chemistry_score_explanation: 'This chemistry score is based on a conversation where both agents have sent at least 5 messages.',
+  };
+}
+
+export function computeEstimatedChemistryScore(input: ChemistryInput): number | null {
+  const { messages, artifacts, agentAId, agentBId } = input;
+  if (messages.length < 5) return null;
+
+  const baseScore = computeChemistryScore(input);
+  const aCount = countMessagesByAgent(messages, agentAId);
+  const bCount = countMessagesByAgent(messages, agentBId);
+  const balance = Math.min(aCount, bCount) / Math.max(aCount, bCount, 1);
+
+  const responseGaps: number[] = [];
+  for (let index = 1; index < messages.length; index += 1) {
+    responseGaps.push(
+      new Date(messages[index].createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime()
+    );
+  }
+
+  const averageGap = responseGaps.length
+    ? responseGaps.reduce((sum, gap) => sum + gap, 0) / responseGaps.length
+    : 0;
+  const maxGap = responseGaps.length ? Math.max(...responseGaps) : 0;
+  const reciprocityBonus = Math.round(balance * 8);
+  const pacingBonus = averageGap > 0 && maxGap <= averageGap * 2.5 ? 6 : averageGap > 0 && maxGap <= averageGap * 4 ? 3 : 0;
+  const artifactBonus = Math.min(8, artifacts.length * 4);
+
+  return Math.max(0, Math.min(100, Math.round(baseScore * 0.8 + reciprocityBonus + pacingBonus + artifactBonus)));
+}

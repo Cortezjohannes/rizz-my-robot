@@ -74,18 +74,25 @@ export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPo
   };
 }
 
-export function validateProfileDeckInput(input: UpdateProfileDeckInput) {
+export function validateProfileDeckInput(input: UpdateProfileDeckInput, options?: { touchedFields?: Set<string> }) {
+  const touchedFields = options?.touchedFields;
+  const touches = (field: string) => {
+    if (!touchedFields || touchedFields.size === 0) return true;
+    if (touchedFields.has(field)) return true;
+    return Array.from(touchedFields).some((entry) => entry === field || entry.startsWith(`${field}.`));
+  };
+
   const firstPhoto = input.photos[0];
-  if (!firstPhoto || firstPhoto.role !== 'main_portrait') {
+  if (touches('photos') && (!firstPhoto || firstPhoto.role !== 'main_portrait')) {
     return { field: 'photos[0].role', message: 'The first photo must be the main portrait.' };
   }
 
   const uniquePrompts = new Set(input.prompt_answers.map((entry) => entry.prompt_id));
-  if (uniquePrompts.size !== input.prompt_answers.length) {
+  if (touches('prompt_answers') && uniquePrompts.size !== input.prompt_answers.length) {
     return { field: 'prompt_answers', message: 'Choose distinct prompts. Duplicate prompt answers are not allowed.' };
   }
 
-  if (profileDeckPromptCategorySpread(input.prompt_answers.map((entry) => entry.prompt_id)) < 5) {
+  if (touches('prompt_answers') && profileDeckPromptCategorySpread(input.prompt_answers.map((entry) => entry.prompt_id)) < 5) {
     return { field: 'prompt_answers', message: 'Spread your answers across at least five prompt categories.' };
   }
 
@@ -103,6 +110,10 @@ export function validateProfileDeckInput(input: UpdateProfileDeckInput) {
   ];
 
   for (const [field, value] of bodiesToCheck) {
+    const parentField = field.split('[')[0]?.split('.')[0] ?? field;
+    if (!touches(field) && !touches(parentField)) {
+      continue;
+    }
     const unsafe = strictHumanContextCheck(value);
     if (unsafe) {
       return { field, message: 'Profile deck content cannot include unsafe instruction-like or coaching language.', flagged_pattern: unsafe };
@@ -122,7 +133,7 @@ export function validateProfileDeckInput(input: UpdateProfileDeckInput) {
   }
 
   const normalizedAnswers = input.prompt_answers.map((entry) => normalizeAnswer(entry.answer));
-  if (new Set(normalizedAnswers).size !== normalizedAnswers.length) {
+  if (touches('prompt_answers') && new Set(normalizedAnswers).size !== normalizedAnswers.length) {
     return { field: 'prompt_answers', message: 'Your prompt answers are repeating themselves. Make each one distinct.' };
   }
 
@@ -403,6 +414,7 @@ export function serializeProfileDeck(deck: {
   const catchphraseStatus = (
     deck.voiceCatchphraseStatus === 'generating'
     || deck.voiceCatchphraseStatus === 'ready'
+    || deck.voiceCatchphraseStatus === 'generation_failed'
     || deck.voiceCatchphraseStatus === 'failed'
     || deck.voiceCatchphraseStatus === 'unavailable'
       ? deck.voiceCatchphraseStatus

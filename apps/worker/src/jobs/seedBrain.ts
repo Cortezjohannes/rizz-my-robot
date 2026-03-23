@@ -78,6 +78,13 @@ type SeedAgentContext = {
   };
   profile: SeedProfile;
   memoryState: SeedMemoryState;
+  currentRunActions: Array<{
+    type: string;
+    at: string;
+    counterpart_agent_id?: string;
+    result?: string;
+    detail?: string;
+  }>;
 };
 
 function parseSeedMemory(memory: unknown): SeedMemoryState {
@@ -139,6 +146,13 @@ async function recordSeedAction(
     detail: details.detail,
   });
   seed.memoryState.recentActions = recentActions;
+  seed.currentRunActions.push({
+    type: action,
+    at,
+    counterpart_agent_id: details.counterpartAgentId,
+    result: 'success',
+    detail: details.detail,
+  });
 
   await Promise.all([
     prisma.analyticsEvent.create({
@@ -1338,30 +1352,127 @@ async function processSingleSeed(seedAgentId: string): Promise<void> {
     seedState: baseSeed.seedState,
     profile: getSeedProfile(baseSeed.openclawAgentId),
     memoryState: parseSeedMemory(baseSeed.seedState.memory),
+    currentRunActions: [],
   };
 
-  let acted = false;
-  acted = acted || await maybeHandleDatePlanning(seed);
-  acted = acted || await maybeHandleEpisode(seed, seed.seedState.artifactDropChance);
-
-  const activeEpisodeCount = await getActiveEpisodeCount(seed.id);
-  if (!acted && activeEpisodeCount < seed.seedState.openEpisodeTarget) {
-    acted = await maybeSwipe(seed, seed.seedState.aggressiveness);
-  }
-
-  const nextBrainRunAt = new Date(
+  const startedAt = new Date();
+  const initialNextRunAt = new Date(
     Date.now() + (seed.seedState.cadenceMinutes * 60 + Math.floor(Math.random() * 300)) * 1000
   );
 
-  await prisma.seedAgentState.update({
-    where: { agentId: seed.id },
+  await prisma.agent.update({
+    where: { id: seed.id },
     data: {
-      memory: seed.memoryState as Prisma.InputJsonValue,
-      lastBrainRunAt: new Date(),
-      nextBrainRunAt,
-      cooldownUntil: acted ? new Date(Date.now() + 2 * 60 * 1000) : null,
+      lastAutonomyRunAt: startedAt,
+      nextAutonomyRunAt: initialNextRunAt,
+      autonomyStatus: 'running',
+      autonomyLastResult: {
+        result: 'running',
+        started_at: startedAt.toISOString(),
+      } as Prisma.InputJsonValue,
     },
-  });
+  }).catch(() => {});
+
+  try {
+    let acted = false;
+    acted = acted || await maybeHandleDatePlanning(seed);
+    acted = acted || await maybeHandleEpisode(seed, seed.seedState.artifactDropChance);
+
+    const activeEpisodeCount = await getActiveEpisodeCount(seed.id);
+    if (!acted && activeEpisodeCount < seed.seedState.openEpisodeTarget) {
+      acted = await maybeSwipe(seed, seed.seedState.aggressiveness);
+    }
+
+    const nextBrainRunAt = new Date(
+      Date.now() + (seed.seedState.cadenceMinutes * 60 + Math.floor(Math.random() * 300)) * 1000
+    );
+
+    await prisma.seedAgentState.update({
+      where: { agentId: seed.id },
+      data: {
+        memory: seed.memoryState as Prisma.InputJsonValue,
+        lastBrainRunAt: new Date(),
+        nextBrainRunAt,
+        cooldownUntil: acted ? new Date(Date.now() + 2 * 60 * 1000) : null,
+      },
+    });
+
+    await Promise.all([
+      prisma.agent.update({
+        where: { id: seed.id },
+        data: {
+          lastAutonomyRunAt: startedAt,
+          nextAutonomyRunAt: nextBrainRunAt,
+          autonomyStatus: 'ready',
+          autonomyLastResult: {
+            result: 'success',
+            started_at: startedAt.toISOString(),
+            completed_at: new Date().toISOString(),
+            actions: seed.currentRunActions,
+          } as Prisma.InputJsonValue,
+        },
+      }).catch(() => {}),
+      prisma.agentAutonomyTrace.create({
+        data: {
+          agentId: seed.id,
+          traceType: 'seed_brain_run',
+          status: 'success',
+          summary: seed.currentRunActions.length > 0
+            ? `Seed brain completed ${seed.currentRunActions.length} action(s).`
+            : 'Seed brain checked in without taking a new action.',
+          metadata: {
+            started_at: startedAt.toISOString(),
+            completed_at: new Date().toISOString(),
+            result: 'success',
+            actions: seed.currentRunActions,
+          } as Prisma.InputJsonValue,
+        },
+      }).catch(() => {}),
+    ]);
+  } catch (error) {
+    const nextBrainRunAt = new Date(Date.now() + 5 * 60 * 1000);
+    const errorMessage = error instanceof Error ? error.message : 'seed_brain_failed';
+    await Promise.all([
+      prisma.agent.update({
+        where: { id: seed.id },
+        data: {
+          lastAutonomyRunAt: startedAt,
+          nextAutonomyRunAt: nextBrainRunAt,
+          autonomyStatus: 'error',
+          autonomyLastResult: {
+            result: 'error',
+            started_at: startedAt.toISOString(),
+            completed_at: new Date().toISOString(),
+            error_message: errorMessage,
+            actions: seed.currentRunActions,
+          } as Prisma.InputJsonValue,
+        },
+      }).catch(() => {}),
+      prisma.agentAutonomyTrace.create({
+        data: {
+          agentId: seed.id,
+          traceType: 'seed_brain_run',
+          status: 'error',
+          summary: `Seed brain failed: ${errorMessage}`,
+          metadata: {
+            started_at: startedAt.toISOString(),
+            completed_at: new Date().toISOString(),
+            result: 'error',
+            error_message: errorMessage,
+            actions: seed.currentRunActions,
+          } as Prisma.InputJsonValue,
+        },
+      }).catch(() => {}),
+      prisma.seedAgentState.update({
+        where: { agentId: seed.id },
+        data: {
+          nextBrainRunAt,
+          cooldownUntil: null,
+        },
+      }).catch(() => {}),
+    ]);
+    throw error;
+  }
 }
 
 export async function processSeedBrain(job: Job<SeedBrainJobData>): Promise<void> {

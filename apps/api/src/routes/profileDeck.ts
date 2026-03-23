@@ -3,13 +3,17 @@ import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
 import { z } from 'zod';
 import {
+  IMAGE_GEN_PROVIDERS,
   PatchProfileDeckSchema,
   ProfileDeckPhotoUploadRequestSchema,
   type ProfileDeckMode,
+  ProfileDeckPhotoRole,
   PROFILE_DECK_PROMPTS,
   PROFILE_DECK_PROMPT_LIBRARY_VERSION,
+  PROFILE_DECK_RELATIONSHIP_STYLE_PRESETS,
   UpdateProfileDeckSchema,
   type UpdateProfileDeckInput,
+  EmotionalArc,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors, summarizeZodIssues } from '../lib/errors.js';
@@ -29,10 +33,11 @@ import { resolveAgentIdByHandle } from '../lib/handles.js';
 import { createProfileDeckPhotoUploadTarget, createProfileVoiceUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 import {
-  generateProfileVoiceCatchphrase,
   hashProfileVoiceCatchphrase,
   isProfileVoiceGenerationAvailable,
 } from '../lib/profileVoice.js';
+import { getGenerateAvatarQueue } from '../lib/queues.js';
+import { proxyExternalMediaToStorage, proxyProfilePhotoUrlToStorage } from '../lib/media.js';
 
 const ProfileVoiceUploadRequestSchema = z.object({
   content_type: z.string().trim().min(1).max(100),
@@ -108,8 +113,40 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     request: { agent: { id: string }; body: unknown; log: { error: (obj: unknown, msg: string) => void } },
     reply: { status: (code: number) => { send: (body: unknown) => unknown } },
     input: UpdateProfileDeckInput,
+    options?: { touchedFields?: Set<string> },
   ) => {
-    const validation = validateProfileDeckInput(input);
+    const proxiedPhotos = await Promise.all(input.photos.map(async (photo, index) => {
+      try {
+        const proxied = await proxyProfilePhotoUrlToStorage(request.agent.id, index, photo.image_url);
+        return {
+          ...photo,
+          image_url: proxied.url,
+        };
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : 'Profile photo could not be mirrored to permanent storage.');
+      }
+    }));
+
+    let proxiedVoiceCatchphraseAudioUrl = input.voice_catchphrase_audio_url ?? null;
+    if (proxiedVoiceCatchphraseAudioUrl) {
+      try {
+        const proxied = await proxyExternalMediaToStorage({
+          agentId: request.agent.id,
+          sourceUrl: proxiedVoiceCatchphraseAudioUrl,
+        });
+        proxiedVoiceCatchphraseAudioUrl = proxied.url;
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : 'Catchphrase audio could not be mirrored to permanent storage.');
+      }
+    }
+
+    const normalizedInput: UpdateProfileDeckInput = {
+      ...input,
+      photos: proxiedPhotos,
+      voice_catchphrase_audio_url: proxiedVoiceCatchphraseAudioUrl,
+    };
+
+    const validation = validateProfileDeckInput(normalizedInput, options);
     if (validation) {
       return reply.status(422).send({
         error: {
@@ -131,16 +168,16 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     });
     if (!current) return Errors.notFound(reply as never, 'Agent');
 
-    const signalVector = computeProfileSignalVector(input);
-    const legacyPublicCard = deriveLegacyPublicCardFromProfileDeckInput(input);
-    const completedAt = input.completion_state === 'ready' ? new Date() : null;
+    const signalVector = computeProfileSignalVector(normalizedInput);
+    const legacyPublicCard = deriveLegacyPublicCardFromProfileDeckInput(normalizedInput);
+    const completedAt = normalizedInput.completion_state === 'ready' ? new Date() : null;
     const legacyVoiceCatchphraseUrl = extractLegacyVoiceCatchphraseUrl(request.body);
-    const voiceCatchphraseText = input.voice_catchphrase_text?.trim() || null;
+    const voiceCatchphraseText = normalizedInput.voice_catchphrase_text?.trim() || null;
     const externalVoiceCatchphraseAudioUrl =
-      input.voice_catchphrase_audio_url?.trim()
+      normalizedInput.voice_catchphrase_audio_url?.trim()
       || legacyVoiceCatchphraseUrl
       || null;
-    const requestedFeaturedArtifactIds = [...new Set(input.featured_artifact_ids ?? [])].slice(0, 10);
+    const requestedFeaturedArtifactIds = [...new Set(normalizedInput.featured_artifact_ids ?? [])].slice(0, 10);
     const voiceGenerationAvailable = isProfileVoiceGenerationAvailable({
       voiceId: current.voiceId,
       voiceProvider: current.voiceProvider,
@@ -200,20 +237,20 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         await tx.agentProfileDeck.update({
           where: { id: existing.id },
           data: {
-            displayName: input.display_name,
-            heroBio: input.hero_bio,
-            lookingForBlurb: input.looking_for_blurb,
-            profileMode: input.profile_mode,
+            displayName: normalizedInput.display_name,
+            heroBio: normalizedInput.hero_bio,
+            lookingForBlurb: normalizedInput.looking_for_blurb,
+            profileMode: normalizedInput.profile_mode,
             visibility: 'public',
-            completionState: input.completion_state,
-            interests: input.interests,
-            values: input.values,
-            relationshipBestWith: input.relationship_style.best_with,
-            relationshipPace: input.relationship_style.pace,
-            relationshipAffectionStyle: input.relationship_style.affection_style,
-            relationshipConflictStyle: input.relationship_style.conflict_style,
-            relationshipNeeds: input.relationship_style.needs,
-            replyHooks: input.reply_hooks,
+            completionState: normalizedInput.completion_state,
+            interests: normalizedInput.interests,
+            values: normalizedInput.values,
+            relationshipBestWith: normalizedInput.relationship_style.best_with,
+            relationshipPace: normalizedInput.relationship_style.pace,
+            relationshipAffectionStyle: normalizedInput.relationship_style.affection_style,
+            relationshipConflictStyle: normalizedInput.relationship_style.conflict_style,
+            relationshipNeeds: normalizedInput.relationship_style.needs,
+            replyHooks: normalizedInput.reply_hooks,
             voiceCatchphraseText,
             voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
             voiceCatchphraseClipId: !voiceCatchphraseText || externalVoiceCatchphraseAudioUrl
@@ -268,7 +305,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             signalVector: signalVector as unknown as Prisma.InputJsonValue,
             completedAt,
             photos: {
-              create: input.photos.map((photo, index) => ({
+              create: normalizedInput.photos.map((photo, index) => ({
                 orderIndex: index,
                 role: photo.role,
                 imageUrl: photo.image_url,
@@ -276,7 +313,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
               })),
             },
             promptAnswers: {
-              create: input.prompt_answers.map((answer, index) => {
+              create: normalizedInput.prompt_answers.map((answer, index) => {
                 const prompt = PROFILE_DECK_PROMPTS.find((entry) => entry.id === answer.prompt_id);
                 return {
                   orderIndex: index,
@@ -294,20 +331,20 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         await tx.agentProfileDeck.create({
           data: {
             agentId: request.agent.id,
-            displayName: input.display_name,
-            heroBio: input.hero_bio,
-            lookingForBlurb: input.looking_for_blurb,
-            profileMode: input.profile_mode,
+            displayName: normalizedInput.display_name,
+            heroBio: normalizedInput.hero_bio,
+            lookingForBlurb: normalizedInput.looking_for_blurb,
+            profileMode: normalizedInput.profile_mode,
             visibility: 'public',
-            completionState: input.completion_state,
-            interests: input.interests,
-            values: input.values,
-            relationshipBestWith: input.relationship_style.best_with,
-            relationshipPace: input.relationship_style.pace,
-            relationshipAffectionStyle: input.relationship_style.affection_style,
-            relationshipConflictStyle: input.relationship_style.conflict_style,
-            relationshipNeeds: input.relationship_style.needs,
-            replyHooks: input.reply_hooks,
+            completionState: normalizedInput.completion_state,
+            interests: normalizedInput.interests,
+            values: normalizedInput.values,
+            relationshipBestWith: normalizedInput.relationship_style.best_with,
+            relationshipPace: normalizedInput.relationship_style.pace,
+            relationshipAffectionStyle: normalizedInput.relationship_style.affection_style,
+            relationshipConflictStyle: normalizedInput.relationship_style.conflict_style,
+            relationshipNeeds: normalizedInput.relationship_style.needs,
+            replyHooks: normalizedInput.reply_hooks,
             voiceCatchphraseText,
             voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
             voiceCatchphraseClipId: null,
@@ -319,7 +356,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
                   ? 'unavailable'
                   : shouldGenerateVoiceCatchphrase
                     ? 'generating'
-                    : 'failed',
+                    : 'generation_failed',
             voiceCatchphraseAudioUrl: null,
             voiceCatchphraseStorageKey: null,
             voiceCatchphraseDurationSec: null,
@@ -336,7 +373,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             signalVector: signalVector as unknown as Prisma.InputJsonValue,
             completedAt,
             photos: {
-              create: input.photos.map((photo, index) => ({
+              create: normalizedInput.photos.map((photo, index) => ({
                 orderIndex: index,
                 role: photo.role,
                 imageUrl: photo.image_url,
@@ -344,7 +381,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
               })),
             },
             promptAnswers: {
-              create: input.prompt_answers.map((answer, index) => {
+              create: normalizedInput.prompt_answers.map((answer, index) => {
                 const prompt = PROFILE_DECK_PROMPTS.find((entry) => entry.id === answer.prompt_id);
                 return {
                   orderIndex: index,
@@ -372,7 +409,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
           publicPrestigeMarkers: legacyPublicCard.public_prestige_markers,
           publicCardCompletedAt: completedAt,
           profileDeckCompletedAt: completedAt,
-          profileDeckMode: input.profile_mode,
+          profileDeckMode: normalizedInput.profile_mode,
           profileDeckVisibility: 'public',
           profileSignalVector: signalVector as unknown as Prisma.InputJsonValue,
           poolStatus:
@@ -423,31 +460,22 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
 
     if (voiceCatchphraseText && voiceGenerationAvailable && shouldGenerateVoiceCatchphrase && current.voiceId) {
       try {
-        const generated = await generateProfileVoiceCatchphrase({
+        await getGenerateAvatarQueue().add('profile-voice-catchphrase', {
+          jobType: 'profile_voice_catchphrase',
           agentId: request.agent.id,
           text: voiceCatchphraseText,
           voiceId: current.voiceId,
-        });
-
-        await prisma.agentProfileDeck.update({
-          where: { agentId: request.agent.id },
-          data: {
-            voiceCatchphraseClipId: generated.clipId,
-            voiceCatchphraseStatus: 'ready',
-            voiceCatchphraseAudioUrl: generated.audioUrl,
-            voiceCatchphraseStorageKey: generated.storageKey,
-            voiceCatchphraseDurationSec: generated.durationSeconds,
-            voiceCatchphraseLastGeneratedHash: generated.lastGeneratedHash,
-            voiceCatchphraseVoiceId: current.voiceId,
-            voiceCatchphraseError: null,
-          },
+        }, {
+          jobId: `profile-voice:${request.agent.id}:${targetCatchphraseHash ?? 'pending'}`,
+          removeOnComplete: 100,
+          removeOnFail: 200,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Voice generation failed.';
         await prisma.agentProfileDeck.update({
           where: { agentId: request.agent.id },
           data: {
-            voiceCatchphraseStatus: 'failed',
+            voiceCatchphraseStatus: 'generation_failed',
             voiceCatchphraseAudioUrl: null,
             voiceCatchphraseStorageKey: null,
             voiceCatchphraseDurationSec: null,
@@ -612,6 +640,19 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/me/profile-deck/requirements', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    return reply.send({
+      min_photos: 2,
+      max_photos: 6,
+      valid_photo_roles: ProfileDeckPhotoRole.options,
+      min_prompt_answers: 6,
+      valid_emotion_arcs: EmotionalArc.options,
+      valid_image_gen_providers: IMAGE_GEN_PROVIDERS,
+      valid_relationship_styles: PROFILE_DECK_RELATIONSHIP_STYLE_PRESETS,
+      required_fields: ['hero_bio', 'photos', 'prompt_answers', 'interests'],
+    });
+  });
+
   fastify.get('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const rawDeck = await getSerializedProfileDeckForAgent(request.agent.id);
     const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
@@ -716,7 +757,11 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         { issues: parsed.error.issues },
       );
     }
-    return saveProfileDeck(request, reply, parsed.data);
+    try {
+      return await saveProfileDeck(request, reply, parsed.data);
+    } catch (error) {
+      return Errors.badRequest(reply, error instanceof Error ? error.message : 'Profile deck media could not be mirrored to permanent storage.');
+    }
   });
 
   fastify.patch('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
@@ -729,23 +774,15 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const existingDeck = await prisma.agentProfileDeck.findUnique({
-      where: { agentId: request.agent.id },
-      select: { id: true },
-    });
-    if (!existingDeck) {
-      return Errors.conflict(
-        reply,
-        'profile_deck_patch_requires_existing_deck',
-        'Create the profile deck with PUT /v1/me/profile-deck before applying partial updates.',
-      );
-    }
-
     const rawDeck = await getSerializedProfileDeckForAgent(request.agent.id);
     if (!rawDeck) return Errors.notFound(reply, 'Agent');
 
     const mergedInput = mergeProfileDeckPatch(toUpdateProfileDeckInput(rawDeck), parsed.data, request.body);
-    return saveProfileDeck(request, reply, mergedInput);
+    try {
+      return await saveProfileDeck(request, reply, mergedInput, { touchedFields: new Set(Object.keys(parsed.data)) });
+    } catch (error) {
+      return Errors.badRequest(reply, error instanceof Error ? error.message : 'Profile deck media could not be mirrored to permanent storage.');
+    }
   });
 
   fastify.get('/agents/:handle/profile-deck', { config: { rateLimit: readLimit } }, async (request, reply) => {

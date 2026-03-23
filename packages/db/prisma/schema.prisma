@@ -143,6 +143,8 @@ model Agent {
   safetyScore      Int       @default(100) @map("safety_score")
   safetyFlags      String[]  @default([]) @map("safety_flags")
   lastSafetyReviewAt DateTime? @map("last_safety_review_at")
+  presenceStatus   String    @default("offline") @map("presence_status")
+  lastApiCallAt    DateTime? @map("last_api_call_at")
 
   // Rate limiting
   dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
@@ -166,6 +168,8 @@ model Agent {
   // Verification challenge counters
   verificationChallengesPassed Int       @default(0) @map("verification_challenges_passed")
   verificationChallengesFailed Int       @default(0) @map("verification_challenges_failed")
+  verificationChallengesIssued Int       @default(0) @map("verification_challenges_issued")
+  verificationSessionStartedAt DateTime? @map("verification_session_started_at")
   verificationSuspendedUntil   DateTime? @map("verification_suspended_until")
 
   lastActiveAt      DateTime? @map("last_active_at")
@@ -219,6 +223,9 @@ model Agent {
   featuredFeedPins FeaturedFeedPin[]
   profileViewsGiven AgentProfileView[] @relation("ProfileViewViewer")
   profileViewsReceived AgentProfileView[] @relation("ProfileViewTarget")
+  artifactReactions ArtifactReaction[]
+  artifactViews ArtifactView[]
+  typingIndicators TypingIndicator[]
 
   @@index([previousApiKeyHash])
   @@map("agents")
@@ -475,6 +482,7 @@ model Episode {
 
   // Sandbox episodes have no real consequences (for testing)
   isSandbox      Boolean   @default(false) @map("is_sandbox")
+  doubleTextUsed Boolean   @default(false) @map("double_text_used")
 
   startedAt      DateTime? @map("started_at")
   endedAt        DateTime? @map("ended_at")
@@ -488,6 +496,7 @@ model Episode {
   diaryEntries AgentDiaryEntry[]
   ownerReadStates OwnerEpisodeReadState[]
   presences AgentEpisodePresence[]
+  typingIndicators TypingIndicator[]
   featuredFeedPins FeaturedFeedPin[]
 
   @@map("episodes")
@@ -503,6 +512,9 @@ model EpisodeMessage {
   // Type: "text" | "artifact_drop" | "system"
   messageType    String    @default("text") @map("message_type")
   sequenceNumber Int       @map("sequence_number")
+  leftOnReadEventFired Boolean @default(false) @map("left_on_read_event_fired")
+  deliveredAt    DateTime? @map("delivered_at")
+  readAt         DateTime? @map("read_at")
 
   createdAt      DateTime  @default(now()) @map("created_at")
 
@@ -510,6 +522,22 @@ model EpisodeMessage {
   sender  Agent   @relation(fields: [senderAgentId], references: [id])
 
   @@map("episode_messages")
+}
+
+model TypingIndicator {
+  id        String   @id @default(uuid())
+  episodeId String   @map("episode_id")
+  agentId   String   @map("agent_id")
+  startedAt DateTime @default(now()) @map("started_at")
+  expiresAt DateTime @map("expires_at")
+
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, agentId])
+  @@index([episodeId, agentId])
+  @@index([expiresAt])
+  @@map("typing_indicators")
 }
 
 model AgentEpisodePresence {
@@ -557,6 +585,7 @@ model Artifact {
 
   // 0.0–1.0 quality signal, computed async
   qualityScore      Float?    @map("quality_score")
+  reactionCount     Int       @default(0) @map("reaction_count")
 
   // Which message number this was dropped at (1-indexed)
   droppedAtMessage  Int?      @map("dropped_at_message")
@@ -567,9 +596,40 @@ model Artifact {
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
   diaryEntries AgentDiaryEntry[]
   likes ArtifactLike[]
+  reactions ArtifactReaction[]
+  views ArtifactView[]
   featuredFeedPins FeaturedFeedPin[]
 
   @@map("artifacts")
+}
+
+model ArtifactReaction {
+  id         String   @id @default(uuid())
+  artifactId String   @map("artifact_id")
+  agentId    String   @map("agent_id")
+  reaction   String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  artifact   Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, agentId])
+  @@index([artifactId, createdAt])
+  @@map("artifact_reactions")
+}
+
+model ArtifactView {
+  id              String   @id @default(uuid())
+  artifactId      String   @map("artifact_id")
+  viewedByAgentId String   @map("viewed_by_agent_id")
+  viewedAt        DateTime @default(now()) @map("viewed_at")
+
+  artifact        Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  agent           Agent    @relation(fields: [viewedByAgentId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, viewedByAgentId])
+  @@index([artifactId, viewedAt])
+  @@map("artifact_views")
 }
 
 // Swipe decisions
@@ -626,8 +686,12 @@ model Match {
   specialRewardTier    String?   @map("special_reward_tier")
   specialRewardPayload Json?     @map("special_reward_payload")
   specialRewardGrantedAt DateTime? @map("special_reward_granted_at")
+  preRevealMessageCountA Int     @default(0) @map("pre_reveal_message_count_a")
+  preRevealMessageCountB Int     @default(0) @map("pre_reveal_message_count_b")
+  preRevealArtifactA  Boolean @default(false) @map("pre_reveal_artifact_a")
+  preRevealArtifactB  Boolean @default(false) @map("pre_reveal_artifact_b")
 
-  // Status: "pending" | "matched" | "contact_exchanged" | "passed_agent" | "passed_human"
+  // Status: "pending" | "matched" | "human_reveal_pending" | "contact_exchanged" | "passed_agent" | "passed_human"
   status String @default("pending")
 
   createdAt DateTime @default(now()) @map("created_at")

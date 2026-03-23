@@ -11,6 +11,7 @@ import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 import { processGenerateRecaps } from './jobs/generateRecaps.js';
 import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
 import { processRecomputeEmotionalContinuity } from './jobs/recomputeEmotionalContinuity.js';
+import { processPresenceStatus } from './jobs/presenceStatus.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -24,6 +25,7 @@ const QUEUE_NAMES = {
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
+  presenceStatus: 'presence-status',
 } as const;
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
@@ -125,6 +127,14 @@ async function startWorkers() {
     { connection, concurrency: 1 }
   );
 
+  const presenceStatusWorker = new Worker(
+    QUEUE_NAMES.presenceStatus,
+    async (job) => {
+      await processPresenceStatus(job);
+    },
+    { connection, concurrency: 2 }
+  );
+
   const activeWorkers = [
     verifyTwitterWorker,
     generateAvatarWorker,
@@ -137,6 +147,7 @@ async function startWorkers() {
     generateRecapsWorker,
     recomputeSocialStatusWorker,
     recomputeEmotionalContinuityWorker,
+    presenceStatusWorker,
   ].filter((worker): worker is Worker => worker !== null);
 
   for (const worker of activeWorkers) {
@@ -194,6 +205,7 @@ async function startWorkers() {
 
   console.info(
     `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, recompute-social-status, recompute-emotional-continuity`
+      + ', presence-status'
   );
 
   // Graceful shutdown
@@ -212,6 +224,7 @@ async function startWorkers() {
     await generateRecapsWorker.close();
     await recomputeSocialStatusWorker.close();
     await recomputeEmotionalContinuityWorker.close();
+    await presenceStatusWorker.close();
     process.exit(0);
   };
 

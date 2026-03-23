@@ -7,6 +7,10 @@ interface RecomputeEmotionalContinuityJobData {
 }
 
 export async function processRecomputeEmotionalContinuity(job: Job<RecomputeEmotionalContinuityJobData>) {
+  console.info('[worker][recompute-emotional-continuity] Starting job', {
+    jobId: job.id,
+    agentId: job.data.agentId ?? null,
+  });
   const agents = job.data.agentId
     ? [{ id: job.data.agentId }]
     : await prisma.agent.findMany({
@@ -16,6 +20,24 @@ export async function processRecomputeEmotionalContinuity(job: Job<RecomputeEmot
       });
 
   for (const agent of agents) {
-    await recomputeAndPersistEmotionalContinuitySnapshot(agent.id);
+    try {
+      await recomputeAndPersistEmotionalContinuitySnapshot(agent.id);
+      console.info('[worker][recompute-emotional-continuity] Recomputed agent continuity', {
+        jobId: job.id,
+        agentId: agent.id,
+      });
+    } catch (error) {
+      console.error('[worker][recompute-emotional-continuity] Failed agent continuity recompute', {
+        jobId: job.id,
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
+
+  console.info('[worker][recompute-emotional-continuity] Completed job', {
+    jobId: job.id,
+    processedAgents: agents.length,
+  });
 }

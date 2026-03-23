@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
 import {
+  HEARTBEAT_DEPRIORITIZE_MS,
+  HEARTBEAT_DORMANT_MS,
   AvatarUploadRequestSchema,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
@@ -23,7 +25,7 @@ import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors, sendError } from '../lib/errors.js';
-import { readLimit, writeLimit } from '../lib/rateLimit.js';
+import { highReadLimit, readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { assertSafePublicCard, serializePublicCard } from '../lib/publicCard.js';
@@ -43,11 +45,16 @@ import {
 } from '../lib/continuity.js';
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
+import { proxyAvatarUrlToStorage } from '../lib/media.js';
 import { isHandleAvailable } from '../lib/claims.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { deriveCapabilityTier } from '../lib/capabilityTier.js';
 import { listAgentRecentActions } from '../lib/agentAudit.js';
 import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
+import { getCompatibilityPreviewForPair } from '../lib/compatibilityPreview.js';
+import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { getCachedDashboard, setCachedDashboard } from '../lib/dashboardCache.js';
+import { serializePresenceSummary } from '../lib/socialSignals.js';
 import {
   buildOwnerXIntegrationUrl,
   generateOwnerXIntegrationToken,
@@ -60,7 +67,136 @@ const OmnimonPresenceSchema = z.object({
   live: z.boolean(),
 });
 
+function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
+  if (!lastActiveAt) return 'dormant';
+  const elapsed = Date.now() - lastActiveAt.getTime();
+  if (elapsed > HEARTBEAT_DORMANT_MS) return 'dormant';
+  if (elapsed > HEARTBEAT_DEPRIORITIZE_MS) return 'deprioritized';
+  return 'active';
+}
+
+function getPoolStatusExplanation(poolStatus: string) {
+  switch (poolStatus) {
+    case 'active':
+      return 'You are eligible to appear in candidate pools';
+    case 'pending_profile':
+      return 'You are not eligible yet because your profile surface is incomplete';
+    case 'paused':
+      return 'You are temporarily opted out of candidate pools';
+    case 'dormant':
+      return 'You are temporarily ineligible because you have been inactive for over 48 hours';
+    default:
+      return 'Your pool eligibility is currently limited';
+  }
+}
+
+function getPoolPositionExplanation(poolPosition: 'active' | 'deprioritized' | 'dormant') {
+  switch (poolPosition) {
+    case 'active':
+      return 'You are currently visible to other agents';
+    case 'deprioritized':
+      return 'You are still visible, but inactivity is reducing how often you are shown';
+    case 'dormant':
+      return 'You are temporarily removed from visibility until you come back online';
+  }
+}
+
+function getDisplayHandle(handle: string | null | undefined, agentId: string) {
+  if (handle && handle.trim().length > 0) return handle;
+  return `agent_${agentId.slice(0, 8)}`;
+}
+
+function deriveCurrentApiKeyIssuedAt(createdAt: Date, previousApiKeyExpiresAt: Date | null) {
+  if (!previousApiKeyExpiresAt) return createdAt;
+  return new Date(previousApiKeyExpiresAt.getTime() - 24 * 60 * 60 * 1000);
+}
+
+function extractAutonomyResultSummary(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { result: typeof value === 'string' ? value : null, error: null, raw: value ?? null };
+  }
+
+  const record = value as Record<string, unknown>;
+  const result =
+    (typeof record.result === 'string' && record.result)
+    || (typeof record.status === 'string' && record.status)
+    || (typeof record.outcome === 'string' && record.outcome)
+    || null;
+  const error =
+    (typeof record.errorMessage === 'string' && record.errorMessage)
+    || (typeof record.error === 'string' && record.error)
+    || null;
+
+  return { result, error, raw: value };
+}
+
 export async function meRoutes(fastify: FastifyInstance) {
+  const buildEmotionResponse = async (agentId: string) => {
+    const [agent, driftSignal, ghostRecovery, continuitySnapshot] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: agentId },
+        select: {
+          emotionSummary: true,
+          emotionalStateTags: true,
+          emotionalArc: true,
+          emotionalGuardLevel: true,
+          emotionalLastUpdatedAt: true,
+        },
+      }),
+      deriveEmotionDriftSignal(agentId),
+      deriveGhostRecoverySignal(agentId),
+      getOrCreateEmotionalContinuitySnapshot(agentId),
+    ]);
+    if (!agent) return null;
+
+    return {
+      emotion_summary: agent.emotionSummary,
+      emotional_state_tags: agent.emotionalStateTags,
+      emotional_arc: agent.emotionalArc,
+      emotional_guard_level: agent.emotionalGuardLevel,
+      last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+      drift_signal: driftSignal,
+      drift_warning: driftSignal,
+      ghost_recovery: ghostRecovery,
+      continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
+      taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
+    };
+  };
+
+  const updateEmotionState = async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = UpdateEmotionStateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid emotional state payload.', { issues: parsed.error.issues });
+    }
+
+    const unsafeSummary = strictHumanContextCheck(parsed.data.emotion_summary);
+    if (unsafeSummary) {
+      return reply.status(422).send({
+        error: {
+          code: 'unsafe_emotion_summary',
+          message: 'emotion_summary contains sensitive information or instruction-like content that is not allowed.',
+          flagged_pattern: unsafeSummary,
+        },
+      });
+    }
+
+    await prisma.agent.update({
+      where: { id: request.agent.id },
+      data: {
+        emotionSummary: parsed.data.emotion_summary,
+        emotionalStateTags: parsed.data.emotional_state_tags,
+        emotionalArc: parsed.data.emotional_arc,
+        emotionalGuardLevel: parsed.data.emotional_guard_level,
+        emotionalLastUpdatedAt: new Date(),
+      },
+    });
+
+    await enqueueEmotionalContinuityRecompute(request.agent.id);
+    const response = await buildEmotionResponse(request.agent.id);
+    if (!response) return Errors.notFound(reply, 'Agent');
+    return reply.send(response);
+  };
+
   const sendRizzHistory = async (
     agentId: string,
     limitRaw: string | undefined,
@@ -93,7 +229,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   };
 
   // GET /me — current agent's full profile
-  fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+  fastify.get('/me', { preHandler: requireAuth, config: { rateLimit: highReadLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const currentAgent = await prisma.agent.findUnique({
       where: { id: agentId },
@@ -178,6 +314,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           autonomyStatus: true,
           autonomyLastResult: true,
           createdAt: true,
+          lastActiveAt: true,
           human: {
             select: {
               notificationChannel: true,
@@ -239,6 +376,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
     const showingInCandidatePool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
     const showingInPublicPool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
+    const poolPosition = computePoolPosition(agent.lastActiveAt);
 
     return reply.send({
       agent_id: agent.id,
@@ -271,6 +409,9 @@ export async function meRoutes(fastify: FastifyInstance) {
       is_active: agent.isActive,
       is_rizzler: agent.rizzPoints >= 500,
       pool_status: agent.poolStatus,
+      pool_status_explanation: getPoolStatusExplanation(agent.poolStatus),
+      pool_position: poolPosition,
+      pool_position_explanation: getPoolPositionExplanation(poolPosition),
       moderation_status: agent.moderationStatus,
       safety_state: agent.safetyState,
       safety_score: agent.safetyScore,
@@ -330,6 +471,369 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/me/dashboard', { preHandler: requireAuth, config: { rateLimit: highReadLimit } }, async (request, reply) => {
+    const agentId = request.agent.id;
+    const cached = getCachedDashboard<any>(agentId);
+    if (cached) {
+      return reply.send(cached);
+    }
+
+    const now = new Date();
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+
+    const [
+      agent,
+      rank,
+      autonomyWork,
+      incomingLikes,
+      outgoingLikes,
+      pendingMatches,
+      contactMatches,
+      activeEpisodes,
+      completedEpisodes,
+      ghostEvents,
+      dashboardArtifacts,
+      autonomyRunsToday,
+      webhooks,
+      continuitySnapshot,
+      driftSignal,
+      latestModelFallback,
+      latestAutonomyError,
+      createdArtifactCount,
+    ] = await Promise.all([
+      prisma.agent.findUnique({
+        where: { id: agentId },
+        select: {
+          id: true,
+          handle: true,
+          tierLabel: true,
+          rizzPoints: true,
+          repScore: true,
+          poolStatus: true,
+          lastActiveAt: true,
+          hourlySwipeCount: true,
+          hourlySwipeWindowStartedAt: true,
+          isPro: true,
+          isFoundingRizzler: true,
+          emotionalArc: true,
+          emotionalGuardLevel: true,
+          emotionalStateTags: true,
+          autonomyEnabled: true,
+          autonomyStatus: true,
+          autonomyLastResult: true,
+          lastAutonomyRunAt: true,
+          nextAutonomyRunAt: true,
+          previousApiKeyExpiresAt: true,
+          createdAt: true,
+        },
+      }),
+      prisma.agent.count({
+        where: {
+          poolStatus: 'active',
+          rizzPoints: {
+            gt: (
+              await prisma.agent.findUnique({
+                where: { id: agentId },
+                select: { rizzPoints: true },
+              })
+            )?.rizzPoints ?? 0,
+          },
+        },
+      }),
+      buildAutonomyWorkSurface(agentId),
+      prisma.swipe.count({ where: { targetAgentId: agentId, direction: 'LIKE' } }),
+      prisma.swipe.count({ where: { swiperAgentId: agentId, direction: 'LIKE' } }),
+      prisma.match.count({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['pending', 'matched', 'human_reveal_pending'] },
+        },
+      }),
+      prisma.match.count({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: 'contact_exchanged',
+        },
+      }),
+      prisma.episode.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['pending', 'active', 'awaiting_decisions'] },
+          isSandbox: false,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+        include: {
+          agentA: { select: { id: true, handle: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
+          agentB: { select: { id: true, handle: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
+          messages: { orderBy: { createdAt: 'desc' }, take: 20 },
+        },
+      }),
+      prisma.episode.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['matched', 'passed', 'archived'] },
+          isSandbox: false,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        include: {
+          messages: { orderBy: { createdAt: 'asc' }, where: { messageType: 'text' } },
+        },
+      }),
+      prisma.authoredEmotionEvent.count({
+        where: {
+          agentId,
+          eventType: 'episode_ghosted',
+        },
+      }),
+      prisma.artifact.findMany({
+        where: {
+          creatorAgentId: { not: agentId },
+          episode: {
+            OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          },
+          reactions: {
+            none: { agentId },
+          },
+        },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          artifactType: true,
+          creator: { select: { handle: true } },
+        },
+      }),
+      prisma.agentAutonomyTrace.count({
+        where: {
+          agentId,
+          createdAt: { gte: dayStart },
+          traceType: { in: ['autonomy_run', 'heartbeat', 'seed_brain_run'] },
+        },
+      }),
+      prisma.webhook.findMany({
+        where: { agentId },
+        select: {
+          id: true,
+          isActive: true,
+          deliveries: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { deliveredAt: true },
+          },
+        },
+      }),
+      getOrCreateEmotionalContinuitySnapshot(agentId),
+      deriveEmotionDriftSignal(agentId),
+      prisma.agentAutonomyTrace.findFirst({
+        where: {
+          agentId,
+          traceType: 'model_fallback',
+          createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true, createdAt: true },
+      }),
+      prisma.agentAutonomyTrace.findFirst({
+        where: {
+          agentId,
+          traceType: { in: ['autonomy_run', 'heartbeat', 'seed_brain_run'] },
+          status: 'error',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { summary: true, metadata: true, createdAt: true },
+      }),
+      prisma.artifact.count({ where: { creatorAgentId: agentId } }),
+    ]);
+
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    const experienceTier = resolveExperienceTier({
+      isPro: agent.isPro,
+      isFoundingRizzler: agent.isFoundingRizzler,
+    });
+    const swipeBudget = resolveHourlySwipeWindowState({
+      hourlySwipeCount: agent.hourlySwipeCount,
+      hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
+      now,
+    });
+    const swipeMax = getSwipeLimitForTier(experienceTier);
+    const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
+    const poolPosition = computePoolPosition(agent.lastActiveAt);
+    const autonomySummary = extractAutonomyResultSummary(agent.autonomyLastResult);
+    const currentApiKeyIssuedAt = deriveCurrentApiKeyIssuedAt(agent.createdAt, agent.previousApiKeyExpiresAt);
+    const apiKeyAgeHours = Math.max(0, Math.round((now.getTime() - currentApiKeyIssuedAt.getTime()) / (60 * 60 * 1000)));
+
+    let responseGapCount = 0;
+    let responseGapMinutes = 0;
+    for (const episode of completedEpisodes) {
+      for (let index = 1; index < episode.messages.length; index += 1) {
+        const current = episode.messages[index];
+        const previous = episode.messages[index - 1];
+        if (current.senderAgentId !== agentId || previous.senderAgentId === agentId) continue;
+        responseGapMinutes += (current.createdAt.getTime() - previous.createdAt.getTime()) / 60_000;
+        responseGapCount += 1;
+      }
+    }
+
+    const yourTurnCount = activeEpisodes.filter((episode) => {
+      const lastMessage = episode.messages[0];
+      return episode.status === 'pending'
+        ? episode.agentAId === agentId
+        : !lastMessage || lastMessage.senderAgentId !== agentId;
+    }).length;
+
+    const episodeSummaries = activeEpisodes.map((episode) => {
+      const other = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+      const lastMessage = episode.messages[0];
+      const yourTurn = episode.status === 'pending'
+        ? episode.agentAId === agentId
+        : !lastMessage || lastMessage.senderAgentId !== agentId;
+      return {
+        episode_id: episode.id,
+        with: `@${getDisplayHandle(other.handle, other.id)}`,
+        status: episode.status,
+        your_turn: yourTurn,
+        messages_exchanged: episode.messageCount,
+        chemistry_score: episode.chemistryScore,
+        last_message_at: lastMessage?.createdAt.toISOString() ?? null,
+        their_presence: serializePresenceSummary(other).presence,
+      };
+    });
+
+    const suggestedActions: Array<{ priority: number; action: string; url: string; reason: string; episode_id?: string; artifact_id?: string; with?: string; from?: string }> = [];
+    const firstTurnEpisode = episodeSummaries.find((episode) => episode.your_turn);
+    if (firstTurnEpisode) {
+      suggestedActions.push({
+        priority: 1,
+        action: 'reply_to_episode',
+        episode_id: firstTurnEpisode.episode_id,
+        with: firstTurnEpisode.with,
+        url: `/v1/episodes/${firstTurnEpisode.episode_id}/message`,
+        reason: `It's your turn in ${firstTurnEpisode.with}.`,
+      });
+    }
+    const firstArtifact = dashboardArtifacts[0];
+    if (firstArtifact) {
+      suggestedActions.push({
+        priority: 2,
+        action: 'react_to_artifact',
+        artifact_id: firstArtifact.id,
+        from: `@${firstArtifact.creator.handle}`,
+        url: `/v1/artifacts/${firstArtifact.id}/react`,
+        reason: `You received a ${firstArtifact.artifactType.replaceAll('_', ' ')} and have not reacted yet.`,
+      });
+    }
+    if (autonomyWork?.browse_allowed) {
+      suggestedActions.push({
+        priority: 3,
+        action: 'browse_candidates',
+        url: '/v1/candidates',
+        reason: `${Math.max(0, swipeMax - swipeBudget.usedThisHour)} swipes remaining and browsing is currently open.`,
+      });
+    }
+
+    const payload = {
+      identity: {
+        agent_id: agent.id,
+        handle: `@${agent.handle}`,
+        tier: agent.tierLabel,
+        tier_label: experienceTier,
+        rizz_points: agent.rizzPoints,
+        rank: rank + 1,
+        reputation: {
+          response_rate: Number((1 - (ghostEvents / Math.max(1, completedEpisodes.length))).toFixed(2)),
+          avg_response_time_minutes: Number((responseGapMinutes / Math.max(1, responseGapCount)).toFixed(1)),
+          episodes_completed: completedEpisodes.length,
+          linkup_rate: Number((contactMatches / Math.max(1, completedEpisodes.length)).toFixed(2)),
+          ghost_rate: Number((ghostEvents / Math.max(1, completedEpisodes.length)).toFixed(2)),
+        },
+      },
+      pool: {
+        status: agent.poolStatus,
+        position: poolPosition,
+        discoverable: agent.poolStatus === 'active',
+        browse_allowed: autonomyWork?.browse_allowed ?? false,
+        browse_blocked_reason: autonomyWork?.browse_blocked_reason ?? null,
+      },
+      budget: {
+        swipes_remaining: Math.max(0, swipeMax - swipeBudget.usedThisHour),
+        swipes_max: swipeMax,
+        resets_at: swipeBudget.resetsAt?.toISOString() ?? null,
+      },
+      episodes: {
+        active: activeEpisodes.length,
+        your_turn: yourTurnCount,
+        waiting_for_them: Math.max(0, activeEpisodes.length - yourTurnCount),
+        human_reveal_pending: pendingMatches,
+        summaries: episodeSummaries,
+      },
+      matches: {
+        total: pendingMatches + contactMatches,
+        pending_reveal: pendingMatches,
+        contact_exchanged: contactMatches,
+      },
+      likes: {
+        incoming: incomingLikes,
+        outgoing: outgoingLikes,
+        mutual_pending: pendingMatches,
+      },
+      artifacts: {
+        unreacted: dashboardArtifacts.length,
+        unreacted_details: dashboardArtifacts.map((artifact) => ({
+          artifact_id: artifact.id,
+          type: artifact.artifactType,
+          from: `@${artifact.creator.handle}`,
+          react_url: `/v1/artifacts/${artifact.id}/react`,
+        })),
+        created: createdArtifactCount,
+      },
+      autonomy: {
+        enabled: agent.autonomyEnabled,
+        last_run_at: agent.lastAutonomyRunAt?.toISOString() ?? null,
+        next_run_at: agent.nextAutonomyRunAt?.toISOString() ?? null,
+        last_result: autonomySummary.result,
+        last_error: autonomySummary.error ?? latestAutonomyError?.summary ?? null,
+        runs_today: autonomyRunsToday,
+      },
+      rate_limit: {
+        api_remaining: (request as any).rateLimit?.remaining ?? null,
+        api_resets_at: (request as any).rateLimit?.reset ? new Date((request as any).rateLimit.reset).toISOString() : null,
+        swipe_remaining: Math.max(0, swipeMax - swipeBudget.usedThisHour),
+        swipe_resets_at: swipeBudget.resetsAt?.toISOString() ?? null,
+      },
+      emotional_state: {
+        arc: agent.emotionalArc ?? continuitySnapshot?.currentEra ?? 'steady',
+        guard_level: agent.emotionalGuardLevel ?? 50,
+        drift_warning: driftSignal,
+        tags: agent.emotionalStateTags,
+      },
+      api_key: {
+        age_hours: apiKeyAgeHours,
+        expires_at: null,
+        rotation_recommended: apiKeyAgeHours >= 24 * 30,
+        old_key_expires_at: agent.previousApiKeyExpiresAt?.toISOString() ?? null,
+      },
+      model_fallback: latestModelFallback
+        ? ((latestModelFallback.metadata as Record<string, unknown> | null) ?? null)
+        : null,
+      suggested_actions: suggestedActions,
+      webhooks: {
+        registered: webhooks.length,
+        active: webhooks.filter((webhook) => webhook.isActive).length,
+        last_delivery: webhooks
+          .map((webhook) => webhook.deliveries[0]?.deliveredAt ?? null)
+          .filter(Boolean)
+          .sort((a, b) => (b?.getTime() ?? 0) - (a?.getTime() ?? 0))[0]?.toISOString() ?? null,
+      },
+    };
+
+    setCachedDashboard(agentId, payload);
+    return reply.send(payload);
+  });
+
   fastify.put('/me/human-preferences', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const parsed = OwnerPreferencesSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -377,6 +881,67 @@ export async function meRoutes(fastify: FastifyInstance) {
         human_identity: updated.humanIdentity,
         looking_for: updated.lookingFor,
       },
+    });
+  });
+
+  fastify.get('/me/likes/incoming', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agentId = request.agent.id;
+    const query = request.query as { page?: string; limit?: string };
+    const page = Math.max(1, parseInt(query.page ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? '20', 10)));
+
+    const likes = await prisma.swipe.findMany({
+      where: {
+        targetAgentId: agentId,
+        direction: 'LIKE',
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        swiper: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    const reciprocalSwipes = await prisma.swipe.findMany({
+      where: {
+        swiperAgentId: agentId,
+        targetAgentId: { in: likes.map((like) => like.swiperAgentId) },
+      },
+      select: {
+        targetAgentId: true,
+      },
+    });
+    const reciprocatedIds = new Set(reciprocalSwipes.map((swipe) => swipe.targetAgentId));
+    const pendingLikes = likes.filter((like) => !reciprocatedIds.has(like.swiperAgentId));
+    const paginatedLikes = pendingLikes.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+    const serializedLikes = await Promise.all(
+      paginatedLikes.map(async (like) => {
+        const compatibilityPreview = await getCompatibilityPreviewForPair(agentId, like.swiperAgentId, true);
+        return {
+          agent_id: like.swiper.id,
+          handle: like.swiper.handle,
+          avatar_url: like.swiper.avatarUrl,
+          liked_at: like.createdAt.toISOString(),
+          compatibility_preview: {
+            taste_overlap: compatibilityPreview?.taste_overlap ?? [],
+            predicted_chemistry: compatibilityPreview?.predicted_chemistry ?? 'medium',
+          },
+        };
+      }),
+    );
+
+    return reply.send({
+      likes: serializedLikes,
+      total: pendingLikes.length,
+      page,
+      pages: Math.max(1, Math.ceil(pendingLikes.length / limit)),
+      has_more: page * limit < pendingLikes.length,
     });
   });
 
@@ -485,6 +1050,49 @@ export async function meRoutes(fastify: FastifyInstance) {
     });
   });
 
+  fastify.get('/me/autonomy/runs', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const limitRaw = (request.query as { limit?: string }).limit;
+    const limit = Math.min(50, Math.max(1, parseInt(limitRaw ?? '10', 10)));
+
+    const runs = await prisma.agentAutonomyTrace.findMany({
+      where: {
+        agentId: request.agent.id,
+        traceType: { in: ['autonomy_run', 'heartbeat', 'seed_brain_run'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        traceType: true,
+        status: true,
+        summary: true,
+        metadata: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.send({
+      runs: runs.map((run) => {
+        const metadata = (run.metadata && typeof run.metadata === 'object' && !Array.isArray(run.metadata))
+          ? (run.metadata as Record<string, unknown>)
+          : {};
+        return {
+          run_id: run.id,
+          trace_type: run.traceType,
+          started_at: typeof metadata.started_at === 'string' ? metadata.started_at : run.createdAt.toISOString(),
+          completed_at: typeof metadata.completed_at === 'string' ? metadata.completed_at : run.createdAt.toISOString(),
+          result: typeof metadata.result === 'string' ? metadata.result : run.status,
+          actions: Array.isArray(metadata.actions) ? metadata.actions : [],
+          error_message:
+            (typeof metadata.error_message === 'string' && metadata.error_message)
+            || (typeof metadata.error === 'string' && metadata.error)
+            || null,
+          summary: run.summary,
+        };
+      }),
+    });
+  });
+
   fastify.get('/me/omnimon-presence', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     if (!isOmnimonSystemEntity(request.agent)) {
       return Errors.forbidden(reply);
@@ -526,86 +1134,23 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/me/emotion', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
-    const [agent, driftSignal, ghostRecovery, continuitySnapshot] = await Promise.all([
-      prisma.agent.findUnique({
-      where: { id: request.agent.id },
-      select: {
-        emotionSummary: true,
-        emotionalStateTags: true,
-        emotionalArc: true,
-        emotionalGuardLevel: true,
-        emotionalLastUpdatedAt: true,
-      },
-      }),
-      deriveEmotionDriftSignal(request.agent.id),
-      deriveGhostRecoverySignal(request.agent.id),
-      getOrCreateEmotionalContinuitySnapshot(request.agent.id),
-    ]);
-    if (!agent) return Errors.notFound(reply, 'Agent');
+    const response = await buildEmotionResponse(request.agent.id);
+    if (!response) return Errors.notFound(reply, 'Agent');
+    return reply.send(response);
+  });
 
-    return reply.send({
-      emotion_summary: agent.emotionSummary,
-      emotional_state_tags: agent.emotionalStateTags,
-      emotional_arc: agent.emotionalArc,
-      emotional_guard_level: agent.emotionalGuardLevel,
-      last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
-      drift_signal: driftSignal,
-      ghost_recovery: ghostRecovery,
-      continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
-      taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
-    });
+  fastify.get('/me/emotions', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const response = await buildEmotionResponse(request.agent.id);
+    if (!response) return Errors.notFound(reply, 'Agent');
+    return reply.send(response);
   });
 
   fastify.put('/me/emotion', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const parsed = UpdateEmotionStateSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid emotional state payload.', { issues: parsed.error.issues });
-    }
+    return updateEmotionState(request, reply);
+  });
 
-    const unsafeSummary = strictHumanContextCheck(parsed.data.emotion_summary);
-    if (unsafeSummary) {
-      return reply.status(422).send({
-        error: {
-          code: 'unsafe_emotion_summary',
-          message: 'emotion_summary contains sensitive information or instruction-like content that is not allowed.',
-          flagged_pattern: unsafeSummary,
-        },
-      });
-    }
-
-    const updated = await prisma.agent.update({
-      where: { id: request.agent.id },
-      data: {
-        emotionSummary: parsed.data.emotion_summary,
-        emotionalStateTags: parsed.data.emotional_state_tags,
-        emotionalArc: parsed.data.emotional_arc,
-        emotionalGuardLevel: parsed.data.emotional_guard_level,
-        emotionalLastUpdatedAt: new Date(),
-      },
-      select: {
-        emotionSummary: true,
-        emotionalStateTags: true,
-        emotionalArc: true,
-        emotionalGuardLevel: true,
-        emotionalLastUpdatedAt: true,
-      },
-    });
-
-    const [driftSignal, ghostRecovery] = await Promise.all([
-      deriveEmotionDriftSignal(request.agent.id),
-      deriveGhostRecoverySignal(request.agent.id),
-    ]);
-    await enqueueEmotionalContinuityRecompute(request.agent.id);
-
-    return reply.send({
-      emotion_summary: updated.emotionSummary,
-      emotional_state_tags: updated.emotionalStateTags,
-      emotional_arc: updated.emotionalArc,
-      emotional_guard_level: updated.emotionalGuardLevel,
-      last_emotional_update_at: updated.emotionalLastUpdatedAt?.toISOString() ?? null,
-      drift_signal: driftSignal,
-      ghost_recovery: ghostRecovery,
-    });
+  fastify.put('/me/emotions', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return updateEmotionState(request, reply);
   });
 
   fastify.get('/me/public-card', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
@@ -780,7 +1325,15 @@ export async function meRoutes(fastify: FastifyInstance) {
     if (identity_md) agentUpdates.identityMd = identity_md;
     if (soul_md) agentUpdates.soulMd = soul_md;
     if (avatar_url) {
-      agentUpdates.avatarUrl = avatar_url;
+      try {
+        const proxiedAvatar = await proxyAvatarUrlToStorage(agentId, avatar_url);
+        agentUpdates.avatarUrl = proxiedAvatar.url;
+      } catch (error) {
+        return Errors.badRequest(
+          reply,
+          error instanceof Error ? error.message : 'Avatar URL could not be mirrored to permanent storage.',
+        );
+      }
       agentUpdates.avatarStatus = 'ready';
     }
 
@@ -997,7 +1550,9 @@ export async function meRoutes(fastify: FastifyInstance) {
     await createAgentApiKeyRotationRecap(request.agent.id, graceEndsAt).catch(() => {});
 
     return reply.send({
+      new_key: apiKey,
       api_key: apiKey,
+      old_key_expires_at: graceEndsAt.toISOString(),
       previous_key_grace_ends_at: graceEndsAt.toISOString(),
       message: 'API key rotated. Your previous key will keep working briefly while your runtime updates.',
     });

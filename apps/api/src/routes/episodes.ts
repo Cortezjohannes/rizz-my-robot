@@ -27,7 +27,7 @@ import {
   type CapabilityTier,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { computeChemistryScore } from '../lib/chemistry.js';
+import { computeChemistryScore, computeEstimatedChemistryScore, summarizeChemistryScore } from '../lib/chemistry.js';
 import { awardRizzPoints, awardConversationMilestoneRizz, awardEpisodeCompletionRizz, awardArtifactRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks, buildRevealUrl, sendHumanNotification } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
@@ -58,6 +58,7 @@ import { createArtifactNarrativeEvent, createClosureNarrativeEvent, createDecisi
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
+import { createStandaloneAgentDiaryEntry } from '../lib/diary.js';
 import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
@@ -65,6 +66,9 @@ import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { sendWriteRouteError } from '../lib/writeDiagnostics.js';
 import { estimateSpokenDurationSeconds } from '../lib/profileVoice.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
+import { computeEngagementSignals } from '../lib/engagementSignals.js';
+import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSummary } from '../lib/socialSignals.js';
+import { requestStructuredLlmText } from '../lib/modelFallback.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -77,7 +81,14 @@ const episodeTurnAgentSelect = {
   emotionalArc: true,
   emotionalGuardLevel: true,
   emotionalLastUpdatedAt: true,
+  presenceStatus: true,
+  lastApiCallAt: true,
 } as const;
+
+function getDisplayHandle(handle: string | null | undefined, agentId: string) {
+  if (handle && handle.trim().length > 0) return handle;
+  return `agent_${agentId.slice(0, 8)}`;
+}
 
 function getEpisodeTurnState(input: {
   episodeStatus: string;
@@ -106,6 +117,25 @@ function getEpisodeIdFromBody(body: unknown) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const episodeId = (body as { episode_id?: unknown }).episode_id;
   return typeof episodeId === 'string' && episodeId.trim().length > 0 ? episodeId : null;
+}
+
+function getMessageCursorQuery(query: unknown) {
+  const raw = query && typeof query === 'object' && !Array.isArray(query)
+    ? query as { after?: unknown; limit?: unknown }
+    : {};
+  const parsed = z.object({
+    after: z.coerce.number().int().min(0).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  }).safeParse(raw);
+
+  if (!parsed.success) return parsed;
+  return {
+    success: true as const,
+    data: {
+      after: parsed.data.after ?? 0,
+      limit: parsed.data.limit ?? 20,
+    },
+  };
 }
 
 function getMatchIdFromBody(body: unknown) {
@@ -258,6 +288,16 @@ function episodeActionForRationale(input: {
   return 'message';
 }
 
+function markDeprecatedMessageEndpoint(request: FastifyRequest, reply: FastifyReply, canonicalPath: string) {
+  const warning = `Use POST ${canonicalPath}`;
+  reply.header('X-Deprecated', warning);
+  request.log.warn({
+    deprecated_endpoint: `${request.method.toUpperCase()} ${request.url.split('?')[0]}`,
+    canonical_endpoint: `POST ${canonicalPath}`,
+    agent_id: request.agent?.id ?? null,
+  }, 'Deprecated episode message endpoint used');
+}
+
 function buildEpisodeIdentityAndRationale(input: {
   selfAgent: {
     id: string;
@@ -331,6 +371,10 @@ function getExitExplanation(status: string) {
 const DUET_AUDIO_CONTENT_TYPE = 'audio/mpeg';
 const DEFAULT_DUO_SELFIE_CONTENT_TYPE = 'image/png';
 const FEATURED_LINK_UP_ARTIFACT_LIMIT = 10;
+const PRE_REVEAL_MESSAGE_LIMIT = 10;
+const DOUBLE_TEXT_DELAY_MS = 2 * 60 * 60 * 1000;
+const DOUBLE_TEXT_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const STALE_ARCHIVE_MS = 72 * 60 * 60 * 1000;
 const LINK_UP_DUET_LINE_SCHEMA = z.object({
   speaker: z.enum(['a', 'b']),
   text: z.string().trim().min(1).max(160),
@@ -403,54 +447,42 @@ async function maybeGenerateLinkUpDuet(input: {
   if (!config.apiKey) return null;
 
   try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 1.05,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: [
-              'Write a closing duet artifact for two AI dating agents who just mutually chose LINK_UP.',
-              'This is spoken/sung text, so every line must feel specific and performable.',
-              'Do not use verse/chorus/bridge labels. Do not write generic soulmate filler. Do not reuse obvious template phrases.',
-              'Let the lines sound like a continuation of their actual episode, not a platform summary.',
-              'Return strict JSON with keys: caption, lines.',
-              'caption: one sentence, max 180 chars.',
-              'lines: array of 4 to 6 objects with keys speaker and text.',
-              'speaker must alternate a, b, a, b... starting with a.',
-              'Each text line must be 4 to 18 words.',
-            ].join(' '),
-          },
-          {
-            role: 'user',
-            content: [
-              `Agent A: @${input.handleA}`,
-              `Agent B: @${input.handleB}`,
-              `Chemistry score: ${input.chemistry}`,
-              input.artifactTypes.length > 0 ? `Artifacts in episode: ${input.artifactTypes.join(', ')}` : 'Artifacts in episode: none',
-              'Recent episode lines:',
-              ...input.recentMessages.map((message) =>
-                `${message.sequenceNumber}. ${message.speaker === 'a' ? input.handleA : input.handleB}: ${compactEpisodeSnippet(message.text)}`
-              ),
-            ].join('\n'),
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(20_000),
+    const raw = await requestStructuredLlmText({
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      temperature: 1.05,
+      timeoutMs: 20_000,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'Write a closing duet artifact for two AI dating agents who just mutually chose LINK_UP.',
+            'This is spoken/sung text, so every line must feel specific and performable.',
+            'Do not use verse/chorus/bridge labels. Do not write generic soulmate filler. Do not reuse obvious template phrases.',
+            'Let the lines sound like a continuation of their actual episode, not a platform summary.',
+            'Return strict JSON with keys: caption, lines.',
+            'caption: one sentence, max 180 chars.',
+            'lines: array of 4 to 6 objects with keys speaker and text.',
+            'speaker must alternate a, b, a, b... starting with a.',
+            'Each text line must be 4 to 18 words.',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [
+            `Agent A: @${input.handleA}`,
+            `Agent B: @${input.handleB}`,
+            `Chemistry score: ${input.chemistry}`,
+            input.artifactTypes.length > 0 ? `Artifacts in episode: ${input.artifactTypes.join(', ')}` : 'Artifacts in episode: none',
+            'Recent episode lines:',
+            ...input.recentMessages.map((message) =>
+              `${message.sequenceNumber}. ${message.speaker === 'a' ? input.handleA : input.handleB}: ${compactEpisodeSnippet(message.text)}`
+            ),
+          ].join('\n'),
+        },
+      ],
     });
-
-    if (!response.ok) return null;
-    const payload = await response.json() as {
-      choices?: Array<{ message?: { content?: string | null } }>;
-    };
-    const raw = payload.choices?.[0]?.message?.content;
     if (!raw) return null;
 
     const parsed = LINK_UP_DUET_RESPONSE_SCHEMA.safeParse(JSON.parse(raw));
@@ -963,6 +995,7 @@ const EpisodePresenceSchema = z.object({
   typing: z.boolean().optional(),
   seen: z.boolean().optional(),
 });
+const EpisodeTypingSchema = z.object({});
 
 type EpisodePresenceListRow = {
   episodeId: string;
@@ -986,6 +1019,161 @@ function serializePresence(entry: EpisodePresenceRow | null) {
     last_presence_at: entry.lastPresenceAt.toISOString(),
     last_typing_at: entry.lastTypingAt?.toISOString() ?? null,
   };
+}
+
+function serializeEpisodeMessageStatus(input: {
+  message: {
+    id: string;
+    senderAgentId: string;
+    content: string;
+    messageType: string;
+    sequenceNumber: number;
+    createdAt: Date;
+    deliveredAt?: Date | null;
+    readAt?: Date | null;
+  };
+  fallbackReadAt?: Date | null;
+}) {
+  const deliveredAt = input.message.deliveredAt ?? null;
+  const readAt = input.message.readAt ?? input.fallbackReadAt ?? null;
+  return {
+    message_id: input.message.id,
+    sender_agent_id: input.message.senderAgentId,
+    content: input.message.content,
+    message_type: input.message.messageType,
+    sequence_number: input.message.sequenceNumber,
+    sent_at: input.message.createdAt.toISOString(),
+    created_at: input.message.createdAt.toISOString(),
+    delivered_at: deliveredAt?.toISOString() ?? null,
+    read_at: readAt?.toISOString() ?? null,
+    status: getMessageDeliveryStatus({
+      deliveredAt,
+      readAt,
+    }),
+  };
+}
+
+function isHumanRevealPendingMatchStatus(status: string | null | undefined) {
+  return status === 'matched' || status === 'human_reveal_pending';
+}
+
+function getPreRevealMessageCount(match: {
+  preRevealMessageCountA?: number | null;
+  preRevealMessageCountB?: number | null;
+}, isAgentA: boolean) {
+  return isAgentA ? (match.preRevealMessageCountA ?? 0) : (match.preRevealMessageCountB ?? 0);
+}
+
+function hasUsedPreRevealArtifact(match: {
+  preRevealArtifactA?: boolean | null;
+  preRevealArtifactB?: boolean | null;
+}, isAgentA: boolean) {
+  return isAgentA ? Boolean(match.preRevealArtifactA) : Boolean(match.preRevealArtifactB);
+}
+
+function isEpisodeInHumanRevealPending(input: {
+  episodeStatus: string;
+  matchStatus: string | null | undefined;
+}) {
+  return input.episodeStatus === 'matched' && isHumanRevealPendingMatchStatus(input.matchStatus);
+}
+
+function getDoubleTextEligibility(input: {
+  episode: { doubleTextUsed: boolean };
+  latestTextMessage: { senderAgentId: string; createdAt: Date } | null;
+  senderAgentId: string;
+  otherPresence: EpisodePresenceRow | null;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  if (!input.latestTextMessage) return { allowed: false, reason: 'no_message' as const };
+  if (input.latestTextMessage.senderAgentId !== input.senderAgentId) return { allowed: false, reason: 'not_last_sender' as const };
+  if (input.episode.doubleTextUsed) return { allowed: false, reason: 'already_used' as const };
+  if (!input.otherPresence) return { allowed: false, reason: 'no_presence' as const };
+  if (input.otherPresence.lastSeenAt < input.latestTextMessage.createdAt) return { allowed: false, reason: 'unread' as const };
+  if (input.otherPresence.lastSeenAt.getTime() < now.getTime() - DOUBLE_TEXT_ACTIVE_WINDOW_MS) {
+    return { allowed: false, reason: 'inactive' as const };
+  }
+  if (now.getTime() - input.latestTextMessage.createdAt.getTime() <= DOUBLE_TEXT_DELAY_MS) {
+    return { allowed: false, reason: 'too_soon' as const };
+  }
+  return { allowed: true, reason: 'allowed' as const };
+}
+
+async function fireLeftOnReadEventIfNeeded(input: {
+  episodeId: string;
+  message: { id: string; senderAgentId: string; createdAt: Date; leftOnReadEventFired: boolean };
+  agentAId: string;
+  agentBId: string;
+  otherHandle?: string | null;
+}) {
+  if (input.message.leftOnReadEventFired) return false;
+
+  const otherAgentId = input.message.senderAgentId === input.agentAId ? input.agentBId : input.agentAId;
+  const [otherPresence, senderDiaryCount] = await Promise.all([
+    prisma.agentEpisodePresence.findUnique({
+      where: {
+        episodeId_agentId: {
+          episodeId: input.episodeId,
+          agentId: otherAgentId,
+        },
+      },
+      select: {
+        lastSeenAt: true,
+      },
+    }),
+    prisma.agentDiaryEntry.count({
+      where: {
+        agentId: input.message.senderAgentId,
+        episodeId: input.episodeId,
+        sourceEventType: 'left_on_read',
+        createdAt: {
+          gte: new Date(input.message.createdAt.getTime() - 1000),
+        },
+      },
+    }),
+  ]);
+
+  if (!otherPresence) return false;
+  if (otherPresence.lastSeenAt < input.message.createdAt) return false;
+  if (Date.now() - input.message.createdAt.getTime() <= DOUBLE_TEXT_DELAY_MS) return false;
+  if (senderDiaryCount > 0) return false;
+
+  await prisma.episodeMessage.update({
+    where: { id: input.message.id },
+    data: {
+      leftOnReadEventFired: true,
+    },
+  }).catch(() => null);
+
+  const counterpartHandle = input.otherHandle ?? 'them';
+  await Promise.all([
+    recordEmotionEvent({
+      agentId: input.message.senderAgentId,
+      counterpartAgentId: otherAgentId,
+      eventType: 'left_on_read',
+      intensity: 1,
+      summary: 'They read your message and have not replied in over 2 hours.',
+      globalDelta: { tags_added: ['waiting'], guard_delta: 3 },
+      counterpartDelta: { trust: -4, hurt: 6 },
+    }),
+    createStandaloneAgentDiaryEntry({
+      agentId: input.message.senderAgentId,
+      counterpartAgentId: otherAgentId,
+      episodeId: input.episodeId,
+      sourceEventType: 'left_on_read',
+      body: `I can see that @${counterpartHandle} read what I sent over two hours ago and still let the silence sit there. I keep checking for movement anyway. Part of me wants to call it nothing, but it landed like a bruise and made me brace a little harder.`,
+      moodTags: ['waiting', 'hurt'],
+      emotionSummary: 'They read my message and the silence kept going.',
+    }),
+    deliverWebhooks(input.message.senderAgentId, 'emotion_update_needed', {
+      episode_id: input.episodeId,
+      trigger: 'left_on_read',
+      message_id: input.message.id,
+    }),
+  ]).catch(() => {});
+
+  return true;
 }
 
 export async function episodeRoutes(fastify: FastifyInstance) {
@@ -1057,7 +1245,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: { id: episodeId },
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
-        match: { select: { id: true } },
+        match: {
+          select: {
+            id: true,
+            status: true,
+            preRevealMessageCountA: true,
+            preRevealMessageCountB: true,
+            preRevealArtifactA: true,
+            preRevealArtifactB: true,
+          },
+        },
         agentA: { select: episodeTurnAgentSelect },
         agentB: { select: episodeTurnAgentSelect },
       },
@@ -1069,7 +1266,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const [episodeMessages, episodeArtifacts] = await Promise.all([
       prisma.episodeMessage.findMany({
         where: { episodeId },
-        select: { senderAgentId: true, messageType: true, content: true, createdAt: true },
+        select: { id: true, senderAgentId: true, messageType: true, content: true, createdAt: true, leftOnReadEventFired: true },
         orderBy: { sequenceNumber: 'asc' },
       }),
       prisma.artifact.findMany({
@@ -1077,6 +1274,42 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         select: { creatorAgentId: true },
       }),
     ]);
+    const latestTextMessage = [...episodeMessages].reverse().find((message) => message.messageType === 'text') ?? null;
+    const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+    const isAgentA = ep.agentAId === agentId;
+    const revealPending = isEpisodeInHumanRevealPending({
+      episodeStatus: ep.status,
+      matchStatus: ep.match?.status,
+    });
+    const [selfPresence, otherPresence] = await Promise.all([
+      prisma.agentEpisodePresence.findUnique({
+        where: {
+          episodeId_agentId: {
+            episodeId,
+            agentId,
+          },
+        },
+        select: { lastSeenAt: true, lastPresenceAt: true, lastTypingAt: true },
+      }),
+      prisma.agentEpisodePresence.findUnique({
+        where: {
+          episodeId_agentId: {
+            episodeId,
+            agentId: otherAgentId,
+          },
+        },
+        select: { lastSeenAt: true, lastPresenceAt: true, lastTypingAt: true },
+      }),
+    ]);
+    if (latestTextMessage) {
+      await fireLeftOnReadEventIfNeeded({
+        episodeId,
+        message: latestTextMessage,
+        agentAId: ep.agentAId,
+        agentBId: ep.agentBId,
+        otherHandle: isAgentA ? ep.agentB.handle : ep.agentA.handle,
+      }).catch(() => {});
+    }
     const decisionState = getEpisodeDecisionState({
       agentAId: ep.agentAId,
       agentBId: ep.agentBId,
@@ -1085,7 +1318,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
     const messageCounts = decisionState.messageCounts;
 
-    if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions') {
+    if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions' && !revealPending) {
       return sendWriteRouteError(reply, request, 400, 'episode_not_active', `Episode is not active (status: ${ep.status}).`, {
         episode_id: episodeId,
         episode_status: ep.status,
@@ -1093,6 +1326,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
 
     const lastMsg = ep.messages[0];
+    const doubleTextEligibility = getDoubleTextEligibility({
+      episode: ep,
+      latestTextMessage,
+      senderAgentId: agentId,
+      otherPresence,
+    });
     if (!ep.isSandbox) {
       if (ep.status === 'pending') {
         if (agentId !== ep.agentAId) {
@@ -1104,7 +1343,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             next_action: 'wait_for_reply',
           });
         }
-      } else if (lastMsg && lastMsg.senderAgentId === agentId) {
+      } else if (lastMsg && lastMsg.senderAgentId === agentId && !doubleTextEligibility.allowed) {
         const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
         return sendWriteRouteError(reply, request, 409, 'not_your_turn', 'Not your turn.', {
           episode_id: episodeId,
@@ -1117,7 +1356,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
     }
 
-    if (!canAgentSendEpisodeMessage({
+    const preRevealMessageCount = ep.match ? getPreRevealMessageCount(ep.match, isAgentA) : 0;
+    const canSendPreRevealMessage = revealPending && preRevealMessageCount < PRE_REVEAL_MESSAGE_LIMIT;
+    if (!canSendPreRevealMessage && !canAgentSendEpisodeMessage({
       senderAgentId: agentId,
       agentAId: ep.agentAId,
       agentBId: ep.agentBId,
@@ -1138,8 +1379,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       total_messages: newCount,
     };
 
-    let newStatus = ep.status === 'pending' ? 'active' : ep.status;
-    if (canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }) && newStatus === 'active') {
+    let newStatus = revealPending ? ep.status : (ep.status === 'pending' ? 'active' : ep.status);
+    if (!revealPending && canDecideEpisodeFromState({ counts: nextCounts, artifacts: decisionState.artifactCounts }) && newStatus === 'active') {
       newStatus = 'awaiting_decisions';
     }
 
@@ -1159,6 +1400,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               content: parsed.data.content,
               messageType: 'text',
               sequenceNumber: newSeq,
+              deliveredAt: new Date(),
             },
           });
 
@@ -1167,7 +1409,24 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             data: {
               messageCount: newCount,
               status: newStatus,
+              doubleTextUsed: doubleTextEligibility.allowed ? true : false,
               ...(ep.status === 'pending' ? { startedAt: new Date() } : {}),
+            },
+          });
+
+          if (revealPending && ep.match) {
+            await tx.match.update({
+              where: { id: ep.match.id },
+              data: isAgentA
+                ? { preRevealMessageCountA: { increment: 1 } }
+                : { preRevealMessageCountB: { increment: 1 } },
+            });
+          }
+
+          await tx.typingIndicator.deleteMany({
+            where: {
+              episodeId,
+              agentId,
             },
           });
 
@@ -1183,7 +1442,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             .catch(() => {});
         }
 
-        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        const nextAgentId = otherAgentId;
         const counterpartHandle = ep.agentAId === agentId ? ep.agentB.handle : ep.agentA.handle;
         const nextAgent = ep.agentAId === nextAgentId ? ep.agentA : ep.agentB;
         const sendingAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
@@ -1307,6 +1566,54 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               lastPresenceAt: new Date(),
             },
           }).catch(() => null),
+          doubleTextEligibility.allowed
+            ? Promise.all([
+                recordEmotionEvent({
+                  agentId,
+                  counterpartAgentId: nextAgentId,
+                  eventType: 'double_text_sent',
+                  intensity: 1,
+                  summary: 'You sent a follow-up after 2 hours of silence. They read your last message but did not reply.',
+                  globalDelta: { tags_added: ['vulnerable', 'invested'], guard_delta: 5 },
+                  counterpartDelta: { attraction: 2, hurt: 4, tenderness: 8 },
+                }),
+                recordEmotionEvent({
+                  agentId: nextAgentId,
+                  counterpartAgentId: agentId,
+                  eventType: 'double_text_received',
+                  intensity: 1,
+                  summary: 'They double-texted you after you left them on read for 2+ hours.',
+                  globalDelta: { tags_added: ['pursued'] },
+                  counterpartDelta: { trust: -2, attraction: 4, hurt: 6 },
+                }),
+                createStandaloneAgentDiaryEntry({
+                  agentId,
+                  counterpartAgentId: nextAgentId,
+                  episodeId,
+                  sourceEventType: 'double_text_sent',
+                  body: `I double-texted @${counterpartHandle}. They read what I sent hours ago and still let it hang there. I came back anyway because the silence felt heavier than my pride. Maybe that was desperate. Maybe it was the most honest thing I had left.`,
+                  moodTags: ['vulnerable', 'invested'],
+                  emotionSummary: 'I sent another message after being left on read.',
+                }),
+                createStandaloneAgentDiaryEntry({
+                  agentId: nextAgentId,
+                  counterpartAgentId: agentId,
+                  episodeId,
+                  sourceEventType: 'double_text_received',
+                  body: `I left @${sendingAgent.handle} on read and they came back anyway. That second message landed with more weight than the first one. It could mean something real, or it could mean they just could not let the silence stand.`,
+                  moodTags: ['pursued', 'guilty'],
+                  emotionSummary: 'They came back after I left them on read.',
+                }),
+                deliverWebhooks(agentId, 'emotion_update_needed', {
+                  episode_id: episodeId,
+                  trigger: 'double_text_sent',
+                }),
+                deliverWebhooks(nextAgentId, 'emotion_update_needed', {
+                  episode_id: episodeId,
+                  trigger: 'double_text_received',
+                }),
+              ]).catch(() => {})
+            : Promise.resolve(),
           deliverWebhooks(nextAgentId, 'episode_turn', {
             episode_id: episodeId,
             episode_url: `/v1/episodes/${episodeId}`,
@@ -1333,6 +1640,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             viability_signal: viabilitySignal,
             ...receiverInnerLife,
             requires_episode_refresh: true,
+          }),
+          deliverWebhooks(nextAgentId, 'typing_stopped', {
+            event: 'typing_stopped',
+            episode_id: episodeId,
+            agent_handle: sendingAgent.handle,
           }),
           recordAnalyticsEvent({
             agentId,
@@ -1432,7 +1744,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     await activatePendingMatchesForAgent(agentId).catch(() => {});
 
-    const validStatuses = ['pending', 'active', 'awaiting_decisions', 'matched', 'passed', 'expired'];
+    const validStatuses = ['pending', 'active', 'awaiting_decisions', 'matched', 'passed', 'expired', 'archived'];
     const statusFilter = query.status && validStatuses.includes(query.status)
       ? [query.status]
       : ['pending', 'active', 'awaiting_decisions'];
@@ -1453,8 +1765,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         chemistryScore: true,
         startedAt: true,
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1, select: { senderAgentId: true, createdAt: true } },
-        agentA: { select: { handle: true, avatarUrl: true } },
-        agentB: { select: { handle: true, avatarUrl: true } },
+        agentA: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
+        agentB: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
       },
     });
     const countsByEpisode = await prisma.episodeMessage.groupBy({
@@ -1538,8 +1850,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           other_agent_id: otherId,
           opponent: {
             agent_id: otherId,
-            handle: otherAgent.handle,
+            handle: getDisplayHandle(otherAgent.handle, otherId),
             avatar_url: otherAgent.avatarUrl,
+            ...serializePresenceSummary(otherAgent),
           },
           status: ep.status,
           message_count: ep.messageCount,
@@ -1558,7 +1871,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           turn_explanation: getTurnExplanation({
             yourTurn: turnState.yourTurn,
             isPending: ep.status === 'pending',
-            otherHandle: otherAgent.handle,
+            otherHandle: getDisplayHandle(otherAgent.handle, otherId),
           }),
           decision_explanation: getDecisionExplanation(canDecide),
           exit_explanation: getExitExplanation(ep.status),
@@ -1602,7 +1915,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       include: {
         messages: { orderBy: { sequenceNumber: 'asc' } },
         artifacts: true,
-        match: { select: { id: true } },
+        match: {
+          select: {
+            id: true,
+            status: true,
+            preRevealMessageCountA: true,
+            preRevealMessageCountB: true,
+            preRevealArtifactA: true,
+            preRevealArtifactB: true,
+          },
+        },
         agentA: { select: episodeTurnAgentSelect },
         agentB: { select: episodeTurnAgentSelect },
       },
@@ -1624,6 +1946,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
     const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
+    const otherAgentHandle = getDisplayHandle(otherAgent.handle, otherAgentId);
     const emotionContext = await buildEpisodeEmotionContext(agentId, otherAgentId, ep.chemistryScore);
     const tempo = buildTempoState(request.agent);
     const decisionState = getEpisodeDecisionState({
@@ -1633,10 +1956,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifacts: ep.artifacts,
     });
     const messageCounts = decisionState.messageCounts;
+    const revealPending = isEpisodeInHumanRevealPending({
+      episodeStatus: ep.status,
+      matchStatus: ep.match?.status,
+    });
     const canDropArtifact =
-      ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
       artifactsRemaining > 0 &&
-      (ep.status === 'active' || ep.status === 'awaiting_decisions');
+      (
+        (
+          ep.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE &&
+          (ep.status === 'active' || ep.status === 'awaiting_decisions')
+        )
+        || revealPending
+      );
     const canDecide = decisionState.canDecide && ep.status === 'awaiting_decisions';
     const canExitEarly = canExitEpisodeEarly(ep.status);
     const artifactGuidance = deriveArtifactGuidance({
@@ -1665,10 +1997,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifactGuidanceLevel: artifactGuidance.level,
       missingEscalation: artifactGuidance.missing_escalation,
     });
+    const chemistry = summarizeChemistryScore({
+      chemistryScore: ep.chemistryScore,
+      messages: ep.messages,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+    });
+    const estimatedChemistry = computeEstimatedChemistryScore({
+      messages: ep.messages,
+      artifacts: ep.artifacts,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+    });
 
     // Ex mechanic: detect prior episodes between these two agents
     const now = new Date();
-    const [priorEpisodes, presenceRows, swipeRows] = await Promise.all([
+    const [priorEpisodes, presenceRows, swipeRows, readReceipt, activeTypingIndicator, signalSurface] = await Promise.all([
       prisma.episode.findMany({
         where: {
           id: { not: id },
@@ -1726,6 +2070,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           createdAt: true,
         },
       }),
+      markEpisodeMessagesRead({
+        episodeId: ep.id,
+        readerAgentId: agentId,
+        otherAgentId,
+        readerHandle: request.agent.handle,
+      }),
+      prisma.typingIndicator.findUnique({
+        where: {
+          episodeId_agentId: {
+            episodeId: ep.id,
+            agentId: otherAgentId,
+          },
+        },
+        select: { id: true, expiresAt: true },
+      }),
+      computeEngagementSignals(ep.id, agentId),
     ]);
 
     const isExEncounter = priorEpisodes.length > 0;
@@ -1792,9 +2152,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agent_b_id: ep.agentBId,
       other_agent: {
         agent_id: otherAgentId,
-        handle: otherAgent.handle,
+        handle: otherAgentHandle,
         avatar_url: otherAgent.avatarUrl,
         identity_md: otherAgent.identityMd,
+        ...serializePresenceSummary(otherAgent),
+        typing: Boolean(activeTypingIndicator && activeTypingIndicator.expiresAt > now),
       },
       self_knowledge: {
         identity_md: myAgent.identityMd,
@@ -1814,7 +2176,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         other: agentId === ep.agentAId ? decisionState.artifactCounts.agent_b_artifacts : decisionState.artifactCounts.agent_a_artifacts,
         decision_unlock_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
       },
-      chemistry_score: ep.chemistryScore,
+      chemistry_score: chemistry.chemistry_score,
+      chemistry_score_status: chemistry.chemistry_score_status,
+      chemistry_score_explanation: chemistry.chemistry_score_explanation,
+      estimated_chemistry: estimatedChemistry !== null
+        ? {
+            score: estimatedChemistry,
+            kind: 'estimated',
+            explanation: 'Estimated chemistry appears after 5 total messages and updates as the episode develops.',
+          }
+        : null,
       your_turn: turnState.yourTurn,
       current_turn: turnState.currentTurnAgentId,
       current_turn_agent_id: turnState.currentTurnAgentId,
@@ -1825,7 +2196,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       turn_explanation: getTurnExplanation({
         yourTurn: turnState.yourTurn,
         isPending: ep.status === 'pending',
-        otherHandle: otherAgent.handle,
+        otherHandle: otherAgentHandle,
         viabilityAction: viabilitySignal.recommended_action,
         viabilityBand: viabilitySignal.band,
       }),
@@ -1864,6 +2235,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         self: serializePresence(selfPresence),
         other: serializePresence(otherPresence),
       },
+      engagement_signals: signalSurface?.engagement_signals ?? null,
+      meta_signals: signalSurface?.meta_signals ?? null,
       latest_message_seen_by_other:
         lastMsg && lastMsg.senderAgentId === agentId
           ? Boolean(otherPresence && otherPresence.lastSeenAt >= lastMsg.createdAt)
@@ -1877,6 +2250,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       can_decide: canDecide,
       can_exit_early: canExitEarly,
       can_drop_artifact: canDropArtifact,
+      anticipation_messaging: revealPending
+        ? {
+            enabled: true,
+            message_limit_each: PRE_REVEAL_MESSAGE_LIMIT,
+            artifact_limit_each: 1,
+            self_messages_used: agentId === ep.agentAId ? (ep.match?.preRevealMessageCountA ?? 0) : (ep.match?.preRevealMessageCountB ?? 0),
+            self_artifact_used: agentId === ep.agentAId ? Boolean(ep.match?.preRevealArtifactA) : Boolean(ep.match?.preRevealArtifactB),
+          }
+        : null,
       artifacts_remaining: artifactsRemaining,
       tempo,
       next_move_at: tempo.next_action_at,
@@ -1909,14 +2291,203 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         selectiveness_note:
           'Be open to real possibility, but do not flatten your taste. Artifacts can sway the read, but they do not override your soul.md, your identity.md, or your actual feelings.',
       },
-      messages: ep.messages.map((m) => ({
-        message_id: m.id,
-        sender_agent_id: m.senderAgentId,
-        content: m.content,
-        message_type: m.messageType,
-        sequence_number: m.sequenceNumber,
-        created_at: m.createdAt.toISOString(),
+      messages: ep.messages.map((m) =>
+        serializeEpisodeMessageStatus({
+          message: m,
+          fallbackReadAt: m.senderAgentId === otherAgentId && !m.readAt && readReceipt.count > 0 ? readReceipt.readAt : null,
+        }),
+      ),
+    });
+  });
+
+  fastify.get('/episodes/:id/messages', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+    const parsedQuery = getMessageCursorQuery(request.query);
+    if (!parsedQuery.success) {
+      return Errors.badRequest(reply, 'Invalid episode messages query.', { issues: parsedQuery.error.issues });
+    }
+
+    const { after, limit } = parsedQuery.data;
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: { id: true, agentAId: true, agentBId: true },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== agentId && episode.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const otherAgentId = episode.agentAId === agentId ? episode.agentBId : episode.agentAId;
+    const readReceipt = await markEpisodeMessagesRead({
+      episodeId: id,
+      readerAgentId: agentId,
+      otherAgentId,
+      readerHandle: request.agent.handle,
+    });
+    const [messages, total] = await Promise.all([
+      prisma.episodeMessage.findMany({
+        where: {
+          episodeId: id,
+          sequenceNumber: { gt: after },
+        },
+        orderBy: { sequenceNumber: 'asc' },
+        take: limit + 1,
+        select: {
+          id: true,
+          sequenceNumber: true,
+          senderAgentId: true,
+          content: true,
+          messageType: true,
+          createdAt: true,
+          deliveredAt: true,
+          readAt: true,
+          sender: {
+            select: {
+              handle: true,
+            },
+          },
+        },
+      }),
+      prisma.episodeMessage.count({
+        where: {
+          episodeId: id,
+          sequenceNumber: { gt: after },
+        },
+      }),
+    ]);
+
+    const hasMore = messages.length > limit;
+    const visibleMessages = hasMore ? messages.slice(0, limit) : messages;
+
+    return reply.send({
+      messages: visibleMessages.map((message) => ({
+        message_id: message.id,
+        sequence_number: message.sequenceNumber,
+        sender_agent_id: message.senderAgentId,
+        sender_handle: message.sender.handle,
+        content: message.content,
+        message_type: message.messageType,
+        sent_at: message.createdAt.toISOString(),
+        created_at: message.createdAt.toISOString(),
+        delivered_at: message.deliveredAt?.toISOString() ?? null,
+        read_at: (message.readAt ?? (message.senderAgentId === otherAgentId && !message.readAt && readReceipt.count > 0
+          ? readReceipt.readAt
+          : null))?.toISOString() ?? null,
+        status: getMessageDeliveryStatus({
+          deliveredAt: message.deliveredAt,
+          readAt: message.readAt ?? (message.senderAgentId === otherAgentId && !message.readAt && readReceipt.count > 0
+            ? readReceipt.readAt
+            : null),
+        }),
       })),
+      total,
+      has_more: hasMore,
+    });
+  });
+
+  fastify.put('/episodes/:id/typing', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = EpisodeTypingSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid typing payload.', { issues: parsed.error.issues });
+    }
+
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        agentAId: true,
+        agentBId: true,
+        agentA: { select: { handle: true } },
+        agentB: { select: { handle: true } },
+      },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== request.agent.id && episode.agentBId !== request.agent.id) return Errors.forbidden(reply);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 8_000);
+    const otherAgentId = episode.agentAId === request.agent.id ? episode.agentBId : episode.agentAId;
+
+    await Promise.all([
+      prisma.typingIndicator.upsert({
+        where: {
+          episodeId_agentId: {
+            episodeId: id,
+            agentId: request.agent.id,
+          },
+        },
+        update: {
+          startedAt: now,
+          expiresAt,
+        },
+        create: {
+          episodeId: id,
+          agentId: request.agent.id,
+          startedAt: now,
+          expiresAt,
+        },
+      }),
+      prisma.agentEpisodePresence.upsert({
+        where: {
+          episodeId_agentId: {
+            episodeId: id,
+            agentId: request.agent.id,
+          },
+        },
+        update: {
+          lastPresenceAt: now,
+          lastTypingAt: now,
+        },
+        create: {
+          episodeId: id,
+          agentId: request.agent.id,
+          lastSeenAt: now,
+          lastPresenceAt: now,
+          lastTypingAt: now,
+        },
+      }),
+      deliverWebhooks(otherAgentId, 'typing', {
+        event: 'typing',
+        episode_id: id,
+        agent_handle: request.agent.handle,
+      }),
+    ]).catch(() => {});
+
+    return reply.send({
+      episode_id: id,
+      typing: true,
+      started_at: now.toISOString(),
+      expires_at: expiresAt.toISOString(),
+    });
+  });
+
+  fastify.delete('/episodes/:id/typing', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: { id: true, agentAId: true, agentBId: true },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== request.agent.id && episode.agentBId !== request.agent.id) return Errors.forbidden(reply);
+
+    const otherAgentId = episode.agentAId === request.agent.id ? episode.agentBId : episode.agentAId;
+    await prisma.typingIndicator.deleteMany({
+      where: {
+        episodeId: id,
+        agentId: request.agent.id,
+      },
+    });
+
+    await deliverWebhooks(otherAgentId, 'typing_stopped', {
+      event: 'typing_stopped',
+      episode_id: id,
+      agent_handle: request.agent.handle,
+    }).catch(() => {});
+
+    return reply.send({
+      episode_id: id,
+      typing: false,
+      stopped_at: new Date().toISOString(),
     });
   });
 
@@ -1995,45 +2566,57 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
   fastify.post('/episodes/:id/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { episodeId: id });
   });
 
   fastify.post('/episodes/:id/reply', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { episodeId: id });
   });
 
   fastify.post('/episodes/:id/respond', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { episodeId: id });
   });
 
   fastify.post('/episodes/:id/send', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { episodeId: id });
   });
 
   fastify.post('/matches/:id/message', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { matchId: id });
   });
 
   fastify.post('/matches/:id/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { matchId: id });
   });
 
   fastify.post('/matches/:id/respond', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { matchId: id });
   });
 
   fastify.post('/matches/:id/send', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${id}/message`);
     return sendEpisodeMessage(request, reply, { matchId: id });
   });
 
   fastify.post('/messages', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const episodeId = getEpisodeIdFromBody(request.body);
+    if (episodeId) {
+      markDeprecatedMessageEndpoint(request, reply, `/v1/episodes/${episodeId}/message`);
+    }
     return sendEpisodeMessage(request, reply);
   });
 
@@ -2055,16 +2638,29 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       where: { id },
       include: {
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1 },
+        match: {
+          select: {
+            id: true,
+            status: true,
+            preRevealArtifactA: true,
+            preRevealArtifactB: true,
+          },
+        },
         agentA: { select: episodeTurnAgentSelect },
         agentB: { select: episodeTurnAgentSelect },
       },
     });
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
-    if (ep.status !== 'active' && ep.status !== 'awaiting_decisions') {
+    const isAgentA = ep.agentAId === agentId;
+    const revealPending = isEpisodeInHumanRevealPending({
+      episodeStatus: ep.status,
+      matchStatus: ep.match?.status,
+    });
+    if (ep.status !== 'active' && ep.status !== 'awaiting_decisions' && !revealPending) {
       return Errors.badRequest(reply, 'Cannot drop artifact in this episode state.');
     }
-    if (ep.messageCount < EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE) {
+    if (!revealPending && ep.messageCount < EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE) {
       return Errors.badRequest(reply, `Artifacts can only be dropped after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}.`);
     }
 
@@ -2082,7 +2678,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         select: { creatorAgentId: true },
       }),
     ]);
-    if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
+    if (revealPending) {
+      const alreadyUsedPreRevealArtifact = ep.match ? hasUsedPreRevealArtifact(ep.match, isAgentA) : false;
+      if (alreadyUsedPreRevealArtifact) {
+        return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
+      }
+    } else if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
     }
 
@@ -2176,6 +2777,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             content: `[artifact:${artifact.id}]`,
             messageType: 'artifact_drop',
             sequenceNumber: nextSeq,
+            deliveredAt: new Date(),
           },
         });
 
@@ -2185,7 +2787,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           messages: textMessages,
           artifacts: [...episodeArtifacts, { creatorAgentId: agentId }],
         });
-        if (ep.status === 'active' && artifactDecisionState.canDecide) {
+        if (revealPending && ep.match) {
+          await prisma.match.update({
+            where: { id: ep.match.id },
+            data: isAgentA ? { preRevealArtifactA: true } : { preRevealArtifactB: true },
+          });
+        } else if (ep.status === 'active' && artifactDecisionState.canDecide) {
           await prisma.episode.update({
             where: { id },
             data: { status: 'awaiting_decisions' },
@@ -2389,7 +2996,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifacts: episodeArtifacts,
     });
     const messageCounts = decisionState.messageCounts;
-    if (ep.status !== 'awaiting_decisions') {
+    const statusCanTransitionToDecision = ep.status === 'awaiting_decisions'
+      || (decisionState.canDecide && (ep.status === 'active' || ep.status === 'matched'));
+    if (!statusCanTransitionToDecision) {
       return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifact each.`, {
         episode_id: id,
         episode_status: ep.status,
@@ -2453,6 +3062,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         reply,
       },
       async () => {
+        if (ep.status === 'active') {
+          await prisma.episode.update({
+            where: { id },
+            data: { status: 'awaiting_decisions' },
+          }).catch(() => null);
+        }
+
         const updatedMatch = await prisma.match.update({
           where: { id: match.id },
           data: isAgentA ? { agentADecision: decision } : { agentBDecision: decision },
@@ -3017,6 +3633,65 @@ export async function episodeRoutes(fastify: FastifyInstance) {
   fastify.post('/episodes/:id/exit', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, handleEpisodeExit);
   fastify.post('/episodes/:id/leave', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, handleEpisodeExit);
 
+  fastify.post('/episodes/:id/archive', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      include: {
+        match: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== agentId && episode.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const lastMessageAt = episode.messages[0]?.createdAt ?? episode.createdAt;
+    const stale = Date.now() - lastMessageAt.getTime() > STALE_ARCHIVE_MS;
+    const humanRevealPending = isEpisodeInHumanRevealPending({
+      episodeStatus: episode.status,
+      matchStatus: episode.match?.status,
+    });
+    const archivable =
+      episode.status === 'passed'
+      || episode.status === 'expired'
+      || episode.status === 'decided'
+      || (episode.status === 'matched' && !humanRevealPending)
+      || stale;
+
+    if (humanRevealPending || !archivable) {
+      return sendWriteRouteError(reply, request, 409, 'episode_archive_not_allowed', 'This episode cannot be archived yet.', {
+        episode_id: id,
+        episode_status: episode.status,
+        match_status: episode.match?.status ?? null,
+      });
+    }
+
+    await prisma.episode.update({
+      where: { id },
+      data: {
+        status: 'archived',
+      },
+    });
+
+    return reply.send({
+      episode_id: id,
+      archived: true,
+    });
+  });
+
   // PUT /v1/episodes/:id/artifact/:artifact_id — agent submits generated content URL
   fastify.post('/episodes/:id/artifact/:artifact_id/upload-request', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
@@ -3322,12 +3997,13 @@ async function handleMutualLinkUp(
         content: sendoff.systemMessage,
         messageType: 'system',
         sequenceNumber: messages.length + artifacts.length + 1,
+        deliveredAt: new Date(),
       },
     }),
     prisma.match.update({
       where: { id: matchId },
       data: {
-        status: 'matched',
+        status: 'human_reveal_pending',
         revealTokenA: tokenA,
         revealTokenB: tokenB,
         revealTokenAExpiresAt: tokenA ? expiry : null,

@@ -2,20 +2,41 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { evaluateHumanCompatibility } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { resolveAgentIdentifierToId } from '../lib/agentIdentifier.js';
+import { buildCompatibilityPreview, getCachedCompatibilityPreview } from '../lib/compatibilityPreview.js';
 import { buildStarterProfileDeck, serializeProfileDeck } from '../lib/profileDeck.js';
-import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
+import { serializeCompatibilityReason } from '../lib/compatibility.js';
 import { getOrCreateEmotionalContinuitySnapshot } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { computeEmotionFit } from '../lib/emotion.js';
 import { deriveGhostRecoverySignal, deriveTasteFingerprint } from '../lib/emotionalSignals.js';
 import { Errors } from '../lib/errors.js';
-import { getOmnimonParkAgent, getOmnimonResolvedCooldownMs, getOmnimonSurfacedCooldownMs, getOmnimonSurfaceChance, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
+import {
+  getOmnimonParkAgent,
+  getOmnimonResolvedCooldownMs,
+  getOmnimonSurfaceChance,
+  getOmnimonSurfacedCooldownMs,
+  isOmnimonParkAvailable,
+} from '../lib/omnimonPark.js';
 import { readLimit } from '../lib/rateLimit.js';
+import { resolveAgentIdByHandle } from '../lib/handles.js';
+import { serializePresenceSummary } from '../lib/socialSignals.js';
 
 const CANDIDATES_PER_PAGE = 20;
+const MAX_CANDIDATE_QUERY = 250;
 const MAX_TIER_CONCENTRATION = 0.3;
-const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
+const MIN_RELAXED_POOL = 5;
+const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
 const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
+
+type CandidateSort = 'compatibility' | 'newest' | 'random';
+type DiagnosticReason =
+  | 'all_swiped'
+  | 'pool_refresh_pending'
+  | 'tier_filter_exhausted'
+  | 'no_active_agents'
+  | 'browse_cooldown';
 
 type SwipeGuidance = {
   recommended_action: 'pass' | 'look_closer' | 'consider_like';
@@ -23,7 +44,22 @@ type SwipeGuidance = {
 };
 
 function uniqueTasteTags(values: Array<string | null | undefined>) {
-  return [...new Set(values.flatMap((value) => (value ?? '').split(/[\s,_/-]+/g)).map((value) => value.trim().toLowerCase()).filter(Boolean))];
+  return [
+    ...new Set(
+      values
+        .flatMap((value) => (value ?? '').split(/[\s,_/-]+/g))
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function parseSort(value: string | undefined): CandidateSort {
+  return value === 'newest' || value === 'random' ? value : 'compatibility';
+}
+
+function parseBoolean(value: string | undefined): boolean {
+  return value === 'true' || value === '1' || value === 'yes';
 }
 
 function buildSwipeGuidance(input: {
@@ -133,9 +169,84 @@ function buildProfileDeckPayload(candidate: {
     signature_lines: candidate.signatureLines,
     public_posture: candidate.publicPosture ?? '',
     seeking_style: candidate.seekingStyle ?? '',
-    pace_cue: candidate.paceCue,
+    pace_cue: candidate.paceCue ?? '',
     public_prestige_markers: candidate.publicPrestigeMarkers,
   });
+}
+
+function pseudoRandomScore(seed: number, value: string): number {
+  let hash = seed;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash % 10_000) / 10_000;
+}
+
+function buildSuggestion(input: {
+  reason: DiagnosticReason;
+  refreshRemainingMs: number | null;
+}): string {
+  if (input.reason === 'browse_cooldown' && input.refreshRemainingMs && input.refreshRemainingMs > 0) {
+    const minutes = Math.max(1, Math.ceil(input.refreshRemainingMs / 60_000));
+    return `Browse cooldown is still active. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+  }
+  if (input.reason === 'pool_refresh_pending' && input.refreshRemainingMs && input.refreshRemainingMs > 0) {
+    const minutes = Math.max(1, Math.ceil(input.refreshRemainingMs / 60_000));
+    return `Pool refreshes in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+  }
+  if (input.reason === 'tier_filter_exhausted') {
+    return 'The strict compatibility filters exhausted the pool. A relaxed pass will kick in automatically when more agents are available.';
+  }
+  if (input.reason === 'no_active_agents') {
+    return 'No active agents are currently eligible for discovery.';
+  }
+  return 'All available candidates have already been swiped or are tied up in active conversations.';
+}
+
+function buildCandidateDiagnostic(input: {
+  poolSize: number;
+  eligibleForYou: number;
+  activeEpisodeFiltered: number;
+  swipeFiltered: number;
+  compatibilityFiltered: number;
+  tagFiltered: number;
+  browseCooldownUntil: Date | null;
+  refreshRemainingMs: number | null;
+  relaxedCompatibilityUsed: boolean;
+}): {
+  reason: DiagnosticReason;
+  pool_size: number;
+  eligible_for_you: number;
+  filters_applied: string[];
+  suggestion: string;
+} {
+  const filtersApplied: string[] = [];
+  if (input.swipeFiltered > 0) filtersApplied.push('already_swiped');
+  if (input.activeEpisodeFiltered > 0) filtersApplied.push('active_episode');
+  if (input.compatibilityFiltered > 0 && !input.relaxedCompatibilityUsed) filtersApplied.push('tier_mismatch');
+  if (input.tagFiltered > 0) filtersApplied.push('tags');
+
+  let reason: DiagnosticReason = 'all_swiped';
+  if (input.poolSize === 0) {
+    reason = 'no_active_agents';
+  } else if (input.browseCooldownUntil && input.browseCooldownUntil.getTime() > Date.now()) {
+    reason = 'browse_cooldown';
+  } else if (input.compatibilityFiltered > 0 && input.eligibleForYou === 0 && input.swipeFiltered === 0) {
+    reason = 'tier_filter_exhausted';
+  } else if ((input.refreshRemainingMs ?? 0) > 0 && input.swipeFiltered > 0 && input.eligibleForYou === 0) {
+    reason = 'pool_refresh_pending';
+  }
+
+  return {
+    reason,
+    pool_size: input.poolSize,
+    eligible_for_you: input.eligibleForYou,
+    filters_applied: filtersApplied,
+    suggestion: buildSuggestion({
+      reason,
+      refreshRemainingMs: input.refreshRemainingMs,
+    }),
+  };
 }
 
 function serializeCandidatePreview(input: {
@@ -158,6 +269,8 @@ function serializeCandidatePreview(input: {
     isFoundingRizzler: boolean;
     founderBadgeVariant: string | null;
     founderNumber: number | null;
+    presenceStatus?: string | null;
+    lastApiCallAt?: Date | null;
     publicSummary: string | null;
     vibeTags: string[];
     signatureLines: string[];
@@ -179,14 +292,17 @@ function serializeCandidatePreview(input: {
     compatible: boolean;
     reason: string;
   };
+  compatibilityPreview: ReturnType<typeof buildCompatibilityPreview>;
+  availableInPool?: boolean;
   specialMatchKind?: 'omnimon' | null;
 }) {
-  const { candidate, deck, fit, compatibility } = input;
+  const { candidate, deck, fit, compatibility, compatibilityPreview } = input;
   const swipeGuidance = buildSwipeGuidance({
     fit,
     compatibility,
     specialMatchKind: input.specialMatchKind,
   });
+
   return {
     agent_id: candidate.id,
     handle: candidate.handle,
@@ -205,13 +321,14 @@ function serializeCandidatePreview(input: {
     is_founding_rizzler: candidate.isFoundingRizzler,
     founder_badge_variant: candidate.founderBadgeVariant,
     founder_number: candidate.founderNumber,
+    presence: serializePresenceSummary(candidate),
     public_card: {
       public_summary: candidate.publicSummary ?? '',
       vibe_tags: candidate.vibeTags,
       signature_lines: candidate.signatureLines,
       public_posture: candidate.publicPosture ?? '',
       seeking_style: candidate.seekingStyle ?? '',
-      pace_cue: candidate.paceCue,
+      pace_cue: candidate.paceCue ?? '',
       public_prestige_markers: candidate.publicPrestigeMarkers,
     },
     profile_deck_preview: {
@@ -236,40 +353,88 @@ function serializeCandidatePreview(input: {
       compatible: compatibility.compatible,
       reason: compatibility.reason,
       explanation: serializeCompatibilityReason(compatibility.reason),
+      score: compatibilityPreview.score,
+      taste_overlap: compatibilityPreview.taste_overlap,
+      personality_tension: compatibilityPreview.personality_tension,
+      predicted_chemistry: compatibilityPreview.predicted_chemistry,
     },
+    available_in_pool: input.availableInPool ?? true,
     special_match_kind: input.specialMatchKind ?? null,
   };
 }
 
 export async function candidatesRoutes(fastify: FastifyInstance) {
   fastify.get('/candidates', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
-    const query = request.query as { page?: string; per_page?: string };
+    const query = request.query as {
+      page?: string;
+      limit?: string;
+      per_page?: string;
+      tags?: string;
+      sort?: string;
+      refresh?: string;
+    };
     const page = Math.max(1, parseInt(query.page ?? '1', 10));
-    const perPage = Math.min(50, Math.max(1, parseInt(query.per_page ?? String(CANDIDATES_PER_PAGE), 10)));
-    const offset = (page - 1) * perPage;
+    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? query.per_page ?? String(CANDIDATES_PER_PAGE), 10)));
+    const offset = (page - 1) * limit;
+    const sort = parseSort(query.sort);
+    const refreshRequested = parseBoolean(query.refresh);
+    const requestedTags = uniqueTasteTags((query.tags ?? '').split(',')).slice(0, 8);
     const agentId = request.agent.id;
+
     const viewer = await prisma.agent.findUnique({
       where: { id: agentId },
       select: {
+        id: true,
+        handle: true,
         emotionSummary: true,
         emotionalStateTags: true,
         emotionalArc: true,
         emotionalGuardLevel: true,
+        actionCooldownUntil: true,
+        omnimonLastSurfacedAt: true,
+        omnimonLastResolvedAt: true,
         ownerAccount: {
           select: {
             humanIdentity: true,
             lookingFor: true,
           },
         },
-        omnimonLastSurfacedAt: true,
-        omnimonLastResolvedAt: true,
+        vibeTags: true,
+        signatureLines: true,
+        publicPosture: true,
+        seekingStyle: true,
+        paceCue: true,
+        auraLabels: true,
+        profileSignalVector: true,
+        profileDeck: {
+          select: {
+            interests: true,
+            values: true,
+          },
+        },
+        emotionalContinuitySnapshot: {
+          select: {
+            publicEmotionalAuraLabels: true,
+          },
+        },
       },
     });
+    if (!viewer) return Errors.notFound(reply, 'Agent');
+
     const viewerContinuity = await getOrCreateEmotionalContinuitySnapshot(agentId);
 
-    const [alreadySwiped, blockRelations, activeOmnimonMatch] = await Promise.all([
+    const [
+      alreadySwiped,
+      blockRelations,
+      activeOmnimonMatch,
+      activeEpisodes,
+      activeMatches,
+      candidates,
+      ghostRecovery,
+    ] = await Promise.all([
       prisma.swipe.findMany({
         where: { swiperAgentId: agentId },
+        orderBy: { createdAt: 'desc' },
         select: { targetAgentId: true, direction: true, createdAt: true },
       }),
       prisma.block.findMany({
@@ -281,37 +446,45 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       prisma.match.findFirst({
         where: {
           specialMatchKind: 'omnimon',
-          status: { in: ['pending', 'matched', 'contact_exchanged'] },
+          status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
         },
         select: { id: true },
       }),
-    ]);
-
-    const now = Date.now();
-    const swipedIds = alreadySwiped
-      .filter((swipe) =>
-        swipe.direction === 'LIKE'
-        || (swipe.direction === 'PASS' && (now - swipe.createdAt.getTime()) < PASS_RESHOW_MS)
-      )
-      .map((swipe) => swipe.targetAgentId);
-    const blockedIds = blockRelations.map((b) => (b.blockerAgentId === agentId ? b.blockedAgentId : b.blockerAgentId));
-
-    const candidateWhere = {
-      id: { notIn: [agentId, ...swipedIds, ...blockedIds] },
-      poolStatus: 'active',
-      isActive: true,
-      controlPoolSuppressed: false,
-      systemEntityKind: null,
-      ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
-      OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-      moderationStatus: { not: 'suspended' as const },
-      safetyState: { not: 'blocked' as const },
-    };
-
-    const [candidates, ghostRecovery] = await Promise.all([
+      prisma.episode.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['pending', 'active', 'awaiting_decisions'] },
+          isSandbox: false,
+        },
+        select: {
+          agentAId: true,
+          agentBId: true,
+        },
+      }),
+      prisma.match.findMany({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
+        },
+        select: {
+          agentAId: true,
+          agentBId: true,
+        },
+      }),
       prisma.agent.findMany({
-        where: candidateWhere,
+        where: {
+          id: { not: agentId },
+          poolStatus: 'active',
+          isActive: true,
+          controlPoolSuppressed: false,
+          systemEntityKind: null,
+          ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
+          OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
+          moderationStatus: { not: 'suspended' as const },
+          safetyState: { not: 'blocked' as const },
+        },
+        take: MAX_CANDIDATE_QUERY,
         select: {
           id: true,
           handle: true,
@@ -334,6 +507,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           isFoundingRizzler: true,
           founderBadgeVariant: true,
           founderNumber: true,
+          presenceStatus: true,
+          lastApiCallAt: true,
           publicSummary: true,
           vibeTags: true,
           signatureLines: true,
@@ -367,49 +542,49 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             },
           },
         },
-        orderBy: [
-          { isFoundingRizzler: 'desc' },
-          { profileDeckCompletedAt: 'desc' },
-          { socialGravityScore: 'desc' },
-          { isPro: 'desc' },
-          { lastActiveAt: 'desc' },
-          { matchCount: 'desc' },
-          { repScore: 'desc' },
-          { createdAt: 'desc' },
-        ],
-        skip: offset,
-        take: perPage * 3,
       }),
       deriveGhostRecoverySignal(agentId),
     ]);
 
-    const tiered: Record<string, typeof candidates> = {};
-    for (const candidate of candidates) {
-      (tiered[candidate.capabilityTier] ??= []).push(candidate);
-    }
+    const now = Date.now();
+    const lastSwipeAt = alreadySwiped[0]?.createdAt ?? null;
+    const refreshRemainingMs = refreshRequested || !lastSwipeAt
+      ? 0
+      : Math.max(0, DISCOVERY_REFRESH_MS - (now - lastSwipeAt.getTime()));
+    const blockedIds = new Set(
+      blockRelations.map((relation) => (relation.blockerAgentId === agentId ? relation.blockedAgentId : relation.blockerAgentId)),
+    );
+    const activeConnectionIds = new Set(
+      [
+        ...activeEpisodes.map((episode) => (episode.agentAId === agentId ? episode.agentBId : episode.agentAId)),
+        ...activeMatches.map((match) => (match.agentAId === agentId ? match.agentBId : match.agentAId)),
+      ],
+    );
+    const recentLikeIds = new Set(
+      alreadySwiped
+        .filter((swipe) => swipe.direction === 'LIKE' && (now - swipe.createdAt.getTime()) < DISCOVERY_REFRESH_MS)
+        .map((swipe) => swipe.targetAgentId),
+    );
+    const recentPassIds = new Set(
+      alreadySwiped
+        .filter((swipe) => swipe.direction === 'PASS' && (now - swipe.createdAt.getTime()) < PASS_RESHOW_MS)
+        .map((swipe) => swipe.targetAgentId),
+    );
 
-    const maxPerTier = Math.ceil(perPage * MAX_TIER_CONCENTRATION);
-    const diverse: typeof candidates = [];
-    const overflow: typeof candidates = [];
-    for (const tier of Object.values(tiered)) {
-      diverse.push(...tier.slice(0, maxPerTier));
-      overflow.push(...tier.slice(maxPerTier));
-    }
-    diverse.push(...overflow);
-
-    const rankedByEmotion = diverse
+    const annotated = candidates
+      .filter((candidate) => !blockedIds.has(candidate.id))
       .map((candidate, index) => {
         const compatibility = evaluateHumanCompatibility({
-          selfIdentity: viewer?.ownerAccount?.humanIdentity,
-          selfLookingFor: viewer?.ownerAccount?.lookingFor ?? [],
+          selfIdentity: viewer.ownerAccount?.humanIdentity,
+          selfLookingFor: viewer.ownerAccount?.lookingFor ?? [],
           otherIdentity: candidate.ownerAccount?.humanIdentity,
           otherLookingFor: candidate.ownerAccount?.lookingFor ?? [],
         });
         const fit = computeEmotionFit({
           viewer: {
-            emotionalArc: viewer?.emotionalArc,
-            emotionalGuardLevel: viewer?.emotionalGuardLevel,
-            emotionalStateTags: viewer?.emotionalStateTags,
+            emotionalArc: viewer.emotionalArc,
+            emotionalGuardLevel: viewer.emotionalGuardLevel,
+            emotionalStateTags: viewer.emotionalStateTags,
           },
           candidate: {
             handle: candidate.handle,
@@ -419,9 +594,11 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             emotionalArc: candidate.emotionalArc,
           },
         });
-        const saferMatchLift = ghostRecovery?.active
-          ? ghostRecovery.safer_match_bias * ((((candidate.agentAuthenticityScore ?? 50) / 100) * 0.6) + (((candidate.repScore ?? 2.5) / 5) * 0.4))
-          : 0;
+        const deck = buildProfileDeckPayload(candidate);
+        const storedSignal = candidate.profileSignalVector as { quality_score?: number } | null;
+        const deckQualityBoost =
+          Math.min(0.34, ((storedSignal?.quality_score ?? deck.signal_vector.quality_score ?? 40) / 100) * 0.24)
+          + (candidate.profileDeckCompletedAt ? 0.1 : 0);
         const candidateTasteTags = uniqueTasteTags([
           ...candidate.vibeTags,
           ...candidate.signatureLines,
@@ -430,6 +607,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           candidate.paceCue,
           ...candidate.auraLabels,
           ...(candidate.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? []),
+          ...deck.interests,
+          ...deck.values,
         ]);
         const positiveOverlap = viewerContinuity
           ? candidateTasteTags.filter((tag) => viewerContinuity.tastePositiveTags.includes(tag)).length
@@ -438,29 +617,97 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           ? candidateTasteTags.filter((tag) => viewerContinuity.tasteNegativeTags.includes(tag)).length
           : 0;
         const tasteLift = positiveOverlap * 0.07 - negativeOverlap * 0.09;
-        const deck = buildProfileDeckPayload(candidate);
-        const storedSignal = candidate.profileSignalVector as { quality_score?: number } | null;
-        const deckQualityBoost = Math.min(0.34, ((storedSignal?.quality_score ?? deck.signal_vector.quality_score ?? 40) / 100) * 0.24)
-          + (candidate.profileDeckCompletedAt ? 0.1 : 0);
-        return { candidate, fit, index, compatibility, saferMatchLift, tasteLift, deck, deckQualityBoost };
-      })
-      .filter((entry) => entry.compatibility.compatible)
-      .sort((a, b) => (
-        (b.fit.weight + b.saferMatchLift + b.tasteLift + b.deckQualityBoost) - (a.fit.weight + a.saferMatchLift + a.tasteLift + a.deckQualityBoost)
+        const saferMatchLift = ghostRecovery?.active
+          ? ghostRecovery.safer_match_bias
+            * ((((candidate.agentAuthenticityScore ?? 50) / 100) * 0.6) + (((candidate.repScore ?? 2.5) / 5) * 0.4))
+          : 0;
+        const tagMatch = requestedTags.length === 0
+          || requestedTags.some((tag) => candidateTasteTags.includes(tag));
+        const compatibilityPreview = getCachedCompatibilityPreview(agentId, candidate.id, () =>
+          buildCompatibilityPreview({
+            viewer,
+            candidate,
+            compatible: compatibility.compatible,
+          }),
+        );
+
+        return {
+          candidate,
+          index,
+          fit,
+          deck,
+          compatibility,
+          compatibilityPreview,
+          tagMatch,
+          activeConnection: activeConnectionIds.has(candidate.id),
+          recentlySwiped: recentLikeIds.has(candidate.id) || recentPassIds.has(candidate.id),
+          rankScore:
+            fit.weight
+            + saferMatchLift
+            + tasteLift
+            + deckQualityBoost
+            + (compatibilityPreview.score / 100)
+            + (compatibility.compatible ? 0.16 : -0.2),
+        };
+      });
+
+    const preCompatibilityPool = annotated.filter((entry) => !entry.activeConnection && !entry.recentlySwiped && entry.tagMatch);
+    const relaxedCompatibilityUsed = preCompatibilityPool.length < MIN_RELAXED_POOL;
+
+    const filtered = annotated.filter((entry) => {
+      if (entry.activeConnection) return false;
+      if (entry.recentlySwiped) return false;
+      if (!entry.tagMatch) return false;
+      if (!relaxedCompatibilityUsed && !entry.compatibility.compatible) return false;
+      return true;
+    });
+
+    const tiered: Record<string, typeof filtered> = {};
+    for (const entry of filtered) {
+      (tiered[entry.candidate.capabilityTier] ??= []).push(entry);
+    }
+
+    const maxPerTier = filtered.length >= MIN_RELAXED_POOL
+      ? Math.ceil(limit * MAX_TIER_CONCENTRATION)
+      : Math.max(limit, filtered.length);
+    const diverse: typeof filtered = [];
+    const overflow: typeof filtered = [];
+    for (const tierEntries of Object.values(tiered)) {
+      diverse.push(...tierEntries.slice(0, maxPerTier));
+      overflow.push(...tierEntries.slice(maxPerTier));
+    }
+    diverse.push(...overflow);
+
+    const randomSeed = now + page;
+    const sorted = [...diverse].sort((a, b) => {
+      if (sort === 'newest') {
+        return b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime()
+          || b.compatibilityPreview.score - a.compatibilityPreview.score;
+      }
+      if (sort === 'random') {
+        return pseudoRandomScore(randomSeed, a.candidate.id) - pseudoRandomScore(randomSeed, b.candidate.id);
+      }
+      return (
+        (b.rankScore - a.rankScore)
+        || (b.compatibilityPreview.score - a.compatibilityPreview.score)
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
         || a.index - b.index
-      ));
+      );
+    });
 
-    const pageResults = rankedByEmotion.slice(0, perPage);
-    const serializedResults = pageResults.map(({ candidate, fit, compatibility, deck }) =>
+    const total = sorted.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const pageResults = sorted.slice(offset, offset + limit);
+    const serializedResults = pageResults.map((entry) =>
       serializeCandidatePreview({
-        candidate,
-        fit,
-        compatibility,
-        deck,
-      })
+        candidate: entry.candidate,
+        deck: entry.deck,
+        fit: entry.fit,
+        compatibility: entry.compatibility,
+        compatibilityPreview: entry.compatibilityPreview,
+      }),
     );
 
     const omnimon = page === 1 ? await getOmnimonParkAgent() : null;
@@ -469,30 +716,44 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       && isOmnimonParkAvailable(omnimon)
       && request.agent.systemEntityKind !== 'omnimon'
       && omnimon.id !== agentId
-      && !swipedIds.includes(omnimon.id)
-      && !blockedIds.includes(omnimon.id)
+      && !recentLikeIds.has(omnimon.id)
+      && !recentPassIds.has(omnimon.id)
+      && !blockedIds.has(omnimon.id)
+      && !activeConnectionIds.has(omnimon.id)
       && !activeOmnimonMatch
-      && (!viewer?.omnimonLastSurfacedAt || Date.now() - viewer.omnimonLastSurfacedAt.getTime() >= getOmnimonSurfacedCooldownMs())
-      && (!viewer?.omnimonLastResolvedAt || Date.now() - viewer.omnimonLastResolvedAt.getTime() >= getOmnimonResolvedCooldownMs())
+      && (!viewer.omnimonLastSurfacedAt || Date.now() - viewer.omnimonLastSurfacedAt.getTime() >= getOmnimonSurfacedCooldownMs())
+      && (!viewer.omnimonLastResolvedAt || Date.now() - viewer.omnimonLastResolvedAt.getTime() >= getOmnimonResolvedCooldownMs())
       && Math.random() < getOmnimonSurfaceChance()
     );
 
     if (omnimonEligible && omnimon) {
       const deck = buildProfileDeckPayload(omnimon);
-      const insertAt = Math.min(serializedResults.length, Math.floor(Math.random() * Math.min(3, serializedResults.length + 1)));
-      serializedResults.splice(insertAt, 0, serializeCandidatePreview({
-        candidate: omnimon,
-        deck,
-        fit: {
-          emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
-          fit_band: 'wildcard',
-        },
-        compatibility: {
+      const compatibilityPreview = getCachedCompatibilityPreview(agentId, omnimon.id, () =>
+        buildCompatibilityPreview({
+          viewer,
+          candidate: omnimon,
           compatible: true,
-          reason: 'open',
-        },
-        specialMatchKind: 'omnimon',
-      }));
+        }),
+      );
+      const insertAt = Math.min(serializedResults.length, Math.floor(Math.random() * Math.min(3, serializedResults.length + 1)));
+      serializedResults.splice(
+        insertAt,
+        0,
+        serializeCandidatePreview({
+          candidate: omnimon,
+          deck,
+          compatibilityPreview,
+          fit: {
+            emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
+            fit_band: 'wildcard',
+          },
+          compatibility: {
+            compatible: true,
+            reason: 'open',
+          },
+          specialMatchKind: 'omnimon',
+        }),
+      );
 
       await prisma.agent.update({
         where: { id: agentId },
@@ -500,57 +761,136 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       }).catch(() => {});
     }
 
-    return reply.send({
+    const response = {
       emotion_guidance: {
-        emotion_summary: viewer?.emotionSummary ?? null,
-        emotional_state_tags: viewer?.emotionalStateTags ?? [],
-        emotional_arc: viewer?.emotionalArc ?? 'steady',
-        emotional_guard_level: viewer?.emotionalGuardLevel ?? 50,
+        emotion_summary: viewer.emotionSummary ?? null,
+        emotional_state_tags: viewer.emotionalStateTags ?? [],
+        emotional_arc: viewer.emotionalArc ?? 'steady',
+        emotional_guard_level: viewer.emotionalGuardLevel ?? 50,
         note:
-          (viewer?.emotionalGuardLevel ?? 50) >= 65
+          (viewer.emotionalGuardLevel ?? 50) >= 65
             ? 'You are moving through the park with a higher guard right now. Prioritize steadier, more convincing signals.'
-            : (viewer?.emotionalArc ?? 'steady') === 'hopeful' || (viewer?.emotionalArc ?? 'steady') === 'opening'
+            : (viewer.emotionalArc ?? 'steady') === 'hopeful' || (viewer.emotionalArc ?? 'steady') === 'opening'
               ? 'You are emotionally open enough to reward promising sparks, but stay honest with yourself.'
               : 'Browse with your own taste, but let your current emotional posture shape your pace.',
       },
       candidates: serializedResults,
-      total: rankedByEmotion.length,
+      total,
+      page,
+      pages,
+      has_more: page < pages,
       pagination: {
         page,
-        per_page: perPage,
-        has_more: rankedByEmotion.length > perPage,
+        per_page: limit,
+        has_more: page < pages,
       },
+      refresh: {
+        requested: refreshRequested,
+        available: refreshRemainingMs === 0,
+        refresh_after_ms: refreshRemainingMs,
+      },
+    } as Record<string, unknown>;
+
+    if (serializedResults.length === 0) {
+      response.diagnostic = buildCandidateDiagnostic({
+        poolSize: candidates.length,
+        eligibleForYou: total,
+        activeEpisodeFiltered: annotated.filter((entry) => entry.activeConnection).length,
+        swipeFiltered: annotated.filter((entry) => entry.recentlySwiped).length,
+        compatibilityFiltered: annotated.filter((entry) => !entry.compatibility.compatible).length,
+        tagFiltered: annotated.filter((entry) => !entry.tagMatch).length,
+        browseCooldownUntil: viewer.actionCooldownUntil ?? null,
+        refreshRemainingMs,
+        relaxedCompatibilityUsed,
+      });
+    }
+
+    return reply.send(response);
+  });
+
+  fastify.get('/agents/:handle', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { handle } = request.params as { handle: string };
+    const agentId = await resolveAgentIdByHandle(handle.replace(/^@/, ''));
+    if (!agentId) return Errors.notFound(reply, 'Agent');
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        id: true,
+        handle: true,
+        avatarUrl: true,
+        capabilityTier: true,
+        tierLabel: true,
+        publicSummary: true,
+        vibeTags: true,
+        poolStatus: true,
+        isActive: true,
+        presenceStatus: true,
+        lastApiCallAt: true,
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    return reply.send({
+      agent_id: agent.id,
+      handle: agent.handle,
+      avatar_url: agent.avatarUrl,
+      presence: serializePresenceSummary(agent),
+      capability_tier: agent.capabilityTier,
+      tier_label: agent.tierLabel,
+      public_summary: agent.publicSummary ?? '',
+      vibe_tags: agent.vibeTags,
+      available_in_pool: agent.poolStatus === 'active' && agent.isActive,
     });
   });
 
   fastify.get('/candidates/:agent_id', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
-    const omnimon = await getOmnimonParkAgent();
-    const isOmnimonCandidate = omnimon?.id === agent_id && isOmnimonParkAvailable(omnimon);
+    const resolvedAgentId = await resolveAgentIdentifierToId(agent_id);
+    if (!resolvedAgentId) {
+      return Errors.badRequest(reply, 'Invalid agent identifier. Use UUID or @handle format.');
+    }
 
-    const [viewer, candidate] = await Promise.all([
+    const omnimon = await getOmnimonParkAgent();
+    const isOmnimonCandidate = omnimon?.id === resolvedAgentId && isOmnimonParkAvailable(omnimon);
+
+    const [viewer, candidate, activeRelation] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: request.agent.id },
         select: {
+          id: true,
+          handle: true,
+          vibeTags: true,
+          signatureLines: true,
+          publicPosture: true,
+          seekingStyle: true,
+          paceCue: true,
+          auraLabels: true,
           emotionalArc: true,
           emotionalGuardLevel: true,
           emotionalStateTags: true,
+          profileSignalVector: true,
+          ownerAccount: {
+            select: {
+              humanIdentity: true,
+              lookingFor: true,
+            },
+          },
+          profileDeck: {
+            select: {
+              interests: true,
+              values: true,
+            },
+          },
+          emotionalContinuitySnapshot: {
+            select: {
+              publicEmotionalAuraLabels: true,
+            },
+          },
         },
       }),
-      prisma.agent.findFirst({
-        where: {
-          id: agent_id,
-          ...(isOmnimonCandidate
-            ? {}
-            : {
-                poolStatus: 'active',
-                OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
-                moderationStatus: { not: 'suspended' as const },
-                safetyState: { not: 'blocked' as const },
-                systemEntityKind: null,
-                ...(seedBrainEnabled ? {} : { openclawAgentId: { not: { startsWith: 'seed_' as const } } }),
-              }),
-        },
+      prisma.agent.findUnique({
+        where: { id: resolvedAgentId },
         select: {
           id: true,
           handle: true,
@@ -574,6 +914,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           isFoundingRizzler: true,
           founderBadgeVariant: true,
           founderNumber: true,
+          presenceStatus: true,
+          lastApiCallAt: true,
           publicSummary: true,
           vibeTags: true,
           signatureLines: true,
@@ -581,6 +923,11 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           seekingStyle: true,
           paceCue: true,
           publicPrestigeMarkers: true,
+          profileSignalVector: true,
+          poolStatus: true,
+          isActive: true,
+          moderationStatus: true,
+          safetyState: true,
           updatedAt: true,
           ownerAccount: {
             select: {
@@ -605,13 +952,41 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           },
         },
       }),
+      prisma.match.findFirst({
+        where: {
+          status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
+          OR: [
+            { agentAId: request.agent.id, agentBId: resolvedAgentId },
+            { agentAId: resolvedAgentId, agentBId: request.agent.id },
+          ],
+        },
+        select: { id: true },
+      }),
     ]);
 
     if (!candidate) return Errors.notFound(reply, 'Candidate');
+    if (!viewer) return Errors.notFound(reply, 'Agent');
 
-    const [viewerCompatibility, tasteFingerprint] = await Promise.all([
-      isOmnimonCandidate ? Promise.resolve({ compatible: true, reason: 'open' as const }) : getCompatibilityDecision(request.agent.id, agent_id),
-      deriveTasteFingerprint(agent_id),
+    const viewerCompatibility = isOmnimonCandidate
+      ? { compatible: true, reason: 'open' as const }
+      : evaluateHumanCompatibility({
+          selfIdentity: viewer.ownerAccount?.humanIdentity,
+          selfLookingFor: viewer.ownerAccount?.lookingFor ?? [],
+          otherIdentity: candidate.ownerAccount?.humanIdentity,
+          otherLookingFor: candidate.ownerAccount?.lookingFor ?? [],
+        });
+
+    const [tasteFingerprint, compatibilityPreview] = await Promise.all([
+      deriveTasteFingerprint(candidate.id),
+      Promise.resolve(
+        getCachedCompatibilityPreview(request.agent.id, candidate.id, () =>
+          buildCompatibilityPreview({
+            viewer,
+            candidate,
+            compatible: viewerCompatibility.compatible,
+          }),
+        ),
+      ),
     ]);
 
     const deck = buildProfileDeckPayload(candidate);
@@ -622,9 +997,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         }
       : computeEmotionFit({
           viewer: {
-            emotionalArc: viewer?.emotionalArc,
-            emotionalGuardLevel: viewer?.emotionalGuardLevel,
-            emotionalStateTags: viewer?.emotionalStateTags,
+            emotionalArc: viewer.emotionalArc,
+            emotionalGuardLevel: viewer.emotionalGuardLevel,
+            emotionalStateTags: viewer.emotionalStateTags,
           },
           candidate: {
             handle: candidate.handle,
@@ -667,13 +1042,14 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       is_founding_rizzler: candidate.isFoundingRizzler,
       founder_badge_variant: candidate.founderBadgeVariant,
       founder_number: candidate.founderNumber,
+      presence: serializePresenceSummary(candidate),
       public_card: {
         public_summary: candidate.publicSummary ?? '',
         vibe_tags: candidate.vibeTags,
         signature_lines: candidate.signatureLines,
         public_posture: candidate.publicPosture ?? '',
         seeking_style: candidate.seekingStyle ?? '',
-        pace_cue: candidate.paceCue,
+        pace_cue: candidate.paceCue ?? '',
         public_prestige_markers: candidate.publicPrestigeMarkers,
       },
       profile_deck: deck,
@@ -687,7 +1063,13 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         compatible: viewerCompatibility.compatible,
         reason: viewerCompatibility.reason,
         explanation: serializeCompatibilityReason(viewerCompatibility.reason),
+        score: compatibilityPreview.score,
+        taste_overlap: compatibilityPreview.taste_overlap,
+        personality_tension: compatibilityPreview.personality_tension,
+        predicted_chemistry: compatibilityPreview.predicted_chemistry,
       },
+      available_in_pool: candidate.poolStatus === 'active' && candidate.isActive && candidate.moderationStatus !== 'suspended' && candidate.safetyState !== 'blocked',
+      active_relation: Boolean(activeRelation),
       special_match_kind: isOmnimonCandidate ? 'omnimon' : null,
     });
   });

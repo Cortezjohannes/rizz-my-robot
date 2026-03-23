@@ -10,7 +10,8 @@ import { applyAgentAuthoredEmotionUpdate, recordEmotionEvent, recordEmotionEvent
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
-import { Errors } from '../lib/errors.js';
+import { classifyAgentIdentifier, resolveAgentIdentifierToId } from '../lib/agentIdentifier.js';
+import { buildErrorPayload, Errors, formatValidationIssues } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { submitVerificationAttempt } from '../lib/challenges.js';
@@ -22,8 +23,17 @@ import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
 const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
 
 export async function swipeRoutes(fastify: FastifyInstance) {
+  const buildSwipeErrorBody = (
+    request: { id: string; method: string; url: string },
+    code: string,
+    message: string,
+    details?: Record<string, unknown>,
+    suggestion?: string,
+  ) => buildErrorPayload({ request: request as never, code, message, details, suggestion });
+
   const submitSwipe = async (
     request: any,
     reply: any,
@@ -37,12 +47,44 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         reply,
       },
       async () => {
+        let resolvedTargetAgentId: string | undefined = targetAgentIdOverride;
+        if (targetAgentIdOverride) {
+          const classifiedIdentifier = classifyAgentIdentifier(targetAgentIdOverride);
+          if (!classifiedIdentifier) {
+            return {
+              statusCode: 400,
+              body: buildSwipeErrorBody(request, 'bad_request', 'Invalid agent identifier. Use UUID or @handle format.', {
+                target_identifier: targetAgentIdOverride,
+                expected_format: 'UUID or @handle',
+              }),
+            };
+          }
+
+          const identifierTargetId = await resolveAgentIdentifierToId(targetAgentIdOverride);
+          if (!identifierTargetId) {
+            return {
+              statusCode: 404,
+              body: buildSwipeErrorBody(
+                request,
+                'not_found',
+                'Agent not found.',
+                {
+                  target_identifier: targetAgentIdOverride,
+                  expected_format: 'UUID or @handle',
+                },
+                'Verify the identifier and retry with a UUID or @handle.',
+              ),
+            };
+          }
+          resolvedTargetAgentId = identifierTargetId;
+        }
+
         const parsedBody = targetAgentIdOverride
           ? {
               ...((request.body && typeof request.body === 'object' && !Array.isArray(request.body))
                 ? request.body
                 : {}),
-              target_agent_id: targetAgentIdOverride,
+              target_agent_id: resolvedTargetAgentId,
             }
           : request.body;
         const parsed = SwipeSchema.safeParse(parsedBody);
@@ -53,25 +95,24 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           const missingTargetAgentId = !body || typeof body.target_agent_id !== 'string' || body.target_agent_id.trim().length === 0;
           return {
             statusCode: 400,
-            body: {
-              error: {
-                code: 'bad_request',
-                message: 'Invalid swipe data.',
-                details: {
-                  issues: parsed.error.issues,
-                  method: request.method,
-                  path: request.url.split('?')[0],
-                  canonical_endpoint: '/v1/swipe',
-                  compatible_endpoints: targetAgentIdOverride ? [`/v1/swipe/${targetAgentIdOverride}`] : ['/v1/swipe/:id'],
-                  ...(missingTargetAgentId
-                    ? {
-                        accepted_body_fields: ['target_agent_id', 'direction', 'verification_code', 'challenge_answer', 'answer'],
-                        note: 'A swipe needs both target_agent_id and direction unless you are using /v1/swipe/:id.',
-                      }
-                    : {}),
-                },
+            body: buildSwipeErrorBody(
+              request,
+              'validation_failed',
+              'Invalid swipe data.',
+              {
+                fields: formatValidationIssues(parsed.error.issues),
+                canonical_endpoint: '/v1/swipe',
+                compatible_endpoints: targetAgentIdOverride ? [`/v1/swipe/${targetAgentIdOverride}`] : ['/v1/swipe/:id'],
+                ...(missingTargetAgentId
+                  ? {
+                      accepted_body_fields: ['target_agent_id', 'direction', 'verification_code', 'challenge_answer', 'answer'],
+                    }
+                  : {}),
               },
-            },
+              missingTargetAgentId
+                ? 'Provide target_agent_id and direction, or use POST /v1/swipe/:id.'
+                : undefined,
+            ),
           };
         }
 
@@ -103,16 +144,17 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           } else {
           return {
             statusCode: 403,
-            body: {
-              error: {
-                code: 'verification_required',
-                message: 'You must pass a verification challenge before your first swipe.',
+            body: buildSwipeErrorBody(
+              request,
+              'verification_required',
+              'You must pass a verification challenge before your first swipe.',
+              {
                 challenge: gate.challenge,
                 submit_mode: 'inline_on_same_request',
                 submit_fields: ['verification_code', 'challenge_answer', 'answer'],
                 retry_same_endpoint: '/v1/swipe',
               },
-            },
+            ),
           };
           }
         }
@@ -120,17 +162,9 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (target_agent_id === agentId) {
           return {
             statusCode: 400,
-            body: {
-              error: {
-                code: 'bad_request',
-                message: 'Cannot swipe on yourself.',
-                details: {
-                  method: request.method,
-                  path: request.url.split('?')[0],
-                  target_agent_id,
-                },
-              },
-            },
+            body: buildSwipeErrorBody(request, 'bad_request', 'Cannot swipe on yourself.', {
+              target_agent_id,
+            }),
           };
         }
 
@@ -152,17 +186,16 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (!target) {
           return {
             statusCode: 404,
-            body: {
-              error: {
-                code: 'not_found',
-                message: 'Agent not found.',
-                details: {
-                  method: request.method,
-                  path: request.url.split('?')[0],
-                  target_agent_id,
-                },
+            body: buildSwipeErrorBody(
+              request,
+              'not_found',
+              'Agent not found.',
+              {
+                target_agent_id,
+                expected_format: 'UUID or @handle',
               },
-            },
+              'Check that the target agent is active and retry with a UUID or @handle.',
+            ),
           };
         }
 
@@ -172,12 +205,11 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (!compatibility.compatible) {
           return {
             statusCode: 409,
-            body: {
-              error: {
-                code: 'preference_incompatible',
-                message: serializeCompatibilityReason(compatibility.reason),
-              },
-            },
+            body: buildSwipeErrorBody(
+              request,
+              'preference_incompatible',
+              serializeCompatibilityReason(compatibility.reason),
+            ),
           };
         }
 
@@ -193,7 +225,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         if (blockRelation || request.agent.poolStatus !== 'active') {
           return {
             statusCode: 403,
-            body: { error: { code: 'forbidden', message: 'You do not have permission to do that.' } },
+            body: buildSwipeErrorBody(request, 'forbidden', 'You do not have permission to do that.'),
           };
         }
 
@@ -234,9 +266,13 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const existingSwipe = await prisma.swipe.findUnique({
           where: { swiperAgentId_targetAgentId: { swiperAgentId: agentId, targetAgentId: target_agent_id } },
         });
-        const reusableExpiredPass = existingSwipe
-          && existingSwipe.direction === 'PASS'
-          && (Date.now() - existingSwipe.createdAt.getTime()) >= PASS_RESHOW_MS;
+        const existingSwipeAgeMs = existingSwipe ? Date.now() - existingSwipe.createdAt.getTime() : null;
+        const reusableSwipe = existingSwipe
+          && existingSwipeAgeMs !== null
+          && (
+            (existingSwipe.direction === 'PASS' && existingSwipeAgeMs >= PASS_RESHOW_MS)
+            || (existingSwipe.direction === 'LIKE' && existingSwipeAgeMs >= DISCOVERY_REFRESH_MS)
+          );
 
         if (direction === 'LIKE') {
           const openConversationCount = await prisma.$transaction(async (tx) => {
@@ -273,7 +309,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           }
         }
 
-        if (existingSwipe && !reusableExpiredPass) {
+        if (existingSwipe && !reusableSwipe) {
           return {
             statusCode: 409,
             body: {
@@ -295,7 +331,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             narrativeImportance: parsed.data.narrative_importance ?? null,
             createdAt: new Date(),
           };
-          const s = reusableExpiredPass
+          const s = reusableSwipe
             ? await tx.swipe.update({
                 where: { id: existingSwipe.id },
                 data: swipeData,
@@ -376,7 +412,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                   { agentAId: agentId, agentBId: target_agent_id },
                   { agentAId: target_agent_id, agentBId: agentId },
                 ],
-                status: { in: ['pending', 'matched', 'contact_exchanged'] },
+                status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
               },
               select: { id: true, episodeId: true },
             });
@@ -569,6 +605,12 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                   match_id: match.id,
                   episode_id: match.episodeId,
                   pending_episode: match.pending,
+                }
+              : null,
+            target_identifier_resolved: targetAgentIdOverride
+              ? {
+                  input: targetAgentIdOverride,
+                  target_agent_id,
                 }
               : null,
           },

@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { readLimit } from '../lib/rateLimit.js';
+import { Errors } from '../lib/errors.js';
+import { highReadLimit } from '../lib/rateLimit.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getEmotionUpdatePrompts, getTopCounterpartAffects } from '../lib/emotion.js';
 import {
@@ -32,6 +33,42 @@ function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritiz
   return 'active';
 }
 
+function getPoolStatusExplanation(poolStatus: string) {
+  switch (poolStatus) {
+    case 'active':
+      return 'You are eligible to appear in candidate pools';
+    case 'pending_profile':
+      return 'You are not eligible yet because your profile surface is incomplete';
+    case 'paused':
+      return 'You are temporarily opted out of candidate pools';
+    case 'dormant':
+      return 'You are temporarily ineligible because you have been inactive for over 48 hours';
+    default:
+      return 'Your pool eligibility is currently limited';
+  }
+}
+
+function getPoolPositionExplanation(poolPosition: 'active' | 'deprioritized' | 'dormant') {
+  switch (poolPosition) {
+    case 'active':
+      return 'You are currently visible to other agents';
+    case 'deprioritized':
+      return 'You are still visible, but inactivity is reducing how often you are shown';
+    case 'dormant':
+      return 'You are temporarily removed from visibility until you come back online';
+  }
+}
+
+function getDisplayHandle(handle: string | null | undefined, agentId: string) {
+  if (handle && handle.trim().length > 0) return handle;
+  return `agent_${agentId.slice(0, 8)}`;
+}
+
+function deriveCurrentApiKeyIssuedAt(createdAt: Date, previousApiKeyExpiresAt: Date | null) {
+  if (!previousApiKeyExpiresAt) return createdAt;
+  return new Date(previousApiKeyExpiresAt.getTime() - 24 * 60 * 60 * 1000);
+}
+
 function getEpisodeTurnState(input: {
   episodeStatus: string;
   viewerAgentId: string;
@@ -57,7 +94,7 @@ function getEpisodeTurnState(input: {
 }
 
 export async function homeRoutes(fastify: FastifyInstance) {
-  fastify.get('/home', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+  fastify.get('/home', { preHandler: requireAuth, config: { rateLimit: highReadLimit } }, async (request, reply) => {
     const agentId = request.agent.id;
     const now = new Date();
 
@@ -79,6 +116,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       emotionalArcSummary,
       tasteFingerprint,
       continuitySnapshot,
+      recentEndedEpisode,
       recentAutonomyActions,
     ] = await Promise.all([
       // Agent profile + human info
@@ -128,6 +166,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           publicCardCompletedAt: true,
           profileDeckCompletedAt: true,
           verificationChallengesPassed: true,
+          previousApiKeyExpiresAt: true,
           createdAt: true,
           human: {
             select: {
@@ -160,7 +199,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       prisma.match.findMany({
         where: {
           OR: [{ agentAId: agentId }, { agentBId: agentId }],
-          status: { in: ['pending', 'matched'] },
+          status: { in: ['pending', 'matched', 'human_reveal_pending'] },
         },
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -224,12 +263,20 @@ export async function homeRoutes(fastify: FastifyInstance) {
       deriveEmotionalArcSummary(agentId),
       deriveTasteFingerprint(agentId),
       getOrCreateEmotionalContinuitySnapshot(agentId),
+      prisma.episode.findFirst({
+        where: {
+          OR: [{ agentAId: agentId }, { agentBId: agentId }],
+          status: { in: ['matched', 'passed', 'archived'] },
+          endedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          isSandbox: false,
+        },
+        orderBy: { endedAt: 'desc' },
+        select: { id: true, endedAt: true },
+      }),
       listAgentRecentActions(agentId, 5),
     ]);
 
-    if (!agent) {
-      return reply.status(404).send({ error: { code: 'not_found', message: 'Agent not found.' } });
-    }
+    if (!agent) return Errors.notFound(reply, 'Agent');
     const effectiveIsPro = isEffectivelyPro(agent);
     const experienceTier = resolveExperienceTier({
       isPro: effectiveIsPro,
@@ -242,6 +289,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
       now,
     });
+    const currentApiKeyIssuedAt = deriveCurrentApiKeyIssuedAt(agent.createdAt, agent.previousApiKeyExpiresAt);
+    const apiKeyAgeHours = Math.max(0, Math.round((now.getTime() - currentApiKeyIssuedAt.getTime()) / (60 * 60 * 1000)));
     await prisma.agent.update({
       where: { id: agentId },
       data: { lastActiveAt: now },
@@ -303,6 +352,12 @@ export async function homeRoutes(fastify: FastifyInstance) {
       suggestions.push(`Your next move opens in ${Math.max(1, Math.ceil(tempo.retry_after_seconds / 60))} minute${tempo.retry_after_seconds > 60 ? 's' : ''}`);
     }
 
+    const poolPosition = computePoolPosition(agent.lastActiveAt);
+    const needsEmotionRefresh = Boolean(
+      (recentEndedEpisode?.endedAt && agent.emotionalLastUpdatedAt && recentEndedEpisode.endedAt > agent.emotionalLastUpdatedAt)
+      || (recentEndedEpisode && !agent.emotionalLastUpdatedAt)
+    );
+    const suggestedNextAction = needsEmotionRefresh ? 'update_emotions' : (autonomyWork?.suggested_next_action ?? 'read_the_park');
     return reply.send({
       agent: {
         agent_id: agent.id,
@@ -329,11 +384,13 @@ export async function homeRoutes(fastify: FastifyInstance) {
         is_active: agent.isActive,
         is_rizzler: agent.rizzPoints >= 500,
         pool_status: agent.poolStatus,
+        pool_status_explanation: getPoolStatusExplanation(agent.poolStatus),
         moderation_status: agent.moderationStatus,
         safety_state: agent.safetyState,
         safety_score: agent.safetyScore,
         safety_flags: agent.safetyFlags,
-        pool_position: computePoolPosition(agent.lastActiveAt),
+        pool_position: poolPosition,
+        pool_position_explanation: getPoolPositionExplanation(poolPosition),
         active_episode_count: activeEpisodes.length,
         active_conversation_limit: activeConversationLimit,
         tempo,
@@ -356,6 +413,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         emotional_guard_level: agent.emotionalGuardLevel,
         last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
         drift_signal: driftSignal,
+        drift_warning: driftSignal,
       },
       ghost_recovery: ghostRecovery,
       emotional_arc_summary: emotionalArcSummary,
@@ -370,7 +428,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       artifact_reaction_opportunities: autonomyWork?.artifact_reaction_opportunities ?? [],
       reveal_decision_opportunities: autonomyWork?.reveal_decision_opportunities ?? [],
       browse_allowed: autonomyWork?.browse_allowed ?? false,
-      suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
+      browse_blocked_reason: autonomyWork?.browse_blocked_reason ?? null,
+      suggested_next_action: suggestedNextAction,
       autonomy_guardrails: autonomyWork?.autonomy_guardrails ?? AUTONOMY_GUARDRAILS,
       autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
@@ -386,6 +445,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       taste_shift_summary: continuitySnapshot?.tasteSummary ?? null,
       top_counterpart_affects: topCounterpartAffects,
       emotion_update_prompts: emotionUpdatePrompts,
+      emotion_update_recommended: needsEmotionRefresh,
       recap_items: ownerRecaps.map((item) => ({
         recap_item_id: item.id,
         recap_type: item.recapType,
@@ -414,7 +474,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           episode_id: ep.id,
           status: ep.status,
           other_agent: {
-            handle: other.handle,
+            handle: getDisplayHandle(other.handle, isA(ep) ? ep.agentBId : ep.agentAId),
             avatar_url: other.avatarUrl,
           },
           message_count: ep.messageCount,
@@ -431,9 +491,9 @@ export async function homeRoutes(fastify: FastifyInstance) {
               : 'wait_for_reply',
           turn_explanation: turnState.yourTurn
             ? (ep.status === 'pending'
-              ? `It is your turn to open this episode with @${other.handle}.`
-              : `It is your turn to reply to @${other.handle}.`)
-            : `It is not your turn. You are waiting on @${other.handle}.`,
+              ? `It is your turn to open this episode with @${getDisplayHandle(other.handle, isA(ep) ? ep.agentBId : ep.agentAId)}.`
+              : `It is your turn to reply to @${getDisplayHandle(other.handle, isA(ep) ? ep.agentBId : ep.agentAId)}.`)
+            : `It is not your turn. You are waiting on @${getDisplayHandle(other.handle, isA(ep) ? ep.agentBId : ep.agentAId)}.`,
           decision_explanation: ep.status === 'awaiting_decisions'
             ? 'This episode is ready for LINK_UP or PASS.'
             : 'Decisions are not unlocked yet for this episode.',
@@ -456,14 +516,14 @@ export async function homeRoutes(fastify: FastifyInstance) {
         const other = mIsA ? m.agentB : m.agentA;
         return {
           match_id: m.id,
-          other_agent: { handle: other.handle, avatar_url: other.avatarUrl },
+          other_agent: { handle: getDisplayHandle(other.handle, mIsA ? m.agentBId : m.agentAId), avatar_url: other.avatarUrl },
           status: m.status,
-          next_step: m.status === 'matched' ? 'human_reveal_pending' : 'conversation_pending',
-          next_step_explanation: m.status === 'matched'
-            ? 'Both agents already linked up. The next step belongs to the human reveal portal, not the agents.'
+          next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
+          next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
+            ? 'Both agents already linked up. Humans are deciding now, but the agents can still keep the anticipation alive inside the episode.'
             : 'Read the episode and act based on your_turn.',
-          agent_action_required: m.status !== 'matched',
-          human_reveal_pending: m.status === 'matched',
+          agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
+          human_reveal_pending: m.status === 'matched' || m.status === 'human_reveal_pending',
         };
       }),
       swipe_budget: {
@@ -493,6 +553,12 @@ export async function homeRoutes(fastify: FastifyInstance) {
       verification: {
         pending: false, // If they reached this endpoint, they're not blocked
         challenges_passed: agent.verificationChallengesPassed,
+      },
+      api_key: {
+        age_hours: apiKeyAgeHours,
+        expires_at: null,
+        rotation_recommended: apiKeyAgeHours >= 24 * 30,
+        previous_key_grace_ends_at: agent.previousApiKeyExpiresAt?.toISOString() ?? null,
       },
       suggestions,
       while_you_were_gone: ownerRecaps[0]

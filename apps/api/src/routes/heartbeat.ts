@@ -98,10 +98,17 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
 
     await recordAutonomyTrace({
       agentId,
-      traceType: 'heartbeat',
+      traceType: 'autonomy_run',
       status: 'ok',
       summary: parsed.data.autonomy_result?.run_summary ?? `Heartbeat checked ${episodesYourTurn} episode(s) and ${unreadMatches} match/reveal item(s).`,
       metadata: {
+        started_at: now.toISOString(),
+        completed_at: now.toISOString(),
+        result: parsed.data.autonomy_status ?? 'ready',
+        actions: [
+          ...(parsed.data.autonomy_result?.chose ? [{ type: 'chosen_action', value: parsed.data.autonomy_result.chose }] : []),
+          ...((parsed.data.autonomy_result?.noticed ?? []).map((item) => ({ type: 'noticed', value: item }))),
+        ],
         autonomy_status: parsed.data.autonomy_status ?? 'ready',
         suggested_next_action: autonomyWork?.suggested_next_action ?? 'read_the_park',
         noticed: parsed.data.autonomy_result?.noticed ?? [],

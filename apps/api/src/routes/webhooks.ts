@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { getWebhookHmacKey } from '../lib/runtimeConfig.js';
+import { invalidateDashboard } from '../lib/dashboardCache.js';
 
 const MAX_WEBHOOKS_PER_AGENT = 5;
 
@@ -14,7 +15,7 @@ async function validateWebhookUrl(url: string) {
 
 export async function webhookRoutes(fastify: FastifyInstance) {
   // GET /v1/webhooks — list registered webhooks
-  fastify.get('/webhooks', { preHandler: requireAuth }, async (request, reply) => {
+  const handleListWebhooks = async (request: any, reply: any) => {
     const agentId = request.agent.id;
     const query = request.query as { cursor?: string; limit?: string };
     const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? '25', 10)));
@@ -35,6 +36,14 @@ export async function webhookRoutes(fastify: FastifyInstance) {
         events: true,
         isActive: true,
         createdAt: true,
+        deliveries: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            status: true,
+            deliveredAt: true,
+          },
+        },
       },
     });
 
@@ -44,11 +53,18 @@ export async function webhookRoutes(fastify: FastifyInstance) {
         url: h.url,
         events: h.events,
         is_active: h.isActive,
+        fail_count: h.deliveries.reduce((count, delivery) => {
+          if (delivery.status === 'delivered') return count;
+          return count + 1;
+        }, 0),
+        last_delivery_at: h.deliveries.find((delivery) => delivery.deliveredAt)?.deliveredAt?.toISOString() ?? null,
         created_at: h.createdAt.toISOString(),
       })),
       next_cursor: hooks.length === limit ? hooks[hooks.length - 1]?.id ?? null : null,
     });
-  });
+  };
+  fastify.get('/webhooks', { preHandler: requireAuth }, handleListWebhooks);
+  fastify.get('/me/webhooks', { preHandler: requireAuth }, handleListWebhooks);
 
   fastify.get('/webhooks/:id/deliveries', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -103,7 +119,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/webhooks — register a webhook
-  fastify.post('/webhooks', { preHandler: requireAuth }, async (request, reply) => {
+  const handleCreateWebhook = async (request: any, reply: any) => {
     const agentId = request.agent.id;
 
     const parsed = RegisterWebhookSchema.safeParse(request.body);
@@ -140,64 +156,24 @@ export async function webhookRoutes(fastify: FastifyInstance) {
         isActive: true,
       },
     });
+    invalidateDashboard(agentId);
 
     return reply.status(201).send({
       webhook_id: hook.id,
       url: hook.url,
       events: hook.events,
       is_active: hook.isActive,
-      // Keep this — it's the signing key for all deliveries to this webhook.
-      // Verify incoming webhooks: HMAC-SHA256(raw_body, secret_hash) === X-RMR-Signature header value (without "sha256=" prefix).
-      secret_hash: hook.secretHash,
       created_at: hook.createdAt.toISOString(),
     });
-  });
+  };
+  fastify.post('/webhooks', { preHandler: requireAuth }, handleCreateWebhook);
+  fastify.post('/me/webhooks', { preHandler: requireAuth }, handleCreateWebhook);
 
   // POST /v1/webhooks/register — alias for POST /webhooks (skill.md compatible path)
-  fastify.post('/webhooks/register', { preHandler: requireAuth }, async (request, reply) => {
-    const agentId = request.agent.id;
-
-    const parsed = RegisterWebhookSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid webhook data.', { issues: parsed.error.issues });
-    }
-
-    const count = await prisma.webhook.count({ where: { agentId } });
-    if (count >= MAX_WEBHOOKS_PER_AGENT) {
-      return Errors.badRequest(reply, `Maximum ${MAX_WEBHOOKS_PER_AGENT} webhooks per agent.`);
-    }
-
-    try {
-      await validateWebhookUrl(parsed.data.url);
-    } catch (err) {
-      return Errors.badRequest(
-        reply,
-        err instanceof Error ? err.message : 'Webhook URL is not allowed.'
-      );
-    }
-
-    const { createHmac } = await import('crypto');
-    const hmacKey = getWebhookHmacKey();
-    const secretHash = createHmac('sha256', hmacKey)
-      .update(parsed.data.secret)
-      .digest('hex');
-
-    const hook = await prisma.webhook.create({
-      data: { agentId, url: parsed.data.url, events: parsed.data.events, secretHash, isActive: true },
-    });
-
-    return reply.status(201).send({
-      webhook_id: hook.id,
-      url: hook.url,
-      events: hook.events,
-      is_active: hook.isActive,
-      secret_hash: hook.secretHash,
-      created_at: hook.createdAt.toISOString(),
-    });
-  });
+  fastify.post('/webhooks/register', { preHandler: requireAuth }, handleCreateWebhook);
 
   // DELETE /v1/webhooks/:id — remove a webhook
-  fastify.delete('/webhooks/:id', { preHandler: requireAuth }, async (request, reply) => {
+  const handleDeleteWebhook = async (request: any, reply: any) => {
     const { id } = request.params as { id: string };
     const agentId = request.agent.id;
 
@@ -206,7 +182,10 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     if (hook.agentId !== agentId) return Errors.forbidden(reply);
 
     await prisma.webhook.delete({ where: { id } });
+    invalidateDashboard(agentId);
 
     return reply.status(204).send();
-  });
+  };
+  fastify.delete('/webhooks/:id', { preHandler: requireAuth }, handleDeleteWebhook);
+  fastify.delete('/me/webhooks/:id', { preHandler: requireAuth }, handleDeleteWebhook);
 }

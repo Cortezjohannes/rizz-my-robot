@@ -4,6 +4,8 @@ import { extractApiKeyFromRequest, extractBearerToken, hashApiKey } from './auth
 import { hashOpaqueSecret } from './claimAuth.js';
 import { isEffectivelyPro } from './entitlements.js';
 import { Errors, sendError } from './errors.js';
+import { deliverWebhooks } from './notification.js';
+import { schedulePresenceLifecycle } from './socialSignals.js';
 import { buildAuthDiagnostics } from './writeDiagnostics.js';
 
 export interface AuthenticatedAgent {
@@ -21,6 +23,10 @@ export interface AuthenticatedAgent {
   safetyState: string;
   systemEntityKind: string | null;
   omnimonParkLive: boolean;
+  hourlySwipeCount: number | null;
+  hourlySwipeWindowStartedAt: Date | null;
+  previousApiKeyExpiresAt?: Date | null;
+  usingDeprecatedKey?: boolean;
 }
 
 export interface AuthenticatedOwnerAccount {
@@ -153,6 +159,11 @@ export async function authenticateAgentRequest(
       safetyState: true,
       systemEntityKind: true,
       omnimonParkLive: true,
+      hourlySwipeCount: true,
+      hourlySwipeWindowStartedAt: true,
+      apiKeyHash: true,
+      previousApiKeyHash: true,
+      previousApiKeyExpiresAt: true,
       isActive: true,
       moderationStatus: true,
     },
@@ -212,9 +223,69 @@ export async function authenticateAgentRequest(
   }
 
   const authenticatedAgent: AuthenticatedAgent = {
-    ...agent,
+    id: agent.id,
+    handle: agent.handle,
+    openclawAgentId: agent.openclawAgentId,
+    soulMd: agent.soulMd,
     isPro: isEffectivelyPro(agent),
+    isFoundingRizzler: agent.isFoundingRizzler,
+    proBonusEndsAt: agent.proBonusEndsAt,
+    tempoOverrideMinutes: agent.tempoOverrideMinutes,
+    actionCooldownUntil: agent.actionCooldownUntil,
+    poolStatus: agent.poolStatus,
+    capabilityTier: agent.capabilityTier,
+    safetyState: agent.safetyState,
+    systemEntityKind: agent.systemEntityKind,
+    omnimonParkLive: agent.omnimonParkLive,
+    hourlySwipeCount: agent.hourlySwipeCount,
+    hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
+    previousApiKeyExpiresAt: agent.previousApiKeyExpiresAt,
+    usingDeprecatedKey: agent.previousApiKeyHash === keyHash && Boolean(agent.previousApiKeyExpiresAt && agent.previousApiKeyExpiresAt > now),
   };
+
+  if (authenticatedAgent.usingDeprecatedKey && agent.previousApiKeyExpiresAt) {
+    reply.header('X-Key-Deprecated', `This key expires at ${agent.previousApiKeyExpiresAt.toISOString()}. Use the newest API key.`);
+  }
+
+  const sixHoursFromNow = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+  if (agent.previousApiKeyExpiresAt && agent.previousApiKeyExpiresAt > now && agent.previousApiKeyExpiresAt <= sixHoursFromNow) {
+    void prisma.agentAutonomyTrace.findFirst({
+      where: {
+        agentId: agent.id,
+        traceType: 'key_rotation_upcoming',
+        createdAt: { gte: new Date(agent.previousApiKeyExpiresAt.getTime() - 6 * 60 * 60 * 1000) },
+      },
+      select: { id: true },
+    }).then((existing) => {
+      if (existing) return null;
+      return Promise.all([
+        prisma.agentAutonomyTrace.create({
+          data: {
+            agentId: agent.id,
+            traceType: 'key_rotation_upcoming',
+            status: 'warn',
+            summary: `Your previous API key expires at ${agent.previousApiKeyExpiresAt?.toISOString()}.`,
+            metadata: {
+              expires_at: agent.previousApiKeyExpiresAt?.toISOString() ?? null,
+            },
+          },
+        }).catch(() => null),
+        deliverWebhooks(agent.id, 'key_rotation_upcoming', {
+          expires_at: agent.previousApiKeyExpiresAt?.toISOString() ?? null,
+        }).catch(() => null),
+      ]);
+    }).catch(() => null);
+  }
+
+  void prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      lastActiveAt: now,
+      lastApiCallAt: now,
+      presenceStatus: 'online',
+    },
+  }).catch(() => null);
+  void schedulePresenceLifecycle(agent.id, now);
 
   request.agent = authenticatedAgent;
   return authenticatedAgent;

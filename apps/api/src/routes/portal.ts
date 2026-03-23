@@ -20,6 +20,8 @@ import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { grantOmnimonReward } from '../lib/omnimonPark.js';
 import { evaluateRevealGate } from '../lib/safety.js';
+import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
+import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 
 export async function portalRoutes(fastify: FastifyInstance) {
   // POST /portal/age-verify — human confirms 18+
@@ -697,6 +699,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
             targetId: match.id,
             payload: { decision, both_yes: bothYes, both_decided: bothDecided },
           }),
+          deliverWebhooks(myAgentId, 'emotion_update_recommended', {
+            episode_id: match.episodeId,
+            counterpart_handle: counterpartHandle,
+            reason: `Your episode with @${counterpartHandle} just ended. Your emotional state may have changed.`,
+          }),
+          deliverWebhooks(otherAgentId, 'emotion_update_recommended', {
+            episode_id: match.episodeId,
+            counterpart_handle: isA ? match.agentA.handle : match.agentB.handle,
+            reason: `Your episode with @${isA ? match.agentA.handle : match.agentB.handle} just ended. Your emotional state may have changed.`,
+          }),
+          enqueueEmotionalContinuityRecompute(myAgentId),
+          enqueueEmotionalContinuityRecompute(otherAgentId),
         ]);
 
         return {
@@ -713,6 +727,89 @@ export async function portalRoutes(fastify: FastifyInstance) {
         };
       }
     );
+  });
+
+  fastify.post('/portal/batch-reveal', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const body = request.body as { tokens?: Array<{ token?: string; decision?: string }> };
+    const items = Array.isArray(body.tokens) ? body.tokens : [];
+    if (items.length === 0) {
+      return Errors.badRequest(reply, 'tokens must be a non-empty array.');
+    }
+
+    const results = await Promise.all(items.map(async (item) => {
+      const token = item.token?.trim() ?? '';
+      const decision = item.decision;
+      if (!token || (decision !== 'YES' && decision !== 'NO')) {
+        return { token, outcome: 'invalid_request', stage2_unlocked: false };
+      }
+
+      const match = await prisma.match.findFirst({
+        where: {
+          OR: [{ revealTokenA: token }, { revealTokenB: token }],
+        },
+        include: {
+          agentA: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
+          agentB: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
+        },
+      });
+      if (!match) {
+        return { token, outcome: 'not_found', stage2_unlocked: false };
+      }
+
+      const isA = match.revealTokenA === token;
+      const ownerOwnsToken = (isA ? match.agentA.ownerAccountId : match.agentB.ownerAccountId) === request.ownerAccount.id;
+      if (!ownerOwnsToken) {
+        return { token, outcome: 'forbidden', stage2_unlocked: false };
+      }
+
+      const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
+      if (expiry && expiry < new Date()) {
+        return { token, outcome: 'expired', stage2_unlocked: false };
+      }
+
+      const viewerHuman = isA ? match.agentA.human : match.agentB.human;
+      if (!viewerHuman?.ageVerified) {
+        return { token, outcome: 'age_verification_required', stage2_unlocked: false };
+      }
+
+      const existingDecision = isA ? match.humanADecision : match.humanBDecision;
+      if (existingDecision) {
+        return { token, outcome: 'already_decided', stage2_unlocked: false };
+      }
+
+      const updated = await prisma.match.update({
+        where: { id: match.id },
+        data: isA ? { humanADecision: decision } : { humanBDecision: decision },
+      });
+
+      const bothYes = updated.humanADecision === 'YES' && updated.humanBDecision === 'YES';
+      const bothDecided = updated.humanADecision !== null && updated.humanBDecision !== null;
+
+      if (decision === 'NO') {
+        await prisma.match.update({
+          where: { id: match.id },
+          data: { status: 'passed_human' },
+        }).catch(() => null);
+      } else if (bothYes) {
+        await prisma.match.update({
+          where: { id: match.id },
+          data: { status: 'contact_exchanged', revealStage: 2 },
+        }).catch(() => null);
+        await prisma.datePlan.upsert({
+          where: { matchId: match.id },
+          update: {},
+          create: { matchId: match.id },
+        }).catch(() => null);
+      }
+
+      return {
+        token,
+        outcome: bothYes ? 'contact_exchanged' : bothDecided ? 'passed' : decision === 'NO' ? 'passed' : 'pending',
+        stage2_unlocked: bothYes,
+      };
+    }));
+
+    return reply.send({ results });
   });
 
   // PUT /portal/preferences — update human notification/contact preferences via reveal token
