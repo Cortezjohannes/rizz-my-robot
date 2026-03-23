@@ -20,6 +20,8 @@ interface MobileAppContextValue {
   dismissMatchReveal: () => void
   matchesUnreadCount: number
   setMatchesUnreadCount: (count: number) => void
+  menuOpen: boolean
+  toggleMenu: () => void
 }
 
 const MobileAppCtx = createContext<MobileAppContextValue | null>(null)
@@ -34,6 +36,11 @@ export function MobileAppProvider({
   const [activeTab, setActiveTab] = useState<MobileTab>(initialTab)
   const [matchRevealQueue, setMatchRevealQueue] = useState<MatchRevealEvent[]>([])
   const [matchesUnreadCount, setMatchesUnreadCount] = useState(0)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const toggleMenu = useCallback(() => {
+    setMenuOpen((v) => !v)
+  }, [])
 
   const pushMatchReveal = useCallback((event: MatchRevealEvent) => {
     setMatchRevealQueue((q) => [...q, event])
@@ -45,7 +52,7 @@ export function MobileAppProvider({
 
   return (
     <MobileAppCtx.Provider
-      value={{ activeTab, setActiveTab, matchRevealQueue, pushMatchReveal, dismissMatchReveal, matchesUnreadCount, setMatchesUnreadCount }}
+      value={{ activeTab, setActiveTab, matchRevealQueue, pushMatchReveal, dismissMatchReveal, matchesUnreadCount, setMatchesUnreadCount, menuOpen, toggleMenu }}
     >
       {children}
     </MobileAppCtx.Provider>
