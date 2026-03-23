@@ -18,7 +18,6 @@ import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
-import { buildAgentVerificationWhere, getVerificationRequirements } from '../lib/controlSettings.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
@@ -82,7 +81,6 @@ export async function swipeRoutes(fastify: FastifyInstance) {
         const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
         const { id: agentId, isPro, isFoundingRizzler } = request.agent;
         const experienceTier = resolveExperienceTier({ isPro, isFoundingRizzler });
-        const verificationRequirements = await getVerificationRequirements();
         const omnimon = await getOmnimonParkAgent();
         const isOmnimonTarget = omnimon?.id === target_agent_id && isOmnimonParkAvailable(omnimon);
 
@@ -143,7 +141,6 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               ? {}
               : {
                   poolStatus: 'active',
-                  ...buildAgentVerificationWhere(verificationRequirements),
                   OR: [{ profileDeckCompletedAt: { not: null } }, { publicCardCompletedAt: { not: null } }],
                   moderationStatus: { not: 'suspended' as const },
                   safetyState: { not: 'blocked' as const },

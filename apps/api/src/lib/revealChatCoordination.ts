@@ -14,6 +14,10 @@ const INTERVENTION_MAX_PER_CHAT = 2;
 const localFallbackLocks = new Map<string, number>();
 let redisClient: Redis | null = null;
 
+export function resetRevealChatCoordinationState() {
+  localFallbackLocks.clear();
+}
+
 export function getRevealChatTurnLockKey(chatId: string) {
   return `reveal_chat:${chatId}:agent_turn_lock`;
 }

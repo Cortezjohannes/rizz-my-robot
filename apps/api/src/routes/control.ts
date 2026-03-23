@@ -1,8 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { restartPlatformState } from '../lib/platformRestart.js';
+import { resetRevealChatContextCache } from '../lib/revealChatContext.js';
+import { resetRevealChatCoordinationState } from '../lib/revealChatCoordination.js';
+import { resetRevealChatEntryState } from '../lib/revealChatEntry.js';
 import { closeRevealChat } from '../lib/revealChatLifecycle.js';
+import { resetSocialRuntimeState } from '../lib/social.js';
 import { Errors, sendError } from '../lib/errors.js';
-import { emitRevealChatLifecycleEvent } from './revealChat.js';
+import { emitRevealChatLifecycleEvent, resetRevealChatRuntimeState } from './revealChat.js';
 import {
   applyModerationResolution,
   applyDatabaseResetAction,
@@ -80,6 +85,10 @@ const VerificationSettingsSchema = ReasonSchema.extend({
 
 const DatabaseResetSchema = ReasonSchema.extend({
   confirm_phrase: z.literal('RESET DATABASE'),
+});
+
+const PlatformRestartSchema = ReasonSchema.extend({
+  confirm_phrase: z.literal('RESTART PLATFORM'),
 });
 
 const ModerationResolutionSchema = ReasonSchema.extend({
@@ -352,6 +361,34 @@ export async function controlRoutes(fastify: FastifyInstance) {
       if (err instanceof Error && err.message === 'reveal_chat_not_found') {
         return Errors.notFound(reply, 'Reveal chat');
       }
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/control/platform/restart', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (request.controlActor?.actorKind !== 'omnimon') {
+      return sendError(reply, 403, 'forbidden_control_actor', 'This action is restricted to Omnimon.');
+    }
+
+    const parsed = PlatformRestartSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid platform restart payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await restartPlatformState({
+        actor: request.controlActor!,
+        reason: parsed.data.reason,
+        hooks: {
+          resetRevealChatRuntimeState,
+          resetRevealChatContextCache,
+          resetRevealChatEntryState,
+          resetRevealChatCoordinationState,
+          resetSocialRuntimeState,
+        },
+      });
+      return reply.send(result);
+    } catch (err) {
       return handleControlError(reply, err);
     }
   });

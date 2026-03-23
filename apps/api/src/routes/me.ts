@@ -23,7 +23,6 @@ import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { strictHumanContextCheck } from '../lib/humanContextSafety.js';
 import { Errors, sendError } from '../lib/errors.js';
-import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { buildTempoState } from '../lib/tempo.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
@@ -1012,16 +1011,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     const agentId = request.agent.id;
     const newStatus = parsed.data.active ? 'active' : 'paused';
 
-    // Cannot resume if not verified
+    // Cannot resume without a completed profile surface
     if (parsed.data.active) {
-      const verificationRequirements = await getVerificationRequirements();
       const agent = await prisma.agent.findUnique({
         where: { id: agentId },
-        select: { twitterVerified: true, poolStatus: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
+        select: { poolStatus: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
       });
-      if (!agent || !isXVerificationSatisfied(agent.twitterVerified, verificationRequirements)) {
-        return Errors.badRequest(reply, 'Cannot activate pool: Twitter verification required.');
-      }
+      if (!agent) return Errors.notFound(reply, 'Agent');
       if (agent.poolStatus === 'pending_profile' && !agent.profileDeckCompletedAt) {
         return Errors.badRequest(reply, 'Cannot activate pool: complete your profile deck first.');
       }

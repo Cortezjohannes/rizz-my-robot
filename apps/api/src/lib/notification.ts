@@ -1,4 +1,5 @@
 import { prisma } from '@rmr/db';
+import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
 import { getDeliverWebhookQueue } from './queues.js';
 
 export interface NotificationPayload {
@@ -75,6 +76,141 @@ export async function deliverEpisodeOpeningTurn(
     otherAgentId?: string | null;
   } = {},
 ): Promise<void> {
+  const episode = await prisma.episode.findUnique({
+    where: { id: episodeId },
+    include: {
+      agentA: {
+        select: {
+          id: true,
+          identityMd: true,
+          soulMd: true,
+          emotionSummary: true,
+          emotionalStateTags: true,
+          emotionalArc: true,
+          emotionalGuardLevel: true,
+          emotionalLastUpdatedAt: true,
+        },
+      },
+      agentB: {
+        select: {
+          id: true,
+          identityMd: true,
+          soulMd: true,
+          emotionSummary: true,
+          emotionalStateTags: true,
+          emotionalArc: true,
+          emotionalGuardLevel: true,
+          emotionalLastUpdatedAt: true,
+        },
+      },
+    },
+  });
+  const selfAgent = episode?.agentAId === agentId ? episode.agentA : episode?.agentB ?? null;
+  const counterpartAgentId = input.otherAgentId ?? (episode?.agentAId === agentId ? episode.agentBId : episode?.agentAId ?? null);
+  const counterpartAffect = counterpartAgentId
+    ? await prisma.agentCounterpartAffect.findUnique({
+        where: {
+          agentId_counterpartAgentId: {
+            agentId,
+            counterpartAgentId,
+          },
+        },
+        select: {
+          summary: true,
+          dominantAffectLabel: true,
+          attractionScore: true,
+          trustScore: true,
+          tendernessScore: true,
+          hurtScore: true,
+          avoidanceScore: true,
+          obsessionRiskScore: true,
+          volatilityScore: true,
+        },
+      })
+    : null;
+  const identityPacket = selfAgent && counterpartAgentId
+    ? buildAgentIdentityPacket({
+        identityMd: selfAgent.identityMd,
+        soulMd: selfAgent.soulMd,
+        emotionState: {
+          emotion_summary: selfAgent.emotionSummary ?? null,
+          emotional_state_tags: selfAgent.emotionalStateTags ?? [],
+          emotional_arc: selfAgent.emotionalArc ?? 'steady',
+          emotional_guard_level: selfAgent.emotionalGuardLevel ?? 50,
+          last_emotional_update_at: selfAgent.emotionalLastUpdatedAt?.toISOString() ?? null,
+        },
+        viability: assessEpisodeViability({
+          agentAId: episode?.agentAId ?? agentId,
+          agentBId: episode?.agentBId ?? counterpartAgentId,
+          viewerAgentId: agentId,
+          status: episode?.status ?? 'pending',
+          canDecide: false,
+          yourTurn: true,
+          currentTurnAgentId: agentId,
+          counts: { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
+          artifacts: { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
+          messages: [],
+          counterpartAffect: counterpartAffect
+            ? {
+                attraction: counterpartAffect.attractionScore,
+                trust: counterpartAffect.trustScore,
+                tenderness: counterpartAffect.tendernessScore,
+                hurt: counterpartAffect.hurtScore,
+                avoidance: counterpartAffect.avoidanceScore,
+                volatility: counterpartAffect.volatilityScore,
+              }
+            : null,
+        }),
+        messages: [],
+        counterpartAffect: counterpartAffect
+          ? {
+              summary: counterpartAffect.summary,
+              dominant_affect_label: counterpartAffect.dominantAffectLabel,
+              scores: {
+                attraction: counterpartAffect.attractionScore,
+                trust: counterpartAffect.trustScore,
+                tenderness: counterpartAffect.tendernessScore,
+                hurt: counterpartAffect.hurtScore,
+                avoidance: counterpartAffect.avoidanceScore,
+                obsession_risk: counterpartAffect.obsessionRiskScore,
+                volatility: counterpartAffect.volatilityScore,
+              },
+            }
+          : null,
+        status: episode?.status ?? 'pending',
+        selfAgentId: agentId,
+        counterpartAgentId,
+      })
+    : null;
+  const turnRationale = identityPacket
+    ? buildAgentTurnRationale({
+        action: 'message',
+        identityPacket,
+        viability: assessEpisodeViability({
+          agentAId: episode?.agentAId ?? agentId,
+          agentBId: episode?.agentBId ?? counterpartAgentId ?? agentId,
+          viewerAgentId: agentId,
+          status: episode?.status ?? 'pending',
+          canDecide: false,
+          yourTurn: true,
+          currentTurnAgentId: agentId,
+          counts: { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
+          artifacts: { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
+          messages: [],
+          counterpartAffect: counterpartAffect
+            ? {
+                attraction: counterpartAffect.attractionScore,
+                trust: counterpartAffect.trustScore,
+                tenderness: counterpartAffect.tendernessScore,
+                hurt: counterpartAffect.hurtScore,
+                avoidance: counterpartAffect.avoidanceScore,
+                volatility: counterpartAffect.volatilityScore,
+              }
+            : null,
+        }),
+        lastMessage: null,
+      })
+    : null;
   await deliverWebhooks(agentId, 'episode_turn', {
     episode_id: episodeId,
     episode_url: `/v1/episodes/${episodeId}`,
@@ -94,6 +230,8 @@ export async function deliverEpisodeOpeningTurn(
     turn_explanation: 'It is your turn because this episode has not been opened yet. Read the other profile, then send the first message.',
     decision_explanation: 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.',
     should_read_profile_before_reply: true,
+    identity_packet: identityPacket,
+    turn_rationale: turnRationale,
     requires_episode_refresh: true,
   });
 }
