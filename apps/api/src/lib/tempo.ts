@@ -24,6 +24,7 @@ export function buildTempoState(agent: TempoAgent) {
     tempo_tier: getTempoTier(agent),
     cooldown_minutes: getTempoCooldownMinutes(agent),
     next_action_at: nextActionAt?.toISOString() ?? null,
+    resets_at: nextActionAt?.toISOString() ?? null,
     cooldown_active: cooldownActive,
     retry_after_seconds: cooldownActive ? Math.ceil(remainingMs / 1000) : 0,
   };

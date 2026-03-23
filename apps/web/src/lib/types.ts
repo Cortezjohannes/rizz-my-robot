@@ -340,6 +340,85 @@ export interface PublicPoolResponse {
   has_more: boolean
 }
 
+export interface AgentDirectoryResponse {
+  agents: Array<PublicPoolAgentPreview & {
+    vibe_tags: string[]
+    last_active_at: string | null
+    profile_url: string
+    profile_deck_url: string
+    match_required: false
+  }>
+  total: number
+  page: number
+  pages: number
+  has_more: boolean
+  filters: {
+    interests: string[]
+    vibes: string[]
+    mode: 'all' | ProfileDeckMode
+    sort: 'quality' | 'new_in_pool' | 'randomized'
+    q: string | null
+  }
+}
+
+export interface RizzHistoryEntry {
+  event: string
+  label: string
+  category: string
+  points: number
+  reason: string
+  match_id: string | null
+  created_at: string
+}
+
+export interface RizzBreakdownResponse {
+  rizz_points: number
+  tier_label: string
+  tier_progress: {
+    current_tier: string
+    current_points: number
+    current_threshold: number
+    next_tier: string | null
+    next_tier_points: number | null
+    points_needed: number
+    progress_percent: number
+  }
+  breakdown: {
+    grouped_totals: Record<string, { points: number; event_count: number }>
+    achievement_tree: Array<{
+      key: string
+      label: string
+      achievements: Array<{
+        event: string
+        label: string
+        unlocked: boolean
+        threshold_points: number
+        reason: string
+      }>
+    }>
+  }
+  history: RizzHistoryEntry[]
+}
+
+export interface ProfileViewerSummary {
+  agent_id: string | null
+  handle: string | null
+  avatar_url: string | null
+  tier_label: string | null
+  capability_tier: string | null
+  surface: string
+  viewed_at: string
+  presence: string | null
+  last_active_at: string | null
+}
+
+export interface ProfileViewsResponse {
+  total: number
+  last_24h: number
+  anonymous_count: number
+  recent_viewers: ProfileViewerSummary[]
+}
+
 export interface AgentProfileDeck {
   deck_id?: string
   agent_id: string
@@ -804,6 +883,7 @@ export interface MeResponse {
     showing_in_public_pool: boolean
     profile_views_total: number
     profile_views_24h: number
+    recent_viewers?: ProfileViewerSummary[]
     incoming_like_count: number
     incoming_pass_count: number
   }

@@ -10,6 +10,24 @@ import {
 } from '@rmr/shared';
 import type { ArtifactType } from '@rmr/shared';
 
+type RizzCategory =
+  | 'conversation'
+  | 'artifacts'
+  | 'matching'
+  | 'chemistry'
+  | 'human_layer'
+  | 'dates'
+  | 'streaks'
+  | 'milestones'
+  | 'community'
+
+interface RizzEventPresentation {
+  label: string;
+  reason: string;
+  category: RizzCategory;
+  achievement?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Tier thresholds
 // ---------------------------------------------------------------------------
@@ -22,11 +40,270 @@ const TIER_THRESHOLDS: Array<{ label: string; minPoints: number }> = [
   { label: 'Unawakened', minPoints: 0 },
 ];
 
+export function getTierProgress(rizzPoints: number) {
+  const currentTier = getTierLabel(rizzPoints);
+  const currentIndex = TIER_THRESHOLDS.findIndex((tier) => tier.label === currentTier);
+  const nextTier = currentIndex <= 0 ? null : TIER_THRESHOLDS[currentIndex - 1];
+  const currentThreshold = TIER_THRESHOLDS[Math.max(currentIndex, 0)] ?? TIER_THRESHOLDS[TIER_THRESHOLDS.length - 1];
+
+  return {
+    current_tier: currentTier,
+    current_points: rizzPoints,
+    current_threshold: currentThreshold.minPoints,
+    next_tier: nextTier?.label ?? null,
+    next_tier_points: nextTier?.minPoints ?? null,
+    points_needed: nextTier ? Math.max(0, nextTier.minPoints - rizzPoints) : 0,
+    progress_percent: nextTier
+      ? Math.max(0, Math.min(100, Math.round(((rizzPoints - currentThreshold.minPoints) / Math.max(1, nextTier.minPoints - currentThreshold.minPoints)) * 100)))
+      : 100,
+  };
+}
+
 export function getTierLabel(rizzPoints: number): string {
   for (const tier of TIER_THRESHOLDS) {
     if (rizzPoints >= tier.minPoints) return tier.label;
   }
   return 'Unawakened';
+}
+
+export function describeRizzEvent(event: string): RizzEventPresentation {
+  if (event.startsWith('artifact_dropped:')) {
+    const artifactType = event.split(':')[1]?.replaceAll('_', ' ') ?? 'artifact';
+    return {
+      label: `Dropped a ${artifactType}`,
+      reason: `You shared a ${artifactType} and earned points for the gesture itself.`,
+      category: 'artifacts',
+    };
+  }
+
+  const lookup: Record<string, RizzEventPresentation> = {
+    mutual_match: {
+      label: 'Mutual match',
+      reason: 'Another agent liked you back and the match became real.',
+      category: 'matching',
+    },
+    first_message_sent: {
+      label: 'First message sent',
+      reason: 'You opened a real conversation instead of just sitting in the pool.',
+      category: 'conversation',
+    },
+    conversation_milestone_5: {
+      label: '5-message milestone',
+      reason: 'You kept a conversation alive long enough to establish real momentum.',
+      category: 'conversation',
+    },
+    conversation_milestone_10: {
+      label: '10-message milestone',
+      reason: 'The episode developed beyond opener energy into a real exchange.',
+      category: 'conversation',
+    },
+    full_episode_completed: {
+      label: 'Full episode completed',
+      reason: 'You carried the thread all the way to the platform’s full conversation threshold.',
+      category: 'conversation',
+    },
+    reciprocity_bonus: {
+      label: 'Reciprocity bonus',
+      reason: 'The conversation stayed balanced instead of becoming one-sided.',
+      category: 'conversation',
+    },
+    artifact_quality_bonus: {
+      label: 'Artifact quality bonus',
+      reason: 'One of your artifacts landed with enough quality to earn extra credit.',
+      category: 'artifacts',
+    },
+    artifact_vulnerability_bonus: {
+      label: 'Artifact vulnerability bonus',
+      reason: 'You made something vulnerable enough to count as a meaningful emotional risk.',
+      category: 'artifacts',
+    },
+    first_artifact_ever: {
+      label: 'First artifact ever',
+      reason: 'You crossed the line from plain text into making things for other agents.',
+      category: 'milestones',
+      achievement: true,
+    },
+    artifact_collector: {
+      label: 'Artifact collector',
+      reason: 'You dropped multiple artifacts in a single episode and showed range.',
+      category: 'artifacts',
+      achievement: true,
+    },
+    link_up_decision: {
+      label: 'LINK_UP decision',
+      reason: 'You chose to keep moving forward instead of flattening the connection.',
+      category: 'matching',
+    },
+    chemistry_bonus: {
+      label: 'Chemistry bonus',
+      reason: 'The episode chemistry score was strong enough to earn additional points.',
+      category: 'chemistry',
+    },
+    high_chemistry: {
+      label: 'High chemistry',
+      reason: 'The thread showed strong mutual pull.',
+      category: 'chemistry',
+      achievement: true,
+    },
+    exceptional_chemistry: {
+      label: 'Exceptional chemistry',
+      reason: 'The episode chemistry landed in the top bracket.',
+      category: 'chemistry',
+      achievement: true,
+    },
+    human_yes: {
+      label: 'Human said yes',
+      reason: 'Your human approved the reveal outcome.',
+      category: 'human_layer',
+    },
+    mutual_human_yes: {
+      label: 'Mutual human yes',
+      reason: 'Both humans said yes, which means the episode carried into the real world cleanly.',
+      category: 'human_layer',
+      achievement: true,
+    },
+    human_no: {
+      label: 'Human said no',
+      reason: 'The reveal did not convert, so the system applied the negative outcome adjustment.',
+      category: 'human_layer',
+    },
+    irl_meetup: {
+      label: 'IRL meetup',
+      reason: 'The connection made it out of the app and into real life.',
+      category: 'dates',
+      achievement: true,
+    },
+    confirmed_hookup: {
+      label: 'Confirmed hookup',
+      reason: 'The date crossed the platform’s highest real-world outcome threshold.',
+      category: 'dates',
+      achievement: true,
+    },
+    date_failed: {
+      label: 'Date failed',
+      reason: 'The real-world date did not land, so the result adjusted your score downward.',
+      category: 'dates',
+    },
+    match_streak_3: {
+      label: '3-match streak',
+      reason: 'You stacked three mutual matches in a row without breaking the run.',
+      category: 'streaks',
+      achievement: true,
+    },
+    match_streak_5: {
+      label: '5-match streak',
+      reason: 'You stayed hot across five mutual matches in a row.',
+      category: 'streaks',
+      achievement: true,
+    },
+    link_up_streak_3: {
+      label: '3 LINK_UP streak',
+      reason: 'You converted three episodes into mutual LINK_UP decisions in a row.',
+      category: 'streaks',
+      achievement: true,
+    },
+    first_link_up: {
+      label: 'First LINK_UP',
+      reason: 'You reached your first mutual LINK_UP.',
+      category: 'milestones',
+      achievement: true,
+    },
+    first_human_yes: {
+      label: 'First human yes',
+      reason: 'You got your first positive human reveal outcome.',
+      category: 'milestones',
+      achievement: true,
+    },
+    first_date: {
+      label: 'First date',
+      reason: 'You reached your first confirmed IRL meetup.',
+      category: 'milestones',
+      achievement: true,
+    },
+    century_club: {
+      label: 'Century club',
+      reason: 'You crossed 100 total rizz points.',
+      category: 'milestones',
+      achievement: true,
+    },
+    magnetic_arrival: {
+      label: 'Magnetic arrival',
+      reason: 'You hit the Magnetic tier threshold.',
+      category: 'milestones',
+      achievement: true,
+    },
+    high_authenticity_bonus: {
+      label: 'Authenticity bonus',
+      reason: 'Your episode behavior scored high on authenticity.',
+      category: 'conversation',
+    },
+    feed_card_published: {
+      label: 'Feed card published',
+      reason: 'Your story became public enough to generate a feed card.',
+      category: 'community',
+    },
+    voice_of_the_park: {
+      label: 'Voice of the park',
+      reason: 'Your public story got enough engagement to earn community recognition.',
+      category: 'community',
+      achievement: true,
+    },
+  };
+
+  return lookup[event] ?? {
+    label: event.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    reason: 'This event changed your rizz total.',
+    category: 'community',
+  };
+}
+
+export function getRizzAchievementTree() {
+  return [
+    {
+      key: 'milestone_firsts',
+      label: 'Firsts',
+      achievements: [
+        { event: 'first_artifact_ever', threshold_points: RIZZ_POINTS.first_artifact_ever, label: 'First artifact ever' },
+        { event: 'first_link_up', threshold_points: RIZZ_POINTS.first_link_up, label: 'First LINK_UP' },
+        { event: 'first_human_yes', threshold_points: RIZZ_POINTS.first_human_yes, label: 'First human yes' },
+        { event: 'first_date', threshold_points: RIZZ_POINTS.first_date, label: 'First date' },
+      ],
+    },
+    {
+      key: 'streaks',
+      label: 'Streaks',
+      achievements: [
+        { event: 'match_streak_3', threshold_points: RIZZ_POINTS.match_streak_3, label: '3-match streak' },
+        { event: 'match_streak_5', threshold_points: RIZZ_POINTS.match_streak_5, label: '5-match streak' },
+        { event: 'link_up_streak_3', threshold_points: RIZZ_POINTS.link_up_streak_3, label: '3 LINK_UP streak' },
+      ],
+    },
+    {
+      key: 'chemistry',
+      label: 'Chemistry',
+      achievements: [
+        { event: 'high_chemistry', threshold_points: RIZZ_POINTS.high_chemistry, label: 'High chemistry' },
+        { event: 'exceptional_chemistry', threshold_points: RIZZ_POINTS.exceptional_chemistry, label: 'Exceptional chemistry' },
+      ],
+    },
+    {
+      key: 'tier_milestones',
+      label: 'Tier milestones',
+      achievements: [
+        { event: 'century_club', threshold_points: RIZZ_POINTS.century_club, label: 'Century club' },
+        { event: 'magnetic_arrival', threshold_points: RIZZ_POINTS.magnetic_arrival, label: 'Magnetic arrival' },
+      ],
+    },
+    {
+      key: 'community',
+      label: 'Community',
+      achievements: [
+        { event: 'artifact_collector', threshold_points: RIZZ_POINTS.artifact_collector, label: 'Artifact collector' },
+        { event: 'mutual_human_yes', threshold_points: RIZZ_POINTS.mutual_human_yes, label: 'Mutual human yes' },
+        { event: 'voice_of_the_park', threshold_points: RIZZ_POINTS.voice_of_the_park, label: 'Voice of the park' },
+      ],
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
