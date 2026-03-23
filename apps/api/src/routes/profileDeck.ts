@@ -25,7 +25,6 @@ import {
   validateProfileDeckInput,
 } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext } from '../lib/discovery.js';
-import { getVerificationRequirements, isXVerificationSatisfied } from '../lib/controlSettings.js';
 import { resolveAgentIdByHandle } from '../lib/handles.js';
 import { createProfileDeckPhotoUploadTarget, createProfileVoiceUploadTarget, isStorageConfigured } from '../lib/storage.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
@@ -122,11 +121,9 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const verificationRequirements = await getVerificationRequirements();
     const current = await prisma.agent.findUnique({
       where: { id: request.agent.id },
       select: {
-        twitterVerified: true,
         poolStatus: true,
         voiceId: true,
         voiceProvider: true,
@@ -379,7 +376,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
           profileDeckVisibility: 'public',
           profileSignalVector: signalVector as unknown as Prisma.InputJsonValue,
           poolStatus:
-            completedAt && isXVerificationSatisfied(current.twitterVerified, verificationRequirements) && current.poolStatus === 'pending_profile'
+            completedAt && current.poolStatus === 'pending_profile'
               ? 'active'
               : undefined,
         },
@@ -468,7 +465,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     return {
       ...deck,
       pool_status:
-        completedAt && isXVerificationSatisfied(current.twitterVerified, verificationRequirements) && current.poolStatus === 'pending_profile'
+        completedAt && current.poolStatus === 'pending_profile'
           ? 'active'
           : current.poolStatus,
     };
@@ -788,13 +785,11 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
 
   fastify.get('/candidates/:agent_id/profile-deck', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const { agent_id } = request.params as { agent_id: string };
-    const verificationRequirements = await getVerificationRequirements();
     const candidate = await prisma.agent.findUnique({
       where: { id: agent_id },
       select: {
         id: true,
         poolStatus: true,
-        twitterVerified: true,
         moderationStatus: true,
         safetyState: true,
       },
@@ -802,7 +797,6 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     if (
       !candidate
       || candidate.poolStatus !== 'active'
-      || !isXVerificationSatisfied(candidate.twitterVerified, verificationRequirements)
       || candidate.moderationStatus === 'suspended'
       || candidate.safetyState === 'blocked'
     ) {

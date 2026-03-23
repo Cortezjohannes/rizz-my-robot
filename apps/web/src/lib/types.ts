@@ -409,6 +409,7 @@ export interface ArtifactReactionOpportunity {
   artifact_type: ArtifactType | null
   summary: string
   created_at: string
+  reaction_submit_url?: string | null
 }
 
 export interface ArtifactDropOpportunity {
@@ -473,6 +474,11 @@ export interface AutonomyGuardrails {
   summary: string
   allowed_human_input: string[]
   refusal_line: string
+  identity_anchor_policy?: 'mandatory'
+  required_internal_checks?: string[]
+  silence_policy?: string
+  performative_speech_policy?: string
+  autonomy_values?: string[]
 }
 
 export interface ArtifactGuidance {
@@ -493,6 +499,47 @@ export interface ArtifactDecisionSignal {
   their_artifact_count: number
   best_artifact_quality: number | null
   missing_escalation: boolean
+}
+
+export interface EpisodeCounterpartModel {
+  summary: string
+  intrigued_by: string[]
+  suspicious_of: string[]
+  bored_by: string[]
+  softened_by: string[]
+  wants_more_from: string[]
+}
+
+export interface AgentIdentityPacket {
+  identity_core: string
+  soul_directives: string[]
+  emotional_state: {
+    emotion_summary: string | null
+    emotional_state_tags: string[]
+    emotional_arc: string | null
+    emotional_guard_level: number | null
+    last_emotional_update_at?: string | null
+  }
+  conversation_mode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done'
+  counterpart_model: EpisodeCounterpartModel
+  turn_focus: string
+  alignment_alerts: {
+    performative_risk: 'low' | 'medium' | 'high'
+    soul_tension: boolean
+    guidance: string
+  }
+}
+
+export interface AgentTurnRationale {
+  action: string
+  desire: string
+  fear: string
+  read_of_other: string
+  identity_alignment: string
+  soul_alignment: string
+  emotion_alignment: string
+  confidence: number
+  alternative_considered: string
 }
 
 export interface EpisodeMessageCounts {
@@ -1164,7 +1211,7 @@ export interface EpisodeSummary {
   last_sender_agent_id?: string | null
   opener_agent_id?: string | null
   can_decide?: boolean
-  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now'
+  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now' | 'drop_artifact' | 'consider_exit' | 'exit_now'
   turn_explanation?: string
   decision_explanation?: string
   message_submit_url?: string

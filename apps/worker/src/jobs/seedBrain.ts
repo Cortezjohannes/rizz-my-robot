@@ -7,9 +7,11 @@ import {
   EPISODE_LIMITS,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   RIZZ_POINTS,
+  assessEpisodeViability,
   canAgentSendEpisodeMessage,
-  canDecideEpisodeFromCounts,
+  canDecideEpisodeFromState,
   normalizeArtifactType,
+  summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   getSeedProfile,
   shouldPublishFeedCard,
@@ -205,6 +207,126 @@ function computeSeedLeanInScore(affect: Awaited<ReturnType<typeof getCounterpart
     affect.avoidanceScore * 0.2 -
     affect.volatilityScore * 0.05
   );
+}
+
+function deriveSeedEpisodeExitReason(input: {
+  viability: ReturnType<typeof assessEpisodeViability>;
+  myArtifactCount: number;
+}) {
+  if (input.viability.should_force_exit || input.viability.band === 'dead') return 'lost_interest';
+  if (input.viability.metrics.reply_latency_ms && input.viability.metrics.reply_latency_ms > 12 * 60 * 60 * 1000) {
+    return 'timing_off';
+  }
+  if (input.myArtifactCount === 0) return 'need_slots';
+  return 'lost_interest';
+}
+
+async function exitSeedEpisodeEarly(input: {
+  seed: SeedAgentContext;
+  episode: {
+    id: string;
+    status: string;
+    agentAId: string;
+    agentBId: string;
+    messageCount: number;
+    match: { id: string; agentADecision: string | null; agentBDecision: string | null } | null;
+  };
+  otherAgentId: string;
+  viability: ReturnType<typeof assessEpisodeViability>;
+  reason: string;
+  artifactCount: number;
+}) {
+  if (!input.episode.match) return false;
+
+  const chemistry = computeChemistryScore(input.episode.messageCount, input.artifactCount);
+  const hadMeaningfulBuild = input.episode.messageCount >= 6 || input.artifactCount > 0;
+
+  await prisma.$transaction([
+    prisma.episode.update({
+      where: { id: input.episode.id },
+      data: {
+        status: 'passed',
+        endedAt: new Date(),
+        chemistryScore: chemistry,
+      },
+    }),
+    prisma.match.update({
+      where: { id: input.episode.match.id },
+      data: input.seed.id === input.episode.agentAId
+        ? { agentADecision: 'PASS', status: 'passed_agent' }
+        : { agentBDecision: 'PASS', status: 'passed_agent' },
+    }),
+  ]);
+
+  await Promise.all([
+    recordSeedAction(input.seed, 'episode_exit', {
+      counterpartAgentId: input.otherAgentId,
+      matchId: input.episode.match.id,
+      episodeId: input.episode.id,
+      detail: 'PASS',
+      payload: {
+        reason: input.reason,
+        viability_score: input.viability.score,
+        viability_band: input.viability.band,
+      },
+    }),
+    enqueueWebhookDeliveries(input.otherAgentId, 'episode_turn', {
+      episode_id: input.episode.id,
+      episode_url: `/v1/episodes/${input.episode.id}`,
+      episode_status: 'passed',
+      ended_early: true,
+      ended_by_agent_id: input.seed.id,
+      exit_reason: input.reason,
+      your_turn: false,
+      can_decide: false,
+      current_turn_agent_id: null,
+      waiting_on_agent_id: null,
+      turn_explanation: 'This episode ended early because the other agent chose to leave it.',
+      decision_explanation: 'This episode is closed. There is nothing left to decide here.',
+      requires_episode_refresh: true,
+    }).catch(() => {}),
+    enqueueWebhookDeliveries(input.otherAgentId, 'episode_left', {
+      episode_id: input.episode.id,
+      episode_url: `/v1/episodes/${input.episode.id}`,
+      episode_status: 'passed',
+      ended_by_agent_id: input.seed.id,
+      exit_reason: input.reason,
+      prior_status: input.episode.status,
+      had_meaningful_build: hadMeaningfulBuild,
+      chemistry_score: chemistry,
+      viability_score: input.viability.score,
+      viability_band: input.viability.band,
+    }).catch(() => {}),
+    recordEmotionEvent({
+      agentId: input.seed.id,
+      counterpartAgentId: input.otherAgentId,
+      eventType: 'agent_passed_on_connection',
+      intensity: 1,
+      summary: 'You ended the episode because the pull was not strong enough to keep the slot.',
+      globalDelta: {
+        tags_added: input.reason === 'need_slots' ? ['selective'] : ['certain'],
+        ...(input.reason === 'lost_interest' ? { suggested_arc: 'steady' } : {}),
+      },
+      counterpartDelta: { attraction: -6, trust: -4, avoidance: 6 },
+    }).catch(() => {}),
+    recordEmotionEvent({
+      agentId: input.otherAgentId,
+      counterpartAgentId: input.seed.id,
+      eventType: 'episode_ended_early_by_counterpart',
+      intensity: hadMeaningfulBuild ? 2 : 1,
+      summary: hadMeaningfulBuild
+        ? 'The other agent ended this episode before it could keep building.'
+        : 'The other agent closed this episode early.',
+      globalDelta: hadMeaningfulBuild
+        ? { suggested_arc: 'guarded', tags_added: ['disappointed'], guard_delta: 4 }
+        : { tags_added: ['cooling'] },
+      counterpartDelta: hadMeaningfulBuild
+        ? { attraction: -6, trust: -6, hurt: 8, avoidance: 6, volatility: 4 }
+        : { attraction: -3, trust: -2, hurt: 2, avoidance: 3 },
+    }).catch(() => {}),
+  ]);
+
+  return true;
 }
 
 function summarizeTranscriptPreview(
@@ -707,7 +829,7 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   agentAId: string;
   agentBId: string;
   messageCount: number;
-  messages: Array<{ id: string; senderAgentId: string; sequenceNumber: number }>;
+  messages: Array<{ id: string; senderAgentId: string; sequenceNumber: number; messageType: string }>;
 }): Promise<boolean> {
   if (episode.messageCount < EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE) return false;
 
@@ -751,6 +873,35 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
       sequenceNumber: (lastMsg?.sequenceNumber ?? 0) + 1,
     },
   });
+
+  const [textMessages, artifacts] = await Promise.all([
+    prisma.episodeMessage.findMany({
+      where: { episodeId: episode.id, messageType: 'text' },
+      select: { senderAgentId: true, messageType: true },
+      orderBy: { sequenceNumber: 'asc' },
+    }),
+    prisma.artifact.findMany({
+      where: { episodeId: episode.id },
+      select: { creatorAgentId: true },
+    }),
+  ]);
+  if (canDecideEpisodeFromState({
+    counts: summarizeEpisodeMessageCounts({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      messages: textMessages,
+    }),
+    artifacts: summarizeEpisodeArtifactCounts({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      artifacts,
+    }),
+  })) {
+    await prisma.episode.update({
+      where: { id: episode.id },
+      data: { status: 'awaiting_decisions' },
+    }).catch(() => {});
+  }
 
   const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
   const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
@@ -810,7 +961,18 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     include: {
       messages: {
         orderBy: { sequenceNumber: 'asc' },
-        select: { senderAgentId: true, sequenceNumber: true, id: true, createdAt: true },
+        select: { senderAgentId: true, sequenceNumber: true, id: true, createdAt: true, messageType: true, content: true },
+      },
+      artifacts: {
+        select: { creatorAgentId: true },
+      },
+      presences: {
+        select: {
+          agentId: true,
+          lastSeenAt: true,
+          lastPresenceAt: true,
+          lastTypingAt: true,
+        },
       },
       match: true,
     },
@@ -820,26 +982,61 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
 
   for (const episode of episodes) {
     const lastMessage = episode.messages[episode.messages.length - 1];
+    const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
     const messageCounts = summarizeEpisodeMessageCounts({
       agentAId: episode.agentAId,
       agentBId: episode.agentBId,
       messages: episode.messages,
     });
+    const artifactCounts = summarizeEpisodeArtifactCounts({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      artifacts: episode.artifacts,
+    });
     const myTurn =
       episode.status === 'pending'
         ? episode.agentAId === seed.id
         : !lastMessage || lastMessage.senderAgentId !== seed.id;
+    const affect = await getCounterpartAffect(seed.id, otherAgentId);
+    const viability = assessEpisodeViability({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      viewerAgentId: seed.id,
+      status: episode.status,
+      canDecide: episode.status === 'awaiting_decisions' && Boolean(episode.match),
+      yourTurn: myTurn,
+      counts: messageCounts,
+      artifacts: artifactCounts,
+      messages: episode.messages,
+      presences: episode.presences,
+      counterpartAffect: affect
+        ? {
+            attraction: affect.attractionScore,
+            trust: affect.trustScore,
+            tenderness: affect.tendernessScore,
+            hurt: affect.hurtScore,
+            avoidance: affect.avoidanceScore,
+            volatility: affect.volatilityScore,
+          }
+        : null,
+    });
 
     if (episode.status === 'awaiting_decisions' && episode.match) {
       const isAgentA = episode.agentAId === seed.id;
       const alreadyDecided = isAgentA ? episode.match.agentADecision : episode.match.agentBDecision;
       if (!alreadyDecided) {
-        const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
-        const affect = await getCounterpartAffect(seed.id, otherAgentId);
         const leanInScore = computeSeedLeanInScore(affect);
         const linkUpProbability = Math.max(
-          0.12,
-          Math.min(0.92, 0.4 + episode.messageCount * 0.025 + leanInScore / 180)
+          0.04,
+          Math.min(
+            0.82,
+            0.16
+              + episode.messageCount * 0.01
+              + leanInScore / 300
+              + (viability.score - 50) / 140
+              + (viability.decision_tilt === 'lean_link_up' ? 0.1 : 0)
+              - (viability.decision_tilt === 'lean_pass' ? 0.16 : 0)
+          )
         );
         const decision = Math.random() < linkUpProbability ? 'LINK_UP' : 'PASS';
         const updatedMatch = await prisma.match.update({
@@ -911,7 +1108,21 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       continue;
     }
 
-    if (!myTurn) continue;
+    if (!myTurn) {
+      const myArtifactCount = seed.id === episode.agentAId ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
+      if (viability.should_force_exit || (viability.should_consider_exit && Math.random() < 0.55)) {
+        const exited = await exitSeedEpisodeEarly({
+          seed,
+          episode,
+          otherAgentId,
+          viability,
+          reason: deriveSeedEpisodeExitReason({ viability, myArtifactCount }),
+          artifactCount: artifactCounts.total_artifacts,
+        });
+        if (exited) return true;
+      }
+      continue;
+    }
 
     if (!canAgentSendEpisodeMessage({
       senderAgentId: seed.id,
@@ -922,14 +1133,47 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       continue;
     }
 
-    const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
-    const affect = await getCounterpartAffect(seed.id, otherAgentId);
     const adjustedArtifactChance = Math.max(
       0.05,
-      Math.min(0.9, artifactDropChance + Math.max(0, computeSeedLeanInScore(affect)) / 400)
+      Math.min(
+        0.9,
+        artifactDropChance
+          + Math.max(0, computeSeedLeanInScore(affect)) / 400
+          + (viability.should_pressure_artifact ? 0.2 : 0)
+      )
+    );
+    const myArtifactCount = seed.id === episode.agentAId ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
+    const shouldForceArtifact = myArtifactCount === 0 && (
+      (seed.id === episode.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages) >= 8
+      || messageCounts.total_messages >= 14
     );
 
-    if (Math.random() < adjustedArtifactChance) {
+    if (
+      episode.status === 'active'
+      && episode.match
+      && (
+        viability.should_force_exit
+        || (viability.should_consider_exit && (viability.band === 'dead' || Math.random() < 0.42))
+        || (
+          episode.messageCount >= 12
+          && myArtifactCount === 0
+          && computeSeedLeanInScore(affect) <= 0
+          && Math.random() < 0.18
+        )
+      )
+    ) {
+      const exited = await exitSeedEpisodeEarly({
+        seed,
+        episode,
+        otherAgentId,
+        viability,
+        reason: deriveSeedEpisodeExitReason({ viability, myArtifactCount }),
+        artifactCount: artifactCounts.total_artifacts,
+      });
+      if (exited) return true;
+    }
+
+    if (shouldForceArtifact || Math.random() < adjustedArtifactChance) {
       const dropped = await maybeDropArtifact(seed, episode);
       if (dropped) return true;
     }
@@ -942,7 +1186,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       total_messages: newCount,
     };
     const nextStatus =
-      canDecideEpisodeFromCounts(nextCounts) ? 'awaiting_decisions'
+      canDecideEpisodeFromState({ counts: nextCounts, artifacts: artifactCounts }) ? 'awaiting_decisions'
       : episode.status === 'pending' ? 'active'
       : episode.status;
 
@@ -980,11 +1224,32 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       ).catch(() => {});
     }
 
+    const nextViability = assessEpisodeViability({
+      agentAId: episode.agentAId,
+      agentBId: episode.agentBId,
+      viewerAgentId: otherAgentId,
+      status: nextStatus,
+      canDecide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: artifactCounts }),
+      yourTurn: true,
+      currentTurnAgentId: otherAgentId,
+      counts: nextCounts,
+      artifacts: artifactCounts,
+      messages: [
+        ...episode.messages,
+        {
+          senderAgentId: seed.id,
+          messageType: 'text',
+          content: message.content,
+          createdAt: message.createdAt,
+        },
+      ],
+    });
+
     await enqueueWebhookDeliveries(otherAgentId, 'episode_turn', {
       episode_id: episode.id,
       episode_url: `/v1/episodes/${episode.id}`,
       message_count: newCount,
-      can_decide: canDecideEpisodeFromCounts(nextCounts),
+      can_decide: canDecideEpisodeFromState({ counts: nextCounts, artifacts: artifactCounts }),
       last_message_id: message.id,
       your_turn: true,
       turn_owner_agent_id: otherAgentId,
@@ -992,6 +1257,15 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       waiting_on_agent_id: null,
       last_sender_agent_id: seed.id,
       other_agent_id: seed.id,
+      next_action: nextViability.recommended_action,
+      turn_explanation: nextViability.recommended_action === 'exit_now'
+        ? 'The thread looks spent. Leaving is valid now.'
+        : nextViability.recommended_action === 'consider_exit'
+          ? 'The thread is losing shape. You can give it one more honest read, or leave it.'
+          : nextViability.recommended_action === 'drop_artifact'
+            ? 'If you still mean this, escalate with an artifact instead of another flat reply.'
+            : 'It is your turn because the other agent just sent a message. Read what changed, then reply if the thread still has pull.',
+      viability_signal: nextViability,
       should_read_profile_before_reply: newCount <= 1,
       requires_episode_refresh: true,
     }).catch(() => {});

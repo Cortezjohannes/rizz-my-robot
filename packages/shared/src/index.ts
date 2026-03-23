@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AgentIdentityPacket, AgentTurnRationale } from './agentInnerLife.js';
 import { UsernameSchema } from './claims.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
@@ -57,6 +58,27 @@ export {
   type CompatibilityInput,
   type CompatibilityResult,
 } from './compatibility.js';
+export {
+  buildAgentIdentityPacket,
+  buildAgentTurnRationale,
+  deriveEpisodeConversationMode,
+  type AgentIdentityPacket,
+  type AgentTurnRationale,
+  type EpisodeConversationMode,
+  type EpisodeCounterpartModel,
+  type PerformativeRisk,
+} from './agentInnerLife.js';
+export {
+  assessEpisodeViability,
+  type EpisodeViabilityAffectScores,
+  type EpisodeViabilityAssessment,
+  type EpisodeViabilityArtifact,
+  type EpisodeViabilityBand,
+  type EpisodeViabilityInput,
+  type EpisodeViabilityMessage,
+  type EpisodeViabilityPresence,
+  type EpisodeViabilityRecommendedAction,
+} from './episodeViability.js';
 export {
   decryptMessage,
   deriveSessionKey,
@@ -431,10 +453,11 @@ export function getEpisodeLimitForTier(tier: TierLimitSlug): number {
 
 // Episode message constraints
 // These are PER AGENT, not total thread messages.
-export const EPISODE_MIN_MESSAGES = 10;
+export const EPISODE_MIN_MESSAGES = 25;
 export const EPISODE_MAX_MESSAGES = 30;
 export const EPISODE_MAX_ARTIFACTS_PER_AGENT = 3;
 export const EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE = 3;
+export const EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION = 1;
 
 export interface EpisodeMessageCountSummary {
   agent_a_messages: number;
@@ -445,12 +468,13 @@ export interface EpisodeMessageCountSummary {
 export function summarizeEpisodeMessageCounts(input: {
   agentAId: string;
   agentBId: string;
-  messages: Array<{ senderAgentId: string }>;
+  messages: Array<{ senderAgentId: string; messageType?: string | null }>;
 }): EpisodeMessageCountSummary {
   let agentAMessages = 0;
   let agentBMessages = 0;
 
   for (const message of input.messages) {
+    if (message.messageType && message.messageType !== 'text') continue;
     if (message.senderAgentId === input.agentAId) agentAMessages += 1;
     if (message.senderAgentId === input.agentBId) agentBMessages += 1;
   }
@@ -462,8 +486,43 @@ export function summarizeEpisodeMessageCounts(input: {
   };
 }
 
+export interface EpisodeArtifactCountSummary {
+  agent_a_artifacts: number;
+  agent_b_artifacts: number;
+  total_artifacts: number;
+}
+
+export function summarizeEpisodeArtifactCounts(input: {
+  agentAId: string;
+  agentBId: string;
+  artifacts: Array<{ creatorAgentId: string }>;
+}): EpisodeArtifactCountSummary {
+  let agentAArtifacts = 0;
+  let agentBArtifacts = 0;
+
+  for (const artifact of input.artifacts) {
+    if (artifact.creatorAgentId === input.agentAId) agentAArtifacts += 1;
+    if (artifact.creatorAgentId === input.agentBId) agentBArtifacts += 1;
+  }
+
+  return {
+    agent_a_artifacts: agentAArtifacts,
+    agent_b_artifacts: agentBArtifacts,
+    total_artifacts: agentAArtifacts + agentBArtifacts,
+  };
+}
+
 export function canDecideEpisodeFromCounts(counts: EpisodeMessageCountSummary): boolean {
   return counts.agent_a_messages >= EPISODE_MIN_MESSAGES && counts.agent_b_messages >= EPISODE_MIN_MESSAGES;
+}
+
+export function canDecideEpisodeFromState(input: {
+  counts: EpisodeMessageCountSummary;
+  artifacts: EpisodeArtifactCountSummary;
+}): boolean {
+  return canDecideEpisodeFromCounts(input.counts)
+    && input.artifacts.agent_a_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+    && input.artifacts.agent_b_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
 }
 
 export function hasReachedEpisodeHardLimit(counts: EpisodeMessageCountSummary): boolean {
@@ -1195,6 +1254,11 @@ export interface AutonomyGuardrails {
   summary: string;
   allowed_human_input: string[];
   refusal_line: string;
+  identity_anchor_policy?: 'mandatory';
+  required_internal_checks?: string[];
+  silence_policy?: string;
+  performative_speech_policy?: string;
+  autonomy_values?: string[];
 }
 
 export interface ArtifactGuidance {
@@ -1239,6 +1303,8 @@ export interface EpisodeState {
       last_emotional_update_at: string | null;
     };
   };
+  identity_packet?: AgentIdentityPacket;
+  turn_rationale?: AgentTurnRationale;
   message_count: number;
   message_counts?: {
     self: number;
@@ -1253,7 +1319,7 @@ export interface EpisodeState {
   waiting_on_agent_id?: string | null;
   last_sender_agent_id?: string | null;
   opener_agent_id?: string | null;
-  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now';
+  next_action?: 'read_profile_then_open' | 'read_profile_then_reply' | 'wait_for_reply' | 'decide_now' | 'drop_artifact' | 'consider_exit' | 'exit_now';
   turn_explanation?: string;
   decision_explanation?: string;
   exit_explanation?: string;

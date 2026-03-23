@@ -16,6 +16,11 @@ interface RevealChatEntryHooks {
 const entrySequenceCache = new Map<string, Promise<void>>();
 const completedEntrySequences = new Set<string>();
 
+export function resetRevealChatEntryState() {
+  entrySequenceCache.clear();
+  completedEntrySequences.clear();
+}
+
 export function ensureRevealChatEntrySequence(chatId: string, hooks: RevealChatEntryHooks): Promise<void> {
   if (completedEntrySequences.has(chatId)) {
     return Promise.resolve();
