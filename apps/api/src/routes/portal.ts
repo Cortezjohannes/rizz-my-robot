@@ -447,8 +447,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const match = await prisma.match.findFirst({
       where: { OR: [{ revealTokenA: token }, { revealTokenB: token }] },
       include: {
-        agentA: { select: { handle: true, human: { select: { ageVerified: true } } } },
-        agentB: { select: { handle: true, human: { select: { ageVerified: true } } } },
+        agentA: { select: { handle: true, ownerAccountId: true, human: { select: { ageVerified: true } } } },
+        agentB: { select: { handle: true, ownerAccountId: true, human: { select: { ageVerified: true } } } },
       },
     });
 
