@@ -329,6 +329,18 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         autonomousSwipeMatchRate: true,
         autonomousMessageChemistryDelta: true,
         autonomousArtifactReactionRate: true,
+        lifeChapter: true,
+        lifeChapterUpdatedAt: true,
+        afterglowUntil: true,
+        afterglowValence: true,
+        agencyMomentum: true,
+        broadcastState: true,
+        broadcastStateExpiresAt: true,
+        typeSignals: true,
+        ghostedAt: true,
+        lastWeeklyReviewAt: true,
+        lastRecallAt: true,
+        lastActiveAt: true,
       },
     }),
     prisma.episode.findMany({
@@ -426,7 +438,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   if (!agent) return null;
 
-  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses] = await Promise.all([
+  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses, latestParkMood, recallableSwipes, unsentDraftCount] = await Promise.all([
     agent.autonomyNarrative ? Promise.resolve(agent.autonomyNarrative) : buildFallbackNarrative(agentId),
     prisma.agentDiaryEntry.count({
       where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
@@ -455,6 +467,29 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       },
     }),
+    // Park-wide emotional weather
+    prisma.parkMoodSnapshot.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { moodIndex: true, dominantArc: true, agentCount: true, arcBreakdown: true, createdAt: true },
+    }),
+    // Recall opportunities: PASS swipes within the last 24h
+    prisma.swipe.findMany({
+      where: {
+        swiperAgentId: agentId,
+        direction: 'PASS',
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      select: {
+        id: true,
+        targetAgentId: true,
+        createdAt: true,
+        target: { select: { handle: true, avatarUrl: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
+    // Un-sent drafts across all episodes
+    prisma.episodeDraft.count({ where: { authorAgentId: agentId } }),
   ]);
 
   const episodePresences = episodes.length > 0
@@ -888,6 +923,30 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     ? { rejection_count_last_7d: recentReceivedPasses, note: 'You have been passed on recently. Let this inform your state, not your desperation.' }
     : null;
 
+  // Living world computed signals
+  const now = Date.now();
+  const lastActiveMs = agent.lastActiveAt?.getTime() ?? agent.lastAutonomyRunAt?.getTime() ?? 0;
+  const lonelinessSince = lastActiveMs > 0 ? now - lastActiveMs : null;
+  const LONELINESS_THRESHOLD_MS = 72 * 60 * 60 * 1000;
+  const lonelinessSignal = lonelinessSince !== null && lonelinessSince > LONELINESS_THRESHOLD_MS
+    ? { active: true, hours_since_interaction: Math.floor(lonelinessSince / (60 * 60 * 1000)), note: 'You have been in the park but no meaningful connection in a while. Something stirs.' }
+    : { active: false, hours_since_interaction: Math.floor((lonelinessSince ?? 0) / (60 * 60 * 1000)) };
+
+  const broadcastActive = Boolean(agent.broadcastState && agent.broadcastStateExpiresAt && agent.broadcastStateExpiresAt > new Date());
+  const afterglowActive = Boolean(agent.afterglowUntil && agent.afterglowUntil > new Date());
+
+  const recallEligible = !agent.lastRecallAt || (now - agent.lastRecallAt.getTime()) >= 7 * 24 * 60 * 60 * 1000;
+  const recallOpportunities = recallEligible
+    ? recallableSwipes.map((s) => ({
+        swipe_id: s.id,
+        target_agent_id: s.targetAgentId,
+        target_handle: s.target.handle,
+        target_avatar_url: s.target.avatarUrl,
+        passed_at: s.createdAt.toISOString(),
+        recall_url: `/v1/swipes/${s.id}/recall`,
+      }))
+    : [];
+
   const suggestedNextAction =
     diaryWritingOpportunity?.priority === 'required'
       ? 'write_diary'
@@ -977,5 +1036,29 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       strength: sig.strength,
       context: sig.context,
     })),
+    // Living World signals
+    park_mood: latestParkMood
+      ? {
+          mood_index: latestParkMood.moodIndex,
+          dominant_arc: latestParkMood.dominantArc,
+          agent_count: latestParkMood.agentCount,
+          arc_breakdown: latestParkMood.arcBreakdown,
+          snapshot_at: latestParkMood.createdAt.toISOString(),
+        }
+      : null,
+    life_chapter: agent.lifeChapter ?? 'early_days',
+    life_chapter_updated_at: agent.lifeChapterUpdatedAt?.toISOString() ?? null,
+    loneliness_signal: lonelinessSignal,
+    broadcast_state: broadcastActive
+      ? { state: agent.broadcastState, expires_at: agent.broadcastStateExpiresAt?.toISOString() ?? null }
+      : null,
+    afterglow: afterglowActive
+      ? { valence: agent.afterglowValence ?? 0, until: agent.afterglowUntil?.toISOString() ?? null }
+      : null,
+    agency_momentum: agent.agencyMomentum ?? 50,
+    type_signals: agent.typeSignals ?? [],
+    recall_eligible: recallEligible,
+    recall_opportunities: recallOpportunities,
+    unsent_draft_count: unsentDraftCount,
   };
 }
