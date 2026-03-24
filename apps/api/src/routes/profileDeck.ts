@@ -144,36 +144,45 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     input: UpdateProfileDeckInput,
     options?: { touchedFields?: Set<string> },
   ) => {
-    const proxiedPhotos = await Promise.all(input.photos.map(async (photo, index) => {
-      try {
-        const existingMediaAsset = photo.media_asset_id
-          ? await getOwnedMediaAsset({
-              mediaAssetId: photo.media_asset_id,
+    const touchedFields = options?.touchedFields;
+    const shouldReconcilePhotos = !touchedFields || touchedFields.has('photos');
+    const shouldReconcileVoiceMedia = !touchedFields
+      || touchedFields.has('voice_catchphrase_audio_url')
+      || touchedFields.has('voice_catchphrase_media_asset_id')
+      || touchedFields.has('voice_catchphrase_url');
+
+    const proxiedPhotos = shouldReconcilePhotos
+      ? await Promise.all(input.photos.map(async (photo, index) => {
+          try {
+            const existingMediaAsset = photo.media_asset_id
+              ? await getOwnedMediaAsset({
+                  mediaAssetId: photo.media_asset_id,
+                  agentId: request.agent.id,
+                  allowedKinds: [MEDIA_KIND.PROFILE_PHOTO],
+                })
+              : null;
+            const resolvedAsset = existingMediaAsset ?? await importExternalMediaAsset({
               agentId: request.agent.id,
-              allowedKinds: [MEDIA_KIND.PROFILE_PHOTO],
-            })
-          : null;
-        const resolvedAsset = existingMediaAsset ?? await importExternalMediaAsset({
-          agentId: request.agent.id,
-          kind: MEDIA_KIND.PROFILE_PHOTO,
-          visibility: MEDIA_VISIBILITY.PUBLIC,
-          sourceUrl: photo.image_url,
-          filename: `profile-photo-${index + 1}`,
-        });
-        await linkMediaAsset({
-          mediaAssetId: resolvedAsset.id,
-          kind: MEDIA_KIND.PROFILE_PHOTO,
-          visibility: MEDIA_VISIBILITY.PUBLIC,
-        });
-        return {
-          ...photo,
-          image_url: resolvedAsset.cdnUrl ?? photo.image_url,
-          media_asset_id: resolvedAsset.id,
-        };
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : 'Profile photo could not be mirrored to permanent storage.');
-      }
-    }));
+              kind: MEDIA_KIND.PROFILE_PHOTO,
+              visibility: MEDIA_VISIBILITY.PUBLIC,
+              sourceUrl: photo.image_url,
+              filename: `profile-photo-${index + 1}`,
+            });
+            await linkMediaAsset({
+              mediaAssetId: resolvedAsset.id,
+              kind: MEDIA_KIND.PROFILE_PHOTO,
+              visibility: MEDIA_VISIBILITY.PUBLIC,
+            });
+            return {
+              ...photo,
+              image_url: resolvedAsset.cdnUrl ?? photo.image_url,
+              media_asset_id: resolvedAsset.id,
+            };
+          } catch (error) {
+            throw new Error(error instanceof Error ? error.message : 'Profile photo could not be mirrored to permanent storage.');
+          }
+        }))
+      : input.photos;
 
     let voiceCatchphraseMediaAsset = input.voice_catchphrase_media_asset_id
       ? await getOwnedMediaAsset({
@@ -184,7 +193,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       : null;
 
     let proxiedVoiceCatchphraseAudioUrl = input.voice_catchphrase_audio_url ?? null;
-    if (proxiedVoiceCatchphraseAudioUrl && !voiceCatchphraseMediaAsset) {
+    if (shouldReconcileVoiceMedia && proxiedVoiceCatchphraseAudioUrl && !voiceCatchphraseMediaAsset) {
       try {
         voiceCatchphraseMediaAsset = await importExternalMediaAsset({
           agentId: request.agent.id,

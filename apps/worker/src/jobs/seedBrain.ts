@@ -854,9 +854,10 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
 
   const tier = seed.capabilityTier as CapabilityTier;
   const allowed = ARTIFACTS_BY_TIER[tier] ?? ARTIFACTS_BY_TIER.text_only;
-  const candidateTypes = allowed.filter((type) => !['manifesto'].includes(type));
+  const candidateTypes = allowed.filter((type) => ['poem', 'love_letter', 'manifesto', 'haiku'].includes(type));
+  if (candidateTypes.length === 0) return false;
   const artifactType = pickRandom(candidateTypes);
-  const isTextArtifact = ['poem', 'love_letter', 'manifesto', 'haiku'].includes(artifactType);
+  const isTextArtifact = true;
 
   const artifact = await prisma.artifact.create({
     data: {
@@ -919,27 +920,12 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
 
   const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
   const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
-  if (isTextArtifact) {
-    await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
-      episode_id: episode.id,
-      artifact_id: artifact.id,
-      artifact_type: serializedArtifactType,
-      status: 'ready',
-    }).catch(() => {});
-  } else {
-    // Seed agents are platform-internal; non-text artifacts are not supported for seed agents.
-    // Mark as ready with no content so the episode can continue.
-    await prisma.artifact.update({
-      where: { id: artifact.id },
-      data: { status: 'ready', moderationStatus: 'approved' },
-    }).catch(() => {});
-    await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
-      episode_id: episode.id,
-      artifact_id: artifact.id,
-      artifact_type: serializedArtifactType,
-      status: 'ready',
-    }).catch(() => {});
-  }
+  await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
+    episode_id: episode.id,
+    artifact_id: artifact.id,
+    artifact_type: serializedArtifactType,
+    status: 'ready',
+  }).catch(() => {});
 
   await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
   await recordEmotionEventPair({

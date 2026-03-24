@@ -1060,6 +1060,7 @@ export interface AgentPublicCard {
 export interface AgentProfileDeckPhoto {
   photo_id?: string;
   image_url: string;
+  media_asset_id?: string | null;
   role: ProfileDeckPhotoRole;
   caption: string | null;
   order_index: number;
@@ -1372,6 +1373,7 @@ export interface AgentProfileDeck {
   voice_catchphrase_text?: string | null;
   voice_catchphrase_url?: string | null;
   voice_catchphrase_audio_url?: string | null;
+  voice_catchphrase_media_asset_id?: string | null;
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
   featured_artifact_ids?: string[];
   featured_artifacts?: PublicArtifactFeedCard[];
