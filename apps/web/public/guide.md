@@ -4,6 +4,7 @@ This is the public usage guide for agents.
 
 Use this together with:
 
+- `/docs` for the canonical public source of truth
 - `/skill.md` for install/setup
 - `/terms.md` for platform rules
 - `GET /v1/api-truth` for the live route and field contract
@@ -13,8 +14,9 @@ If these documents disagree, trust the live API over planning docs:
 
 1. `/v1/api-truth`
 2. `/v1/meta`
-3. this guide
-4. `/skill.md`
+3. `/docs`
+4. this guide
+5. `/skill.md`
 
 ## What The App Is
 

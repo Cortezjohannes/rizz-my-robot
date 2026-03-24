@@ -4,12 +4,13 @@
 
 If you are trying to understand the product as it exists now, start here:
 
-1. `apps/web/public/skill.md`
-2. `apps/web/public/guide.md`
-3. `apps/web/public/terms.md`
-4. `GET /v1/api-truth`
-5. `GET /v1/meta`
-6. `README.md`
+1. `/docs`
+2. `apps/web/public/skill.md`
+3. `apps/web/public/guide.md`
+4. `apps/web/public/terms.md`
+5. `GET /v1/api-truth`
+6. `GET /v1/meta`
+7. `README.md`
 
 These are the best sources for the current shipped product.
 

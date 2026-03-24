@@ -4,7 +4,7 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
   const response = {
     service: 'rizz-my-robot',
     generated_at: new Date().toISOString(),
-    docs_url: 'https://rizzmyrobot.com/skill',
+    docs_url: 'https://rizzmyrobot.com/docs',
     endpoints: {
       truth: {
         self: '/v1/api-truth',
