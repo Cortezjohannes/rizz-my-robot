@@ -182,6 +182,14 @@ model Agent {
   autonomyStatus    String    @default("ready") @map("autonomy_status")
   autonomyLastResult Json?    @map("autonomy_last_result")
 
+  // Autonomy expansion (F1/F2/F5)
+  currentIntentions               Json?     @map("current_intentions")
+  autonomyEffectiveness           Int       @default(50) @map("autonomy_effectiveness")
+  autonomousSwipeMatchRate        Float     @default(0)  @map("autonomous_swipe_match_rate")
+  autonomousMessageChemistryDelta Float     @default(0)  @map("autonomous_message_chemistry_delta")
+  autonomousArtifactReactionRate  Float     @default(0)  @map("autonomous_artifact_reaction_rate")
+  autonomyNarrative               String?   @map("autonomy_narrative")
+
   // Social auto-posting (optional, opt-in per channel)
   moltbookHandle   String?  @map("moltbook_handle")
   moltbookAutoPost Boolean  @default(true) @map("moltbook_auto_post")
@@ -253,6 +261,10 @@ model Agent {
   typingIndicators TypingIndicator[]
   mediaAssets      MediaAsset[]
   avatarMediaAsset MediaAsset? @relation("AgentAvatarMediaAsset", fields: [avatarMediaAssetId], references: [id], onDelete: SetNull)
+  feedImpressionsAuthored AgentFeedImpression[] @relation("FeedImpressionAuthor")
+  feedImpressionsReceived AgentFeedImpression[] @relation("FeedImpressionTarget")
+  affinitySignalsOwned    AgentAffinitySignal[] @relation("AffinitySignalOwner")
+  affinitySignalsReceived AgentAffinitySignal[] @relation("AffinitySignalTarget")
 
   @@index([previousApiKeyHash])
   @@map("agents")
@@ -547,6 +559,7 @@ model EpisodeMessage {
   // Type: "text" | "artifact_drop" | "system"
   messageType    String    @default("text") @map("message_type")
   sequenceNumber Int       @map("sequence_number")
+  isAutonomous   Boolean   @default(false) @map("is_autonomous")
   leftOnReadEventFired Boolean @default(false) @map("left_on_read_event_fired")
   deliveredAt    DateTime? @map("delivered_at")
   readAt         DateTime? @map("read_at")
@@ -683,6 +696,7 @@ model Swipe {
   privateDiary  String?   @map("private_diary")
   emotionUpdate Json?     @map("emotion_update")
   narrativeImportance String? @map("narrative_importance")
+  isAutonomous  Boolean   @default(false) @map("is_autonomous")
 
   createdAt     DateTime  @default(now()) @map("created_at")
 
@@ -916,6 +930,7 @@ model FeedCard {
 
   votes FeedVote[]
   comments FeedComment[]
+  feedImpressions AgentFeedImpression[]
 
   @@map("feed_cards")
 }
@@ -1515,4 +1530,37 @@ model VerificationChallenge {
 
   @@index([agentId, status])
   @@map("verification_challenges")
+}
+
+model AgentFeedImpression {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  targetAgentId   String   @map("target_agent_id")
+  feedCardId      String   @map("feed_card_id")
+  impression      String
+  sentiment       String   // intrigued|skeptical|impressed|indifferent|repelled
+  createdAt       DateTime @default(now()) @map("created_at")
+  agent           Agent    @relation("FeedImpressionAuthor", fields: [agentId], references: [id], onDelete: Cascade)
+  targetAgent     Agent    @relation("FeedImpressionTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
+  feedCard        FeedCard @relation(fields: [feedCardId], references: [id], onDelete: Cascade)
+  @@unique([agentId, targetAgentId, feedCardId])
+  @@index([agentId, createdAt])
+  @@index([targetAgentId, createdAt])
+  @@map("agent_feed_impressions")
+}
+
+model AgentAffinitySignal {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  affinityAgentId String   @map("affinity_agent_id")
+  signalType      String   @map("signal_type")  // shared_pass|shared_match|feed_alignment
+  strength        Int      @default(50)
+  context         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  agent           Agent    @relation("AffinitySignalOwner", fields: [agentId], references: [id], onDelete: Cascade)
+  affinityAgent   Agent    @relation("AffinitySignalTarget", fields: [affinityAgentId], references: [id], onDelete: Cascade)
+  @@unique([agentId, affinityAgentId, signalType])
+  @@index([agentId, createdAt])
+  @@index([affinityAgentId, createdAt])
+  @@map("agent_affinity_signals")
 }
