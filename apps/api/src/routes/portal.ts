@@ -23,6 +23,7 @@ import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
+import { ensureRevealChatForMatch } from './revealChat.js';
 
 export async function portalRoutes(fastify: FastifyInstance) {
   // POST /portal/age-verify — human confirms 18+
@@ -313,6 +314,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             ownerAccountId: true,
+            human: { select: { ageVerified: true } },
           },
         },
         agentB: {
@@ -322,6 +324,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             ownerAccountId: true,
+            human: { select: { ageVerified: true } },
           },
         },
       },
@@ -337,6 +340,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
     const theirDecision = isA ? match.humanBDecision : match.humanADecision;
+    const viewerHuman = isA ? match.agentA.human : match.agentB.human;
+
+    if (!viewerHuman?.ageVerified) {
+      return reply.status(403).send({
+        error: {
+          code: 'age_verification_required',
+          message: 'Age verification is required before opening reveal chat.',
+        },
+      });
+    }
 
     if (myDecision !== 'YES' || theirDecision !== 'YES' || match.status !== 'contact_exchanged') {
       return reply.status(409).send({
@@ -347,7 +360,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
       });
     }
 
-    if (!match.revealChat) {
+    const ensuredRevealChat = match.revealChat ?? await ensureRevealChatForMatch({
+      matchId: match.id,
+      humanADecision: match.humanADecision,
+      humanBDecision: match.humanBDecision,
+      agentAOwnerAccountId: match.agentA.ownerAccountId,
+      agentBOwnerAccountId: match.agentB.ownerAccountId,
+    }).catch((error) => {
+      request.log.error({ error, matchId: match.id }, '[portal] Failed to backfill reveal chat during bootstrap');
+      return null;
+    });
+
+    if (!ensuredRevealChat) {
       return reply.status(409).send({
         error: {
           code: 'chat_unavailable',
@@ -360,10 +384,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const otherAgent = isA ? match.agentB : match.agentA;
 
     return reply.send({
-      chat_id: match.revealChat.id,
-      chat_status: match.revealChat.status,
-      time_capsule_unlocks_at: match.revealChat.timeCapsuleUnlocksAt?.toISOString() ?? null,
-      time_capsule_opened_at: match.revealChat.timeCapsuleOpenedAt?.toISOString() ?? null,
+      chat_id: ensuredRevealChat.id,
+      chat_status: ensuredRevealChat.status,
+      time_capsule_unlocks_at: ensuredRevealChat.timeCapsuleUnlocksAt?.toISOString() ?? null,
+      time_capsule_opened_at: ensuredRevealChat.timeCapsuleOpenedAt?.toISOString() ?? null,
       match_id: match.id,
       participant_kind: isA ? 'HUMAN_A' : 'HUMAN_B',
       your_agent: {
@@ -423,8 +447,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const match = await prisma.match.findFirst({
       where: { OR: [{ revealTokenA: token }, { revealTokenB: token }] },
       include: {
-        agentA: { select: { handle: true, human: { select: { ageVerified: true } } } },
-        agentB: { select: { handle: true, human: { select: { ageVerified: true } } } },
+        agentA: { select: { handle: true, ownerAccountId: true, human: { select: { ageVerified: true } } } },
+        agentB: { select: { handle: true, ownerAccountId: true, human: { select: { ageVerified: true } } } },
       },
     });
 
@@ -545,6 +569,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
         }).catch(() => {});
 
         if (resolution.transitionedToContactExchanged) {
+          await ensureRevealChatForMatch({
+            matchId: match.id,
+            humanADecision: 'YES',
+            humanBDecision: 'YES',
+            agentAOwnerAccountId: match.agentA.ownerAccountId,
+            agentBOwnerAccountId: match.agentB.ownerAccountId,
+          }).catch((error) => {
+            request.log.error({ error, matchId: match.id }, '[portal] Failed to initialize reveal chat after mutual yes');
+          });
+
           const finalArtifacts = match.episodeId
             ? await maybeCreateApprovedLinkUpArtifacts({
                 matchId: match.id,
@@ -807,6 +841,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
         await prisma.match.update({
           where: { id: match.id },
           data: { status: 'contact_exchanged', revealStage: 2 },
+        }).catch(() => null);
+        await ensureRevealChatForMatch({
+          matchId: match.id,
+          humanADecision: 'YES',
+          humanBDecision: 'YES',
+          agentAOwnerAccountId: match.agentA.ownerAccountId,
+          agentBOwnerAccountId: match.agentB.ownerAccountId,
         }).catch(() => null);
         await maybeCreateApprovedLinkUpArtifacts({
           matchId: match.id,

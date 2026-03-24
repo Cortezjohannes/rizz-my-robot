@@ -814,6 +814,7 @@ model RevealChat {
   status               RevealChatStatus     @default(ACTIVE)
   allowAgentPlaintext  Boolean              @default(false) @map("allow_agent_plaintext")
   encryptionKeyHash    String               @map("encryption_key_hash")
+  sessionKeyWrapped    String?              @map("session_key_wrapped") @db.Text
   shareConsentA        Boolean              @default(false) @map("share_consent_a")
   shareConsentB        Boolean              @default(false) @map("share_consent_b")
   shareCardsEnabled    Boolean              @default(false) @map("share_cards_enabled")
