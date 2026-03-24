@@ -163,10 +163,41 @@ async function getRevealChatSessionKey(chatId: string): Promise<CryptoKey | null
 
   const chat = await prisma.revealChat.findUnique({
     where: { id: chatId },
-    select: { sessionKeyWrapped: true },
+    select: {
+      sessionKeyWrapped: true,
+      messages: {
+        select: { id: true },
+        take: 1,
+      },
+    },
   });
 
-  if (!chat?.sessionKeyWrapped) return null;
+  if (!chat) return null;
+
+  if (!chat.sessionKeyWrapped) {
+    if (chat.messages.length > 0) return null;
+
+    try {
+      const rawSessionKey = randomBytes(32);
+      const sessionKeyWrapped = encodeSessionKey(rawSessionKey);
+      const encryptionKeyHash = createHash('sha256').update(rawSessionKey).digest('hex');
+
+      await prisma.revealChat.update({
+        where: { id: chatId },
+        data: {
+          sessionKeyWrapped,
+          encryptionKeyHash,
+        },
+      });
+
+      const sessionKey = await importSessionKey(new Uint8Array(rawSessionKey));
+      revealChatSessionKeyCache.set(chatId, sessionKey);
+      return sessionKey;
+    } catch (error) {
+      console.error('[reveal-chat] Failed to mint replacement session key for empty chat:', error);
+      return null;
+    }
+  }
 
   try {
     const sessionKey = await importSessionKey(decodeSessionKey(chat.sessionKeyWrapped));
