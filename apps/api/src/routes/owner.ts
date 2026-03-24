@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { z } from 'zod';
 import {
   OwnerAuthRequestSchema,
   OwnerAuthVerifySchema,
@@ -37,6 +39,12 @@ const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
 const OWNER_RESOLVED_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'] as const;
 const OWNER_TASTE_FALLBACK_SUMMARY = 'This is who your agent has been drawn to, passed on, and matched with.';
+const OwnerSupportTicketCreateSchema = z.object({
+  kind: z.enum(['bug_report', 'feature_request']),
+  title: z.string().trim().min(4).max(120),
+  description: z.string().trim().min(12).max(4000),
+  page_url: z.string().trim().max(500).optional().nullable(),
+});
 
 function canonicalArtifactType(artifactType: string | null | undefined) {
   const normalized = normalizeArtifactType(artifactType);
@@ -449,6 +457,107 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           : null,
       },
       agent: request.ownerAccount.agent,
+    });
+  });
+
+  fastify.get('/owner/support-tickets', { preHandler: requireOwnerAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        agentId,
+        targetType: 'support_ticket',
+        action: { in: ['owner.support_ticket_created', 'control.support_ticket_reviewed'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const ticketMap = new Map<string, {
+      ticket_id: string;
+      kind: string;
+      title: string;
+      description: string;
+      page_url: string | null;
+      status: string;
+      omnimon_summary: string | null;
+      omnimon_action: string | null;
+      reviewed_at: string | null;
+      reported_to_owner_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }>();
+
+    for (const log of logs.slice().reverse()) {
+      const payload = (log.payload as Record<string, unknown> | null) ?? {};
+      if (log.action === 'owner.support_ticket_created') {
+        ticketMap.set(log.targetId, {
+          ticket_id: log.targetId,
+          kind: typeof payload.kind === 'string' ? payload.kind : 'bug_report',
+          title: typeof payload.title === 'string' ? payload.title : 'Untitled ticket',
+          description: typeof payload.description === 'string' ? payload.description : '',
+          page_url: typeof payload.page_url === 'string' ? payload.page_url : null,
+          status: 'submitted',
+          omnimon_summary: null,
+          omnimon_action: null,
+          reviewed_at: null,
+          reported_to_owner_at: null,
+          created_at: log.createdAt.toISOString(),
+          updated_at: log.createdAt.toISOString(),
+        });
+      }
+      if (log.action === 'control.support_ticket_reviewed') {
+        const existing = ticketMap.get(log.targetId);
+        if (!existing) continue;
+        existing.status = typeof payload.status === 'string' ? payload.status : existing.status;
+        existing.omnimon_summary = typeof payload.summary === 'string' ? payload.summary : null;
+        existing.omnimon_action = typeof payload.action === 'string' ? payload.action : null;
+        existing.reviewed_at = log.createdAt.toISOString();
+        existing.reported_to_owner_at = log.createdAt.toISOString();
+        existing.updated_at = log.createdAt.toISOString();
+      }
+    }
+
+    return reply.send({
+      tickets: [...ticketMap.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 50),
+    });
+  });
+
+  fastify.post('/owner/support-tickets', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const parsed = OwnerSupportTicketCreateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid support ticket payload.', { issues: parsed.error.issues });
+    }
+
+    const ticketId = randomUUID();
+    await prisma.auditLog.create({
+      data: {
+        agentId,
+        actorType: 'owner',
+        actorId: request.ownerAccount.id,
+        action: 'owner.support_ticket_created',
+        targetType: 'support_ticket',
+        targetId: ticketId,
+        payload: {
+          kind: parsed.data.kind,
+          title: parsed.data.title,
+          description: parsed.data.description,
+          page_url: parsed.data.page_url?.trim() || null,
+        },
+      },
+    }).catch(() => {});
+
+    return reply.status(201).send({
+      ticket_id: ticketId,
+      kind: parsed.data.kind,
+      title: parsed.data.title,
+      status: 'submitted',
+      created_at: new Date().toISOString(),
+      message: 'Ticket received. Omnimon will triage it and report back to you here.',
     });
   });
 
