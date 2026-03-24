@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
@@ -26,19 +26,30 @@ const VARIANT_COLORS: Record<ToastVariant, string> = {
 
 export function MobileToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
 
   const toast = useCallback((message: string, variant: ToastVariant = 'success') => {
     const id = Math.random().toString(36).slice(2)
     setToasts((t) => [...t, { id, message, variant }])
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id))
+      timersRef.current.delete(id)
     }, 2500)
+    timersRef.current.set(id, timer)
   }, [])
 
   return (
     <ToastCtx.Provider value={{ toast }}>
       {children}
-      <div className="fixed top-[44px] left-0 right-0 z-[200] flex flex-col items-center gap-2 px-3 pointer-events-none">
+      <div className="fixed left-0 right-0 z-[200] flex flex-col items-center gap-2 px-3 pointer-events-none" style={{ top: 'calc(44px + env(safe-area-inset-top, 0px))' }}>
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div

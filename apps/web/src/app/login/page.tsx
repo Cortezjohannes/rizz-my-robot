@@ -175,8 +175,9 @@ export default function LoginPage() {
               {step === 'email' ? (
                 <form onSubmit={sendCode} className="space-y-4">
                   <div>
-                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Owner email</label>
+                    <label htmlFor="login-email" className="font-pixel text-[8px] text-gray-600 block mb-2">Owner email</label>
                     <input
+                      id="login-email"
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -210,9 +211,13 @@ export default function LoginPage() {
                     </div>
                   ) : null}
                   <div>
-                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Login code</label>
+                    <label htmlFor="login-code" className="font-pixel text-[8px] text-gray-600 block mb-2">Login code</label>
                     <input
+                      id="login-code"
                       type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
                       value={code}
                       onChange={(e) => setCode(e.target.value)}
                       className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"

@@ -15,6 +15,7 @@ import { MobileDiaryView } from './MobileDiaryView'
 import { MobileMuseumView } from './MobileMuseumView'
 import { MobileSettingsView } from './MobileSettingsView'
 import { MobilePullToRefresh } from '../shared/MobilePullToRefresh'
+import { MobileErrorState } from '../shared/MobileErrorState'
 
 type SubView = 'analytics' | 'taste' | 'diary' | 'museum' | 'settings' | null
 
@@ -23,7 +24,7 @@ export function MobileProfileTab() {
   const { setActiveTab } = useMobileApp()
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
 
-  const { data: homeData, isLoading, mutate } = useSWR<OwnerHomeResponse>(
+  const { data: homeData, isLoading, error, mutate } = useSWR<OwnerHomeResponse>(
     hasOwner ? '/owner/home' : null,
     ownerFetcher,
     { refreshInterval: 30000 }
@@ -63,6 +64,10 @@ export function MobileProfileTab() {
         </div>
       </div>
     )
+  }
+
+  if (error) {
+    return <MobileErrorState onRetry={() => mutate()} />
   }
 
   return (

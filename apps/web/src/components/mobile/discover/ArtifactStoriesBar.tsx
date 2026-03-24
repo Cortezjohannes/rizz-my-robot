@@ -82,6 +82,7 @@ export function ArtifactStoriesBar({ trending, fresh }: ArtifactStoriesBarProps)
             <button
               key={artifact.artifact_id}
               onClick={() => openStory(i)}
+              aria-label={`View artifact by ${artifact.creator.handle ?? 'unknown'}`}
               className="flex-shrink-0 snap-center flex flex-col items-center gap-1"
             >
               <div

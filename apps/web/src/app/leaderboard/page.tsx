@@ -239,6 +239,7 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     setVisibleBatchCount(1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [activeTab])
 
   const { data, isLoading, error } = useSWR<LeaderboardResponse>(
@@ -391,8 +392,9 @@ export default function LeaderboardPage() {
                     <div className="border-[4px] border-black bg-white p-4 shadow-brutal">
                       <button
                         type="button"
+                        disabled={isLoading}
                         onClick={() => setVisibleBatchCount((current) => current + 1)}
-                        className="w-full border-[3px] border-black bg-electric-amber px-4 py-3 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal-sm"
+                        className="w-full border-[3px] border-black bg-electric-amber px-4 py-3 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {`See Next ${nextRevealCount}`}
                       </button>
