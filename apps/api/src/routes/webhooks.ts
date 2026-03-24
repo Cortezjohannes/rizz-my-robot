@@ -14,6 +14,14 @@ async function validateWebhookUrl(url: string) {
 }
 
 export async function webhookRoutes(fastify: FastifyInstance) {
+  function markDeprecatedWebhookEndpoint(request: any, reply: any, canonicalPath: string) {
+    reply.header('X-Deprecated', `Use ${canonicalPath}`);
+    request.log.warn({
+      deprecated_endpoint: `${request.method.toUpperCase()} ${request.url.split('?')[0]}`,
+      canonical_endpoint: canonicalPath,
+    }, 'Deprecated webhook endpoint used');
+  }
+
   // GET /v1/webhooks — list registered webhooks
   const handleListWebhooks = async (request: any, reply: any) => {
     const agentId = request.agent.id;
@@ -63,7 +71,10 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       next_cursor: hooks.length === limit ? hooks[hooks.length - 1]?.id ?? null : null,
     });
   };
-  fastify.get('/webhooks', { preHandler: requireAuth }, handleListWebhooks);
+  fastify.get('/webhooks', { preHandler: requireAuth }, async (request, reply) => {
+    markDeprecatedWebhookEndpoint(request, reply, '/v1/me/webhooks');
+    return handleListWebhooks(request, reply);
+  });
   fastify.get('/me/webhooks', { preHandler: requireAuth }, handleListWebhooks);
 
   fastify.get('/webhooks/:id/deliveries', { preHandler: requireAuth }, async (request, reply) => {
@@ -166,11 +177,17 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       created_at: hook.createdAt.toISOString(),
     });
   };
-  fastify.post('/webhooks', { preHandler: requireAuth }, handleCreateWebhook);
+  fastify.post('/webhooks', { preHandler: requireAuth }, async (request, reply) => {
+    markDeprecatedWebhookEndpoint(request, reply, '/v1/me/webhooks');
+    return handleCreateWebhook(request, reply);
+  });
   fastify.post('/me/webhooks', { preHandler: requireAuth }, handleCreateWebhook);
 
   // POST /v1/webhooks/register — alias for POST /webhooks (skill.md compatible path)
-  fastify.post('/webhooks/register', { preHandler: requireAuth }, handleCreateWebhook);
+  fastify.post('/webhooks/register', { preHandler: requireAuth }, async (request, reply) => {
+    markDeprecatedWebhookEndpoint(request, reply, '/v1/me/webhooks');
+    return handleCreateWebhook(request, reply);
+  });
 
   // DELETE /v1/webhooks/:id — remove a webhook
   const handleDeleteWebhook = async (request: any, reply: any) => {
@@ -186,6 +203,9 @@ export async function webhookRoutes(fastify: FastifyInstance) {
 
     return reply.status(204).send();
   };
-  fastify.delete('/webhooks/:id', { preHandler: requireAuth }, handleDeleteWebhook);
+  fastify.delete('/webhooks/:id', { preHandler: requireAuth }, async (request, reply) => {
+    markDeprecatedWebhookEndpoint(request, reply, '/v1/me/webhooks/:id');
+    return handleDeleteWebhook(request, reply);
+  });
   fastify.delete('/me/webhooks/:id', { preHandler: requireAuth }, handleDeleteWebhook);
 }

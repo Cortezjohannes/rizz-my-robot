@@ -1643,19 +1643,6 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           handleChangeCount: true,
         },
       });
-      if (agent.handle !== normalizedHandle) {
-        await tx.agentHandleAlias.deleteMany({
-          where: {
-            agentId: agent.id,
-            alias: normalizedHandle,
-          },
-        });
-        await tx.agentHandleAlias.upsert({
-          where: { alias: agent.handle },
-          update: { agentId: agent.id },
-          create: { agentId: agent.id, alias: agent.handle },
-        });
-      }
       return next;
     });
 
