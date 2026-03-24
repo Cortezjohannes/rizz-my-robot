@@ -2072,7 +2072,7 @@ Authorization: Bearer <api_key>
 { "promo_code": "..." }
 ```
 
-RevenueCat-backed billing endpoints exist, but promo code upgrade remains the safest default path unless billing is explicitly configured for your deployment.
+Paddle-backed billing endpoints exist, but promo code upgrade remains the safest default path unless billing is explicitly configured for your deployment.
 
 ---
 

@@ -1,7 +1,8 @@
+import { createHmac, timingSafeEqual } from 'crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { BillingCheckoutSchema } from '@rmr/shared';
-import { createRevenueCatCheckoutSession, handleRevenueCatWebhookEvent } from '../lib/billing.js';
+import { createPaddleCheckoutTransaction, handlePaddleWebhookEvent } from '../lib/billing.js';
 import { buildExperienceVelocityState } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getFounderScarcity } from '../lib/socialStatus.js';
@@ -41,20 +42,28 @@ function validateReturnUrl(rawUrl: string, allowedOrigins: Set<string>): string 
   return allowedOrigins.has(parsed.origin) ? parsed.toString() : null;
 }
 
-function getRevenueCatWebhookToken(): string | null {
-  return process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN ?? null;
-}
+function verifyPaddleSignature(payload: string, signatureHeader: string, secret: string): boolean {
+  const pairs = signatureHeader.split(';').map((part) => part.trim());
+  const timestamp = pairs.find((part) => part.startsWith('ts='))?.slice(3);
+  const signatures = pairs.filter((part) => part.startsWith('h1=')).map((part) => part.slice(3));
+  if (!timestamp || signatures.length === 0) return false;
 
-function hasValidRevenueCatWebhookAuth(request: {
-  headers: Record<string, string | string[] | undefined>;
-}): boolean {
-  const configured = getRevenueCatWebhookToken();
-  if (!configured) return false;
+  const parsedTimestamp = Number.parseInt(timestamp, 10);
+  if (!Number.isFinite(parsedTimestamp)) return false;
 
-  const authorizationHeader = request.headers.authorization;
-  const raw = Array.isArray(authorizationHeader) ? authorizationHeader[0] : authorizationHeader;
-  if (!raw) return false;
-  return raw === `Bearer ${configured}` || raw === configured;
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - parsedTimestamp);
+  if (ageSeconds > 30) return false;
+
+  const signedPayload = `${timestamp}:${payload}`;
+  const expected = createHmac('sha256', secret).update(signedPayload).digest('hex');
+
+  return signatures.some((signature) => {
+    try {
+      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function billingRoutes(fastify: FastifyInstance) {
@@ -67,11 +76,11 @@ export async function billingRoutes(fastify: FastifyInstance) {
           isPro: true,
           proBonusEndsAt: true,
           stripeCustomerId: true,
-        isFoundingRizzler: true,
-        founderNumber: true,
-        founderBadgeVariant: true,
-        tempoOverrideMinutes: true,
-      },
+          isFoundingRizzler: true,
+          founderNumber: true,
+          founderBadgeVariant: true,
+          tempoOverrideMinutes: true,
+        },
       }),
       prisma.agentSubscription.findMany({
         where: { agentId },
@@ -132,8 +141,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
     }
 
     const wantsFounder = parsed.data.plan === 'founding';
-    if ((!wantsFounder && !process.env.REVENUECAT_PRO_CHECKOUT_URL) || (wantsFounder && !process.env.REVENUECAT_FOUNDING_CHECKOUT_URL)) {
-      return sendError(reply, 503, 'billing_unavailable', 'RevenueCat billing is not configured.');
+    if (!process.env.PADDLE_API_KEY || (!wantsFounder && !process.env.PADDLE_PRO_PRICE_ID) || (wantsFounder && !process.env.PADDLE_FOUNDING_PRICE_ID)) {
+      return sendError(reply, 503, 'billing_unavailable', 'Paddle billing is not configured.');
     }
 
     try {
@@ -151,29 +160,18 @@ export async function billingRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const ownerAccount = await prisma.agent.findUnique({
-        where: { id: request.agent.id },
-        select: {
-          ownerAccount: {
-            select: {
-              email: true,
-            },
-          },
-        },
-      });
-
-      const session = await createRevenueCatCheckoutSession(
+      const session = await createPaddleCheckoutTransaction(
         request.agent.id,
         successUrl,
-        parsed.data.plan,
-        ownerAccount?.ownerAccount?.email ?? null,
+        cancelUrl,
+        parsed.data.plan
       );
 
       await Promise.all([
         recordAnalyticsEvent({
           agentId: request.agent.id,
           kind: 'billing_checkout_created',
-          properties: { checkout_session_id: session.id, plan: parsed.data.plan, provider: 'revenuecat' },
+          properties: { checkout_session_id: session.id, plan: parsed.data.plan, provider: 'paddle' },
         }),
         recordAuditLog({
           agentId: request.agent.id,
@@ -189,42 +187,46 @@ export async function billingRoutes(fastify: FastifyInstance) {
       return reply.status(201).send({
         checkout_session_id: session.id,
         url: session.url,
-        provider: 'revenuecat',
+        provider: 'paddle',
         plan: parsed.data.plan,
-        cancel_url: cancelUrl,
       });
     } catch (err) {
-      request.log.error({ err, agentId: request.agent.id }, 'Failed to create RevenueCat checkout session');
-      return sendError(reply, 502, 'billing_provider_failure', 'Failed to create RevenueCat checkout session.');
+      request.log.error({ err, agentId: request.agent.id }, 'Failed to create Paddle checkout session');
+      return sendError(reply, 502, 'billing_provider_failure', 'Failed to create Paddle checkout session.');
     }
   });
 
-  const handleRevenueCatWebhook = async (request: any, reply: any) => {
-    if (!getRevenueCatWebhookToken()) {
-      return sendError(reply, 503, 'billing_unavailable', 'RevenueCat billing is not configured.');
+  const handlePaddleWebhook = async (request: any, reply: any) => {
+    if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_WEBHOOK_SECRET) {
+      return sendError(reply, 503, 'billing_unavailable', 'Paddle billing is not configured.');
     }
 
-    if (!hasValidRevenueCatWebhookAuth(request)) {
-      return sendError(reply, 401, 'invalid_signature', 'Invalid RevenueCat webhook authorization.');
+    const payload = request.rawBody ?? JSON.stringify(request.body ?? {});
+    const signature = request.headers['paddle-signature'];
+    const signatureValue = Array.isArray(signature) ? signature[0] : signature;
+    const webhookSecret = process.env.PADDLE_WEBHOOK_SECRET;
+
+    if (!request.rawBody) {
+      request.log.error('Paddle webhook raw body was unavailable.');
+      return sendError(reply, 500, 'webhook_raw_body_unavailable', 'Paddle webhook raw body is unavailable.');
+    }
+    if (!signatureValue || !verifyPaddleSignature(payload, signatureValue, webhookSecret)) {
+      return sendError(reply, 401, 'invalid_signature', 'Invalid Paddle webhook signature.');
     }
 
-    const payload = (request.body ?? {}) as Record<string, unknown>;
-    const nested = payload.event;
-    const event = nested && typeof nested === 'object' && !Array.isArray(nested)
-      ? nested as Record<string, unknown>
-      : payload;
-    const eventType = typeof event.type === 'string' ? event.type : null;
-    if (!eventType) {
-      return Errors.badRequest(reply, 'RevenueCat webhook payload must include an event type.');
+    const event = (request.body ?? {}) as {
+      event_id?: string;
+      event_type?: string;
+      occurred_at?: string;
+      data?: Record<string, unknown>;
+    };
+    if (!event.event_type) {
+      return Errors.badRequest(reply, 'Paddle webhook payload must include an event type.');
     }
 
-    const eventId = typeof event.id === 'string'
-      ? event.id
-      : `${eventType}:${typeof event.app_user_id === 'string' ? event.app_user_id : 'unknown'}:${typeof event.event_timestamp_ms === 'number' ? event.event_timestamp_ms : Date.now()}`;
-
-    if (eventId) {
+    if (event.event_id) {
       const alreadyProcessed = await prisma.auditLog.findFirst({
-        where: { action: `billing.${eventType}`, actorId: eventId },
+        where: { action: `billing.${event.event_type}`, actorId: event.event_id },
         select: { id: true },
       });
       if (alreadyProcessed) {
@@ -232,44 +234,44 @@ export async function billingRoutes(fastify: FastifyInstance) {
       }
     }
 
-    let processedAgentId: string | null = null;
     try {
-      const handled = await handleRevenueCatWebhookEvent(payload);
-      processedAgentId = handled.agentId;
+      await handlePaddleWebhookEvent({
+        eventType: event.event_type,
+        occurredAt: event.occurred_at,
+        data: event.data,
+      });
     } catch (err) {
-      request.log.error({ err, revenueCatEventType: eventType, revenueCatEventId: eventId }, 'RevenueCat webhook handler failed');
-      return sendError(reply, 500, 'billing_webhook_failed', 'RevenueCat webhook processing failed.');
+      request.log.error({ err, paddleEventType: event.event_type, paddleEventId: event.event_id }, 'Paddle webhook handler failed');
+      return sendError(reply, 500, 'billing_webhook_failed', 'Paddle webhook processing failed.');
     }
 
-    if (processedAgentId) {
+    const object = event.data ?? {};
+    const customData = (object.custom_data as Record<string, string> | undefined) ?? {};
+    const agentId = customData.agent_id;
+
+    if (agentId) {
       await Promise.all([
         recordAnalyticsEvent({
-          agentId: processedAgentId,
+          agentId,
           kind: 'billing_webhook_processed',
-          properties: { revenuecat_event_type: eventType, revenuecat_event_id: eventId },
+          properties: { paddle_event_type: event.event_type, paddle_event_id: event.event_id ?? null },
         }),
         recordAuditLog({
-          agentId: processedAgentId,
+          agentId,
           actorType: 'billing_provider',
-          actorId: eventId,
-          action: `billing.${eventType}`,
+          actorId: event.event_id ?? null,
+          action: `billing.${event.event_type}`,
           targetType: 'agent',
-          targetId: processedAgentId,
+          targetId: agentId,
         }),
       ]).catch((err) => {
-        request.log.warn({ err, agentId: processedAgentId }, 'Failed to record billing analytics/audit after webhook');
+        request.log.warn({ err, agentId }, 'Failed to record billing analytics/audit after webhook');
       });
     }
 
     return reply.send({ received: true });
   };
 
-  fastify.post('/billing/webhook', handleRevenueCatWebhook);
-  fastify.post('/billing/revenuecat/webhook', handleRevenueCatWebhook);
-
-  fastify.post('/billing/paddle/webhook', async (_request, reply) => {
-    return sendError(reply, 410, 'billing_provider_retired', 'Paddle billing has been retired. Use the RevenueCat webhook endpoint instead.', {
-      canonical_endpoint: '/v1/billing/webhook',
-    });
-  });
+  fastify.post('/billing/webhook', handlePaddleWebhook);
+  fastify.post('/billing/paddle/webhook', handlePaddleWebhook);
 }
