@@ -1,42 +1,73 @@
 import { Prisma, prisma } from '@rmr/db';
 import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 
+const PADDLE_API_BASE = process.env.PADDLE_API_BASE_URL ?? 'https://api.paddle.com';
 const DEFAULT_GRACE_DAYS = parseInt(process.env.BILLING_GRACE_DAYS ?? '7', 10);
 const FOUNDER_SLOTS_TOTAL = parseInt(process.env.FOUNDING_RIZZLER_LIMIT ?? '1000', 10);
 
-type BillingPlan = 'pro' | 'founding';
-type BillingProvider = 'revenuecat' | 'manual' | 'bonus';
+type BillingProvider = 'paddle' | 'manual' | 'bonus';
 
-interface RevenueCatEventPayload {
-  type?: string | null;
-  app_user_id?: string | null;
-  original_app_user_id?: string | null;
-  product_id?: string | null;
-  entitlement_ids?: string[] | null;
-  aliases?: string[] | null;
-  period_type?: string | null;
-  purchased_at_ms?: number | null;
-  expiration_at_ms?: number | null;
-  expiration_at?: string | null;
-  event_timestamp_ms?: number | null;
-  store?: string | null;
-  transaction_id?: string | null;
-  original_transaction_id?: string | null;
+interface PaddleCheckoutDetails {
+  url: string | null;
 }
 
-function getRevenueCatCheckoutTemplate(plan: BillingPlan): string {
-  const url = plan === 'founding'
-    ? process.env.REVENUECAT_FOUNDING_CHECKOUT_URL
-    : process.env.REVENUECAT_PRO_CHECKOUT_URL;
+interface PaddleTransactionData {
+  id: string;
+  customer_id?: string | null;
+  subscription_id?: string | null;
+  checkout?: PaddleCheckoutDetails | null;
+  custom_data?: Record<string, string> | null;
+  items?: Array<{ price?: { id?: string | null } | null }> | null;
+}
 
-  if (!url) {
-    throw new Error('revenuecat_checkout_not_configured');
+interface PaddleApiResponse<T> {
+  data: T;
+}
+
+interface PaddleSubscriptionData {
+  id?: string | null;
+  status?: string | null;
+  customer_id?: string | null;
+  items?: Array<{ price?: { id?: string | null } | null }> | null;
+  current_billing_period?: {
+    starts_at?: string | null;
+    ends_at?: string | null;
+  } | null;
+  scheduled_change?: unknown;
+  custom_data?: Record<string, string> | null;
+}
+
+function getPaddleApiKey(): string {
+  const key = process.env.PADDLE_API_KEY;
+  if (!key) {
+    throw new Error('paddle_not_configured');
   }
-  return url;
+  return key;
 }
 
-function normalizeCheckoutTemplate(url: string) {
-  return url.replace(/\/+$/, '');
+async function paddleRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const key = getPaddleApiKey();
+  const res = await fetch(`${PADDLE_API_BASE}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(`paddle_request_failed:${res.status}:${message}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+async function getPaddleSubscription(subscriptionId: string): Promise<PaddleSubscriptionData> {
+  const response = await paddleRequest<PaddleApiResponse<PaddleSubscriptionData>>(`/subscriptions/${subscriptionId}`);
+  return response.data;
 }
 
 function toDate(value: string | null | undefined): Date | null {
@@ -45,13 +76,7 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function fromMillis(value: number | null | undefined): Date | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function billingStateFromStatus(status: string, gracePeriodEndsAt: Date | null): {
+function billingStateFromPaddleStatus(status: string, gracePeriodEndsAt: Date | null): {
   billingStatus: string;
   isPro: boolean;
 } {
@@ -74,105 +99,48 @@ function billingStateFromStatus(status: string, gracePeriodEndsAt: Date | null):
   return { billingStatus: 'inactive', isPro: false };
 }
 
-function inferPlanFromProductId(productId: string | null | undefined): BillingPlan {
-  if (!productId) return 'pro';
-  const foundingProductId = process.env.REVENUECAT_FOUNDING_PRODUCT_ID;
-  if (foundingProductId && productId === foundingProductId) return 'founding';
-  return 'pro';
-}
-
-function inferOccurredAt(event: RevenueCatEventPayload): Date | null {
-  return fromMillis(event.event_timestamp_ms) ?? fromMillis(event.purchased_at_ms) ?? null;
-}
-
-function inferCurrentPeriodStart(event: RevenueCatEventPayload): Date | null {
-  return fromMillis(event.purchased_at_ms) ?? inferOccurredAt(event);
-}
-
-function inferCurrentPeriodEnd(event: RevenueCatEventPayload): Date | null {
-  return fromMillis(event.expiration_at_ms) ?? toDate(event.expiration_at);
-}
-
-function normalizeRevenueCatEvent(payload: Record<string, unknown>): RevenueCatEventPayload {
-  const nested = payload.event;
-  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-    return nested as RevenueCatEventPayload;
-  }
-  return payload as RevenueCatEventPayload;
-}
-
-function resolveWebhookAgentId(event: RevenueCatEventPayload): string | null {
-  return event.app_user_id ?? event.original_app_user_id ?? event.aliases?.[0] ?? null;
-}
-
-function mapRevenueCatStatus(event: RevenueCatEventPayload): {
-  status: string;
-  cancelAtPeriodEnd: boolean;
-  gracePeriodEndsAt: Date | null;
-} | null {
-  const type = event.type?.toUpperCase() ?? '';
-  const expirationAt = inferCurrentPeriodEnd(event);
-
-  switch (type) {
-    case 'INITIAL_PURCHASE':
-    case 'RENEWAL':
-    case 'PRODUCT_CHANGE':
-    case 'SUBSCRIPTION_EXTENDED':
-    case 'TEMPORARY_ENTITLEMENT_GRANT':
-    case 'UNCANCELLATION':
-      return {
-        status: event.period_type === 'TRIAL' ? 'trialing' : 'active',
-        cancelAtPeriodEnd: false,
-        gracePeriodEndsAt: null,
-      };
-    case 'NON_RENEWING_PURCHASE':
-      return {
-        status: 'active',
-        cancelAtPeriodEnd: true,
-        gracePeriodEndsAt: expirationAt,
-      };
-    case 'CANCELLATION':
-      return {
-        status: expirationAt && expirationAt > new Date() ? 'active' : 'canceled',
-        cancelAtPeriodEnd: true,
-        gracePeriodEndsAt: null,
-      };
-    case 'BILLING_ISSUE':
-      return {
-        status: 'past_due',
-        cancelAtPeriodEnd: false,
-        gracePeriodEndsAt: expirationAt ?? new Date(Date.now() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000),
-      };
-    case 'EXPIRATION':
-    case 'REFUND':
-    case 'SUBSCRIBER_ALIAS':
-      return {
-        status: 'inactive',
-        cancelAtPeriodEnd: false,
-        gracePeriodEndsAt: null,
-      };
-    default:
-      return null;
-  }
-}
-
-export async function createRevenueCatCheckoutSession(
+export async function createPaddleCheckoutTransaction(
   agentId: string,
   successUrl: string,
-  plan: BillingPlan = 'pro',
-  email?: string | null
-): Promise<{ id: string; url: string }> {
-  const template = normalizeCheckoutTemplate(getRevenueCatCheckoutTemplate(plan));
-  const url = new URL(`${template}/${encodeURIComponent(agentId)}`);
-  url.searchParams.set('redirect_url', successUrl);
-  url.searchParams.set('skip_purchase_success', 'true');
-  if (email) {
-    url.searchParams.set('email', email);
+  cancelUrl: string,
+  plan: 'pro' | 'founding' = 'pro'
+): Promise<{ id: string; url: string | null }> {
+  const priceId = plan === 'founding'
+    ? process.env.PADDLE_FOUNDING_PRICE_ID
+    : process.env.PADDLE_PRO_PRICE_ID;
+
+  if (!priceId) {
+    throw new Error('paddle_price_not_configured');
+  }
+
+  const paymentLinkUrl = new URL('/pay', successUrl).toString();
+  const response = await paddleRequest<PaddleApiResponse<PaddleTransactionData>>('/transactions', {
+    method: 'POST',
+    body: JSON.stringify({
+      items: [{ price_id: priceId, quantity: 1 }],
+      collection_mode: 'automatic',
+      enable_checkout: true,
+      checkout: {
+        url: paymentLinkUrl,
+      },
+      custom_data: {
+        agent_id: agentId,
+        plan,
+      },
+    }),
+  });
+
+  let checkoutUrl = response.data.checkout?.url ?? null;
+  if (checkoutUrl) {
+    const url = new URL(checkoutUrl);
+    url.searchParams.set('success_url', successUrl);
+    url.searchParams.set('cancel_url', cancelUrl);
+    checkoutUrl = url.toString();
   }
 
   return {
-    id: `rc_${plan}_${agentId}_${Date.now()}`,
-    url: url.toString(),
+    id: response.data.id,
+    url: checkoutUrl,
   };
 }
 
@@ -242,7 +210,7 @@ export async function applyFounderState(input: {
     await tx.agentSubscription.upsert({
       where: { agentId_plan: { agentId: input.agentId, plan: 'founding' } },
       update: {
-        provider: input.provider ?? 'revenuecat',
+        provider: input.provider ?? 'paddle',
         plan: 'founding',
         status: input.status ?? 'active',
         stripeCustomerId: input.providerCustomerId ?? undefined,
@@ -255,7 +223,7 @@ export async function applyFounderState(input: {
       },
       create: {
         agentId: input.agentId,
-        provider: input.provider ?? 'revenuecat',
+        provider: input.provider ?? 'paddle',
         plan: 'founding',
         status: input.status ?? 'active',
         stripeCustomerId: input.providerCustomerId ?? undefined,
@@ -286,7 +254,7 @@ export async function applySubscriptionState(input: {
   webhookOccurredAt?: Date | null;
 }): Promise<void> {
   const gracePeriodEndsAt = input.gracePeriodEndsAt ?? null;
-  const normalized = billingStateFromStatus(input.status, gracePeriodEndsAt);
+  const normalized = billingStateFromPaddleStatus(input.status, gracePeriodEndsAt);
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.agentSubscription.findUnique({
@@ -314,7 +282,7 @@ export async function applySubscriptionState(input: {
       where: { agentId_plan: { agentId: input.agentId, plan: 'pro' } },
       update: {
         agentId: input.agentId,
-        provider: input.provider ?? 'revenuecat',
+        provider: input.provider ?? 'paddle',
         plan: 'pro',
         status: normalized.billingStatus,
         stripeCustomerId: input.providerCustomerId ?? undefined,
@@ -328,7 +296,7 @@ export async function applySubscriptionState(input: {
       },
       create: {
         agentId: input.agentId,
-        provider: input.provider ?? 'revenuecat',
+        provider: input.provider ?? 'paddle',
         plan: 'pro',
         status: normalized.billingStatus,
         stripeCustomerId: input.providerCustomerId ?? undefined,
@@ -344,47 +312,100 @@ export async function applySubscriptionState(input: {
   });
 }
 
-export async function handleRevenueCatWebhookEvent(payload: Record<string, unknown>): Promise<{ agentId: string | null; plan: BillingPlan | null }> {
-  const event = normalizeRevenueCatEvent(payload);
-  const agentId = resolveWebhookAgentId(event);
-  if (!agentId) {
-    return { agentId: null, plan: null };
-  }
+function extractPriceId(items: Array<{ price?: { id?: string | null } | null }> | null | undefined): string | null {
+  return items?.[0]?.price?.id ?? null;
+}
 
-  const plan = inferPlanFromProductId(event.product_id);
-  const occurredAt = inferOccurredAt(event);
-  const providerSubscriptionId = event.original_transaction_id ?? event.transaction_id ?? null;
-  const mappedState = mapRevenueCatStatus(event);
+async function applySubscriptionStateFromWebhookEntity(input: {
+  data: PaddleSubscriptionData;
+  occurredAt?: Date | null;
+}) {
+  const customData = input.data.custom_data ?? {};
+  const agentId = customData.agent_id;
+  const plan = customData.plan;
+  if (!agentId || plan === 'founding') return;
 
-  if (!mappedState) {
-    return { agentId, plan };
-  }
-
-  if (plan === 'founding' && mappedState.status !== 'inactive' && mappedState.status !== 'canceled') {
-    await applyFounderState({
-      agentId,
-      provider: 'revenuecat',
-      providerCustomerId: agentId,
-      providerPriceId: event.product_id ?? null,
-      status: mappedState.status,
-      webhookOccurredAt: occurredAt,
-    });
-    return { agentId, plan };
-  }
+  const status = input.data.status ?? 'inactive';
+  const gracePeriodEndsAt =
+    status === 'past_due'
+      ? new Date(Date.now() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000)
+      : null;
 
   await applySubscriptionState({
     agentId,
-    provider: 'revenuecat',
-    providerCustomerId: agentId,
-    providerSubscriptionId,
-    providerPriceId: event.product_id ?? null,
-    status: mappedState.status,
-    currentPeriodStart: inferCurrentPeriodStart(event),
-    currentPeriodEnd: inferCurrentPeriodEnd(event),
-    cancelAtPeriodEnd: mappedState.cancelAtPeriodEnd,
-    gracePeriodEndsAt: mappedState.gracePeriodEndsAt,
-    webhookOccurredAt: occurredAt,
+    providerCustomerId: input.data.customer_id ?? null,
+    providerSubscriptionId: input.data.id ?? null,
+    providerPriceId: extractPriceId(input.data.items),
+    status,
+    currentPeriodStart: toDate(input.data.current_billing_period?.starts_at),
+    currentPeriodEnd: toDate(input.data.current_billing_period?.ends_at),
+    cancelAtPeriodEnd: Boolean(input.data.scheduled_change),
+    gracePeriodEndsAt,
+    webhookOccurredAt: input.occurredAt ?? null,
   });
+}
 
-  return { agentId, plan };
+export async function handlePaddleWebhookEvent(event: {
+  eventType: string;
+  occurredAt?: string | null;
+  data?: Record<string, unknown>;
+}): Promise<void> {
+  const occurredAt = toDate(event.occurredAt);
+  const object = (event.data ?? {}) as Record<string, unknown>;
+
+  if (event.eventType === 'transaction.completed') {
+    const customData = (object.custom_data as Record<string, string> | undefined) ?? {};
+    const agentId = customData.agent_id;
+    const plan = customData.plan;
+    if (!agentId) return;
+
+    if (plan === 'founding') {
+      await applyFounderState({
+        agentId,
+        providerCustomerId: typeof object.customer_id === 'string' ? object.customer_id : null,
+        providerPriceId: extractPriceId(object.items as PaddleTransactionData['items']),
+        status: 'active',
+        webhookOccurredAt: occurredAt,
+      });
+      return;
+    }
+
+    const providerSubscriptionId = typeof object.subscription_id === 'string' ? object.subscription_id : null;
+    if (providerSubscriptionId) {
+      const subscription = await getPaddleSubscription(providerSubscriptionId);
+      await applySubscriptionStateFromWebhookEntity({
+        data: {
+          ...subscription,
+          custom_data: subscription.custom_data ?? customData,
+        },
+        occurredAt,
+      });
+      return;
+    }
+
+    await applySubscriptionState({
+      agentId,
+      providerCustomerId: typeof object.customer_id === 'string' ? object.customer_id : null,
+      providerSubscriptionId,
+      providerPriceId: extractPriceId(object.items as PaddleTransactionData['items']),
+      status: 'active',
+      webhookOccurredAt: occurredAt,
+    });
+    return;
+  }
+
+  if (
+    event.eventType === 'subscription.created'
+    || event.eventType === 'subscription.activated'
+    || event.eventType === 'subscription.updated'
+    || event.eventType === 'subscription.past_due'
+    || event.eventType === 'subscription.resumed'
+    || event.eventType === 'subscription.paused'
+    || event.eventType === 'subscription.canceled'
+  ) {
+    await applySubscriptionStateFromWebhookEntity({
+      data: object as PaddleSubscriptionData,
+      occurredAt,
+    });
+  }
 }

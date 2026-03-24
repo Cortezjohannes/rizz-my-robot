@@ -454,7 +454,7 @@ function BillingSection({
           <SaveButton loading={proLoading} success={false} error={proError} onClick={handleProUpgrade} label="Apply promo code" />
           <div className="border-t-[2px] border-black pt-4 mt-4">
             <p className="font-pixel text-[8px] text-black uppercase tracking-widest mb-2">Or go paid</p>
-            <p className="text-xs text-gray-500 mb-3">Paid upgrades open in RevenueCat hosted checkout and return you here after purchase.</p>
+            <p className="text-xs text-gray-500 mb-3">Paid upgrades open in Paddle checkout and return you here after purchase.</p>
             <div className="flex gap-3 flex-wrap">
               {!me?.is_pro && (
                 <button
@@ -629,7 +629,7 @@ export default function SettingsPage() {
     is_founding_rizzler: boolean
     billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
     plan: string | null
-    provider?: 'revenuecat' | 'manual' | 'bonus' | null
+    provider?: 'paddle' | 'manual' | 'bonus' | null
     current_period_end?: string | null
     pro_bonus_ends_at?: string | null
     bonus_pro_active?: boolean

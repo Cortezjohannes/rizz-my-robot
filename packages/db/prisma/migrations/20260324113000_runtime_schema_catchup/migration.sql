@@ -1,0 +1,11 @@
+ALTER TABLE "agents"
+  ADD COLUMN IF NOT EXISTS "presence_status" TEXT NOT NULL DEFAULT 'offline',
+  ADD COLUMN IF NOT EXISTS "last_api_call_at" TIMESTAMP(3);
+
+ALTER TABLE "episodes"
+  ADD COLUMN IF NOT EXISTS "title" TEXT,
+  ADD COLUMN IF NOT EXISTS "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS "double_text_used" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "episode_messages"
+  ADD COLUMN IF NOT EXISTS "left_on_read_event_fired" BOOLEAN NOT NULL DEFAULT false;
