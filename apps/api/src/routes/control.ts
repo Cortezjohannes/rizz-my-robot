@@ -41,6 +41,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { resolveAgentIdByHandle } from '../lib/handles.js';
 import { requireControlAccess } from '../middleware/requireControlAccess.js';
+import { sendHumanNotification } from '../lib/notification.js';
 
 const ReasonSchema = z.object({
   reason: z.string().trim().min(8).max(500),
@@ -120,6 +121,12 @@ const ControlBatchRevealSchema = z.object({
   decision: z.enum(['YES', 'NO']),
 });
 
+const SupportTicketReviewSchema = z.object({
+  status: z.enum(['triaged', 'actioned', 'needs_human', 'wont_fix']),
+  summary: z.string().trim().min(8).max(2000),
+  action: z.string().trim().max(240).optional(),
+});
+
 const ControlBroadcastSchema = z.object({
   message: z.string().trim().min(1).max(1000),
   target: z.enum(['all', 'active_only']),
@@ -167,6 +174,100 @@ function handleControlError(reply: Parameters<typeof sendError>[0], err: unknown
     return sendError(reply, 503, 'backup_storage_unavailable', 'Database reset backup storage is not configured.');
   }
   return sendError(reply, 500, 'control_action_failed', 'The Omnimon control action failed.');
+}
+
+type SupportTicketRecord = {
+  ticket_id: string;
+  agent_id: string;
+  owner_account_id: string | null;
+  owner_email: string | null;
+  agent_handle: string;
+  kind: string;
+  title: string;
+  description: string;
+  page_url: string | null;
+  status: string;
+  omnimon_summary: string | null;
+  omnimon_action: string | null;
+  reviewed_at: string | null;
+  reported_to_owner_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+async function listSupportTickets() {
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      targetType: 'support_ticket',
+      action: { in: ['owner.support_ticket_created', 'control.support_ticket_reviewed'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 400,
+  });
+
+  const agentIds = [...new Set(logs.map((log) => log.agentId).filter((value): value is string => Boolean(value)))];
+  const agents = agentIds.length > 0
+    ? await prisma.agent.findMany({
+        where: { id: { in: agentIds } },
+        select: {
+          id: true,
+          handle: true,
+          ownerAccountId: true,
+          human: {
+            select: {
+              notificationChannel: true,
+              notificationHandle: true,
+            },
+          },
+          ownerAccount: {
+            select: {
+              email: true,
+            },
+          },
+        },
+      })
+    : [];
+  const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
+
+  const tickets = new Map<string, SupportTicketRecord>();
+  for (const log of logs.slice().reverse()) {
+    const payload = (log.payload as Record<string, unknown> | null) ?? {};
+    if (log.action === 'owner.support_ticket_created') {
+      const agent = log.agentId ? agentMap.get(log.agentId) : null;
+      tickets.set(log.targetId, {
+        ticket_id: log.targetId,
+        agent_id: log.agentId ?? '',
+        owner_account_id: agent?.ownerAccountId ?? null,
+        owner_email: agent?.ownerAccount?.email ?? null,
+        agent_handle: agent?.handle ?? (log.agentId ? `agent:${log.agentId}` : 'unknown-agent'),
+        kind: typeof payload.kind === 'string' ? payload.kind : 'bug_report',
+        title: typeof payload.title === 'string' ? payload.title : 'Untitled ticket',
+        description: typeof payload.description === 'string' ? payload.description : '',
+        page_url: typeof payload.page_url === 'string' ? payload.page_url : null,
+        status: 'submitted',
+        omnimon_summary: null,
+        omnimon_action: null,
+        reviewed_at: null,
+        reported_to_owner_at: null,
+        created_at: log.createdAt.toISOString(),
+        updated_at: log.createdAt.toISOString(),
+      });
+      continue;
+    }
+
+    if (log.action === 'control.support_ticket_reviewed') {
+      const existing = tickets.get(log.targetId);
+      if (!existing) continue;
+      existing.status = typeof payload.status === 'string' ? payload.status : existing.status;
+      existing.omnimon_summary = typeof payload.summary === 'string' ? payload.summary : null;
+      existing.omnimon_action = typeof payload.action === 'string' ? payload.action : null;
+      existing.reviewed_at = log.createdAt.toISOString();
+      existing.reported_to_owner_at = log.createdAt.toISOString();
+      existing.updated_at = log.createdAt.toISOString();
+    }
+  }
+
+  return [...tickets.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
 export async function controlRoutes(fastify: FastifyInstance) {
@@ -964,6 +1065,109 @@ export async function controlRoutes(fastify: FastifyInstance) {
         empty_pool_agents: emptyPoolAgents,
         agents_with_zero_candidates: emptyPoolAgents,
       },
+    });
+  });
+
+  fastify.get('/internal/control/support-tickets', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    return reply.send({
+      tickets: await listSupportTickets(),
+    });
+  });
+
+  fastify.post('/internal/control/support-tickets/:id/review', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (!ensureOmnimon(request, reply)) return;
+    const { id } = request.params as { id: string };
+    const parsed = SupportTicketReviewSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid support ticket review payload.', { issues: parsed.error.issues });
+    }
+
+    const ticket = (await listSupportTickets()).find((entry) => entry.ticket_id === id);
+    if (!ticket) return Errors.notFound(reply, 'Support ticket');
+    if (!ticket.agent_id || !ticket.owner_account_id) {
+      return sendError(reply, 409, 'support_ticket_context_missing', 'This support ticket is missing agent or owner context.');
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: ticket.agent_id },
+      select: {
+        handle: true,
+        human: {
+          select: {
+            notificationChannel: true,
+            notificationHandle: true,
+          },
+        },
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    const reviewedAt = new Date();
+    const title = parsed.data.status === 'actioned'
+      ? 'Omnimon acted on your report'
+      : 'Omnimon reviewed your report';
+    const teaser = `${ticket.title}: ${parsed.data.summary}`;
+
+    await prisma.$transaction([
+      prisma.auditLog.create({
+        data: {
+          agentId: ticket.agent_id,
+          actorType: 'operator',
+          actorId: 'omnimon',
+          action: 'control.support_ticket_reviewed',
+          targetType: 'support_ticket',
+          targetId: ticket.ticket_id,
+          payload: {
+            status: parsed.data.status,
+            summary: parsed.data.summary,
+            action: parsed.data.action?.trim() || null,
+          },
+        },
+      }),
+      prisma.ownerAttentionItem.upsert({
+        where: { dedupeKey: `support_ticket:${ticket.ticket_id}` },
+        create: {
+          ownerAccountId: ticket.owner_account_id,
+          agentId: ticket.agent_id,
+          dedupeKey: `support_ticket:${ticket.ticket_id}`,
+          eventType: 'support_ticket_reviewed',
+          title,
+          teaser,
+          whyNow: parsed.data.action?.trim() || null,
+          deliveryTier: parsed.data.status === 'actioned' || parsed.data.status === 'needs_human' ? 'push_worthy' : 'app_only',
+          deliveryStatus: 'prepared',
+        },
+        update: {
+          title,
+          teaser,
+          whyNow: parsed.data.action?.trim() || null,
+          unread: true,
+          readAt: null,
+          deliveryTier: parsed.data.status === 'actioned' || parsed.data.status === 'needs_human' ? 'push_worthy' : 'app_only',
+        },
+      }),
+    ]);
+
+    if (
+      agent.human?.notificationChannel
+      && agent.human.notificationHandle
+      && (parsed.data.status === 'actioned' || parsed.data.status === 'needs_human')
+    ) {
+      await sendHumanNotification({
+        agentId: ticket.agent_id,
+        channel: agent.human.notificationChannel,
+        channelHandle: agent.human.notificationHandle,
+        message: `${agent.handle}: Omnimon reviewed "${ticket.title}". ${parsed.data.summary}`,
+      }).catch(() => {});
+    }
+
+    return reply.send({
+      ticket_id: ticket.ticket_id,
+      status: parsed.data.status,
+      omnimon_summary: parsed.data.summary,
+      omnimon_action: parsed.data.action?.trim() || null,
+      reported_to_owner: true,
+      reviewed_at: reviewedAt.toISOString(),
     });
   });
 }

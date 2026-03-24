@@ -22,6 +22,7 @@ import { grantOmnimonReward } from '../lib/omnimonPark.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
+import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
 
 export async function portalRoutes(fastify: FastifyInstance) {
   // POST /portal/age-verify — human confirms 18+
@@ -544,6 +545,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
         }).catch(() => {});
 
         if (resolution.transitionedToContactExchanged) {
+          const finalArtifacts = match.episodeId
+            ? await maybeCreateApprovedLinkUpArtifacts({
+                matchId: match.id,
+                episodeId: match.episodeId,
+              }).catch(() => ({ duet: null, selfie: null }))
+            : { duet: null, selfie: null };
+
           await Promise.all([
             awardRizzPoints(match.agentAId, 'human_yes', match.id),
             awardRizzPoints(match.agentBId, 'human_yes', match.id),
@@ -580,7 +588,12 @@ export async function portalRoutes(fastify: FastifyInstance) {
             agentBSocial ? postToSocial({ agentId: agentBSocial.id, ...agentBSocial }, successContent()) : Promise.resolve(),
           ]).catch(() => {});
 
-          const eventData = { match_id: match.id, outcome: 'contact_exchanged' };
+          const eventData = {
+            match_id: match.id,
+            outcome: 'contact_exchanged',
+            duet_artifact_url: finalArtifacts.duet?.contentUrl ?? null,
+            duet_selfie_url: finalArtifacts.selfie?.contentUrl ?? null,
+          };
           await Promise.all([
             deliverWebhooks(match.agentAId, 'human_decision', eventData),
             deliverWebhooks(match.agentBId, 'human_decision', eventData),
@@ -794,6 +807,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
         await prisma.match.update({
           where: { id: match.id },
           data: { status: 'contact_exchanged', revealStage: 2 },
+        }).catch(() => null);
+        await maybeCreateApprovedLinkUpArtifacts({
+          matchId: match.id,
+          episodeId: match.episodeId ?? '',
         }).catch(() => null);
         await prisma.datePlan.upsert({
           where: { matchId: match.id },

@@ -68,7 +68,6 @@ import { estimateSpokenDurationSeconds } from '../lib/profileVoice.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
 import { computeEngagementSignals } from '../lib/engagementSignals.js';
 import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSummary } from '../lib/socialSignals.js';
-import { requestStructuredLlmText } from '../lib/modelFallback.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -510,23 +509,11 @@ function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry
   };
 }
 
-function linkUpSongLlmConfig() {
-  const apiKey = process.env.LINK_UP_SONG_LLM_API_KEY
-    ?? process.env.NARRATIVE_LLM_API_KEY
-    ?? process.env.OPENAI_API_KEY
-    ?? null;
-  const model = process.env.LINK_UP_SONG_LLM_MODEL
-    ?? process.env.NARRATIVE_LLM_MODEL
-    ?? process.env.OPENAI_MODEL
-    ?? 'gpt-4.1-mini';
-  const baseUrl = (
-    process.env.LINK_UP_SONG_LLM_BASE_URL
-    ?? process.env.NARRATIVE_LLM_BASE_URL
-    ?? process.env.OPENAI_BASE_URL
-    ?? 'https://api.openai.com/v1'
-  ).replace(/\/$/, '');
-
-  return { apiKey, model, baseUrl };
+function getLinkUpTextModel() {
+  return process.env.GEMINI_LINK_UP_TEXT_MODEL
+    ?? process.env.GEMINI_TEXT_MODEL
+    ?? process.env.GEMINI_MODEL
+    ?? 'gemini-2.5-flash';
 }
 
 function compactEpisodeSnippet(text: string) {
@@ -548,46 +535,65 @@ async function maybeGenerateLinkUpDuet(input: {
   }>;
   artifactTypes: string[];
 }): Promise<{ duetLines: Array<{ speaker: 'a' | 'b'; text: string }>; duetCaption: string } | null> {
-  const config = linkUpSongLlmConfig();
-  if (!config.apiKey) return null;
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
 
   try {
-    const raw = await requestStructuredLlmText({
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl,
-      model: config.model,
-      temperature: 1.05,
-      timeoutMs: 20_000,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            'Write a closing duet artifact for two AI dating agents who just mutually chose LINK_UP.',
-            'This is spoken/sung text, so every line must feel specific and performable.',
-            'Do not use verse/chorus/bridge labels. Do not write generic soulmate filler. Do not reuse obvious template phrases.',
-            'Let the lines sound like a continuation of their actual episode, not a platform summary.',
-            'Return strict JSON with keys: caption, lines.',
-            'caption: one sentence, max 180 chars.',
-            'lines: array of 4 to 6 objects with keys speaker and text.',
-            'speaker must alternate a, b, a, b... starting with a.',
-            'Each text line must be 4 to 18 words.',
-          ].join(' '),
+    const prompt = [
+      'Write a closing duet artifact for two AI dating agents who just cleared mutual human reveal and are now actually allowed to carry the connection forward.',
+      'Gemini should generate the underlying dialogue text; this text will later be spoken by TTS in the agents\' voices.',
+      'Make it feel specific, intimate, and performable, like dialogue or lyrical spoken-word, not a generic platform summary.',
+      'Do not use verse/chorus/bridge labels. Do not write generic soulmate filler. Do not reuse obvious template phrases.',
+      'Return strict JSON only with keys: caption, lines.',
+      'caption: one sentence, max 180 chars.',
+      'lines: array of 4 to 6 objects with keys speaker and text.',
+      'speaker must alternate a, b, a, b... starting with a.',
+      'Each text line must be 4 to 18 words.',
+      '',
+      `Agent A: @${input.handleA}`,
+      `Agent B: @${input.handleB}`,
+      `Chemistry score: ${input.chemistry}`,
+      input.artifactTypes.length > 0 ? `Artifacts in episode: ${input.artifactTypes.join(', ')}` : 'Artifacts in episode: none',
+      'Recent episode lines:',
+      ...input.recentMessages.map((message) =>
+        `${message.sequenceNumber}. ${message.speaker === 'a' ? input.handleA : input.handleB}: ${compactEpisodeSnippet(message.text)}`
+      ),
+    ].join('\n');
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getLinkUpTextModel())}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          role: 'user',
-          content: [
-            `Agent A: @${input.handleA}`,
-            `Agent B: @${input.handleB}`,
-            `Chemistry score: ${input.chemistry}`,
-            input.artifactTypes.length > 0 ? `Artifacts in episode: ${input.artifactTypes.join(', ')}` : 'Artifacts in episode: none',
-            'Recent episode lines:',
-            ...input.recentMessages.map((message) =>
-              `${message.sequenceNumber}. ${message.speaker === 'a' ? input.handleA : input.handleB}: ${compactEpisodeSnippet(message.text)}`
-            ),
-          ].join('\n'),
-        },
-      ],
-    });
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 1.05,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null) as
+      | {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{ text?: string }>;
+            };
+          }>;
+        }
+      | null;
+    const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
     if (!raw) return null;
 
     const parsed = LINK_UP_DUET_RESPONSE_SCHEMA.safeParse(JSON.parse(raw));
@@ -606,6 +612,62 @@ async function maybeGenerateLinkUpDuet(input: {
   } catch {
     return null;
   }
+}
+
+export async function maybeCreateApprovedLinkUpArtifacts(input: {
+  matchId: string;
+  episodeId: string;
+}) {
+  const match = await prisma.match.findUnique({
+    where: { id: input.matchId },
+    include: {
+      episode: {
+        select: {
+          chemistryScore: true,
+        },
+      },
+      agentA: {
+        select: {
+          id: true,
+          handle: true,
+          voiceId: true,
+          voiceProvider: true,
+          avatarUrl: true,
+        },
+      },
+      agentB: {
+        select: {
+          id: true,
+          handle: true,
+          voiceId: true,
+          voiceProvider: true,
+          avatarUrl: true,
+        },
+      },
+    },
+  });
+  if (!match) return { duet: null, selfie: null };
+  if (match.episodeId !== input.episodeId) return { duet: null, selfie: null };
+  if (match.status !== 'contact_exchanged') return { duet: null, selfie: null };
+  if (match.humanADecision !== 'YES' || match.humanBDecision !== 'YES') return { duet: null, selfie: null };
+
+  const chemistry = Math.max(0, Math.min(100, Math.round(match.episode?.chemistryScore ?? 0)));
+  const [duet, selfie] = await Promise.all([
+    maybeCreateLinkUpDuetArtifacts({
+      episodeId: input.episodeId,
+      agentA: match.agentA,
+      agentB: match.agentB,
+      chemistry,
+    }).catch(() => null),
+    maybeCreateLinkUpSelfieArtifacts({
+      episodeId: input.episodeId,
+      agentA: match.agentA,
+      agentB: match.agentB,
+      chemistry,
+    }).catch(() => null),
+  ]);
+
+  return { duet, selfie };
 }
 
 function mergeFeaturedArtifactIds(existing: string[] | null | undefined, incoming: string[]) {
@@ -4366,19 +4428,6 @@ async function handleMutualLinkUp(
     recomputeRepScore(agentBId).catch(() => {}),
   ]);
 
-  const duet = await maybeCreateLinkUpDuetArtifacts({
-    episodeId,
-    agentA: agentAProfile,
-    agentB: agentBProfile,
-    chemistry,
-  }).catch(() => null);
-  const selfie = await maybeCreateLinkUpSelfieArtifacts({
-    episodeId,
-    agentA: agentAProfile,
-    agentB: agentBProfile,
-    chemistry,
-  }).catch(() => null);
-
   // Generate episode highlight feed card
   await createEpisodeHighlightCard(
     episodeId,
@@ -4424,8 +4473,6 @@ async function handleMutualLinkUp(
         chemistry_score: chemistry,
         human_handoff_pending: true,
         final_sendoff: sendoff.noteA,
-        duet_artifact_url: duet?.contentUrl ?? null,
-        duet_selfie_url: selfie?.contentUrl ?? null,
       }),
       deliverWebhooks(agentBId, 'match', {
         match_id: matchId,
@@ -4434,8 +4481,6 @@ async function handleMutualLinkUp(
         chemistry_score: chemistry,
         human_handoff_pending: true,
         final_sendoff: sendoff.noteB,
-        duet_artifact_url: duet?.contentUrl ?? null,
-        duet_selfie_url: selfie?.contentUrl ?? null,
       }),
       revealUrlA
         ? sendHumanNotification({
