@@ -265,7 +265,6 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
-          artifactId: artifact_id,
           visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,
         });
@@ -423,7 +422,6 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
-          artifactId: artifact.id,
           episodeId: targetEpisode?.id ?? null,
           matchId: targetEpisode?.match?.id ?? null,
           visibility: targetEpisode ? MEDIA_VISIBILITY.MATCH_PRIVATE : MEDIA_VISIBILITY.PUBLIC,

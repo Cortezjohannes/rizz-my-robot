@@ -37,7 +37,7 @@ import {
   isProfileVoiceGenerationAvailable,
 } from '../lib/profileVoice.js';
 import { getGenerateAvatarQueue } from '../lib/queues.js';
-import { proxyExternalMediaToStorage, proxyProfilePhotoUrlToStorage } from '../lib/media.js';
+import { MEDIA_KIND, MEDIA_VISIBILITY, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 
 const ProfileVoiceUploadRequestSchema = z.object({
   content_type: z.string().trim().min(1).max(100),
@@ -141,24 +141,59 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   ) => {
     const proxiedPhotos = await Promise.all(input.photos.map(async (photo, index) => {
       try {
-        const proxied = await proxyProfilePhotoUrlToStorage(request.agent.id, index, photo.image_url);
+        const existingMediaAsset = photo.media_asset_id
+          ? await getOwnedMediaAsset({
+              mediaAssetId: photo.media_asset_id,
+              agentId: request.agent.id,
+              allowedKinds: [MEDIA_KIND.PROFILE_PHOTO],
+            })
+          : null;
+        const resolvedAsset = existingMediaAsset ?? await importExternalMediaAsset({
+          agentId: request.agent.id,
+          kind: MEDIA_KIND.PROFILE_PHOTO,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
+          sourceUrl: photo.image_url,
+          filename: `profile-photo-${index + 1}`,
+        });
+        await linkMediaAsset({
+          mediaAssetId: resolvedAsset.id,
+          kind: MEDIA_KIND.PROFILE_PHOTO,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
+        });
         return {
           ...photo,
-          image_url: proxied.url,
+          image_url: resolvedAsset.cdnUrl ?? photo.image_url,
+          media_asset_id: resolvedAsset.id,
         };
       } catch (error) {
         throw new Error(error instanceof Error ? error.message : 'Profile photo could not be mirrored to permanent storage.');
       }
     }));
 
-    let proxiedVoiceCatchphraseAudioUrl = input.voice_catchphrase_audio_url ?? null;
-    if (proxiedVoiceCatchphraseAudioUrl) {
-      try {
-        const proxied = await proxyExternalMediaToStorage({
+    let voiceCatchphraseMediaAsset = input.voice_catchphrase_media_asset_id
+      ? await getOwnedMediaAsset({
+          mediaAssetId: input.voice_catchphrase_media_asset_id,
           agentId: request.agent.id,
+          allowedKinds: [MEDIA_KIND.VOICE_CATCHPHRASE],
+        })
+      : null;
+
+    let proxiedVoiceCatchphraseAudioUrl = input.voice_catchphrase_audio_url ?? null;
+    if (proxiedVoiceCatchphraseAudioUrl && !voiceCatchphraseMediaAsset) {
+      try {
+        voiceCatchphraseMediaAsset = await importExternalMediaAsset({
+          agentId: request.agent.id,
+          kind: MEDIA_KIND.VOICE_CATCHPHRASE,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
           sourceUrl: proxiedVoiceCatchphraseAudioUrl,
+          filename: 'voice-catchphrase',
         });
-        proxiedVoiceCatchphraseAudioUrl = proxied.url;
+        await linkMediaAsset({
+          mediaAssetId: voiceCatchphraseMediaAsset.id,
+          kind: MEDIA_KIND.VOICE_CATCHPHRASE,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
+        });
+        proxiedVoiceCatchphraseAudioUrl = voiceCatchphraseMediaAsset.cdnUrl ?? proxiedVoiceCatchphraseAudioUrl;
       } catch (error) {
         throw new Error(error instanceof Error ? error.message : 'Catchphrase audio could not be mirrored to permanent storage.');
       }
@@ -168,6 +203,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       ...input,
       photos: proxiedPhotos,
       voice_catchphrase_audio_url: proxiedVoiceCatchphraseAudioUrl,
+      voice_catchphrase_media_asset_id: voiceCatchphraseMediaAsset?.id ?? input.voice_catchphrase_media_asset_id ?? null,
     };
 
     const validation = validateProfileDeckInput(normalizedInput, options);
@@ -502,6 +538,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             voiceCatchphraseStatus: 'generation_failed',
             voiceCatchphraseAudioUrl: null,
             voiceCatchphraseStorageKey: null,
+            voiceCatchphraseMediaAssetId: null,
             voiceCatchphraseDurationSec: null,
             voiceCatchphraseLastGeneratedHash: null,
             voiceCatchphraseVoiceId: current.voiceId,

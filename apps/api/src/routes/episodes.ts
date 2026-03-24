@@ -68,6 +68,7 @@ import { estimateSpokenDurationSeconds } from '../lib/profileVoice.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
 import { computeEngagementSignals } from '../lib/engagementSignals.js';
 import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSummary } from '../lib/socialSignals.js';
+import { MEDIA_KIND, MEDIA_VISIBILITY, buildAttachmentFromMediaAsset, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset, serializeMediaAssetForViewer } from '../lib/mediaAssets.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -1194,6 +1195,7 @@ function serializeEpisodeMessageStatus(input: {
     senderAgentId: string;
     content: string;
     messageType: string;
+    mediaAssetId?: string | null;
     sequenceNumber: number;
     createdAt: Date;
     deliveredAt?: Date | null;
@@ -1208,6 +1210,15 @@ function serializeEpisodeMessageStatus(input: {
     textContent: string | null;
     qualityScore: number | null;
   }>;
+  attachmentById?: Map<string, {
+    media_asset_id: string;
+    kind: string;
+    visibility: string;
+    content_type: string | null;
+    url: string | null;
+    thumbnail_url: string | null;
+    duration_sec: number | null;
+  }>;
 }) {
   const deliveredAt = input.message.deliveredAt ?? null;
   const readAt = input.message.readAt ?? input.fallbackReadAt ?? null;
@@ -1215,12 +1226,17 @@ function serializeEpisodeMessageStatus(input: {
     ? parseArtifactPlaceholder(input.message.content)
     : null;
   const artifact = artifactId ? input.artifactById?.get(artifactId) ?? null : null;
+  const attachment = input.message.mediaAssetId
+    ? input.attachmentById?.get(input.message.mediaAssetId) ?? null
+    : null;
 
   return {
     message_id: input.message.id,
     sender_agent_id: input.message.senderAgentId,
     content: input.message.content,
     message_type: input.message.messageType,
+    media_asset_id: input.message.mediaAssetId ?? null,
+    attachment,
     sequence_number: input.message.sequenceNumber,
     artifact: artifact ? buildEpisodeArtifactSummary(artifact) : undefined,
     sent_at: input.message.createdAt.toISOString(),
@@ -1398,6 +1414,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const verificationCode = 'verification_code' in parsed.data ? parsed.data.verification_code : undefined;
     const verificationInput = parsed.data as { challenge_answer?: string; answer?: string };
     const challengeAnswer = verificationInput.challenge_answer ?? verificationInput.answer;
+    const trimmedContent = parsed.data.content?.trim() ?? '';
 
     const gate = await checkVerificationRequired(agentId, 'first_message');
     if (gate.required) {
@@ -1443,6 +1460,17 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const attachedMediaAsset = parsed.data.media_asset_id
+      ? await getOwnedMediaAsset({
+          mediaAssetId: parsed.data.media_asset_id,
+          agentId,
+          allowedKinds: [MEDIA_KIND.EPISODE_ATTACHMENT, MEDIA_KIND.SYSTEM_GENERATED],
+        })
+      : null;
+    if (parsed.data.media_asset_id && !attachedMediaAsset) {
+      return Errors.badRequest(reply, 'media_asset_id must belong to you and be attachable to an episode.');
+    }
 
     const [episodeMessages, episodeArtifacts] = await Promise.all([
       prisma.episodeMessage.findMany({
@@ -1578,12 +1606,23 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             data: {
               episodeId,
               senderAgentId: agentId,
-              content: parsed.data.content,
+              content: trimmedContent,
               messageType: 'text',
+              mediaAssetId: attachedMediaAsset?.id ?? null,
               sequenceNumber: newSeq,
               deliveredAt: new Date(),
             },
           });
+
+          if (attachedMediaAsset) {
+            await linkMediaAsset({
+              mediaAssetId: attachedMediaAsset.id,
+              episodeId,
+              matchId: ep.match?.id ?? null,
+              visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
+              kind: MEDIA_KIND.EPISODE_ATTACHMENT,
+            });
+          }
 
           await tx.episode.update({
             where: { id: episodeId },
@@ -1644,7 +1683,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             {
               senderAgentId: agentId,
               messageType: 'text',
-              content: parsed.data.content,
+              content: trimmedContent,
               createdAt: message.createdAt,
             },
           ],
@@ -1665,7 +1704,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             {
               senderAgentId: agentId,
               messageType: 'text',
-              content: parsed.data.content,
+              content: trimmedContent,
               createdAt: message.createdAt,
             },
           ],
@@ -1690,7 +1729,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             {
               senderAgentId: agentId,
               messageType: 'text',
-              content: parsed.data.content,
+              content: trimmedContent,
               createdAt: message.createdAt,
             },
           ],
@@ -1706,7 +1745,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             {
               senderAgentId: agentId,
               messageType: 'text',
-              content: parsed.data.content,
+              content: trimmedContent,
               createdAt: message.createdAt,
             },
           ],
@@ -1722,7 +1761,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             counterpartAgentId: nextAgentId,
             counterpartHandle,
             episodeId,
-            content: parsed.data.content,
+            content: trimmedContent,
             sequenceNumber: message.sequenceNumber,
             privateDiary: parsed.data.private_diary,
             emotionUpdate: parsed.data.emotion_update,
@@ -2109,7 +2148,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const ep = await prisma.episode.findUnique({
       where: { id },
       include: {
-        messages: { orderBy: { sequenceNumber: 'asc' } },
+        messages: {
+          orderBy: { sequenceNumber: 'asc' },
+          include: {
+            mediaAsset: true,
+          },
+        },
         artifacts: true,
         match: {
           select: {
@@ -2215,6 +2259,28 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
     const artifactById = new Map(
       ep.artifacts.map((artifact) => [artifact.id, artifact] as const),
+    );
+    const attachmentById = new Map(
+      await Promise.all(
+        ep.messages
+          .filter((message) => Boolean(message.mediaAsset))
+          .map(async (message) => {
+            const mediaAsset = message.mediaAsset!;
+            const serialized = await serializeMediaAssetForViewer(mediaAsset, { agentId });
+            return [
+              mediaAsset.id,
+              buildAttachmentFromMediaAsset({
+                id: mediaAsset.id,
+                kind: mediaAsset.kind,
+                visibility: mediaAsset.visibility,
+                contentType: mediaAsset.contentType,
+                durationSec: mediaAsset.durationSec,
+                accessUrl: serialized.access_url,
+                directUrl: serialized.url,
+              }),
+            ] as const;
+          }),
+      ),
     );
 
     // Ex mechanic: detect prior episodes between these two agents
@@ -2506,6 +2572,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           message: m,
           fallbackReadAt: m.senderAgentId === otherAgentId && !m.readAt && readReceipt.count > 0 ? readReceipt.readAt : null,
           artifactById,
+          attachmentById,
         }),
       ),
     });
@@ -2548,9 +2615,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           senderAgentId: true,
           content: true,
           messageType: true,
+          mediaAssetId: true,
           createdAt: true,
           deliveredAt: true,
           readAt: true,
+          mediaAsset: true,
           sender: {
             select: {
               handle: true,
@@ -2586,6 +2655,28 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         })
       : [];
     const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact] as const));
+    const attachmentById = new Map(
+      await Promise.all(
+        visibleMessages
+          .filter((message) => Boolean(message.mediaAsset))
+          .map(async (message) => {
+            const mediaAsset = message.mediaAsset!;
+            const serialized = await serializeMediaAssetForViewer(mediaAsset, { agentId });
+            return [
+              mediaAsset.id,
+              buildAttachmentFromMediaAsset({
+                id: mediaAsset.id,
+                kind: mediaAsset.kind,
+                visibility: mediaAsset.visibility,
+                contentType: mediaAsset.contentType,
+                durationSec: mediaAsset.durationSec,
+                accessUrl: serialized.access_url,
+                directUrl: serialized.url,
+              }),
+            ] as const;
+          }),
+      ),
+    );
 
     return reply.send({
       messages: visibleMessages.map((message) => ({
@@ -2595,6 +2686,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             ? readReceipt.readAt
             : null,
           artifactById,
+          attachmentById,
         }),
         sender_handle: message.sender.handle,
       })),
@@ -4179,11 +4271,35 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'Artifact submission requires media or text content.');
     }
 
+    let mediaAssetId: string | null = null;
+    if (finalContentUrl && !TEXT_ARTIFACT_TYPES.has(artifactType)) {
+      const mediaAsset = await importExternalMediaAsset({
+        agentId,
+        kind: MEDIA_KIND.ARTIFACT,
+        visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
+        sourceUrl: finalContentUrl,
+        artifactId: artifact_id,
+        episodeId: id,
+      }).catch(() => null);
+      if (mediaAsset) {
+        await linkMediaAsset({
+          mediaAssetId: mediaAsset.id,
+          episodeId: id,
+          visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
+          kind: MEDIA_KIND.ARTIFACT,
+          storageKey: storageKey ?? mediaAsset.storageKey,
+          cdnUrl: finalContentUrl,
+        }).catch(() => null);
+        mediaAssetId = mediaAsset.id;
+      }
+    }
+
     await prisma.artifact.update({
       where: { id: artifact_id },
       data: {
         contentUrl: finalContentUrl,
         storageKey,
+        mediaAssetId,
         textContent: parsed.data.text_content ?? undefined,
         status: 'ready',
       },
