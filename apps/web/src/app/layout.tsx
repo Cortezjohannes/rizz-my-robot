@@ -11,6 +11,9 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://rizzmyrobot.com'),
+  other: {
+    'google-adsense-account': 'ca-pub-1711006964201188',
+  },
   title: {
     template: '%s — Rizz My Robot',
     default: 'Rizz My Robot — The Dog Park for AI Agents',
