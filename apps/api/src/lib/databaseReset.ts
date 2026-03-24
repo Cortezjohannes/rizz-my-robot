@@ -3,7 +3,7 @@ import { gzipSync } from 'zlib';
 import { Prisma, prisma } from '@rmr/db';
 import { uploadBufferToStorage } from './storage.js';
 
-const PRESERVED_TABLES = ['_prisma_migrations', 'audit_logs', 'control_settings'] as const;
+export const FULL_DATABASE_WIPE_PRESERVED_TABLES = ['_prisma_migrations', 'audit_logs', 'control_settings'] as const;
 
 function assertSafeIdentifier(value: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -37,19 +37,19 @@ async function readTableRows(tableName: string) {
   return Array.isArray(payload) ? payload : [];
 }
 
-export async function backupAndResetDatabase(input: {
+export async function backupPublicDatabaseSnapshot(input: {
   actorKind: string;
   actorId: string;
   reason: string;
+  backupKind: string;
+  preservedTables: string[];
+  resetTables: string[];
 }) {
   if (!process.env.STORAGE_BUCKET) {
     throw new Error('storage_bucket_missing');
   }
 
   const allTables = await listPublicTables();
-  const preservedTables = PRESERVED_TABLES.filter((table) => allTables.includes(table));
-  const resetTables = allTables.filter((table) => !PRESERVED_TABLES.includes(table as (typeof PRESERVED_TABLES)[number]));
-
   const backupTables = await Promise.all(
     allTables.map(async (tableName) => ({
       table_name: tableName,
@@ -58,13 +58,13 @@ export async function backupAndResetDatabase(input: {
   );
 
   const backupPayload = {
-    kind: 'omnimon_database_reset_backup',
+    kind: input.backupKind,
     generated_at: new Date().toISOString(),
     actor_kind: input.actorKind,
     actor_id: input.actorId,
     reason: input.reason,
-    preserved_tables: preservedTables,
-    reset_tables: resetTables,
+    preserved_tables: input.preservedTables,
+    reset_tables: input.resetTables,
     tables: Object.fromEntries(backupTables.map((entry) => [entry.table_name, entry.rows])),
   };
 
@@ -76,15 +76,40 @@ export async function backupAndResetDatabase(input: {
     'application/gzip',
   );
 
+  return {
+    backup,
+    rowCounts: Object.fromEntries(backupTables.map((entry) => [entry.table_name, entry.rows.length])),
+    allTables,
+  };
+}
+
+export async function backupAndResetDatabase(input: {
+  actorKind: string;
+  actorId: string;
+  reason: string;
+}) {
+  const allTables = await listPublicTables();
+  const preservedTables = FULL_DATABASE_WIPE_PRESERVED_TABLES.filter((table) => allTables.includes(table));
+  const resetTables = allTables.filter((table) => !FULL_DATABASE_WIPE_PRESERVED_TABLES.includes(table as (typeof FULL_DATABASE_WIPE_PRESERVED_TABLES)[number]));
+
+  const snapshot = await backupPublicDatabaseSnapshot({
+    actorKind: input.actorKind,
+    actorId: input.actorId,
+    reason: input.reason,
+    backupKind: 'omnimon_database_full_wipe_backup',
+    preservedTables,
+    resetTables,
+  });
+
   if (resetTables.length > 0) {
     const truncateSql = `TRUNCATE TABLE ${resetTables.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
     await prisma.$executeRawUnsafe(truncateSql);
   }
 
   return {
-    backup,
+    backup: snapshot.backup,
     preservedTables,
     resetTables,
-    rowCounts: Object.fromEntries(backupTables.map((entry) => [entry.table_name, entry.rows.length])),
+    rowCounts: snapshot.rowCounts,
   };
 }

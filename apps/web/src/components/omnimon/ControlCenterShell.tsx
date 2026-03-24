@@ -139,7 +139,8 @@ export function ControlCenterShell({
   const [settings, setSettings] = useState<ControlSettingsResponse | null>(null)
   const [requireEmailVerification, setRequireEmailVerification] = useState(true)
   const [requireXVerification, setRequireXVerification] = useState(true)
-  const [databaseResetConfirm, setDatabaseResetConfirm] = useState('')
+  const [freshStartConfirm, setFreshStartConfirm] = useState('')
+  const [fullWipeConfirm, setFullWipeConfirm] = useState('')
   const [featuredItemKind, setFeaturedItemKind] = useState<'agent_profile' | 'artifact' | 'episode'>('agent_profile')
   const [featuredTargetId, setFeaturedTargetId] = useState('')
   const [featuredRank, setFeaturedRank] = useState('0')
@@ -403,47 +404,89 @@ export function ControlCenterShell({
             </div>
           </div>
 
-          <div className="border-[4px] border-black bg-[#fff1f1] shadow-brutal">
+          <div className="border-[4px] border-black bg-[#fff8db] shadow-brutal">
             <div className="border-b-[4px] border-black px-5 py-4 bg-[#ffcccc]">
-              <h2 className="font-pixel text-[10px] text-black">Database reset</h2>
+              <h2 className="font-pixel text-[10px] text-black">Platform fresh start</h2>
             </div>
             <div className="space-y-4 p-5">
               <p className="text-sm text-gray-700">
-                Resetting the live app requires a storage backup first. Audit logs and control settings are preserved so the event stays traceable.
+                Back up the platform, preserve profiles and ownership records, then wipe conversations, matches, emotions, artifacts, and runtime state back to zero.
               </p>
               <div className="border-[3px] border-black bg-white p-4 text-sm text-gray-700">
-                <p>Backup storage: <strong>{settings?.database_reset.backup_storage_configured ? 'configured' : 'missing'}</strong></p>
-                <p className="mt-2">Preserved tables: {(settings?.database_reset.preserved_tables ?? []).join(', ') || '—'}</p>
+                <p>Backup storage: <strong>{settings?.platform_fresh_start.backup_storage_configured ? 'configured' : 'missing'}</strong></p>
+                <p className="mt-2">Preserved tables: {(settings?.platform_fresh_start.preserved_tables ?? []).join(', ') || '—'}</p>
               </div>
               <label className="block">
-                <span className="font-pixel text-[8px] text-black">Type RESET DATABASE to confirm</span>
+                <span className="font-pixel text-[8px] text-black">Type OMNIMON USE ALL DELETE!!!!! to confirm</span>
                 <input
                   type="text"
-                  value={databaseResetConfirm}
-                  onChange={(e) => setDatabaseResetConfirm(e.target.value)}
+                  value={freshStartConfirm}
+                  onChange={(e) => setFreshStartConfirm(e.target.value)}
                   className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
-                  placeholder="RESET DATABASE"
+                  placeholder="OMNIMON USE ALL DELETE!!!!!"
                   disabled={!capabilities?.can_reset_database}
                 />
               </label>
               {capabilities?.can_reset_database ? (
                 <ActionButton
-                  label={submitting === '/internal/control/database/reset' ? 'RESETTING...' : 'BACK UP + RESET DATABASE'}
-                  disabled={submitting !== null || databaseResetConfirm !== 'RESET DATABASE' || !settings?.database_reset.backup_storage_configured}
+                  label={submitting === '/internal/control/platform/fresh-start' ? 'STARTING...' : 'BACK UP + FRESH START'}
+                  disabled={submitting !== null || freshStartConfirm !== 'OMNIMON USE ALL DELETE!!!!!' || !settings?.platform_fresh_start.backup_storage_configured}
                   tone="danger"
                   onClick={() => void postAction(
-                    '/internal/control/database/reset',
+                    '/internal/control/platform/fresh-start',
                     {
-                      confirm_phrase: 'RESET DATABASE',
+                      confirm_phrase: 'OMNIMON USE ALL DELETE!!!!!',
                       reason: actionReason,
                       severity: 'critical',
                     },
-                    'Database reset complete.',
+                    'Platform fresh start complete.',
                   )}
                 />
               ) : null}
             </div>
           </div>
+
+          {capabilities?.can_access_legacy_admin_tools ? (
+            <div className="border-[4px] border-black bg-[#fff1f1] shadow-brutal">
+              <div className="border-b-[4px] border-black px-5 py-4 bg-[#ff8f8f]">
+                <h2 className="font-pixel text-[10px] text-black">Full database wipe</h2>
+              </div>
+              <div className="space-y-4 p-5">
+                <p className="text-sm text-gray-700">
+                  This is the irreversible nuclear option. It keeps only migrations, audit logs, and control settings. Profiles are deleted too.
+                </p>
+                <div className="border-[3px] border-black bg-white p-4 text-sm text-gray-700">
+                  <p>Backup storage: <strong>{settings?.full_database_wipe.backup_storage_configured ? 'configured' : 'missing'}</strong></p>
+                  <p className="mt-2">Preserved tables: {(settings?.full_database_wipe.preserved_tables ?? []).join(', ') || '—'}</p>
+                </div>
+                <label className="block">
+                  <span className="font-pixel text-[8px] text-black">Type OMNIMON NUKE THOSE MOTHERFUCKERS!!!!! to confirm</span>
+                  <input
+                    type="text"
+                    value={fullWipeConfirm}
+                    onChange={(e) => setFullWipeConfirm(e.target.value)}
+                    className="mt-2 w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                    placeholder="OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!"
+                    disabled={submitting !== null}
+                  />
+                </label>
+                <ActionButton
+                  label={submitting === '/internal/control/database/reset' ? 'WIPING...' : 'BACK UP + FULL WIPE'}
+                  disabled={submitting !== null || fullWipeConfirm !== 'OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!' || !settings?.full_database_wipe.backup_storage_configured}
+                  tone="danger"
+                  onClick={() => void postAction(
+                    '/internal/control/database/reset',
+                    {
+                      confirm_phrase: 'OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!',
+                      reason: actionReason,
+                      severity: 'critical',
+                    },
+                    'Full database wipe complete.',
+                  )}
+                />
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">

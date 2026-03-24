@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import Redis from 'ioredis';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
-import { restartPlatformState } from '../lib/platformRestart.js';
 import { resetRevealChatContextCache } from '../lib/revealChatContext.js';
 import { resetRevealChatCoordinationState } from '../lib/revealChatCoordination.js';
 import { resetRevealChatEntryState } from '../lib/revealChatEntry.js';
@@ -13,6 +12,7 @@ import { emitRevealChatLifecycleEvent, resetRevealChatRuntimeState } from './rev
 import {
   applyModerationResolution,
   applyDatabaseResetAction,
+  applyPlatformFreshStartAction,
   applyLifecycleAction,
   buildControlFeaturedFeed,
   applyPublicPresenceAction,
@@ -91,11 +91,15 @@ const VerificationSettingsSchema = ReasonSchema.extend({
   require_x_verification: z.boolean(),
 });
 
-const DatabaseResetSchema = ReasonSchema.extend({
-  confirm_phrase: z.literal('RESET DATABASE'),
+const FullDatabaseWipeSchema = ReasonSchema.extend({
+  confirm_phrase: z.literal('OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!'),
 });
 
-const PlatformRestartSchema = ReasonSchema.extend({
+const PlatformFreshStartSchema = ReasonSchema.extend({
+  confirm_phrase: z.literal('OMNIMON USE ALL DELETE!!!!!'),
+});
+
+const DeprecatedPlatformRestartSchema = ReasonSchema.extend({
   confirm_phrase: z.literal('RESTART PLATFORM'),
 });
 
@@ -171,7 +175,10 @@ function handleControlError(reply: Parameters<typeof sendError>[0], err: unknown
     return sendError(reply, 409, 'webhook_inactive', 'Cannot retry a webhook delivery for an inactive webhook.');
   }
   if (message === 'storage_bucket_missing') {
-    return sendError(reply, 503, 'backup_storage_unavailable', 'Database reset backup storage is not configured.');
+    return sendError(reply, 503, 'backup_storage_unavailable', 'Backup storage is not configured for this control action.');
+  }
+  if (message === 'forbidden_control_actor') {
+    return sendError(reply, 403, 'forbidden_control_actor', 'This control action is not available to your operator role.');
   }
   return sendError(reply, 500, 'control_action_failed', 'The Omnimon control action failed.');
 }
@@ -504,20 +511,52 @@ export async function controlRoutes(fastify: FastifyInstance) {
     }
   });
 
+  fastify.post('/internal/control/platform/fresh-start', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    if (request.controlActor?.actorKind !== 'omnimon') {
+      return sendError(reply, 403, 'forbidden_control_actor', 'This action is restricted to Omnimon.');
+    }
+
+    const parsed = PlatformFreshStartSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid platform fresh start payload.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await applyPlatformFreshStartAction({
+        actor: request.controlActor!,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+        hooks: {
+          resetRevealChatRuntimeState,
+          resetRevealChatContextCache,
+          resetRevealChatEntryState,
+          resetRevealChatCoordinationState,
+          resetSocialRuntimeState,
+        },
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
   fastify.post('/internal/control/platform/restart', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
     if (request.controlActor?.actorKind !== 'omnimon') {
       return sendError(reply, 403, 'forbidden_control_actor', 'This action is restricted to Omnimon.');
     }
 
-    const parsed = PlatformRestartSchema.safeParse(request.body);
+    const parsed = DeprecatedPlatformRestartSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid platform restart payload.', { issues: parsed.error.issues });
     }
 
+    reply.header('X-Deprecated', 'Use POST /internal/control/platform/fresh-start');
+
     try {
-      const result = await restartPlatformState({
+      const result = await applyPlatformFreshStartAction({
         actor: request.controlActor!,
         reason: parsed.data.reason,
+        severity: parsed.data.severity,
         hooks: {
           resetRevealChatRuntimeState,
           resetRevealChatContextCache,
@@ -615,9 +654,13 @@ export async function controlRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/internal/control/database/reset', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const parsed = DatabaseResetSchema.safeParse(request.body);
+    if (request.controlActor?.actorKind !== 'human_admin') {
+      return sendError(reply, 403, 'forbidden_control_actor', 'Full database wipe is restricted to the human admin surface.');
+    }
+
+    const parsed = FullDatabaseWipeSchema.safeParse(request.body);
     if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid database reset payload.', { issues: parsed.error.issues });
+      return Errors.badRequest(reply, 'Invalid full database wipe payload.', { issues: parsed.error.issues });
     }
 
     try {
