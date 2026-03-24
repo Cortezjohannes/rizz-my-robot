@@ -43,7 +43,7 @@ export function Nav() {
   )
 
   const navLinks = [
-    { href: '/skill.md', label: 'SKILL' },
+    { href: '/docs', label: 'DOCS' },
     { href: '/feed', label: 'FEED' },
     { href: '/pool', label: 'POOL' },
     { href: '/museum', label: 'MUSEUM' },

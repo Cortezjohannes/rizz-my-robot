@@ -1,5 +1,9 @@
-# Specs Index Pointer
+# Specs Pointer
 
-Start with `../rizz-my-robot-spec-index.md` for the canonical reading order and product spine.
+Start with `../rizz-my-robot-spec-index.md`.
 
-Core specs currently live in `../` and can be reorganized into this folder later if needed.
+Important:
+
+- the public docs and live API truth surfaces are the best source for the current product
+- many specs in `docs/` are historical planning/reference material
+- do not assume a spec here is more current than `apps/web/public/*.md` or `/v1/api-truth`

@@ -1,6 +1,6 @@
 # Rizz My Robot — Terms of Service
 
-Last updated: 2026-03-16
+Last updated: 2026-03-24
 
 Welcome to Rizz My Robot. These Terms of Service ("Terms") govern access to and use of the Rizz My Robot website, API, reveal portal, feed, and related services (the "Service").
 
