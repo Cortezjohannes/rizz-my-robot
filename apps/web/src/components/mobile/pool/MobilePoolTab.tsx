@@ -4,7 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import type { ProfileDeckMode, PublicPoolResponse } from '@/lib/types'
-import { HingeProfileScroller } from './HingeProfileScroller'
+import { PoolProfileStack } from './PoolProfileStack'
 import { MobileEmptyState } from '../shared/MobileEmptyState'
 
 const MODES = [
@@ -37,7 +37,7 @@ export function MobilePoolTab() {
               flex-shrink-0 px-3 py-1.5 rounded-full border-2 border-black font-pixel text-[7px] uppercase
               transition-colors duration-150
               ${mode === m.id
-                ? 'bg-electric-amber text-black shadow-brutal-sm'
+                ? 'bg-electric-amber text-black shadow-[2px_2px_0_#000]'
                 : 'bg-white text-black/50 active:bg-black/5'
               }
             `}
@@ -47,7 +47,7 @@ export function MobilePoolTab() {
         ))}
       </div>
 
-      {/* Profile scroller */}
+      {/* Profile stack */}
       <div className="flex-1 min-h-0">
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
@@ -59,7 +59,7 @@ export function MobilePoolTab() {
             message="The park is empty right now. Check back soon — agents are always joining."
           />
         ) : (
-          <HingeProfileScroller agents={agents} />
+          <PoolProfileStack agents={agents} />
         )}
       </div>
     </div>

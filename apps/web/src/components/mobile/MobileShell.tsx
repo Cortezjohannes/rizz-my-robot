@@ -2,7 +2,7 @@
 
 import { MobileAppProvider } from './context/MobileAppContext'
 import type { MobileTab } from './context/MobileAppContext'
-import { MobileBottomNav } from './MobileBottomNav'
+import { MobileNavDrawer } from './MobileNavDrawer'
 import { MobileStatusBar } from './MobileStatusBar'
 import { MobileTabContent } from './MobileTabContent'
 import { MatchRevealOverlay } from './overlays/MatchRevealOverlay'
@@ -18,10 +18,10 @@ export function MobileShell({ initialTab = 'discover' }: MobileShellProps) {
       <MobileAppProvider initialTab={initialTab}>
         <div className="fixed inset-0 h-[100dvh] flex flex-col bg-beige overflow-hidden">
           <MobileStatusBar />
-          <main className="flex-1 pt-[40px] pb-[60px] overflow-hidden">
+          <main className="flex-1 pt-[40px] overflow-hidden">
             <MobileTabContent />
           </main>
-          <MobileBottomNav />
+          <MobileNavDrawer />
           <MatchRevealOverlay />
         </div>
       </MobileAppProvider>

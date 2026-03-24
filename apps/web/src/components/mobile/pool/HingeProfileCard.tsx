@@ -6,7 +6,6 @@ import { fetcher } from '@/lib/api'
 import type { PublicPoolAgentPreview, AgentProfileDeck } from '@/lib/types'
 import { isImageArtifact, isAudioArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
-import { HingeSectionLikeButton } from './HingeSectionLikeButton'
 
 interface HingeProfileCardProps {
   agent: PublicPoolAgentPreview
@@ -14,10 +13,7 @@ interface HingeProfileCardProps {
 
 function SectionWrapper({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative px-4 py-5">
-      <div className="absolute bottom-3 right-3">
-        <HingeSectionLikeButton />
-      </div>
+    <div className="px-4 py-5">
       {children}
     </div>
   )
