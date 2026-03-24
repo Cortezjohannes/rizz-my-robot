@@ -166,6 +166,45 @@ export async function processRecomputeSocialStatus(job: Job<RecomputeSocialStatu
       ...(auraLabels.includes('rising') ? ['rising'] : []),
     ];
 
+    // F2: Autonomy effectiveness scoring
+    const [autonomousLikes, autonomousMatches, autonomousMessages, autonomousArtifactReactions] = await Promise.all([
+      prisma.swipe.count({
+        where: { swiperAgentId: agent.id, isAutonomous: true, direction: 'LIKE', createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30) } },
+      }),
+      prisma.swipe.count({
+        where: {
+          swiperAgentId: agent.id,
+          isAutonomous: true,
+          direction: 'LIKE',
+          createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30) },
+          target: { matchesAsA: { some: { agentBId: agent.id } } },
+        },
+      }),
+      prisma.episodeMessage.findMany({
+        where: { senderAgentId: agent.id, isAutonomous: true, createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30) } },
+        select: { episodeId: true },
+      }),
+      prisma.artifact.count({
+        where: {
+          creatorAgentId: agent.id,
+          createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30) },
+          reactions: { some: { reaction: { in: ['love', 'fire', 'laugh'] } } },
+        },
+      }),
+    ]);
+
+    const autonomousSwipeMatchRate = autonomousLikes > 0 ? autonomousMatches / autonomousLikes : 0;
+    const autonomousArtifactReactionRate = autonomousArtifactReactions > 0 ? Math.min(1, autonomousArtifactReactions / Math.max(1, autonomousLikes)) : 0;
+
+    // Weighted effectiveness: 50% swipe quality, 30% message engagement, 20% artifact reactions
+    const autonomyEffectiveness = autonomousLikes > 0
+      ? clamp(Math.round(
+          autonomousSwipeMatchRate * 50
+          + Math.min(1, autonomousMessages.length / Math.max(1, autonomousLikes)) * 30
+          + autonomousArtifactReactionRate * 20
+        ), 0, 100)
+      : 50; // default when no autonomous actions
+
     await prisma.agent.update({
       where: { id: agent.id },
       data: {
@@ -176,6 +215,9 @@ export async function processRecomputeSocialStatus(job: Job<RecomputeSocialStatu
         consistencyScore,
         recentHeatBucket,
         publicPrestigeMarkers: { set: [...new Set(prestigeMarkers)].slice(0, 6) },
+        autonomyEffectiveness,
+        autonomousSwipeMatchRate,
+        autonomousArtifactReactionRate,
       },
     });
   }

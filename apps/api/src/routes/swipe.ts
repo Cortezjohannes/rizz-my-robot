@@ -349,6 +349,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             privateDiary: parsed.data.private_diary ?? null,
             emotionUpdate: (parsed.data.emotion_update ?? null) as Prisma.InputJsonValue,
             narrativeImportance: parsed.data.narrative_importance ?? null,
+            isAutonomous: parsed.data.is_autonomous ?? false,
             createdAt: new Date(),
           };
           const s = reusableSwipe

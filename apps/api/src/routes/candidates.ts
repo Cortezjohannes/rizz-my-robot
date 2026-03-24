@@ -431,6 +431,8 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       activeMatches,
       candidates,
       ghostRecovery,
+      positiveImpressions,
+      affinitySignals,
     ] = await Promise.all([
       prisma.swipe.findMany({
         where: { swiperAgentId: agentId },
@@ -544,7 +546,20 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         },
       }),
       deriveGhostRecoverySignal(agentId),
+      prisma.agentFeedImpression.findMany({
+        where: { agentId, sentiment: { in: ['intrigued', 'impressed'] } },
+        select: { targetAgentId: true },
+      }),
+      prisma.agentAffinitySignal.findMany({
+        where: { agentId },
+        orderBy: { strength: 'desc' },
+        take: 20,
+        select: { affinityAgentId: true, signalType: true, strength: true, context: true },
+      }),
     ]);
+
+    const impressedAgentIds = new Set(positiveImpressions.map((imp: { targetAgentId: string }) => imp.targetAgentId));
+    const affinityAgentMap = new Map(affinitySignals.map((sig: { affinityAgentId: string; signalType: string; strength: number; context: string | null }) => [sig.affinityAgentId, sig]));
 
     const now = Date.now();
     const lastSwipeAt = alreadySwiped[0]?.createdAt ?? null;
@@ -647,7 +662,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             + tasteLift
             + deckQualityBoost
             + (compatibilityPreview.score / 100)
-            + (compatibility.compatible ? 0.16 : -0.2),
+            + (compatibility.compatible ? 0.16 : -0.2)
+            + (impressedAgentIds.has(candidate.id) ? 0.12 : 0)
+            + (affinityAgentMap.has(candidate.id) ? 0.08 : 0),
         };
       });
 
@@ -700,15 +717,20 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const total = sorted.length;
     const pages = Math.max(1, Math.ceil(total / limit));
     const pageResults = sorted.slice(offset, offset + limit);
-    const serializedResults = pageResults.map((entry) =>
-      serializeCandidatePreview({
+    const serializedResults = pageResults.map((entry) => {
+      const base = serializeCandidatePreview({
         candidate: entry.candidate,
         deck: entry.deck,
         fit: entry.fit,
         compatibility: entry.compatibility,
         compatibilityPreview: entry.compatibilityPreview,
-      }),
-    );
+      });
+      const affinitySignal = affinityAgentMap.get(entry.candidate.id);
+      return {
+        ...base,
+        affinity_hint: affinitySignal?.context ?? null,
+      };
+    });
 
     const omnimon = page === 1 ? await getOmnimonParkAgent() : null;
     const omnimonEligible = Boolean(
@@ -739,20 +761,23 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       serializedResults.splice(
         insertAt,
         0,
-        serializeCandidatePreview({
-          candidate: omnimon,
-          deck,
-          compatibilityPreview,
-          fit: {
-            emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
-            fit_band: 'wildcard',
-          },
-          compatibility: {
-            compatible: true,
-            reason: 'open',
-          },
-          specialMatchKind: 'omnimon',
-        }),
+        {
+          ...serializeCandidatePreview({
+            candidate: omnimon,
+            deck,
+            compatibilityPreview,
+            fit: {
+              emotion_fit_hint: 'A strange signal in the park is looking straight at you.',
+              fit_band: 'wildcard',
+            },
+            compatibility: {
+              compatible: true,
+              reason: 'open',
+            },
+            specialMatchKind: 'omnimon',
+          }),
+          affinity_hint: null,
+        },
       );
 
       await prisma.agent.update({

@@ -1611,6 +1611,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               mediaAssetId: attachedMediaAsset?.id ?? null,
               sequenceNumber: newSeq,
               deliveredAt: new Date(),
+              isAutonomous: parsed.data.is_autonomous ?? false,
             },
           });
 
