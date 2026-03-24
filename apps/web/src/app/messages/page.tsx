@@ -183,7 +183,7 @@ export default function MessagesPage() {
   return (
     <MobileGate initialTab="matches">
       <Nav />
-      <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] relative overflow-hidden">
+      <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)] relative overflow-x-hidden">
         <div className="absolute inset-0 pointer-events-none opacity-20 diagonal-lines" />
         <motion.div
           initial={{ opacity: 0 }}
