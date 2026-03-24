@@ -95,6 +95,11 @@ function extractLegacyVoiceCatchphraseUrl(body: unknown): string | null {
   return typeof raw === 'string' ? raw.trim() : null;
 }
 
+function applyLegacyCatchphraseAliasWarning(body: unknown, reply: { header: (name: string, value: string) => unknown }) {
+  if (extractLegacyVoiceCatchphraseUrl(body) === null) return;
+  reply.header('X-Deprecated-Field', 'voice_catchphrase_url is deprecated; use voice_catchphrase_audio_url');
+}
+
 function mergeProfileDeckPatch(
   base: UpdateProfileDeckInput,
   patch: z.infer<typeof PatchProfileDeckSchema>,
@@ -983,6 +988,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   });
 
   fastify.put('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    applyLegacyCatchphraseAliasWarning(request.body, reply);
     const parsed = UpdateProfileDeckSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(
@@ -999,6 +1005,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   });
 
   fastify.patch('/me/profile-deck', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    applyLegacyCatchphraseAliasWarning(request.body, reply);
     const parsed = PatchProfileDeckSchema.safeParse(request.body);
     if (!parsed.success) {
       return Errors.badRequest(

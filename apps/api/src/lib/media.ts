@@ -19,6 +19,9 @@ export const ALLOWED_MEDIA_CONTENT_TYPES = new Set([
   'audio/mpeg',
   'audio/wav',
   'audio/ogg',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
 ]);
 
 function sanitizeContentType(contentType: string | null | undefined) {
