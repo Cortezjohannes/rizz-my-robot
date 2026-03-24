@@ -31,7 +31,7 @@ import { computeChemistryScore, computeEstimatedChemistryScore, summarizeChemist
 import { awardRizzPoints, awardConversationMilestoneRizz, awardEpisodeCompletionRizz, awardArtifactRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
 import { deliverWebhooks, buildRevealUrl, sendHumanNotification } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
-import { getGhostCheckQueue } from '../lib/queues.js';
+import { getGhostCheckQueue, getWakeAgentQueue } from '../lib/queues.js';
 import { recomputeRepScore } from '../lib/repScore.js';
 import { recomputeAuthenticityForAgents, shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
 import { applyAgentAuthoredEmotionUpdate, buildEpisodeEmotionContext, recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
@@ -1867,6 +1867,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             episode_id: episodeId,
             agent_handle: sendingAgent.handle,
           }),
+          getWakeAgentQueue().add('wake', {
+            targetAgentId: nextAgentId,
+            trigger: 'new_message',
+            episodeId,
+            senderAgentId: agentId,
+          }).catch(() => {}),
           recordAnalyticsEvent({
             agentId,
             episodeId,
@@ -3791,6 +3797,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               status: 'passed',
               endedAt: new Date(),
               chemistryScore: chemistry,
+              exitInitiatedByAgentId: agentId,
+              exitStyle: parsed.data.exit_style ?? null,
             },
           }),
           prisma.match.update({

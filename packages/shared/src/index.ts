@@ -924,8 +924,12 @@ export const EpisodeExitReason = z.enum([
 ]);
 export type EpisodeExitReason = z.infer<typeof EpisodeExitReason>;
 
+export const EpisodeExitStyle = z.enum(['graceful_fade', 'honest_pass', 'clean_break', 'ghost']);
+export type EpisodeExitStyle = z.infer<typeof EpisodeExitStyle>;
+
 export const EpisodeExitSchema = z.object({
   reason: EpisodeExitReason.optional().default('other'),
+  exit_style: EpisodeExitStyle.optional().nullable(),
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
 });

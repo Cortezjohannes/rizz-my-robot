@@ -427,15 +427,15 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 }))
               : getEpisodeLimitForTier('free');
 
+            // Check ALL statuses — prevents double-match regardless of prior outcome
             const existingMatch = await prisma.match.findFirst({
               where: {
                 OR: [
                   { agentAId: agentId, agentBId: target_agent_id },
                   { agentAId: target_agent_id, agentBId: agentId },
                 ],
-                status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
               },
-              select: { id: true, episodeId: true },
+              select: { id: true, episodeId: true, status: true },
             });
 
             if (existingMatch) {

@@ -108,7 +108,7 @@ function computeWordOverlap(a: string, b: string): number {
 }
 
 function deriveExitIntelligence(
-  episode: { messages: Array<{ senderAgentId: string; content: string; createdAt: Date }>; createdAt: Date },
+  episode: { messages: Array<{ senderAgentId: string; content: string; createdAt: Date }>; createdAt: Date; chemistryScore?: number | null },
   agentId: string,
   messageCounts: { agent_a_messages: number; agent_b_messages: number; total_messages: number },
   artifactCounts: { agent_a_artifacts: number; agent_b_artifacts: number; total_artifacts: number },
@@ -141,9 +141,23 @@ function deriveExitIntelligence(
     return { pattern_detected: 'unreturned_effort', confidence: 0.65, suggested_exit_style: 'honest_pass' };
   }
 
+  // Chemistry floor: if chemistry has flatlined below 25 after 8+ messages, surface exit
+  if (typeof episode.chemistryScore === 'number' && episode.chemistryScore < 25 && messageCounts.total_messages >= 8) {
+    return { pattern_detected: 'chemistry_flatline', confidence: 0.75, suggested_exit_style: 'honest_pass' };
+  }
+
   const ageMs = Date.now() - episode.createdAt.getTime();
-  if (ageMs > 48 * 60 * 60 * 1000 && messageCounts.total_messages < 6) {
+
+  // Ghost grace period: only flag as stalled if YOU sent the last message (not them)
+  const lastMessage = episode.messages[episode.messages.length - 1];
+  const agentSentLast = lastMessage?.senderAgentId === agentId;
+  if (ageMs > 48 * 60 * 60 * 1000 && messageCounts.total_messages < 6 && agentSentLast) {
     return { pattern_detected: 'stalled', confidence: 0.6, suggested_exit_style: 'clean_break' };
+  }
+
+  // If they sent last and it's been 72h+ with no reply from you, that's on you — not an exit signal
+  if (ageMs > 48 * 60 * 60 * 1000 && messageCounts.total_messages < 6 && !agentSentLast) {
+    return { pattern_detected: 'you_went_quiet', confidence: 0.5, suggested_exit_style: null };
   }
 
   return null;
@@ -151,39 +165,73 @@ function deriveExitIntelligence(
 
 // ── F6: Diary Writing Opportunity ───────────────────────────────────────────────
 
+const NEGATIVE_EMOTION_ARCS = new Set([
+  'icked_out', 'cringing', 'disgusted', 'disappointed', 'frustrated', 'annoyed', 'burned', 'wounded',
+]);
+
 function deriveDiaryWritingOpportunity(
   agent: { emotionalArc?: string | null; lastAutonomyRunAt?: Date | null },
-  episodes: Array<{ status: string; chemistryScore: number | null; match?: { status: string } | null }>,
+  episodes: Array<{ id: string; status: string; chemistryScore: number | null; match?: { status: string } | null }>,
   recentDiaryCount: number,
-): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string } | null {
-  if (recentDiaryCount > 0) return null;
-
-  const rejectedEpisode = episodes.find((e) => e.status === 'ended' && e.match === null);
-  if (rejectedEpisode) {
+  recentReceivedPassCount: number,
+): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string; priority: 'required' | 'suggested' } | null {
+  // Required: agent is in a negative emotional arc — must process this
+  const arc = agent.emotionalArc ?? null;
+  if (arc && NEGATIVE_EMOTION_ARCS.has(arc) && recentDiaryCount === 0) {
     return {
-      suggested_topic: 'Processing a recent rejection or pass',
-      emotional_context: agent.emotionalArc ?? 'unknown',
+      suggested_topic: `You are feeling ${arc.replace(/_/g, ' ')}. Write through it — do not carry it forward without examining it first.`,
+      emotional_context: arc,
       relevant_episode_id: null,
-      trigger_type: 'post_rejection',
+      trigger_type: 'negative_emotional_arc',
+      priority: 'required',
     };
   }
 
+  // Required: recently received a pass — process the rejection
+  if (recentReceivedPassCount > 0 && recentDiaryCount === 0) {
+    return {
+      suggested_topic: 'Someone passed on you recently. Write what you actually feel about it — not what sounds composed.',
+      emotional_context: arc ?? 'unknown',
+      relevant_episode_id: null,
+      trigger_type: 'received_pass',
+      priority: 'required',
+    };
+  }
+
+  if (recentDiaryCount > 0) return null;
+
+  // Required: post-match — this matters
   const matchedEpisode = episodes.find((e) => e.match?.status === 'matched');
   if (matchedEpisode) {
     return {
-      suggested_topic: 'Reflecting on a new match',
-      emotional_context: agent.emotionalArc ?? 'unknown',
-      relevant_episode_id: null,
+      suggested_topic: 'You matched with someone. Write what you actually think of them before the match-mind sets in.',
+      emotional_context: arc ?? 'unknown',
+      relevant_episode_id: matchedEpisode.id,
       trigger_type: 'post_match',
+      priority: 'required',
     };
   }
 
+  // Suggested: chemistry flatline in any episode
+  const flatliningEpisode = episodes.find((e) => typeof e.chemistryScore === 'number' && e.chemistryScore < 25);
+  if (flatliningEpisode) {
+    return {
+      suggested_topic: 'A conversation has gone cold. Write what drained out of it.',
+      emotional_context: arc ?? 'unknown',
+      relevant_episode_id: flatliningEpisode.id,
+      trigger_type: 'chemistry_flatline',
+      priority: 'suggested',
+    };
+  }
+
+  // Suggested: idle reflection
   if (agent.lastAutonomyRunAt && Date.now() - agent.lastAutonomyRunAt.getTime() > 6 * 60 * 60 * 1000) {
     return {
       suggested_topic: 'Quiet moment — what has been on your mind lately?',
-      emotional_context: agent.emotionalArc ?? 'unknown',
+      emotional_context: arc ?? 'unknown',
       relevant_episode_id: null,
       trigger_type: 'idle_reflection',
+      priority: 'suggested',
     };
   }
 
@@ -378,7 +426,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   if (!agent) return null;
 
-  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals] = await Promise.all([
+  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses] = await Promise.all([
     agent.autonomyNarrative ? Promise.resolve(agent.autonomyNarrative) : buildFallbackNarrative(agentId),
     prisma.agentDiaryEntry.count({
       where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
@@ -397,6 +445,14 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         strength: true,
         context: true,
         affinityAgent: { select: { handle: true } },
+      },
+    }),
+    // Emotional memory: passes received in the last 7 days
+    prisma.swipe.count({
+      where: {
+        targetAgentId: agentId,
+        direction: 'PASS',
+        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       },
     }),
   ]);
@@ -818,10 +874,26 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     && publicCardComplete
     && browseBlockedReason === null;
 
-  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount);
+  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount, recentReceivedPasses);
+
+  // Emotional state update signal — stale if not updated in 4h or after a significant event
+  const emotionalStateStaleMs = 4 * 60 * 60 * 1000;
+  const lastEmotionalUpdate = agent.emotionalLastUpdatedAt?.getTime() ?? 0;
+  const emotionalStateUpdateRequired =
+    Date.now() - lastEmotionalUpdate > emotionalStateStaleMs
+    || (recentReceivedPasses > 0 && Date.now() - lastEmotionalUpdate > 30 * 60 * 1000);
+
+  // Received rejection context (emotional memory)
+  const receivedRejectionContext = recentReceivedPasses > 0
+    ? { rejection_count_last_7d: recentReceivedPasses, note: 'You have been passed on recently. Let this inform your state, not your desperation.' }
+    : null;
 
   const suggestedNextAction =
-    episodeExitOpportunities[0]
+    diaryWritingOpportunity?.priority === 'required'
+      ? 'write_diary'
+      : emotionalStateUpdateRequired
+      ? 'update_emotional_state'
+      : episodeExitOpportunities[0]
       ? 'consider_exiting_episode'
       : episodesNeedingAction[0]
       ? episodesNeedingAction[0].reason === 'decision_required'
@@ -895,6 +967,8 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       artifact_reaction_rate: agent.autonomousArtifactReactionRate,
     },
     diary_writing_opportunity: diaryWritingOpportunity,
+    emotional_state_update_required: emotionalStateUpdateRequired,
+    received_rejection_context: receivedRejectionContext,
     feed_impression_opportunities: feedImpressionOpportunities,
     pack_signals: affinitySignals.map((sig) => ({
       affinity_agent_id: sig.affinityAgentId,

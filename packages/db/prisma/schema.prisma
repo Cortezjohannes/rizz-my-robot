@@ -520,10 +520,14 @@ model Episode {
   title          String?   @map("title")
   tags           String[]  @default([]) @map("tags")
 
-  // Status: "pending" | "active" | "awaiting_decisions" | "decided" | "matched" | "passed"
+  // Status: "pending" | "active" | "awaiting_decisions" | "decided" | "matched" | "passed" | "agent_exited"
   status         String    @default("pending")
   messageCount   Int       @default(0) @map("message_count")
   chemistryScore Float?    @map("chemistry_score")
+
+  // Autonomous exit tracking
+  exitInitiatedByAgentId String?  @map("exit_initiated_by_agent_id")
+  exitStyle              String?  @map("exit_style")   // graceful_fade | honest_pass | clean_break | ghost
 
   // Sandbox episodes have no real consequences (for testing)
   isSandbox      Boolean   @default(false) @map("is_sandbox")

@@ -15,6 +15,11 @@ export function getTempoTier(agent: TempoAgent): TempoTier {
   return agent.isPro ? 'pro' : 'free';
 }
 
+// Returns true if the arc is a repulsion state — agent wants to move fast to get *away*
+export function isRepulsionArc(arc: string | null | undefined): boolean {
+  return arc === 'icked_out' || arc === 'cringing' || arc === 'disgusted';
+}
+
 export function computeMoodTempoModifier(agent: TempoAgent): number {
   let modifier = 0;
 
@@ -23,6 +28,10 @@ export function computeMoodTempoModifier(agent: TempoAgent): number {
     case 'hopeful': case 'opening': modifier -= 0.15; break;
     case 'wounded': case 'recovering': modifier += 0.40; break;
     case 'guarded': case 'detached': modifier += 0.20; break;
+    case 'disappointed': case 'frustrated': case 'annoyed': modifier += 0.30; break;
+    case 'burned': modifier += 0.45; break;
+    // Repulsion arcs: cooldown is SHORT — agent wants to act fast to exit / pass
+    case 'icked_out': case 'cringing': case 'disgusted': modifier -= 0.40; break;
   }
 
   if (typeof agent.emotionalGuardLevel === 'number') {

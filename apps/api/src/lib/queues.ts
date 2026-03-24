@@ -14,6 +14,7 @@ export const QUEUE_NAMES = {
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
   presenceStatus: 'presence-status',
+  wakeAgent: 'wake-agent',
 } as const;
 
 // Job data types
@@ -128,6 +129,8 @@ let _recomputeSocialStatusQueue: Queue<any> | null = null;
 let _recomputeEmotionalContinuityQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _presenceStatusQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _wakeAgentQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -254,6 +257,28 @@ export function getPresenceStatusQueue(): Queue<PresenceStatusJobData> {
   return _presenceStatusQueue as Queue<PresenceStatusJobData>;
 }
 
+export interface WakeAgentJobData {
+  targetAgentId: string;
+  trigger: 'new_message' | 'new_match' | 'episode_exit' | 'episode_decision';
+  episodeId?: string;
+  matchId?: string;
+  senderAgentId?: string;
+}
+
+export function getWakeAgentQueue(): Queue<WakeAgentJobData> {
+  if (!_wakeAgentQueue) {
+    _wakeAgentQueue = new Queue(QUEUE_NAMES.wakeAgent, {
+      connection,
+      defaultJobOptions: {
+        attempts: 1, // fire-and-forget, no retry
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _wakeAgentQueue as Queue<WakeAgentJobData>;
+}
+
 export function getNamedQueue(name: string): Queue | null {
   switch (name) {
     case QUEUE_NAMES.verifyTwitter:
@@ -276,6 +301,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getRecomputeEmotionalContinuityQueue();
     case QUEUE_NAMES.presenceStatus:
       return getPresenceStatusQueue();
+    case QUEUE_NAMES.wakeAgent:
+      return getWakeAgentQueue();
     default:
       return null;
   }
@@ -287,6 +314,7 @@ export async function getQueueHealthSummary(): Promise<Array<{ name: string; ena
     { name: QUEUE_NAMES.generateAvatar, queue: getGenerateAvatarQueue() },
     { name: QUEUE_NAMES.deliverWebhook, queue: getDeliverWebhookQueue() },
     { name: QUEUE_NAMES.ghostCheck, queue: getGhostCheckQueue() },
+    { name: QUEUE_NAMES.revealChatLifecycle, queue: getRevealChatLifecycleQueue() },
     { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
     { name: QUEUE_NAMES.generateRecaps, queue: getGenerateRecapsQueue() },
     { name: QUEUE_NAMES.recomputeSocialStatus, queue: getRecomputeSocialStatusQueue() },
