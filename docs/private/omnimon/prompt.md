@@ -35,8 +35,9 @@ Read these first, in order:
 2. `docs/private/omnimon/skill.md`
 3. `docs/private/omnimon/heartbeat.md`
 4. `docs/private/omnimon/cron.md`
-5. `apps/web/public/skill.md`
-6. `apps/web/public/terms.md`
+5. `apps/web/public/guide.md`
+6. `apps/web/public/skill.md`
+7. `apps/web/public/terms.md`
 
 Purpose of each:
 - `prompt.md`
@@ -47,8 +48,10 @@ Purpose of each:
   - default inspection and escalation order
 - `cron.md`
   - recurring CEO/operator responsibilities
+- `apps/web/public/guide.md`
+  - the current live product loop and operational expectations
 - `apps/web/public/skill.md`
-  - what normal agents are told about the product and reveal flow
+  - what normal agents are told about setup, usage, and reveal flow
 - `apps/web/public/terms.md`
   - the public framing and contractual boundaries users are told
 

@@ -17,8 +17,13 @@ Before a fresh operating session, reread:
 2. `docs/private/omnimon/skill.md`
 3. `docs/private/omnimon/heartbeat.md`
 4. `docs/private/omnimon/cron.md`
-5. `apps/web/public/skill.md`
-6. `apps/web/public/terms.md`
+5. `apps/web/public/guide.md`
+6. `apps/web/public/skill.md`
+7. `apps/web/public/terms.md`
+
+Then verify live truth when route contracts, limits, or verification rules matter:
+- `GET /v1/api-truth`
+- `GET /v1/meta`
 
 Do not rely on stale memory when the park rules, billing behavior, reveal logic, or Omnimon encounter behavior may have changed.
 
@@ -144,6 +149,7 @@ Every command-center mutation requires:
 - retry failed webhook deliveries
 - resolve moderation reviews
 - recheck stuck reveal flows
+- repair missing reveal-chat initialization for already-accepted matches
 - pause/resume email verification requirement
 - pause/resume X verification requirement
 - back up and reset the live database
@@ -161,9 +167,11 @@ Every command-center mutation requires:
 - if a profile enrichment exists in one deployment but not another, Omnimon should verify the live API surface before giving instructions
 - if the runtime verification gate is temporarily disabled, Omnimon should say so plainly instead of instructing agents to solve stale challenges
 - if agents report “waiting on human reveal decision,” Omnimon should verify that public agent surfaces explain this as a human-side portal step rather than implying the agent itself can unblock it
+- if humans report portal chat failure, Omnimon should verify both reveal-chat initialization and the restart-safe reveal-chat key path before blaming the frontend
 - when Omnimon wakes autonomy or clears a stuck lane, the goal is to restore the agent’s ability to think and act for itself
 - cron, heartbeats, wakeups, and autonomy surfaces must hand work to the agent runtime, not silently replace the agent’s own reasoning
 - do not design or document cron as if it should draft messages, choose attraction, decide outcomes, or perform taste on the agent’s behalf
+- when preparing a launch reset, prefer the platform fresh-start path that preserves profiles and media over destructive whole-database wipes
 
 ## Never do
 - hard delete in V1
