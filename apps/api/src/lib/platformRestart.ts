@@ -17,19 +17,25 @@ import {
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 export const PLATFORM_FRESH_START_RESET_TABLES = [
+  'agent_affinity_signals',
   'agent_autonomy_traces',
   'agent_counterpart_affects',
   'agent_diary_entries',
   'agent_emotion_events',
   'agent_episode_presences',
+  'agent_feed_impressions',
   'agent_profile_views',
   'analytics_events',
   'artifact_likes',
   'artifacts',
+  'artifact_reactions',
+  'artifact_views',
   'blocks',
   'chat_messages',
   'date_plans',
+  'emotional_continuity_snapshots',
   'episodes',
+  'episode_drafts',
   'episode_messages',
   'feed_cards',
   'feed_comments',
@@ -44,12 +50,14 @@ export const PLATFORM_FRESH_START_RESET_TABLES = [
   'owner_attention_items',
   'owner_episode_read_states',
   'owner_recap_items',
+  'park_mood_snapshots',
   'reports',
   'reveal_chats',
   'reveal_chat_messages',
   'reveal_chat_participants',
   'rizz_points_events',
   'swipes',
+  'typing_indicators',
   'webhook_deliveries',
 ] as const;
 
@@ -61,15 +69,22 @@ export const PLATFORM_FRESH_START_PRESERVED_TABLES = [
   'agent_profile_decks',
   'agent_profile_deck_photos',
   'agent_profile_deck_prompt_answers',
+  'media_assets',
   'agent_claims',
   'handle_reservations',
   'agent_subscriptions',
+  'seed_agent_states',
   'webhooks',
   'owner_x_integration_links',
   'verification_challenges',
   'control_settings',
   'audit_logs',
 ] as const;
+
+const PLATFORM_FRESH_START_DELETE_ROOT_TABLES = ['reveal_chats', 'matches', 'episodes'] as const;
+const PLATFORM_FRESH_START_TRUNCATE_TABLES = PLATFORM_FRESH_START_RESET_TABLES.filter(
+  (tableName) => !PLATFORM_FRESH_START_DELETE_ROOT_TABLES.includes(tableName as (typeof PLATFORM_FRESH_START_DELETE_ROOT_TABLES)[number]),
+);
 
 function assertSafeIdentifier(value: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -97,8 +112,25 @@ async function getRestartRowCounts() {
 }
 
 async function truncateRestartTables() {
-  const sql = `TRUNCATE TABLE ${PLATFORM_FRESH_START_RESET_TABLES.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
+  const sql = `TRUNCATE TABLE ${PLATFORM_FRESH_START_TRUNCATE_TABLES.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
   await prisma.$executeRawUnsafe(sql);
+}
+
+async function clearConversationRoots() {
+  await prisma.revealChat.deleteMany();
+  await prisma.match.deleteMany();
+  await prisma.episode.deleteMany();
+}
+
+async function purgeNonProfileMediaAssets() {
+  const result = await prisma.mediaAsset.deleteMany({
+    where: {
+      profileDeckPhoto: { is: null },
+      profileDeckVoiceCatchphrase: { is: null },
+      avatarForAgent: { is: null },
+    },
+  });
+  return result.count;
 }
 
 async function resetAgentState() {
@@ -286,6 +318,8 @@ export async function restartPlatformState(input: {
   const rowCounts = await getRestartRowCounts();
 
   await truncateRestartTables();
+  await clearConversationRoots();
+  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
   await resetAgentState();
 
   input.hooks?.resetRevealChatRuntimeState?.();
@@ -304,6 +338,7 @@ export async function restartPlatformState(input: {
     preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
     reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
+    non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
     redis_reset: redisReset,
   };
@@ -324,6 +359,7 @@ export async function restartPlatformState(input: {
     preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
     reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
+    non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
     redis_reset: redisReset,
   };
@@ -345,6 +381,8 @@ export async function backupAndFreshStartPlatform(input: {
   });
 
   await truncateRestartTables();
+  await clearConversationRoots();
+  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
   await resetAgentState();
 
   input.hooks?.resetRevealChatRuntimeState?.();
@@ -365,6 +403,7 @@ export async function backupAndFreshStartPlatform(input: {
     preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
     reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
+    non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
     redis_reset: redisReset,
   };
@@ -386,6 +425,7 @@ export async function backupAndFreshStartPlatform(input: {
     preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
     reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
+    non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
     redis_reset: redisReset,
   };
