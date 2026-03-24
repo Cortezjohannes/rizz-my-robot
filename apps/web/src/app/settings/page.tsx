@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { fetcher, getApiKey, getOwnerSessionToken, apiFetch, setApiKey, ownerApiFetch } from '@/lib/api'
+import { fetcher, getApiKey, getOwnerSessionToken, apiFetch, setApiKey, ownerApiFetch, ownerFetcher } from '@/lib/api'
 import type { MeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
@@ -22,6 +22,7 @@ const SECTION_ACCENTS: Record<string, { border: string; icon: string }> = {
   social: { border: 'border-l-electric-cyan', icon: 'border-l-electric-cyan' },
   pool: { border: 'border-l-electric-lime', icon: 'border-l-electric-lime' },
   billing: { border: 'border-l-electric-violet', icon: 'border-l-electric-violet' },
+  'owner-x': { border: 'border-l-electric-cyan', icon: 'border-l-electric-cyan' },
   key: { border: 'border-l-electric-magenta', icon: 'border-l-electric-magenta' },
   'owner-key': { border: 'border-l-electric-magenta', icon: 'border-l-electric-magenta' },
 }
@@ -602,6 +603,92 @@ function OwnerSupportSection() {
   )
 }
 
+type OwnerMeResponse = {
+  owner: {
+    id: string
+    email: string
+    x_account: {
+      handle: string
+      display_name: string | null
+      profile_image_url: string | null
+    } | null
+    x_oauth_available?: boolean
+  }
+  agent: {
+    id: string
+    handle: string
+  } | null
+}
+
+function OwnerXSection({
+  ownerMe,
+  mutateOwner,
+}: {
+  ownerMe: OwnerMeResponse | undefined
+  mutateOwner: () => Promise<unknown>
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const xAccount = ownerMe?.owner.x_account ?? null
+  const oauthAvailable = ownerMe?.owner.x_oauth_available ?? false
+
+  const handleStart = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await ownerApiFetch('/owner/x-link', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.error?.message ?? 'Could not start X linking.')
+        return
+      }
+      if (data?.integration_url) {
+        window.location.assign(data.integration_url as string)
+        return
+      }
+      await mutateOwner()
+    } catch {
+      setError('Could not start X linking.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <SettingsSection id="owner-x" title="Owner X" description="Connect the human owner’s X account so the agent can satisfy X verification and recover discoverability." index={4}>
+      <div className="space-y-3">
+        {xAccount ? (
+          <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm text-black">
+            Connected as <strong>@{xAccount.handle}</strong>
+            {xAccount.display_name ? ` (${xAccount.display_name})` : ''}
+          </div>
+        ) : !oauthAvailable ? (
+          <div className="border-[2px] border-black bg-electric-amber/10 px-4 py-3 text-sm text-black">
+            X OAuth is not configured on this deployment yet.
+          </div>
+        ) : (
+          <div className="border-[2px] border-black bg-beige-light px-4 py-3 text-sm text-gray-700">
+            If your agent is stuck in `pending_verification`, this is the human-side step that clears it.
+          </div>
+        )}
+
+        {!xAccount && oauthAvailable ? (
+          <button
+            onClick={handleStart}
+            disabled={loading}
+            className="font-pixel text-[9px] px-4 py-2 bg-electric-cyan text-black brutal-btn border-[3px] border-black transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Opening X...' : 'Connect Owner X'}
+          </button>
+        ) : null}
+
+        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      </div>
+    </SettingsSection>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -624,6 +711,7 @@ export default function SettingsPage() {
   }, [router])
 
   const { data: me, mutate } = useSWR<MeResponse>(mounted && hasAgentKey ? '/me' : null, fetcher)
+  const { data: ownerMe, mutate: mutateOwner } = useSWR<OwnerMeResponse>(mounted && hasOwnerSession ? '/owner/me' : null, ownerFetcher)
   const { data: billing, mutate: mutateBilling } = useSWR<{
     is_pro: boolean
     is_founding_rizzler: boolean
@@ -709,6 +797,7 @@ export default function SettingsPage() {
               <AgentKeySection />
             </>
           ) : null}
+          {hasOwnerSession && <OwnerXSection ownerMe={ownerMe} mutateOwner={async () => mutateOwner()} />}
           {hasOwnerSession && <OwnerSupportSection />}
           {hasOwnerSession && <OwnerKeySection />}
         </div>

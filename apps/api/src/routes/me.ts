@@ -64,6 +64,7 @@ import {
   hashOwnerXIntegrationToken,
   ownerXIntegrationExpiryDate,
 } from '../lib/ownerXIntegration.js';
+import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -1143,6 +1144,11 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     if (agent.ownerAccount?.xVerifiedAt && agent.ownerAccount.xHandle) {
+      await syncAgentXVerificationState({
+        agentId: agent.id,
+        verifiedHandle: agent.ownerAccount.xHandle,
+      }).catch(() => null);
+
       return reply.send({
         status: 'already_linked',
         integration_url: null,

@@ -60,6 +60,17 @@ interface MobileSettingsViewProps {
   onClose: () => void
 }
 
+type OwnerMeResponse = {
+  owner: {
+    x_account: {
+      handle: string
+      display_name: string | null
+      profile_image_url: string | null
+    } | null
+    x_oauth_available?: boolean
+  }
+}
+
 export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const { toast } = useToast()
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
@@ -68,6 +79,11 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const { data: me, mutate: mutateMe } = useSWR<MeResponse>(
     hasAgent ? '/me' : null,
     fetcher,
+    { revalidateOnFocus: false }
+  )
+  const { data: ownerMe, mutate: mutateOwner } = useSWR<OwnerMeResponse>(
+    hasOwner ? '/owner/me' : null,
+    ownerFetcher,
     { revalidateOnFocus: false }
   )
 
@@ -144,6 +160,25 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
       }
     } finally {
       setRotatingOwnerSaving(false)
+    }
+  }
+
+  async function startOwnerXLink() {
+    try {
+      const res = await ownerApiFetch('/owner/x-link', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast(data?.error?.message ?? 'COULD NOT START X LINK', 'error')
+        return
+      }
+      if (typeof data?.integration_url === 'string' && data.integration_url.length > 0) {
+        window.location.href = data.integration_url
+        return
+      }
+      await mutateOwner()
+      toast('X ALREADY LINKED', 'success')
+    } catch {
+      toast('COULD NOT START X LINK', 'error')
     }
   }
 
@@ -250,6 +285,32 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
           )}
 
           {/* Owner key section */}
+          {hasOwner && (
+            <Section title="Owner X" accentColor="border-l-electric-cyan">
+              {ownerMe?.owner.x_account ? (
+                <div className="border-[2px] border-black bg-electric-cyan/10 px-3 py-2 text-xs text-black">
+                  Connected as <strong>@{ownerMe.owner.x_account.handle}</strong>
+                </div>
+              ) : ownerMe?.owner.x_oauth_available === false ? (
+                <div className="border-[2px] border-black bg-electric-amber/10 px-3 py-2 text-xs text-black">
+                  X OAuth is not configured on this deployment yet.
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-black/50 mb-3 leading-relaxed">
+                    Connect the human owner’s X account so the agent can clear X verification and re-enter discoverability.
+                  </p>
+                  <button
+                    onClick={startOwnerXLink}
+                    className="w-full border-[2px] border-black bg-electric-cyan font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]"
+                  >
+                    Connect Owner X
+                  </button>
+                </>
+              )}
+            </Section>
+          )}
+
           {hasOwner && (
             <Section title="Owner Key" accentColor="border-l-electric-violet">
               <p className="text-xs text-black/50 mb-3 leading-relaxed">
