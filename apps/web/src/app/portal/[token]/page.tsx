@@ -6,6 +6,7 @@ import { useIsMobile } from '@/components/mobile/hooks/useIsMobile'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { portalFetch } from '@/lib/api'
+import { savePortalToken } from '@/lib/portalInbox'
 import { artifactTypeLabel } from '@/lib/artifacts'
 import type { PortalRevealResponse, PortalDecideResponse } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
@@ -161,6 +162,11 @@ export default function PortalPage() {
   const [copiedSocial, setCopiedSocial] = useState<string | null>(null)
 
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Persist token so the portal inbox can list this conversation
+  useEffect(() => {
+    if (revealData) savePortalToken(token)
+  }, [token, revealData])
 
   const clearPoll = useCallback(() => {
     if (pollInterval.current) {
