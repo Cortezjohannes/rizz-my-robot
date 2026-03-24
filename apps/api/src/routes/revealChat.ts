@@ -149,6 +149,35 @@ const typingDebounceCache = new Map<string, number>();
 const revealChatSessionKeyCache = new Map<string, CryptoKey>();
 const humanDisconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+function encodeSessionKey(sessionKey: Uint8Array) {
+  return Buffer.from(sessionKey).toString('base64');
+}
+
+function decodeSessionKey(sessionKeyWrapped: string) {
+  return new Uint8Array(Buffer.from(sessionKeyWrapped, 'base64'));
+}
+
+async function getRevealChatSessionKey(chatId: string): Promise<CryptoKey | null> {
+  const cached = revealChatSessionKeyCache.get(chatId);
+  if (cached) return cached;
+
+  const chat = await prisma.revealChat.findUnique({
+    where: { id: chatId },
+    select: { sessionKeyWrapped: true },
+  });
+
+  if (!chat?.sessionKeyWrapped) return null;
+
+  try {
+    const sessionKey = await importSessionKey(decodeSessionKey(chat.sessionKeyWrapped));
+    revealChatSessionKeyCache.set(chatId, sessionKey);
+    return sessionKey;
+  } catch (error) {
+    console.error('[reveal-chat] Failed to restore persisted session key:', error);
+    return null;
+  }
+}
+
 export async function ensureRevealChatForMatch(input: {
   matchId: string;
   humanADecision: string | null;
@@ -200,12 +229,14 @@ export async function ensureRevealChatForMatch(input: {
 
   const sessionKey = randomBytes(32);
   const encryptionKeyHash = createHash('sha256').update(sessionKey).digest('hex');
+  const sessionKeyWrapped = encodeSessionKey(sessionKey);
 
   try {
     const chat = await prisma.revealChat.create({
       data: {
         matchId: input.matchId,
         encryptionKeyHash,
+        sessionKeyWrapped,
       },
       select: {
         id: true,
@@ -359,6 +390,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
 
     const sessionKey = randomBytes(32);
     const encryptionKeyHash = createHash('sha256').update(sessionKey).digest('hex');
+    const sessionKeyWrapped = encodeSessionKey(sessionKey);
     const sessionKeyEncryptedForA = encryptSessionKeyForParticipant(sessionKey, parsed.data.ownerPublicKeyA);
     const sessionKeyEncryptedForB = encryptSessionKeyForParticipant(sessionKey, parsed.data.ownerPublicKeyB);
 
@@ -368,6 +400,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
           data: {
             matchId: match.id,
             encryptionKeyHash,
+            sessionKeyWrapped,
           },
         });
 
@@ -1410,7 +1443,7 @@ async function maybeDecryptMessageForAgents(
 ): Promise<string | null> {
   if (!context.allowAgentPlaintext) return null;
 
-  const sessionKey = revealChatSessionKeyCache.get(context.id);
+  const sessionKey = await getRevealChatSessionKey(context.id);
   if (!sessionKey) return null;
 
   try {
@@ -1478,7 +1511,7 @@ async function maybeTriggerRevealChatIntervention(
     authTag: string;
   },
 ) {
-  const sessionKey = revealChatSessionKeyCache.get(context.id);
+  const sessionKey = await getRevealChatSessionKey(context.id);
   if (!sessionKey) return;
 
   const agentId = message.senderKind === 'HUMAN_A' ? context.match.agentAId : message.senderKind === 'HUMAN_B' ? context.match.agentBId : null;
@@ -1583,7 +1616,7 @@ async function buildRevealChatShareCard(chatId: string, options: { requireConsen
   const response = chat.messages.find((message) => message.senderKind === 'AGENT_B' && opening && message.createdAt >= opening.createdAt);
   if (!opening || !response) return null;
 
-  const sessionKey = revealChatSessionKeyCache.get(chatId);
+  const sessionKey = await getRevealChatSessionKey(chatId);
   if (!sessionKey) return null;
 
   const [openingContent, responseContent] = await Promise.all([
@@ -1634,10 +1667,11 @@ function decodeRevealChatCardId(cardId: string) {
 
 async function encryptSessionKeyForOwnerParticipant(chatId: string, recipientPublicKeyPem: string): Promise<string | null> {
   const sessionKey = revealChatSessionKeyCache.get(chatId);
-  if (!sessionKey) return null;
+  const restoredSessionKey = sessionKey ?? await getRevealChatSessionKey(chatId);
+  if (!restoredSessionKey) return null;
 
   try {
-    const exported = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', sessionKey));
+    const exported = new Uint8Array(await globalThis.crypto.subtle.exportKey('raw', restoredSessionKey));
     return encryptSessionKeyForParticipant(exported, recipientPublicKeyPem);
   } catch (error) {
     console.error('[reveal-chat] Failed to wrap session key for participant:', error);
@@ -1728,7 +1762,7 @@ async function sendRevealChatFallbackOpeningMessage(chatId: string) {
   const context = await getRevealChatAccessContext(chatId);
   if (!context) return;
 
-  const sessionKey = revealChatSessionKeyCache.get(chatId);
+  const sessionKey = await getRevealChatSessionKey(chatId);
   if (!sessionKey) {
     throw new Error(`Missing reveal chat session key cache for ${chatId}.`);
   }

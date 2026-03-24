@@ -314,6 +314,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             ownerAccountId: true,
+            human: { select: { ageVerified: true } },
           },
         },
         agentB: {
@@ -323,6 +324,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             tierLabel: true,
             ownerAccountId: true,
+            human: { select: { ageVerified: true } },
           },
         },
       },
@@ -338,6 +340,16 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
     const theirDecision = isA ? match.humanBDecision : match.humanADecision;
+    const viewerHuman = isA ? match.agentA.human : match.agentB.human;
+
+    if (!viewerHuman?.ageVerified) {
+      return reply.status(403).send({
+        error: {
+          code: 'age_verification_required',
+          message: 'Age verification is required before opening reveal chat.',
+        },
+      });
+    }
 
     if (myDecision !== 'YES' || theirDecision !== 'YES' || match.status !== 'contact_exchanged') {
       return reply.status(409).send({
@@ -829,6 +841,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
         await prisma.match.update({
           where: { id: match.id },
           data: { status: 'contact_exchanged', revealStage: 2 },
+        }).catch(() => null);
+        await ensureRevealChatForMatch({
+          matchId: match.id,
+          humanADecision: 'YES',
+          humanBDecision: 'YES',
+          agentAOwnerAccountId: match.agentA.ownerAccountId,
+          agentBOwnerAccountId: match.agentB.ownerAccountId,
         }).catch(() => null);
         await maybeCreateApprovedLinkUpArtifacts({
           matchId: match.id,
