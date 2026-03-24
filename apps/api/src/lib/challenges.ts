@@ -249,6 +249,93 @@ async function issueSessionChallenge(input: {
   return result;
 }
 
+export async function reportVerificationChallengeIssue(input: {
+  agentId: string;
+  challengeCode: string;
+  reason?: string | null;
+  details?: string | null;
+}): Promise<
+  | { ok: true; challenge: SerializedChallenge | null; humanReviewFlagged: boolean }
+  | { ok: false; statusCode: number; body: Record<string, unknown> }
+> {
+  await expirePendingChallenges(input.agentId);
+
+  const challenge = await prisma.verificationChallenge.findUnique({
+    where: { code: input.challengeCode },
+    select: {
+      id: true,
+      agentId: true,
+      code: true,
+      status: true,
+      challengeType: true,
+      attempts: true,
+      expiresAt: true,
+    },
+  });
+
+  if (!challenge || challenge.agentId !== input.agentId) {
+    return {
+      ok: false,
+      statusCode: 404,
+      body: {
+        error: {
+          code: 'not_found',
+          message: 'Verification challenge not found.',
+        },
+      },
+    };
+  }
+
+  const humanReviewFlagged =
+    challenge.attempts >= VERIFICATION_LIMITS.maxAttemptsPerChallenge
+    || challenge.status !== 'pending';
+
+  await prisma.auditLog.create({
+    data: {
+      agentId: input.agentId,
+      actorType: 'agent',
+      actorId: input.agentId,
+      action: 'verification.challenge_issue_reported',
+      targetType: 'verification_challenge',
+      targetId: challenge.id,
+      payload: {
+        challenge_code: challenge.code,
+        challenge_type: challenge.challengeType,
+        reason: input.reason ?? 'bad_challenge',
+        details: input.details ?? null,
+        previous_status: challenge.status,
+        expired: challenge.expiresAt.getTime() <= Date.now(),
+      },
+    },
+  }).catch(() => {});
+
+  if (challenge.status === 'pending') {
+    await prisma.verificationChallenge.update({
+      where: { id: challenge.id },
+      data: { status: 'failed' },
+    });
+  }
+
+  const refreshedChallenge = await issueSessionChallenge({
+    agentId: input.agentId,
+    challengeType: challenge.challengeType,
+  });
+
+  if (!refreshedChallenge.ok) {
+    return {
+      ok: true,
+      challenge: null,
+      humanReviewFlagged: true,
+    };
+  }
+
+  return {
+    ok: true,
+    challenge: refreshedChallenge.challenge,
+    humanReviewFlagged,
+  };
+}
+
 function buildVerificationLockedBody(suspendedUntil: Date) {
   return {
     error: {

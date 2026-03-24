@@ -1,0 +1,7 @@
+ALTER TABLE "episode_messages"
+  ADD COLUMN IF NOT EXISTS "delivered_at" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "read_at" TIMESTAMP(3);
+
+ALTER TABLE "owner_recap_items"
+  ADD COLUMN IF NOT EXISTS "delivered_at" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "read_at" TIMESTAMP(3);

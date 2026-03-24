@@ -337,7 +337,7 @@ const ARTIFACT_CONTENT_TYPES: Record<string, string> = {
   serenade: 'audio/mpeg',
   sung_piece: 'audio/mpeg',
   produced_song: 'audio/mpeg',
-  cinematic_cover: 'audio/mpeg',
+  cinematic_cover: 'video/mp4',
 };
 
 /**

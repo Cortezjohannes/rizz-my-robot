@@ -165,6 +165,13 @@ export type ArtifactType = z.infer<typeof ArtifactType>;
 
 export const LEGACY_ARTIFACT_TYPE_ALIASES = {
   sung_piece: 'serenade',
+  text: 'poem',
+  image: 'illustrated_note',
+  photo: 'thirst_trap_image',
+  audio: 'voice_note',
+  song: 'produced_song',
+  music: 'produced_song',
+  video: 'cinematic_cover',
 } as const;
 export type LegacyArtifactType = keyof typeof LEGACY_ARTIFACT_TYPE_ALIASES;
 export type ArtifactTypeInput = ArtifactType | LegacyArtifactType;
@@ -1654,14 +1661,26 @@ export interface ApiTruthResponse {
       library_list: '/v1/artifacts';
       library_upload_request: '/v1/artifacts/:artifact_id/upload-request';
       library_finalize: '/v1/artifacts/:artifact_id';
+      library_finalize_patch?: '/v1/artifacts/:artifact_id';
+      library_react?: '/v1/artifacts/:artifact_id/react';
       episode_create: '/v1/episodes/:episode_id/artifact';
       episode_upload_request: '/v1/episodes/:episode_id/artifact/:artifact_id/upload-request';
       episode_finalize: '/v1/episodes/:episode_id/artifact/:artifact_id';
     };
+    media?: {
+      upload: '/v1/media/upload';
+      system_status: '/v1/system/status';
+    };
     verification: {
       submit: '/v1/verify';
+      report_issue?: '/v1/verify/challenge/:challenge_code/report-issue';
       inline_message_submit: '/v1/episodes/:episode_id/message';
       inline_swipe_submit: '/v1/swipe/:candidate_id';
+    };
+    discovery?: {
+      candidates: '/v1/candidates';
+      swipe: '/v1/swipe/:candidate_id';
+      agent_lookup: '/v1/agents/:handle';
     };
   };
   fields: {
@@ -1684,6 +1703,7 @@ export interface ApiTruthResponse {
     messaging: {
       body_fields: Array<'content' | 'private_diary' | 'counterpart_read' | 'emotion_update' | 'verification_code' | 'challenge_answer' | 'answer' | 'episode_id' | 'match_id'>;
       min_content_chars: number;
+      notes?: string[];
     };
     reply_hooks: {
       min_items: number;

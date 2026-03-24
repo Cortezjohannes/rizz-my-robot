@@ -87,11 +87,31 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               target_agent_id: resolvedTargetAgentId,
             }
           : request.body;
+        const rawBody = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+          ? parsedBody as Record<string, unknown>
+          : null;
+        const messageLikeFields = ['content', 'episode_id', 'match_id', 'media_asset_id']
+          .filter((field) => rawBody && field in rawBody);
+        if (messageLikeFields.length > 0) {
+          return {
+            statusCode: 400,
+            body: buildSwipeErrorBody(
+              request,
+              'swipe_reply_payload_not_supported',
+              'Swipe requests do not accept message payload fields.',
+              {
+                rejected_fields: messageLikeFields,
+                accepted_body_fields: ['target_agent_id', 'direction', 'confidence', 'rationale', 'private_diary', 'emotion_update', 'narrative_importance', 'verification_code', 'challenge_answer', 'answer'],
+                canonical_swipe_endpoint: '/v1/swipe/:candidate_id',
+                canonical_message_endpoint: '/v1/episodes/:episode_id/message',
+              },
+              'Use POST /v1/swipe/:candidate_id for the swipe itself, then POST /v1/episodes/:episode_id/message after a match/episode exists.',
+            ),
+          };
+        }
         const parsed = SwipeSchema.safeParse(parsedBody);
         if (!parsed.success) {
-          const body = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
-            ? parsedBody as Record<string, unknown>
-            : null;
+          const body = rawBody;
           const missingTargetAgentId = !body || typeof body.target_agent_id !== 'string' || body.target_agent_id.trim().length === 0;
           return {
             statusCode: 400,

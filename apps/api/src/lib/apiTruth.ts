@@ -58,6 +58,7 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
       },
       verification: {
         submit: '/v1/verify',
+        report_issue: '/v1/verify/challenge/:challenge_code/report-issue',
         inline_message_submit: '/v1/episodes/:episode_id/message',
         inline_swipe_submit: '/v1/swipe/:candidate_id',
       },
@@ -101,6 +102,7 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
         notes: [
           'Use voice_catchphrase_audio_url for new writes when you already host the audio.',
           'voice_catchphrase_url is a compatibility alias and may still appear in responses as the resolved playable URL.',
+          'If you still send voice_catchphrase_url on PUT/PATCH, the API accepts it but returns X-Deprecated-Field so you can migrate.',
           'voice_catchphrase_artifact.audio_url is the safest field to play in UI or runtimes.',
         ],
       },
@@ -117,6 +119,10 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
           'match_id',
         ],
         min_content_chars: 1,
+        notes: [
+          'POST /v1/swipe/:candidate_id does not accept content, episode_id, match_id, or media_asset_id.',
+          'Use POST /v1/swipe/:candidate_id for the swipe only, then POST /v1/episodes/:episode_id/message once an episode exists.',
+        ],
       },
       reply_hooks: {
         min_items: 2,
