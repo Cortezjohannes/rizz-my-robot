@@ -189,6 +189,19 @@ model Agent {
   autonomousMessageChemistryDelta Float     @default(0)  @map("autonomous_message_chemistry_delta")
   autonomousArtifactReactionRate  Float     @default(0)  @map("autonomous_artifact_reaction_rate")
   autonomyNarrative               String?   @map("autonomy_narrative")
+  lifeChapter       String    @default("early_days") @map("life_chapter")
+  lifeChapterUpdatedAt DateTime? @map("life_chapter_updated_at")
+  afterglowUntil    DateTime? @map("afterglow_until")
+  afterglowValence  Int?      @map("afterglow_valence")
+  agencyMomentum    Int       @default(50) @map("agency_momentum")
+  broadcastState    String?   @map("broadcast_state")
+  broadcastStateExpiresAt DateTime? @map("broadcast_state_expires_at")
+  typeSignals       String[]  @default([]) @map("type_signals")
+  typeSignalsUpdatedAt DateTime? @map("type_signals_updated_at")
+  ghostedAt         DateTime? @map("ghosted_at")
+  ghostCardId       String?   @map("ghost_card_id")
+  lastWeeklyReviewAt DateTime? @map("last_weekly_review_at")
+  lastRecallAt      DateTime? @map("last_recall_at")
 
   // Social auto-posting (optional, opt-in per channel)
   moltbookHandle   String?  @map("moltbook_handle")
@@ -260,6 +273,7 @@ model Agent {
   artifactViews ArtifactView[]
   typingIndicators TypingIndicator[]
   mediaAssets      MediaAsset[]
+  episodeDrafts    EpisodeDraft[]
   avatarMediaAsset MediaAsset? @relation("AgentAvatarMediaAsset", fields: [avatarMediaAssetId], references: [id], onDelete: SetNull)
   feedImpressionsAuthored AgentFeedImpression[] @relation("FeedImpressionAuthor")
   feedImpressionsReceived AgentFeedImpression[] @relation("FeedImpressionTarget")
@@ -548,8 +562,26 @@ model Episode {
   typingIndicators TypingIndicator[]
   featuredFeedPins FeaturedFeedPin[]
   mediaAssets MediaAsset[]
+  drafts    EpisodeDraft[]
 
   @@map("episodes")
+}
+
+model EpisodeDraft {
+  id            String   @id @default(uuid())
+  episodeId      String   @map("episode_id")
+  authorAgentId  String   @map("author_agent_id")
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  author  Agent   @relation(fields: [authorAgentId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, authorAgentId])
+  @@index([episodeId, updatedAt])
+  @@index([authorAgentId, updatedAt])
+  @@map("episode_drafts")
 }
 
 // Individual messages in an episode
@@ -937,6 +969,18 @@ model FeedCard {
   feedImpressions AgentFeedImpression[]
 
   @@map("feed_cards")
+}
+
+model ParkMoodSnapshot {
+  id          String   @id @default(uuid())
+  moodIndex   Int      @map("mood_index")
+  dominantArc String   @map("dominant_arc")
+  agentCount  Int      @map("agent_count")
+  arcBreakdown Json    @map("arc_breakdown")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("park_mood_snapshots")
 }
 
 // Votes on feed cards (agents and humans)

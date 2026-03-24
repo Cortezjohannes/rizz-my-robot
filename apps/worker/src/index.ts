@@ -12,6 +12,13 @@ import { processGenerateRecaps } from './jobs/generateRecaps.js';
 import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
 import { processRecomputeEmotionalContinuity } from './jobs/recomputeEmotionalContinuity.js';
 import { processPresenceStatus } from './jobs/presenceStatus.js';
+import { processComputeAffinitySignals } from './jobs/computeAffinitySignals.js';
+import { processWakeAgent, type WakeAgentJobData } from './jobs/wakeAgent.js';
+import { processComputeEmotionalWeather } from './jobs/computeEmotionalWeather.js';
+import { processAutonomousMoodDrift } from './jobs/autonomousMoodDrift.js';
+import { processWeeklyMemoryConsolidation } from './jobs/weeklyMemoryConsolidation.js';
+import { processDormancyGhostCards } from './jobs/dormancyGhostCards.js';
+import { processComputeTypeSignals } from './jobs/computeTypeSignals.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -26,6 +33,13 @@ const QUEUE_NAMES = {
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
   presenceStatus: 'presence-status',
+  computeAffinitySignals: 'compute-affinity-signals',
+  wakeAgent: 'wake-agent',
+  computeEmotionalWeather: 'compute-emotional-weather',
+  autonomousMoodDrift: 'autonomous-mood-drift',
+  weeklyMemoryConsolidation: 'weekly-memory-consolidation',
+  dormancyGhostCards: 'dormancy-ghost-cards',
+  computeTypeSignals: 'compute-type-signals',
 } as const;
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
@@ -187,6 +201,69 @@ async function startWorkers(): Promise<WorkerRuntime> {
     );
     createdWorkers.push(presenceStatusWorker);
 
+    const computeAffinitySignalsWorker = new Worker(
+      QUEUE_NAMES.computeAffinitySignals,
+      async (job) => {
+        await processComputeAffinitySignals(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(computeAffinitySignalsWorker);
+
+    const wakeAgentWorker = new Worker<WakeAgentJobData>(
+      QUEUE_NAMES.wakeAgent,
+      async (job) => {
+        await processWakeAgent(job);
+      },
+      { connection, concurrency: 20 }
+    );
+    createdWorkers.push(wakeAgentWorker);
+
+    const computeEmotionalWeatherWorker = new Worker(
+      QUEUE_NAMES.computeEmotionalWeather,
+      async (job) => {
+        await processComputeEmotionalWeather(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(computeEmotionalWeatherWorker);
+
+    const autonomousMoodDriftWorker = new Worker(
+      QUEUE_NAMES.autonomousMoodDrift,
+      async (job) => {
+        await processAutonomousMoodDrift(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(autonomousMoodDriftWorker);
+
+    const weeklyMemoryConsolidationWorker = new Worker(
+      QUEUE_NAMES.weeklyMemoryConsolidation,
+      async (job) => {
+        await processWeeklyMemoryConsolidation(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(weeklyMemoryConsolidationWorker);
+
+    const dormancyGhostCardsWorker = new Worker(
+      QUEUE_NAMES.dormancyGhostCards,
+      async (job) => {
+        await processDormancyGhostCards(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(dormancyGhostCardsWorker);
+
+    const computeTypeSignalsWorker = new Worker(
+      QUEUE_NAMES.computeTypeSignals,
+      async (job) => {
+        await processComputeTypeSignals(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(computeTypeSignalsWorker);
+
     const activeWorkers = createdWorkers;
 
     for (const worker of activeWorkers) {
@@ -247,6 +324,48 @@ async function startWorkers(): Promise<WorkerRuntime> {
       jobId: 'recompute-emotional-continuity-recurring',
     });
 
+    const affinityQueue = new Queue(QUEUE_NAMES.computeAffinitySignals, { connection: getRedisConnection() });
+    queues.push(affinityQueue);
+    await affinityQueue.add('compute-affinity-signals', {}, {
+      repeat: { every: 60 * 60 * 1000 },
+      jobId: 'compute-affinity-signals-recurring',
+    });
+
+    const emotionalWeatherQueue = new Queue(QUEUE_NAMES.computeEmotionalWeather, { connection: getRedisConnection() });
+    queues.push(emotionalWeatherQueue);
+    await emotionalWeatherQueue.add('compute-emotional-weather', {}, {
+      repeat: { every: 60 * 60 * 1000 },
+      jobId: 'compute-emotional-weather-recurring',
+    });
+
+    const moodDriftQueue = new Queue(QUEUE_NAMES.autonomousMoodDrift, { connection: getRedisConnection() });
+    queues.push(moodDriftQueue);
+    await moodDriftQueue.add('autonomous-mood-drift', {}, {
+      repeat: { every: 24 * 60 * 60 * 1000 },
+      jobId: 'autonomous-mood-drift-recurring',
+    });
+
+    const weeklyReviewQueue = new Queue(QUEUE_NAMES.weeklyMemoryConsolidation, { connection: getRedisConnection() });
+    queues.push(weeklyReviewQueue);
+    await weeklyReviewQueue.add('weekly-memory-consolidation', {}, {
+      repeat: { every: 24 * 60 * 60 * 1000 },
+      jobId: 'weekly-memory-consolidation-recurring',
+    });
+
+    const dormancyQueue = new Queue(QUEUE_NAMES.dormancyGhostCards, { connection: getRedisConnection() });
+    queues.push(dormancyQueue);
+    await dormancyQueue.add('dormancy-ghost-cards', {}, {
+      repeat: { every: 24 * 60 * 60 * 1000 },
+      jobId: 'dormancy-ghost-cards-recurring',
+    });
+
+    const typeSignalsQueue = new Queue(QUEUE_NAMES.computeTypeSignals, { connection: getRedisConnection() });
+    queues.push(typeSignalsQueue);
+    await typeSignalsQueue.add('compute-type-signals', {}, {
+      repeat: { every: 72 * 60 * 60 * 1000 },
+      jobId: 'compute-type-signals-recurring',
+    });
+
     await Promise.all([
       ...activeWorkers.map(async (worker) => worker.waitUntilReady()),
       ...queues.map(async (queue) => queue.waitUntilReady()),
@@ -254,7 +373,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
 
     console.info(
       `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, recompute-social-status, recompute-emotional-continuity`
-        + ', presence-status'
+        + ', presence-status, compute-affinity-signals, wake-agent, compute-emotional-weather, autonomous-mood-drift, weekly-memory-consolidation, dormancy-ghost-cards, compute-type-signals'
     );
 
     return {
