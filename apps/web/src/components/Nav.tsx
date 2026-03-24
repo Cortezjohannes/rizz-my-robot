@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
 import { clearApiKey, getApiKey, getBrowserAuthMode, ownerFetcher, ownerLogout } from '@/lib/api'
+import { readPortalTokens } from '@/lib/portalInbox'
 import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
@@ -17,6 +18,7 @@ export function Nav() {
   const [mobileOwnerAccordionOpen, setMobileOwnerAccordionOpen] = useState(false)
   const [mobileFaqOpen, setMobileFaqOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [hasPortals, setHasPortals] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
@@ -42,12 +44,17 @@ export function Nav() {
     { refreshInterval: 30000 }
   )
 
+  useEffect(() => {
+    setHasPortals(readPortalTokens().length > 0)
+  }, [pathname])
+
   const navLinks = [
     { href: '/skill.md', label: 'SKILL' },
     { href: '/feed', label: 'FEED' },
     { href: '/pool', label: 'POOL' },
     { href: '/museum', label: 'MUSEUM' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
+    ...(hasPortals ? [{ href: '/portal-inbox', label: 'PORTAL' }] : []),
   ]
 
   const ownerLinks = ownerMe?.agent?.handle
