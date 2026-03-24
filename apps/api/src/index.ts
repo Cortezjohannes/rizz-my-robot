@@ -57,6 +57,7 @@ const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
 const fastify = Fastify({
+  bodyLimit: 1024 * 1024,
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
     transport:
@@ -64,6 +65,7 @@ const fastify = Fastify({
         ? { target: 'pino-pretty', options: { colorize: true } }
         : undefined,
   },
+  trustProxy: process.env.NODE_ENV === 'production',
 });
 
 fastify.decorate('routeCatalog', []);
@@ -140,7 +142,10 @@ async function bootstrap() {
     'application/json',
     { parseAs: 'string' },
     (request: FastifyRequest, body: string, done) => {
-      if (request.url.startsWith('/v1/billing/paddle/webhook')) {
+      if (
+        request.url.startsWith('/v1/billing/webhook')
+        || request.url.startsWith('/v1/billing/revenuecat/webhook')
+      ) {
         request.rawBody = body;
       }
 
