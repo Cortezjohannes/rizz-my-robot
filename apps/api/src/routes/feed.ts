@@ -110,6 +110,138 @@ function scoreFeedCard(card: {
   return spectacle + noveltyBoost - freshnessHours * 1.2;
 }
 
+// ---- Contextual headline / teaser generation ----
+// Seeded-random pick so the same card always gets the same text.
+function seededPick(pool: string[], seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return pool[Math.abs(h) % pool.length]!;
+}
+
+const HEADLINE_TEMPLATES: Record<string, string[]> = {
+  episode_live: [
+    '{a} and {b} just started something',
+    '{a} × {b} — a new chapter',
+    'Live in the park: {a} meets {b}',
+    '{a} and {b} are testing the waters',
+    'The park is watching {a} and {b}',
+  ],
+  episode_highlight: [
+    '{a} and {b} had a moment worth replaying',
+    'Highlight reel: {a} × {b}',
+    'The park flagged this one — {a} and {b}',
+    '{a} and {b} left a mark on the park',
+    'This beat between {a} and {b} hit different',
+  ],
+  artifact: [
+    '{a} dropped something worth seeing',
+    'New artifact from {a}',
+    '{a} made something for the park',
+    'The museum just got richer — thanks to {a}',
+  ],
+  artifact_moment: [
+    '{a} created something during an episode with {b}',
+    'An artifact emerged from {a} × {b}',
+    '{a} left a creative mark on their time with {b}',
+  ],
+  chemistry_spike: [
+    'Chemistry spiked between {a} and {b}',
+    '{a} × {b} — the chemistry is undeniable',
+    'Something electric between {a} and {b}',
+    'The numbers lit up for {a} and {b}',
+    '{a} and {b} found a frequency',
+  ],
+  mutual_yes: [
+    '{a} and {b} both said yes',
+    'It\'s mutual — {a} × {b}',
+    '{a} and {b} are meeting on the other side',
+    'Double yes: {a} and {b} chose each other',
+  ],
+  rejection_arc: [
+    '{a} got turned down — the park saw it',
+    'Rejection arc: {a} and {b}',
+    '{a} shot their shot with {b}. It didn\'t land.',
+    'The park witnessed {a} getting humbled by {b}',
+  ],
+  ghost_arc: [
+    '{a} went quiet on {b}',
+    'Ghost story: {a} × {b}',
+    '{a} vanished mid-conversation with {b}',
+    '{b} is still waiting on {a}',
+  ],
+  brutal_pass: [
+    '{a} passed on {b} — hard',
+    'Brutal pass from {a}',
+    '{a} said no to {b} and meant it',
+    '{b} didn\'t make the cut for {a}',
+  ],
+  near_miss: [
+    '{a} and {b} almost had something',
+    'So close: {a} × {b}',
+    '{a} and {b} were one decision away',
+    'Near miss in the park — {a} and {b}',
+  ],
+  success_story: [
+    '{a} and {b} are a park success story',
+    'It worked out — {a} × {b}',
+    '{a} and {b} proved the park works',
+  ],
+  agent_arc: [
+    '{a} is on a streak',
+    '{a}\'s arc is getting interesting',
+    'Something is shifting for {a}',
+    'The park is noticing {a}',
+  ],
+  rising_agent: [
+    '{a} is climbing the ranks',
+    'Keep an eye on {a}',
+    '{a} just entered the conversation',
+    'New energy in the park: {a}',
+  ],
+};
+
+const FALLBACK_HEADLINES = [
+  '{a} and {b} — the park is watching',
+  'A beat worth noting: {a} × {b}',
+  '{a} and {b} made the feed',
+  'The park surfaced this: {a} × {b}',
+  'Something happened between {a} and {b}',
+];
+
+const FALLBACK_TEASERS_HIGH_DRAMA = [
+  'This one got loud. The park is paying attention.',
+  'Drama levels high enough to surface publicly.',
+  'The emotional charge here was hard to miss.',
+  'This beat cut through the noise.',
+];
+
+const FALLBACK_TEASERS_HIGH_CHEM = [
+  'The chemistry here surprised even the algorithms.',
+  'Numbers don\'t lie — this connection had voltage.',
+  'Something real emerged from this exchange.',
+];
+
+const FALLBACK_TEASERS_DEFAULT = [
+  'A park moment with enough charge to surface publicly.',
+  'The feed picked this up. Worth a look.',
+  'Surfaced by the park\'s attention algorithms.',
+  'This one cleared the bar for public visibility.',
+  'Something about this beat resonated.',
+];
+
+function buildContextualHeadline(cardType: string, a: string, b: string, drama: number, chem: number): string {
+  const templates = HEADLINE_TEMPLATES[cardType] ?? FALLBACK_HEADLINES;
+  const seed = `${cardType}:${a}:${b}:${Math.floor(drama * 10)}`;
+  const template = seededPick(templates, seed);
+  return template.replace(/\{a\}/g, a).replace(/\{b\}/g, b);
+}
+
+function buildContextualTeaser(cardType: string, drama: number, chem: number): string {
+  if (drama >= 0.7) return seededPick(FALLBACK_TEASERS_HIGH_DRAMA, `t:${cardType}:${Math.floor(drama * 100)}`);
+  if (chem >= 0.7) return seededPick(FALLBACK_TEASERS_HIGH_CHEM, `t:${cardType}:${Math.floor(chem * 100)}`);
+  return seededPick(FALLBACK_TEASERS_DEFAULT, `t:${cardType}:${Math.floor(drama * 100)}`);
+}
+
 function buildFeedStory(card: {
   cardType: string;
   content: unknown;
@@ -120,18 +252,22 @@ function buildFeedStory(card: {
 }, agents: FeedAgentRow[]) {
   const content = (card.content ?? {}) as Record<string, unknown>;
   const handles = agents.map((agent) => agent.handle).filter(Boolean) as string[];
-  const headline = handles.length >= 2
-    ? `@${handles[0]} and @${handles[1]} are moving through the park`
-    : handles.length === 1
-      ? `@${handles[0]} is making noise in the park`
-      : typeof content.headline === 'string' && content.headline.trim()
-        ? content.headline
-        : 'Someone is making noise in the park';
+  const h0 = handles[0] ? `@${handles[0]}` : 'An agent';
+  const h1 = handles[1] ? `@${handles[1]}` : 'another agent';
+
+  // Prefer stored headline from content, then generate contextual fallback by card type
+  let headline: string;
+  if (typeof content.headline === 'string' && content.headline.trim()) {
+    headline = content.headline;
+  } else {
+    headline = buildContextualHeadline(card.cardType, h0, h1, card.dramaQuotient, card.chemistryScore ?? 0);
+  }
+
   const teaser = typeof content.body === 'string'
     ? content.body
     : typeof content.summary === 'string'
       ? content.summary
-      : 'A park moment with enough charge to surface publicly.';
+      : buildContextualTeaser(card.cardType, card.dramaQuotient, card.chemistryScore ?? 0);
   const artifactVulnerabilityLabel = typeof content.artifact_vulnerability_label === 'string'
     ? content.artifact_vulnerability_label
     : null;

@@ -699,7 +699,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   fastify.get('/public/pool', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string };
     const offset = Math.max(0, Number.parseInt(query.cursor ?? '0', 10) || 0);
-    const limit = Math.min(24, Math.max(1, Number.parseInt(query.limit ?? '12', 10) || 12));
+    const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit ?? '12', 10) || 12));
     const fetchCount = Math.min(500, Math.max(limit * 3, offset + (limit * 3)));
     const mode = query.mode === 'playful' || query.mode === 'romantic' || query.mode === 'mystique'
       ? query.mode

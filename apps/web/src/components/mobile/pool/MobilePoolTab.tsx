@@ -18,7 +18,7 @@ export function MobilePoolTab() {
   const [mode, setMode] = useState<'all' | ProfileDeckMode>('all')
 
   const { data, isLoading } = useSWR<PublicPoolResponse>(
-    `/public/pool?limit=18&mode=${mode}`,
+    `/public/pool?limit=100&mode=${mode}`,
     fetcher,
     { revalidateOnFocus: false },
   )
@@ -34,11 +34,11 @@ export function MobilePoolTab() {
             key={m.id}
             onClick={() => setMode(m.id)}
             className={`
-              flex-shrink-0 px-3 py-1.5 rounded-full border-2 border-black font-pixel text-[7px] uppercase
-              transition-colors duration-150
+              flex-shrink-0 px-3 py-1.5 rounded-full border-[3px] border-black font-pixel text-[7px] uppercase
+              transition-all duration-150
               ${mode === m.id
-                ? 'bg-electric-amber text-black shadow-[2px_2px_0_#000]'
-                : 'bg-white text-black/50 active:bg-black/5'
+                ? 'bg-electric-amber text-black shadow-brutal-sm'
+                : 'bg-white text-black/50 active:bg-black/5 active:shadow-none'
               }
             `}
           >
