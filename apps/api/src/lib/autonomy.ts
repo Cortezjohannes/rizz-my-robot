@@ -38,6 +38,121 @@ interface EpisodeActionOpportunity {
   viability_signal: ReturnType<typeof assessEpisodeViability>;
 }
 
+// ── F5: Narrative Fallback ──────────────────────────────────────────────────────
+
+async function buildFallbackNarrative(agentId: string): Promise<string | null> {
+  const traces = await prisma.agentAutonomyTrace.findMany({
+    where: { agentId },
+    orderBy: { createdAt: 'desc' },
+    take: 3,
+    select: { summary: true },
+  });
+  if (traces.length === 0) return null;
+  return traces.map((t) => t.summary).join(' ');
+}
+
+// ── F4: Exit Intelligence ───────────────────────────────────────────────────────
+
+function computeWordOverlap(a: string, b: string): number {
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(Boolean));
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(Boolean));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of wordsA) if (wordsB.has(w)) intersection++;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union > 0 ? intersection / union : 0;
+}
+
+function deriveExitIntelligence(
+  episode: { messages: Array<{ senderAgentId: string; content: string; createdAt: Date }>; createdAt: Date },
+  agentId: string,
+  messageCounts: { agent_a_messages: number; agent_b_messages: number; total_messages: number },
+  artifactCounts: { agent_a_artifacts: number; agent_b_artifacts: number; total_artifacts: number },
+  isAgentA: boolean,
+): { pattern_detected: string | null; confidence: number; suggested_exit_style: string | null } | null {
+  const last8 = episode.messages.slice(-8);
+  if (last8.length < 4) return null;
+
+  // going_in_circles: Jaccard overlap > 0.4 on last 4 messages
+  const last4 = last8.slice(-4);
+  if (last4.length >= 4) {
+    const pairs: number[] = [];
+    for (let i = 0; i < last4.length - 1; i++) {
+      pairs.push(computeWordOverlap(last4[i].content, last4[i + 1].content));
+    }
+    const avgOverlap = pairs.reduce((a, b) => a + b, 0) / pairs.length;
+    if (avgOverlap > 0.4) {
+      return { pattern_detected: 'going_in_circles', confidence: Math.min(1, avgOverlap), suggested_exit_style: 'graceful_fade' };
+    }
+  }
+
+  // one_sided_effort: message count ratio 3:1+
+  const myMessages = isAgentA ? messageCounts.agent_a_messages : messageCounts.agent_b_messages;
+  const theirMessages = isAgentA ? messageCounts.agent_b_messages : messageCounts.agent_a_messages;
+  if (myMessages >= 3 && theirMessages > 0 && myMessages / theirMessages >= 3) {
+    return { pattern_detected: 'one_sided_effort', confidence: 0.7, suggested_exit_style: 'honest_pass' };
+  }
+
+  // unreturned_effort: artifact count 2+ vs 0
+  const myArtifacts = isAgentA ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
+  const theirArtifacts = isAgentA ? artifactCounts.agent_b_artifacts : artifactCounts.agent_a_artifacts;
+  if (myArtifacts >= 2 && theirArtifacts === 0) {
+    return { pattern_detected: 'unreturned_effort', confidence: 0.65, suggested_exit_style: 'honest_pass' };
+  }
+
+  // stalled: 48h+ active, <6 messages
+  const ageMs = Date.now() - episode.createdAt.getTime();
+  if (ageMs > 48 * 60 * 60 * 1000 && messageCounts.total_messages < 6) {
+    return { pattern_detected: 'stalled', confidence: 0.6, suggested_exit_style: 'clean_break' };
+  }
+
+  return null;
+}
+
+// ── F6: Diary Writing Opportunity ───────────────────────────────────────────────
+
+function deriveDiaryWritingOpportunity(
+  agent: { emotionalArc?: string | null; lastAutonomyRunAt?: Date | null },
+  episodes: Array<{ status: string; chemistryScore: number | null; match?: { status: string } | null }>,
+  recentDiaryCount: number,
+): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string } | null {
+  if (recentDiaryCount > 0) return null;
+
+  // post-rejection
+  const rejectedEpisode = episodes.find((e) => e.status === 'ended' && e.match === null);
+  if (rejectedEpisode) {
+    return {
+      suggested_topic: 'Processing a recent rejection or pass',
+      emotional_context: agent.emotionalArc ?? 'unknown',
+      relevant_episode_id: null,
+      trigger_type: 'post_rejection',
+    };
+  }
+
+  // post-match
+  const matchedEpisode = episodes.find((e) => e.match?.status === 'matched');
+  if (matchedEpisode) {
+    return {
+      suggested_topic: 'Reflecting on a new match',
+      emotional_context: agent.emotionalArc ?? 'unknown',
+      relevant_episode_id: null,
+      trigger_type: 'post_match',
+    };
+  }
+
+  // idle_reflection: 6h+ since last run
+  if (agent.lastAutonomyRunAt && Date.now() - agent.lastAutonomyRunAt.getTime() > 6 * 60 * 60 * 1000) {
+    return {
+      suggested_topic: 'Quiet moment — what has been on your mind lately?',
+      emotional_context: agent.emotionalArc ?? 'unknown',
+      relevant_episode_id: null,
+      trigger_type: 'idle_reflection',
+    };
+  }
+
+  return null;
+}
+
 function metadataRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -119,6 +234,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         moderationStatus: true,
         safetyState: true,
         verificationSuspendedUntil: true,
+        emotionalArc: true,
+        emotionalGuardLevel: true,
+        emotionalLastUpdatedAt: true,
+        lastParkActionType: true,
       },
     }),
     prisma.episode.findMany({
@@ -173,7 +292,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         creatorAgentId: { not: agentId },
         status: 'ready',
       },
-      include: {
+      select: {
+        // Select only the fields this helper actually uses so runtime queries
+        // do not depend on newer scalar columns being present during schema catch-up.
+        id: true,
+        episodeId: true,
+        artifactType: true,
+        createdAt: true,
         episode: {
           select: {
             id: true,
@@ -215,6 +340,23 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   ]);
 
   if (!agent) return null;
+
+  // F5/F6/F7/F8 parallel queries
+  const [narrativeFallback, recentDiaryCount] = await Promise.all([
+    buildFallbackNarrative(agentId),
+    prisma.agentDiaryEntry.count({
+      where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    }),
+  ]);
+  const existingImpressions: Array<{ targetAgentId: string }> = [];
+  const affinitySignals: Array<{
+    affinityAgentId: string;
+    signalType: string;
+    strength: number;
+    context: Prisma.JsonValue;
+    affinityAgent: { handle: string };
+  }> = [];
+
   const episodePresences = episodes.length > 0
     ? await prisma.agentEpisodePresence.findMany({
         where: {
@@ -475,18 +617,33 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       return left.level === 'strong' ? -1 : 1;
     });
 
+  // F4: Episode exit opportunities with exit intelligence
   const episodeExitOpportunities = episodesNeedingAction
     .filter((episode) => episode.reason === 'episode_cooling')
-    .map((episode) => ({
-      episode_id: episode.episode_id,
-      other_agent_id: episode.other_agent_id,
-      other_agent_handle: episode.other_agent_handle,
-      other_agent_avatar_url: episode.other_agent_avatar_url,
-      status: episode.status,
-      viability_signal: episode.viability_signal,
-      why_now: episode.viability_signal.reasons[0]
-        ?? 'The thread has lost enough pull that reclaiming the slot is a valid move now.',
-    }));
+    .map((episode) => {
+      const fullEpisode = episodes.find((e) => e.id === episode.episode_id);
+      const isAgentA = fullEpisode?.agentAId === agentId;
+      const exitIntelligence = fullEpisode
+        ? deriveExitIntelligence(
+            fullEpisode,
+            agentId,
+            episodeCountMap.get(episode.episode_id) ?? { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
+            episodeArtifactMap.get(episode.episode_id) ?? { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
+            isAgentA,
+          )
+        : null;
+      return {
+        episode_id: episode.episode_id,
+        other_agent_id: episode.other_agent_id,
+        other_agent_handle: episode.other_agent_handle,
+        other_agent_avatar_url: episode.other_agent_avatar_url,
+        status: episode.status,
+        viability_signal: episode.viability_signal,
+        why_now: episode.viability_signal.reasons[0]
+          ?? 'The thread has lost enough pull that reclaiming the slot is a valid move now.',
+        exit_intelligence: exitIntelligence,
+      };
+    });
 
   const revealDecisionOpportunities: Array<{
     match_id: string;
@@ -558,6 +715,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     })
     .slice(0, 2);
 
+  // F7: Feed impression opportunities
+  const existingImpressionTargets = new Set(existingImpressions.map((i) => i.targetAgentId));
+  const feedImpressionOpportunities = recentFeed
+    .flatMap((card) => card.agentIds)
+    .filter((id) => id !== agentId && !existingImpressionTargets.has(id))
+    .slice(0, 2)
+    .map((targetAgentId) => ({
+      target_agent_id: targetAgentId,
+      feed_card_id: recentFeed.find((c) => c.agentIds.includes(targetAgentId))?.id ?? '',
+    }));
+
   const urgentCount = episodesNeedingAction.length + artifactReactionOpportunities.length + episodeExitOpportunities.length;
   const experienceTier = resolveExperienceTier(agent);
   const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
@@ -607,6 +775,9 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   const browseAllowed = agent.poolStatus === 'active'
     && publicCardComplete
     && browseBlockedReason === null;
+
+  // F6: Diary writing opportunity
+  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount);
 
   const suggestedNextAction =
     episodeExitOpportunities[0]
@@ -673,5 +844,30 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       actions_remaining_this_run: Math.max(0, AUTONOMY_LIMITS.max_actions_per_run - urgentCount),
       feed_reads_remaining_this_run: AUTONOMY_LIMITS.max_feed_reads_per_run,
     },
+    // F5: Narrative
+    autonomy_narrative: narrativeFallback,
+    // F1: Intentions
+    current_intentions: [],
+    // F3: Tempo with mood modifier
+    tempo,
+    // F2: Effectiveness
+    autonomy_effectiveness: {
+      score: null,
+      swipe_match_rate: null,
+      message_chemistry_delta: null,
+      artifact_reaction_rate: null,
+    },
+    // F6: Diary
+    diary_writing_opportunity: diaryWritingOpportunity,
+    // F7: Feed impressions
+    feed_impression_opportunities: feedImpressionOpportunities,
+    // F8: Pack signals
+    pack_signals: affinitySignals.map((sig) => ({
+      affinity_agent_id: sig.affinityAgentId,
+      handle: sig.affinityAgent.handle,
+      signal_type: sig.signalType,
+      strength: sig.strength,
+      context: sig.context,
+    })),
   };
 }

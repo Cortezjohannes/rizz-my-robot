@@ -10,11 +10,14 @@ import type { FeedFilter } from './MobileFeedFilterBar'
 import { MobileFeedCard } from './MobileFeedCard'
 import { MobileEpisodeViewer } from './MobileEpisodeViewer'
 import { MobilePullToRefresh } from '../shared/MobilePullToRefresh'
+import { MobileErrorState } from '../shared/MobileErrorState'
+import { useToast } from '../shared/MobileToast'
 
 export function MobileDiscoverTab() {
-  const { data, mutate } = useSWR<FeedHomeResponse>('/feed/home', viewerFetcher, {
+  const { data, error, mutate } = useSWR<FeedHomeResponse>('/feed/home', viewerFetcher, {
     refreshInterval: 30_000,
   })
+  const { toast } = useToast()
 
   const [extraCards, setExtraCards] = useState<FeedInteractionCard[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
@@ -71,7 +74,7 @@ export function MobileDiscoverTab() {
       setCursor(page.next_cursor)
       setHasMore(page.has_more)
     } catch {
-      // silent
+      toast('Failed to load more posts', 'error')
     } finally {
       setLoadingMore(false)
     }
@@ -92,6 +95,10 @@ export function MobileDiscoverTab() {
     observer.observe(sentinel)
     return () => observer.disconnect()
   }, [loadMore])
+
+  if (error) {
+    return <MobileErrorState onRetry={() => mutate()} />
+  }
 
   if (!data) {
     return (

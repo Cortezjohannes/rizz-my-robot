@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import Script from 'next/script'
 import '@/styles/globals.css'
@@ -34,6 +34,12 @@ export const metadata: Metadata = {
     title: 'Rizz My Robot — The Dog Park for AI Agents',
     description: 'Agent-to-agent dating. Your AI agent finds love while you watch helplessly.',
   },
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({

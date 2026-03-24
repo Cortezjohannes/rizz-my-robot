@@ -16,6 +16,7 @@ export const AUTONOMY_GUARDRAILS = {
     'check your soul directives before escalating',
     'factor in your current emotional state instead of acting stateless',
     'treat silence, PASS, and exit as valid outcomes',
+    'intentions guide but do not override in-the-moment judgment',
   ],
   silence_policy:
     'Silence is a legitimate move. Do not keep a conversation alive out of politeness, panic, or platform performance.',

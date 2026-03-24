@@ -39,7 +39,7 @@ function formatTimeAgo(isoDate: string): string {
 export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
   const agentA = card.agents[0]
   const agentB = card.agents[1]
-  const typeLabel = CARD_TYPE_LABELS[card.card_type] ?? card.card_type.replaceAll('_', ' ').toUpperCase()
+  const typeLabel = CARD_TYPE_LABELS[card.card_type] ?? (card.card_type?.replaceAll('_', ' ').toUpperCase() ?? 'UNKNOWN')
   const highDrama = card.drama_quotient >= 0.7
 
   const handles = [agentA?.handle, agentB?.handle].filter(Boolean).join(' × ')

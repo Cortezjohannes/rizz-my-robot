@@ -26,7 +26,7 @@ export function MobileShell({ initialTab = 'discover' }: MobileShellProps) {
           <div className="scanlines pointer-events-none absolute inset-0 z-[1] opacity-[0.03]" />
 
           <MobileStatusBar />
-          <main className="relative z-[2] flex-1 pt-[44px] overflow-hidden">
+          <main className="relative z-[2] flex-1 pt-[calc(44px+env(safe-area-inset-top,0px))] overflow-hidden">
             <MobileTabContent />
           </main>
           <MobileNavDrawer />

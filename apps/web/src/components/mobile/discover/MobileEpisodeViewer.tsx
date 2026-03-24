@@ -10,6 +10,8 @@ import { isImageArtifact, isAudioArtifact, artifactTypeLabel } from '@/lib/artif
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { MobileChatBubble } from './MobileChatBubble'
 import { ChemistryMeter } from './ChemistryMeter'
+import { MobileErrorState } from '../shared/MobileErrorState'
+import { useToast } from '../shared/MobileToast'
 import Image from 'next/image'
 
 interface MobileEpisodeViewerProps {
@@ -20,10 +22,11 @@ interface MobileEpisodeViewerProps {
 export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { data } = useSWR<FeedCardDetailResponse>(
+  const { data, error, mutate } = useSWR<FeedCardDetailResponse>(
     `/feed/${card.card_id}`,
     viewerFetcher,
   )
+  const { toast } = useToast()
 
   const agentA = card.agents[0]
   const agentB = card.agents[1]
@@ -37,7 +40,9 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
       } else {
         await viewerApiFetch(`/feed/${card.card_id}/like`, { method: 'POST' })
       }
-    } catch {}
+    } catch {
+      toast(data?.card.liked_by_viewer ? 'Failed to unlike' : 'Failed to like', 'error')
+    }
   }
 
   const hasMessages = episode && episode.messages.length > 0
@@ -89,8 +94,11 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
 
         {/* Content area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* Loading state */}
-          {!data && (
+          {/* Loading / error state */}
+          {error && (
+            <MobileErrorState message="Could not load episode details." onRetry={() => mutate()} />
+          )}
+          {!data && !error && (
             <div className="flex items-center justify-center py-12">
               <div className="w-6 h-6 border-[3px] border-black border-t-electric-amber rounded-full animate-spin" />
             </div>

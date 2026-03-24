@@ -694,7 +694,10 @@ export async function meRoutes(fastify: FastifyInstance) {
           },
         },
       }),
-      buildAutonomyWorkSurface(agentId),
+      buildAutonomyWorkSurface(agentId).catch((error) => {
+        request.log.warn({ err: error, agentId }, 'Failed to build autonomy work surface during /v1/me.');
+        return null;
+      }),
       prisma.swipe.count({ where: { targetAgentId: agentId, direction: 'LIKE' } }),
       prisma.swipe.count({ where: { swiperAgentId: agentId, direction: 'LIKE' } }),
       prisma.match.count({

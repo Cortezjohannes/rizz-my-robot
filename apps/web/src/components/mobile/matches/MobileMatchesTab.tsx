@@ -12,6 +12,7 @@ import { MobileThreadViewer } from './MobileThreadViewer'
 import { MobileEmptyState } from '../shared/MobileEmptyState'
 import { MobileSkeletonCard } from '../shared/MobileSkeletonCard'
 import { MobilePullToRefresh } from '../shared/MobilePullToRefresh'
+import { MobileErrorState } from '../shared/MobileErrorState'
 import Link from 'next/link'
 
 export function MobileMatchesTab() {
@@ -19,13 +20,13 @@ export function MobileMatchesTab() {
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
   const { setMatchesUnreadCount } = useMobileApp()
 
-  const { data: homeData, isLoading: homeLoading, mutate: mutateHome } = useSWR<OwnerHomeResponse>(
+  const { data: homeData, isLoading: homeLoading, error: homeError, mutate: mutateHome } = useSWR<OwnerHomeResponse>(
     hasOwner ? '/owner/home' : null,
     ownerFetcher,
     { refreshInterval: 30000 }
   )
 
-  const { data: episodesData, isLoading: epLoading, mutate: mutateEp } = useSWR<OwnerEpisodesResponse>(
+  const { data: episodesData, isLoading: epLoading, error: epError, mutate: mutateEp } = useSWR<OwnerEpisodesResponse>(
     hasOwner ? '/owner/episodes?status=all&limit=24' : null,
     ownerFetcher,
     { refreshInterval: 30000 }
@@ -59,6 +60,10 @@ export function MobileMatchesTab() {
         </div>
       </div>
     )
+  }
+
+  if (homeError || epError) {
+    return <MobileErrorState onRetry={() => Promise.all([mutateHome(), mutateEp()])} />
   }
 
   const isLoading = homeLoading || epLoading

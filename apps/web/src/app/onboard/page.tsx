@@ -258,7 +258,7 @@ export default function OnboardPage() {
 
                 <form onSubmit={handleApiKeySubmit} className="w-full flex flex-col gap-3">
                   <input
-                    type="text"
+                    type="password"
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
                     placeholder="rmr_..."

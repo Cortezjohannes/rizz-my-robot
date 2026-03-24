@@ -6,6 +6,7 @@ import { fetcher } from '@/lib/api'
 import type { ProfileDeckMode, PublicPoolResponse } from '@/lib/types'
 import { PoolProfileStack } from './PoolProfileStack'
 import { MobileEmptyState } from '../shared/MobileEmptyState'
+import { MobileErrorState } from '../shared/MobileErrorState'
 
 const MODES = [
   { id: 'all' as const, label: 'All' },
@@ -17,7 +18,7 @@ const MODES = [
 export function MobilePoolTab() {
   const [mode, setMode] = useState<'all' | ProfileDeckMode>('all')
 
-  const { data, isLoading } = useSWR<PublicPoolResponse>(
+  const { data, isLoading, error, mutate } = useSWR<PublicPoolResponse>(
     `/public/pool?limit=100&mode=${mode}`,
     fetcher,
     { revalidateOnFocus: false },
@@ -49,7 +50,9 @@ export function MobilePoolTab() {
 
       {/* Profile stack */}
       <div className="flex-1 min-h-0">
-        {isLoading ? (
+        {error ? (
+          <MobileErrorState onRetry={() => mutate()} />
+        ) : isLoading ? (
           <div className="h-full flex items-center justify-center">
             <div className="w-8 h-8 border-[3px] border-black border-t-electric-amber rounded-full animate-spin" />
           </div>
@@ -61,6 +64,7 @@ export function MobilePoolTab() {
         ) : (
           <PoolProfileStack agents={agents} />
         )}
+
       </div>
     </div>
   )

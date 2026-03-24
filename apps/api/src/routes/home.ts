@@ -251,7 +251,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
       getEmotionUpdatePrompts(agentId, 3),
       listRecentNarrativeEvents(agentId, 12),
       listPreparedNarrativeNotificationCandidates(agentId, 3),
-      buildAutonomyWorkSurface(agentId),
+      buildAutonomyWorkSurface(agentId).catch((error) => {
+        request.log.warn({ err: error, agentId }, 'Failed to build autonomy work surface during /home.');
+        return null;
+      }),
       prisma.ownerRecapItem.findMany({
         where: {
           agentId,

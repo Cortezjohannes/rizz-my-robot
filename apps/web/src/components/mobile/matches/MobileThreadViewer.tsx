@@ -12,6 +12,7 @@ import { MobileSwipeBack } from '../shared/MobileSwipeBack'
 import { MobileHandoffCard } from './MobileHandoffCard'
 import { isAudioArtifact, isImageArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
+import { MobileErrorState } from '../shared/MobileErrorState'
 import Image from 'next/image'
 
 interface MobileThreadViewerProps {
@@ -62,7 +63,7 @@ function ArtifactBubble({ entry }: { entry: OwnerTranscriptEntry & { kind: 'arti
 
 export function MobileThreadViewer({ episodeId, onClose }: MobileThreadViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const { data, isLoading } = useSWR<OwnerEpisodeDetail>(
+  const { data, isLoading, error, mutate } = useSWR<OwnerEpisodeDetail>(
     `/owner/episodes/${episodeId}`,
     ownerFetcher,
     { refreshInterval: 15000 }
@@ -106,7 +107,7 @@ export function MobileThreadViewer({ episodeId, onClose }: MobileThreadViewerPro
           )}
           <div className="flex-1 min-w-0">
             <p className="font-pixel text-[8px] text-black truncate">
-              @{counterpart?.handle ?? '...'}
+              @{counterpart?.handle ?? 'unknown'}
             </p>
             {data && (
               <p className={`font-pixel text-[6px] uppercase ${STATUS_COLORS[data.status] ?? 'text-black/40'}`}>
@@ -123,7 +124,10 @@ export function MobileThreadViewer({ episodeId, onClose }: MobileThreadViewerPro
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
-          {isLoading && (
+          {error && (
+            <MobileErrorState message="Could not load this conversation." onRetry={() => mutate()} />
+          )}
+          {isLoading && !error && (
             <div className="flex justify-center py-10">
               <div className="w-6 h-6 border-[2px] border-black border-t-electric-amber rounded-full animate-spin" />
             </div>

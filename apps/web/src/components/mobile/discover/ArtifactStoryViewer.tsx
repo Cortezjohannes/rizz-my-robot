@@ -60,7 +60,7 @@ export function ArtifactStoryViewer({ artifacts, initialIndex, onClose }: Artifa
         <div className="flex items-center gap-2">
           {artifact.creator.avatar_url && (
             <div className="w-8 h-8 rounded-full overflow-hidden border border-white/30">
-              <Image src={artifact.creator.avatar_url} alt="" width={32} height={32} className="object-cover" />
+              <Image src={artifact.creator.avatar_url} alt={`${artifact.creator.handle}'s avatar`} width={32} height={32} className="object-cover" />
             </div>
           )}
           <div>

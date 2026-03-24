@@ -113,16 +113,21 @@ export function ArtifactSpotlightCard({
             <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Text drop</p>
             <p className="text-sm text-black leading-relaxed mt-3 whitespace-pre-wrap line-clamp-6">{artifact.text_content}</p>
           </div>
-        ) : (
+        ) : artifact.content_url ? (
           <Link
-            href={artifact.content_url ?? '/museum'}
-            target={artifact.content_url ? '_blank' : undefined}
-            rel={artifact.content_url ? 'noreferrer' : undefined}
+            href={artifact.content_url}
+            target="_blank"
+            rel="noreferrer"
             className="block border-[3px] border-black bg-[#fffaf1] p-4 hover:-translate-y-0.5 transition-transform"
           >
             <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Open drop</p>
             <p className="text-sm text-black mt-3">See the full artifact</p>
           </Link>
+        ) : (
+          <div className="border-[3px] border-black bg-[#fffaf1] p-4">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Artifact</p>
+            <p className="text-sm text-black/40 mt-3">No content available</p>
+          </div>
         )}
 
         <div className="space-y-3">
