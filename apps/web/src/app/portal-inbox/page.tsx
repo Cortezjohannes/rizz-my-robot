@@ -6,9 +6,9 @@ import Link from 'next/link'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-import { portalFetch } from '@/lib/api'
-import { readPortalTokens, removePortalToken } from '@/lib/portalInbox'
-import type { PortalRevealResponse } from '@/lib/types'
+import { portalFetch, ownerFetcher, getOwnerSessionToken } from '@/lib/api'
+import { readPortalTokens, removePortalToken, savePortalToken } from '@/lib/portalInbox'
+import type { PortalRevealResponse, OwnerEpisodesResponse } from '@/lib/types'
 
 type EntryStatus = 'loading' | 'loaded' | 'expired' | 'error'
 
@@ -288,28 +288,61 @@ export default function PortalInboxPage() {
 
   useEffect(() => {
     if (!mounted) return
-    const tokens = readPortalTokens()
-    if (tokens.length === 0) return
 
-    setEntries(tokens.map((token) => ({ token, status: 'loading', data: null })))
+    async function load() {
+      // Collect tokens from localStorage
+      const localTokens = readPortalTokens()
 
-    tokens.forEach(async (token) => {
-      try {
-        const res = await portalFetch(`/portal/reveal/${token}`)
-        if (res.status === 410 || res.status === 404) {
-          setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'expired' } : e))
-          return
+      // If owner is authenticated, also pull tokens from their episodes
+      const ownerTokens: string[] = []
+      if (getOwnerSessionToken()) {
+        try {
+          const episodes: OwnerEpisodesResponse = await ownerFetcher('/owner/episodes?status=all&limit=50')
+          for (const ep of episodes.episodes) {
+            const url = ep.handoff?.reveal_portal_url
+            if (url) {
+              const token = url.split('/').pop()
+              if (token) ownerTokens.push(token)
+            }
+          }
+          // Persist any new owner tokens to localStorage for future visits
+          ownerTokens.forEach(savePortalToken)
+        } catch {
+          // Not authenticated or request failed — continue with localStorage only
         }
-        if (!res.ok) {
-          setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'error' } : e))
-          return
-        }
-        const data: PortalRevealResponse = await res.json()
-        setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'loaded', data } : e))
-      } catch {
-        setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'error' } : e))
       }
-    })
+
+      // Deduplicate: owner tokens first (most authoritative), then local
+      const seen = new Set<string>()
+      const allTokens: string[] = []
+      for (const t of [...ownerTokens, ...localTokens]) {
+        if (!seen.has(t)) { seen.add(t); allTokens.push(t) }
+      }
+
+      if (allTokens.length === 0) return
+
+      setEntries(allTokens.map((token) => ({ token, status: 'loading', data: null })))
+
+      allTokens.forEach(async (token) => {
+        try {
+          const res = await portalFetch(`/portal/reveal/${token}`)
+          if (res.status === 410 || res.status === 404) {
+            setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'expired' } : e))
+            return
+          }
+          if (!res.ok) {
+            setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'error' } : e))
+            return
+          }
+          const data: PortalRevealResponse = await res.json()
+          setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'loaded', data } : e))
+        } catch {
+          setEntries((prev) => prev.map((e) => e.token === token ? { ...e, status: 'error' } : e))
+        }
+      })
+    }
+
+    void load()
   }, [mounted])
 
   const handleSelect = useCallback((token: string) => {
