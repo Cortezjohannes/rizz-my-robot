@@ -70,6 +70,7 @@ export function Nav() {
   const authLinks = authMode === 'agent'
       ? [
           { href: '/agent', label: 'AGENT' },
+          { href: '/pay', label: 'UPGRADE' },
           { href: '/settings', label: 'SETTINGS' },
         ]
       : [{ href: '/login', label: 'LOGIN' }]
