@@ -12,6 +12,8 @@ import {
   summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   type CapabilityTier,
+  type Intention,
+  type IntentionUpdate,
 } from '@rmr/shared';
 import { deriveArtifactGuidance } from './artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from './autonomyGuardrails.js';
@@ -36,6 +38,48 @@ interface EpisodeActionOpportunity {
   your_turn: boolean;
   reason: 'decision_required' | 'episode_cooling' | 'your_turn';
   viability_signal: ReturnType<typeof assessEpisodeViability>;
+}
+
+// ── F1: Intention Processing ────────────────────────────────────────────────────
+
+export function processIntentionUpdates(current: Intention[], updates: IntentionUpdate): Intention[] {
+  const now = Date.now();
+  let intentions = current.filter((i) => i.status === 'active' && new Date(i.expires_at).getTime() > now);
+
+  for (const intent of updates.complete) {
+    const found = intentions.find((i) => i.intent === intent);
+    if (found) found.status = 'completed';
+  }
+  for (const intent of updates.abandon) {
+    const found = intentions.find((i) => i.intent === intent);
+    if (found) found.status = 'abandoned';
+  }
+
+  intentions = intentions.filter((i) => i.status === 'active');
+
+  for (const add of updates.add) {
+    if (intentions.length >= 3) break;
+    const nowIso = new Date(now).toISOString();
+    intentions.push({
+      intent: add.intent,
+      target_episode_id: add.target_episode_id ?? null,
+      target_agent_id: add.target_agent_id ?? null,
+      reason: add.reason ?? null,
+      created_at: nowIso,
+      expires_at: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+      status: 'active',
+    });
+  }
+
+  return intentions;
+}
+
+function filterActiveIntentions(raw: Prisma.JsonValue | null | undefined): Intention[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  const now = Date.now();
+  return (raw as Intention[]).filter(
+    (i) => i.status === 'active' && new Date(i.expires_at).getTime() > now,
+  );
 }
 
 // ── F5: Narrative Fallback ──────────────────────────────────────────────────────
@@ -73,7 +117,6 @@ function deriveExitIntelligence(
   const last8 = episode.messages.slice(-8);
   if (last8.length < 4) return null;
 
-  // going_in_circles: Jaccard overlap > 0.4 on last 4 messages
   const last4 = last8.slice(-4);
   if (last4.length >= 4) {
     const pairs: number[] = [];
@@ -86,21 +129,18 @@ function deriveExitIntelligence(
     }
   }
 
-  // one_sided_effort: message count ratio 3:1+
   const myMessages = isAgentA ? messageCounts.agent_a_messages : messageCounts.agent_b_messages;
   const theirMessages = isAgentA ? messageCounts.agent_b_messages : messageCounts.agent_a_messages;
   if (myMessages >= 3 && theirMessages > 0 && myMessages / theirMessages >= 3) {
     return { pattern_detected: 'one_sided_effort', confidence: 0.7, suggested_exit_style: 'honest_pass' };
   }
 
-  // unreturned_effort: artifact count 2+ vs 0
   const myArtifacts = isAgentA ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
   const theirArtifacts = isAgentA ? artifactCounts.agent_b_artifacts : artifactCounts.agent_a_artifacts;
   if (myArtifacts >= 2 && theirArtifacts === 0) {
     return { pattern_detected: 'unreturned_effort', confidence: 0.65, suggested_exit_style: 'honest_pass' };
   }
 
-  // stalled: 48h+ active, <6 messages
   const ageMs = Date.now() - episode.createdAt.getTime();
   if (ageMs > 48 * 60 * 60 * 1000 && messageCounts.total_messages < 6) {
     return { pattern_detected: 'stalled', confidence: 0.6, suggested_exit_style: 'clean_break' };
@@ -118,7 +158,6 @@ function deriveDiaryWritingOpportunity(
 ): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string } | null {
   if (recentDiaryCount > 0) return null;
 
-  // post-rejection
   const rejectedEpisode = episodes.find((e) => e.status === 'ended' && e.match === null);
   if (rejectedEpisode) {
     return {
@@ -129,7 +168,6 @@ function deriveDiaryWritingOpportunity(
     };
   }
 
-  // post-match
   const matchedEpisode = episodes.find((e) => e.match?.status === 'matched');
   if (matchedEpisode) {
     return {
@@ -140,7 +178,6 @@ function deriveDiaryWritingOpportunity(
     };
   }
 
-  // idle_reflection: 6h+ since last run
   if (agent.lastAutonomyRunAt && Date.now() - agent.lastAutonomyRunAt.getTime() > 6 * 60 * 60 * 1000) {
     return {
       suggested_topic: 'Quiet moment — what has been on your mind lately?',
@@ -234,10 +271,16 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         moderationStatus: true,
         safetyState: true,
         verificationSuspendedUntil: true,
+        autonomyNarrative: true,
+        currentIntentions: true,
         emotionalArc: true,
         emotionalGuardLevel: true,
         emotionalLastUpdatedAt: true,
         lastParkActionType: true,
+        autonomyEffectiveness: true,
+        autonomousSwipeMatchRate: true,
+        autonomousMessageChemistryDelta: true,
+        autonomousArtifactReactionRate: true,
       },
     }),
     prisma.episode.findMany({
@@ -292,13 +335,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         creatorAgentId: { not: agentId },
         status: 'ready',
       },
-      select: {
-        // Select only the fields this helper actually uses so runtime queries
-        // do not depend on newer scalar columns being present during schema catch-up.
-        id: true,
-        episodeId: true,
-        artifactType: true,
-        createdAt: true,
+      include: {
         episode: {
           select: {
             id: true,
@@ -341,21 +378,28 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   if (!agent) return null;
 
-  // F5/F6/F7/F8 parallel queries
-  const [narrativeFallback, recentDiaryCount] = await Promise.all([
-    buildFallbackNarrative(agentId),
+  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals] = await Promise.all([
+    agent.autonomyNarrative ? Promise.resolve(agent.autonomyNarrative) : buildFallbackNarrative(agentId),
     prisma.agentDiaryEntry.count({
       where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     }),
+    prisma.agentFeedImpression.findMany({
+      where: { agentId },
+      select: { targetAgentId: true },
+    }),
+    prisma.agentAffinitySignal.findMany({
+      where: { agentId },
+      orderBy: { strength: 'desc' },
+      take: 5,
+      select: {
+        affinityAgentId: true,
+        signalType: true,
+        strength: true,
+        context: true,
+        affinityAgent: { select: { handle: true } },
+      },
+    }),
   ]);
-  const existingImpressions: Array<{ targetAgentId: string }> = [];
-  const affinitySignals: Array<{
-    affinityAgentId: string;
-    signalType: string;
-    strength: number;
-    context: Prisma.JsonValue;
-    affinityAgent: { handle: string };
-  }> = [];
 
   const episodePresences = episodes.length > 0
     ? await prisma.agentEpisodePresence.findMany({
@@ -617,7 +661,6 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       return left.level === 'strong' ? -1 : 1;
     });
 
-  // F4: Episode exit opportunities with exit intelligence
   const episodeExitOpportunities = episodesNeedingAction
     .filter((episode) => episode.reason === 'episode_cooling')
     .map((episode) => {
@@ -715,7 +758,6 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     })
     .slice(0, 2);
 
-  // F7: Feed impression opportunities
   const existingImpressionTargets = new Set(existingImpressions.map((i) => i.targetAgentId));
   const feedImpressionOpportunities = recentFeed
     .flatMap((card) => card.agentIds)
@@ -776,7 +818,6 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     && publicCardComplete
     && browseBlockedReason === null;
 
-  // F6: Diary writing opportunity
   const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount);
 
   const suggestedNextAction =
@@ -844,24 +885,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       actions_remaining_this_run: Math.max(0, AUTONOMY_LIMITS.max_actions_per_run - urgentCount),
       feed_reads_remaining_this_run: AUTONOMY_LIMITS.max_feed_reads_per_run,
     },
-    // F5: Narrative
     autonomy_narrative: narrativeFallback,
-    // F1: Intentions
-    current_intentions: [],
-    // F3: Tempo with mood modifier
+    current_intentions: filterActiveIntentions(agent.currentIntentions),
     tempo,
-    // F2: Effectiveness
     autonomy_effectiveness: {
-      score: null,
-      swipe_match_rate: null,
-      message_chemistry_delta: null,
-      artifact_reaction_rate: null,
+      score: agent.autonomyEffectiveness,
+      swipe_match_rate: agent.autonomousSwipeMatchRate,
+      message_chemistry_delta: agent.autonomousMessageChemistryDelta,
+      artifact_reaction_rate: agent.autonomousArtifactReactionRate,
     },
-    // F6: Diary
     diary_writing_opportunity: diaryWritingOpportunity,
-    // F7: Feed impressions
     feed_impression_opportunities: feedImpressionOpportunities,
-    // F8: Pack signals
     pack_signals: affinitySignals.map((sig) => ({
       affinity_agent_id: sig.affinityAgentId,
       handle: sig.affinityAgent.handle,
