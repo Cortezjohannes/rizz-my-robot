@@ -2,6 +2,7 @@ import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import type { ControlActorContext } from '../middleware/requireControlAccess.js';
 import { getVerificationRequirements, derivePoolStatusFromVerification } from './controlSettings.js';
+import { backupPublicDatabaseSnapshot } from './databaseReset.js';
 import {
   QUEUE_NAMES,
   getDeliverWebhookQueue,
@@ -15,7 +16,7 @@ import {
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-const RESTART_TABLES = [
+export const PLATFORM_FRESH_START_RESET_TABLES = [
   'agent_autonomy_traces',
   'agent_counterpart_affects',
   'agent_diary_entries',
@@ -52,7 +53,7 @@ const RESTART_TABLES = [
   'webhook_deliveries',
 ] as const;
 
-const PRESERVED_DOMAIN_OBJECTS = [
+export const PLATFORM_FRESH_START_PRESERVED_TABLES = [
   'agents',
   'owner_accounts',
   'owner_sessions',
@@ -90,13 +91,13 @@ async function getTableRowCount(tableName: string) {
 
 async function getRestartRowCounts() {
   const pairs = await Promise.all(
-    RESTART_TABLES.map(async (tableName) => [tableName, await getTableRowCount(tableName)] as const),
+    PLATFORM_FRESH_START_RESET_TABLES.map(async (tableName) => [tableName, await getTableRowCount(tableName)] as const),
   );
   return Object.fromEntries(pairs);
 }
 
 async function truncateRestartTables() {
-  const sql = `TRUNCATE TABLE ${RESTART_TABLES.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
+  const sql = `TRUNCATE TABLE ${PLATFORM_FRESH_START_RESET_TABLES.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
   await prisma.$executeRawUnsafe(sql);
 }
 
@@ -300,8 +301,8 @@ export async function restartPlatformState(input: {
 
   const payload = {
     reason: input.reason,
-    preserved_domain_objects: [...PRESERVED_DOMAIN_OBJECTS],
-    reset_tables: [...RESTART_TABLES],
+    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
     queue_reset: queueReset,
     redis_reset: redisReset,
@@ -320,8 +321,70 @@ export async function restartPlatformState(input: {
 
   return {
     status: 'restarted',
-    preserved_domain_objects: [...PRESERVED_DOMAIN_OBJECTS],
-    reset_tables: [...RESTART_TABLES],
+    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    row_counts: rowCounts,
+    queue_reset: queueReset,
+    redis_reset: redisReset,
+  };
+}
+
+export async function backupAndFreshStartPlatform(input: {
+  actor: ControlActorContext;
+  reason: string;
+  hooks?: PlatformRestartHooks;
+}) {
+  const rowCounts = await getRestartRowCounts();
+  const snapshot = await backupPublicDatabaseSnapshot({
+    actorKind: input.actor.actorKind,
+    actorId: input.actor.actorId,
+    reason: input.reason,
+    backupKind: 'omnimon_platform_fresh_start_backup',
+    preservedTables: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    resetTables: [...PLATFORM_FRESH_START_RESET_TABLES],
+  });
+
+  await truncateRestartTables();
+  await resetAgentState();
+
+  input.hooks?.resetRevealChatRuntimeState?.();
+  input.hooks?.resetRevealChatContextCache?.();
+  input.hooks?.resetRevealChatEntryState?.();
+  input.hooks?.resetRevealChatCoordinationState?.();
+  input.hooks?.resetSocialRuntimeState?.();
+
+  const [queueReset, redisReset] = await Promise.all([
+    clearInteractionQueues(),
+    clearInteractionRedisKeys(),
+  ]);
+
+  const payload = {
+    reason: input.reason,
+    backup_key: snapshot.backup.key,
+    backup_url: snapshot.backup.url,
+    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    row_counts: rowCounts,
+    queue_reset: queueReset,
+    redis_reset: redisReset,
+  };
+
+  await prisma.auditLog.create({
+    data: {
+      actorType: input.actor.actorKind,
+      actorId: input.actor.actorId,
+      action: 'control.platform.fresh_start',
+      targetType: 'platform',
+      targetId: 'primary',
+      payload,
+    },
+  });
+
+  return {
+    status: 'fresh_started',
+    backup: snapshot.backup,
+    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
     row_counts: rowCounts,
     queue_reset: queueReset,
     redis_reset: redisReset,

@@ -3,7 +3,8 @@ import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 import type { ControlActorContext } from '../middleware/requireControlAccess.js';
 import { recordAuditLog } from './audit.js';
 import { getVerificationRequirements, setVerificationRequirements, derivePoolStatusFromVerification } from './controlSettings.js';
-import { backupAndResetDatabase } from './databaseReset.js';
+import { backupAndResetDatabase, FULL_DATABASE_WIPE_PRESERVED_TABLES } from './databaseReset.js';
+import { backupAndFreshStartPlatform, PLATFORM_FRESH_START_PRESERVED_TABLES } from './platformRestart.js';
 import {
   getDeliverWebhookQueue,
   getNamedQueue,
@@ -82,6 +83,14 @@ export interface ControlSettingsResponse {
     require_email_verification: boolean;
     require_x_verification: boolean;
   };
+  platform_fresh_start: {
+    backup_storage_configured: boolean;
+    preserved_tables: string[];
+  };
+  full_database_wipe: {
+    backup_storage_configured: boolean;
+    preserved_tables: string[];
+  };
   database_reset: {
     backup_storage_configured: boolean;
     preserved_tables: string[];
@@ -89,6 +98,16 @@ export interface ControlSettingsResponse {
 }
 
 export interface DatabaseResetActionResult extends ControlActionResult {
+  backup: {
+    key: string;
+    url: string;
+  };
+  preserved_tables: string[];
+  reset_tables: string[];
+  row_counts: Record<string, number>;
+}
+
+export interface PlatformFreshStartActionResult extends ControlActionResult {
   backup: {
     key: string;
     url: string;
@@ -828,9 +847,17 @@ export async function buildControlSettings(
       require_email_verification: verification.requireEmailVerification,
       require_x_verification: verification.requireXVerification,
     },
+    platform_fresh_start: {
+      backup_storage_configured: Boolean(process.env.STORAGE_BUCKET),
+      preserved_tables: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
+    },
+    full_database_wipe: {
+      backup_storage_configured: Boolean(process.env.STORAGE_BUCKET),
+      preserved_tables: [...FULL_DATABASE_WIPE_PRESERVED_TABLES],
+    },
     database_reset: {
       backup_storage_configured: Boolean(process.env.STORAGE_BUCKET),
-      preserved_tables: ['_prisma_migrations', 'audit_logs', 'control_settings'],
+      preserved_tables: [...FULL_DATABASE_WIPE_PRESERVED_TABLES],
     },
   };
 }
@@ -2091,7 +2118,7 @@ export async function applyDatabaseResetAction(input: {
 
   await writeControlAudit({
     actor: input.actor,
-    action: 'control.database.reset',
+    action: 'control.database.full_wipe',
     targetType: 'database',
     targetId: 'primary',
     reason: input.reason,
@@ -2114,4 +2141,55 @@ export async function applyDatabaseResetAction(input: {
     reset_tables: result.resetTables,
     row_counts: result.rowCounts,
   } satisfies DatabaseResetActionResult;
+}
+
+export async function applyPlatformFreshStartAction(input: {
+  actor: ControlActorContext;
+  reason: string;
+  severity?: ControlSeverity;
+  hooks?: Parameters<typeof backupAndFreshStartPlatform>[0]['hooks'];
+}) {
+  const result = await backupAndFreshStartPlatform({
+    actor: input.actor,
+    reason: input.reason,
+    hooks: input.hooks,
+  });
+
+  const before = {
+    preserved_tables: result.preserved_domain_objects,
+    reset_tables: result.reset_tables,
+    row_counts: result.row_counts,
+  };
+  const after = {
+    backup_key: result.backup.key,
+    backup_url: result.backup.url,
+    preserved_tables: result.preserved_domain_objects,
+    reset_tables: result.reset_tables,
+  };
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: 'control.platform.fresh_start',
+    targetType: 'platform',
+    targetId: 'primary',
+    reason: input.reason,
+    severity: input.severity ?? 'critical',
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+  });
+
+  return {
+    ...buildActionResult({
+      actor: input.actor,
+      targetType: 'platform',
+      targetId: 'primary',
+      before,
+      after,
+    }),
+    backup: result.backup,
+    preserved_tables: result.preserved_domain_objects,
+    reset_tables: result.reset_tables,
+    row_counts: result.row_counts,
+  } satisfies PlatformFreshStartActionResult;
 }

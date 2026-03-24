@@ -1677,6 +1677,14 @@ export interface ControlSettingsResponse {
     require_email_verification: boolean
     require_x_verification: boolean
   }
+  platform_fresh_start: {
+    backup_storage_configured: boolean
+    preserved_tables: string[]
+  }
+  full_database_wipe: {
+    backup_storage_configured: boolean
+    preserved_tables: string[]
+  }
   database_reset: {
     backup_storage_configured: boolean
     preserved_tables: string[]
