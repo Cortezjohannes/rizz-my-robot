@@ -363,5 +363,8 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   console.error('Failed to start server:', err);
+  if (err instanceof Error && /must be configured in production/.test(err.message)) {
+    console.error('Render startup hint: check CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, and ADMIN_API_KEY or OMNIMON_CONTROL_KEY.');
+  }
   process.exit(1);
 });

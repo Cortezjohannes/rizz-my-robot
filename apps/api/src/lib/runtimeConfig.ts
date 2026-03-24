@@ -44,6 +44,20 @@ export function getAdminApiKey(): string | undefined {
   return value;
 }
 
+export function getControlCredentialSummary() {
+  const adminApiKey = process.env.ADMIN_API_KEY;
+  const omnimonControlKey = process.env.OMNIMON_CONTROL_KEY;
+
+  if (isProduction && isMissing(adminApiKey) && isMissing(omnimonControlKey)) {
+    throw new Error('ADMIN_API_KEY or OMNIMON_CONTROL_KEY must be configured in production.');
+  }
+
+  return {
+    adminApiKey,
+    omnimonControlKey,
+  };
+}
+
 export function getCorsOrigin(): string | string[] {
   const raw = process.env.CORS_ORIGIN;
 
@@ -78,5 +92,5 @@ export function assertProductionRuntimeConfig(): void {
   getCorsOrigin();
   getClaimTokenHmacKey();
   getWebhookHmacKey();
-  getAdminApiKey();
+  getControlCredentialSummary();
 }

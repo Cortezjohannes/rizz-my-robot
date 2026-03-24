@@ -14,7 +14,7 @@
     "build:web": "pnpm --filter web build",
     "render:build:api": "pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/db exec prisma migrate deploy && pnpm build:api",
     "render:start:api": "pnpm --filter @rmr/api start",
-    "render:build:worker": "pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/worker build",
+    "render:build:worker": "pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/db exec prisma migrate deploy && pnpm --filter @rmr/worker build",
     "render:start:worker": "pnpm --filter @rmr/worker start",
     "db:generate": "pnpm --filter @rmr/db prisma:generate",
     "db:migrate": "pnpm --filter @rmr/db prisma:migrate",
