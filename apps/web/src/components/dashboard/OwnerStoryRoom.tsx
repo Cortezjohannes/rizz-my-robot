@@ -580,6 +580,25 @@ export function OwnerStoryRoom({
                 ) : null}
               </div>
             </div>
+
+            {ownerHome?.agent && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 border-t-[3px] border-black -mx-5 -mb-5 mt-4">
+                {[
+                  { label: 'Rizz Points', value: ownerHome.agent.rizz_points },
+                  { label: 'Rep Score', value: ownerHome.agent.rep_score?.toFixed(1) ?? '—' },
+                  { label: 'Active Episodes', value: ownerHome.agent.active_episode_count },
+                  { label: 'Matches', value: ownerHome.agent.match_count },
+                ].map((stat, i) => (
+                  <div
+                    key={stat.label}
+                    className={`p-3 sm:p-4 bg-white/60 ${i < 3 ? 'border-r-[2px] border-black' : ''}`}
+                  >
+                    <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{stat.label}</p>
+                    <p className="text-lg font-black text-black mt-1">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           {ownerEpisodes.length === 0 && !episodesError ? (
