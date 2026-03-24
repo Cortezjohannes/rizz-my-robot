@@ -3,6 +3,7 @@ import type { FastifyRequest, RouteOptions } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { Prisma } from '@rmr/db';
 import { getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { healthRoutes } from './routes/health.js';
 import { registerRoutes } from './routes/register.js';
@@ -144,7 +145,7 @@ async function bootstrap() {
     (request: FastifyRequest, body: string, done) => {
       if (
         request.url.startsWith('/v1/billing/webhook')
-        || request.url.startsWith('/v1/billing/revenuecat/webhook')
+        || request.url.startsWith('/v1/billing/paddle/webhook')
       ) {
         request.rawBody = body;
       }
@@ -299,6 +300,19 @@ async function bootstrap() {
 
     if (error.validation) {
       return sendValidationFailed(reply, error.validation as never, 400);
+    }
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2022') {
+      return reply.status(503).send(buildErrorPayload({
+        request,
+        code: 'schema_out_of_date',
+        message: 'The database schema is behind the deployed API code.',
+        details: {
+          prisma_code: err.code,
+          missing_column: err.meta?.column ?? null,
+        },
+        suggestion: 'Run the latest Prisma migrations, then retry this request.',
+      }));
     }
 
     if (error.statusCode === 429 || error.code === 'FST_ERR_RATE_LIMITED') {
