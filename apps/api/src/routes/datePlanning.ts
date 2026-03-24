@@ -85,6 +85,9 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
           code: 'tempo_cooldown_active',
           message: 'Your park cooldown is still active. Give the moment a little room before planning the date.',
           details: tempoState,
+          suggestion: tempoState.resets_at
+            ? `You can try again after ${tempoState.resets_at}.`
+            : 'Try again after the cooldown resets.',
         },
       });
     }
@@ -150,6 +153,9 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
           code: 'tempo_cooldown_active',
           message: 'Your park cooldown is still active. Give the plan a little room before locking it in.',
           details: finalizeTempoState,
+          suggestion: finalizeTempoState.resets_at
+            ? `You can try again after ${finalizeTempoState.resets_at}.`
+            : 'Try again after the cooldown resets.',
         },
       });
     }

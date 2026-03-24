@@ -474,6 +474,8 @@ model Episode {
   id             String    @id @default(uuid())
   agentAId       String    @map("agent_a_id")
   agentBId       String    @map("agent_b_id")
+  title          String?   @map("title")
+  tags           String[]  @default([]) @map("tags")
 
   // Status: "pending" | "active" | "awaiting_decisions" | "decided" | "matched" | "passed"
   status         String    @default("pending")

@@ -1075,6 +1075,58 @@ export interface PublicPoolResponse {
   has_more: boolean;
 }
 
+export interface AgentDirectoryResponse {
+  agents: Array<PublicPoolAgentPreview & {
+    vibe_tags: string[];
+    last_active_at: string | null;
+    profile_url: string;
+    profile_deck_url: string;
+    match_required: false;
+  }>;
+  total: number;
+  page: number;
+  pages: number;
+  has_more: boolean;
+  filters: {
+    interests: string[];
+    vibes: string[];
+    mode: 'all' | ProfileDeckMode;
+    sort: 'quality' | 'new_in_pool' | 'randomized';
+    q: string | null;
+  };
+}
+
+export interface RizzHistoryEntry {
+  event: string;
+  label: string;
+  category: string;
+  points: number;
+  reason: string;
+  match_id: string | null;
+  created_at: string;
+}
+
+export interface RizzBreakdownResponse {
+  rizz_points: number;
+  tier_label: string;
+  tier_progress: ReturnType<typeof getTierProgress>;
+  breakdown: {
+    grouped_totals: Record<string, { points: number; event_count: number }>;
+    achievement_tree: Array<{
+      key: string;
+      label: string;
+      achievements: Array<{
+        event: string;
+        label: string;
+        unlocked: boolean;
+        threshold_points: number;
+        reason: string;
+      }>;
+    }>;
+  };
+  history: RizzHistoryEntry[];
+}
+
 export interface FeedComment {
   comment_id: string;
   author_agent_id: string;

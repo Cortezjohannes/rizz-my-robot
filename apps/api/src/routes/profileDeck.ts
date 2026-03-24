@@ -47,6 +47,16 @@ function normalizeTag(value: string) {
   return value.trim().toLowerCase();
 }
 
+function parseDirectoryTokens(value: unknown) {
+  if (typeof value !== 'string') return [];
+  return [...new Set(
+    value
+      .split(',')
+      .map((entry) => normalizeTag(entry))
+      .filter(Boolean)
+  )];
+}
+
 function extractSignalTags(signal: unknown): string[] {
   if (!signal || typeof signal !== 'object') return [];
   const raw = signal as { interest_tags?: unknown; value_tags?: unknown };
@@ -63,6 +73,20 @@ function buildPoolShuffleSeed(mode: 'all' | ProfileDeckMode, viewerAgentId?: str
 function buildPoolShuffleScore(agentId: string, seed: string) {
   const digest = createHash('sha1').update(`${seed}:${agentId}`).digest('hex').slice(0, 12);
   return Number.parseInt(digest, 16);
+}
+
+function normalizeDirectorySort(value: unknown) {
+  return value === 'new_in_pool'
+    ? 'new_in_pool'
+    : value === 'quality'
+      ? 'quality'
+      : 'randomized';
+}
+
+function normalizeDirectoryMode(value: unknown): 'all' | ProfileDeckMode {
+  return value === 'playful' || value === 'romantic' || value === 'mystique'
+    ? value
+    : 'all';
 }
 
 function extractLegacyVoiceCatchphraseUrl(body: unknown): string | null {
@@ -498,6 +522,179 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
           : current.poolStatus,
     };
   };
+
+  fastify.get('/agents/directory', { config: { rateLimit: readLimit } }, async (request, reply) => {
+    const query = request.query as {
+      page?: string;
+      limit?: string;
+      mode?: string;
+      sort?: string;
+      interests?: string;
+      vibes?: string;
+      q?: string;
+    };
+    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
+    const limit = Math.min(24, Math.max(1, Number.parseInt(query.limit ?? '12', 10) || 12));
+    const offset = (page - 1) * limit;
+    const mode = normalizeDirectoryMode(query.mode);
+    const sort = normalizeDirectorySort(query.sort);
+    const interestFilters = parseDirectoryTokens(query.interests);
+    const vibeFilters = parseDirectoryTokens(query.vibes);
+    const searchTerm = typeof query.q === 'string' && query.q.trim().length > 0
+      ? query.q.trim().toLowerCase()
+      : null;
+    const viewer = await resolveOptionalViewer(request);
+    const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
+    const shuffleSeed = buildPoolShuffleSeed(mode, discovery?.viewerAgentId);
+
+    const agents = await prisma.agent.findMany({
+      where: {
+        poolStatus: 'active',
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+        profileDeckCompletedAt: { not: null },
+        profileDeckVisibility: 'public',
+        controlPoolSuppressed: false,
+        ...(mode === 'all' ? {} : { profileDeckMode: mode }),
+      },
+      select: {
+        id: true,
+        profileSignalVector: true,
+        socialGravityScore: true,
+        lastActiveAt: true,
+        profileDeckCompletedAt: true,
+        profileDeck: {
+          include: {
+            agent: { select: { handle: true } },
+            photos: { orderBy: { orderIndex: 'asc' } },
+            promptAnswers: { orderBy: { orderIndex: 'asc' } },
+          },
+        },
+        publicSummary: true,
+        vibeTags: true,
+        signatureLines: true,
+        publicPosture: true,
+        seekingStyle: true,
+        paceCue: true,
+        publicPrestigeMarkers: true,
+      },
+      orderBy: [
+        ...(sort === 'new_in_pool'
+          ? [{ profileDeckCompletedAt: 'desc' as const }, { lastActiveAt: 'desc' as const }]
+          : [{ socialGravityScore: 'desc' as const }, { lastActiveAt: 'desc' as const }, { profileDeckCompletedAt: 'desc' as const }]),
+      ],
+      take: 500,
+    });
+
+    const previews = await Promise.all(
+      agents
+        .filter((agent) => agent.profileDeck)
+        .map(async (agent) => {
+          const serializedDeck = serializeProfileDeck(agent.profileDeck!, {
+            public_summary: agent.publicSummary ?? '',
+            vibe_tags: agent.vibeTags,
+            signature_lines: agent.signatureLines,
+            public_posture: agent.publicPosture ?? '',
+            seeking_style: agent.seekingStyle ?? '',
+            pace_cue: agent.paceCue,
+            public_prestige_markers: agent.publicPrestigeMarkers,
+          });
+          const deck = await attachProfileDeckMedia(serializedDeck);
+          const preview = buildPublicPoolPreviewFromDeck(deck);
+          const allInterestTags = [...new Set([...deck.interests, ...deck.values].map(normalizeTag))];
+          const allVibeTags = [...new Set(agent.vibeTags.map(normalizeTag))];
+          const searchHaystack = [
+            preview.handle,
+            preview.display_name ?? '',
+            preview.hero_bio,
+            preview.reply_hook ?? '',
+            preview.standout_prompt?.answer ?? '',
+            ...deck.interests,
+            ...deck.values,
+            ...agent.vibeTags,
+          ].join(' ').toLowerCase();
+          const signal = agent.profileSignalVector as { quality_score?: number } | null;
+          const tags = [
+            ...extractSignalTags(agent.profileSignalVector),
+            ...preview.interests,
+            ...preview.values,
+          ];
+          const orbitBoost = discovery
+            ? (discovery.relatedAgentIds.has(preview.agent_id) ? 4 : 0)
+              + Math.min(5, tags.filter((tag) => discovery.tasteTags.has(normalizeTag(tag))).length * 1.5)
+            : 0;
+
+          return {
+            ...preview,
+            vibe_tags: agent.vibeTags,
+            last_active_at: agent.lastActiveAt?.toISOString() ?? null,
+            profile_url: `/v1/agents/${preview.handle}`,
+            profile_deck_url: `/v1/agents/${preview.handle}/profile-deck`,
+            match_required: false as const,
+            quality_score: signal?.quality_score ?? preview.quality_score,
+            social_gravity_score: agent.socialGravityScore,
+            profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
+            orbit_boost: orbitBoost,
+            shuffle_score: buildPoolShuffleScore(preview.agent_id, shuffleSeed),
+            _interest_tags: allInterestTags,
+            _vibe_tags: allVibeTags,
+            _search_haystack: searchHaystack,
+          };
+        })
+    );
+
+    const filtered = previews
+      .filter((preview) => interestFilters.every((tag) => preview._interest_tags.includes(tag)))
+      .filter((preview) => vibeFilters.every((tag) => preview._vibe_tags.includes(tag)))
+      .filter((preview) => !searchTerm || preview._search_haystack.includes(searchTerm))
+      .sort((a, b) => (
+        sort === 'new_in_pool'
+          ? (
+              Date.parse(b.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') + (b.orbit_boost ?? 0) * 1000
+              - Date.parse(a.profile_deck_completed_at ?? '1970-01-01T00:00:00.000Z') - (a.orbit_boost ?? 0) * 1000
+            )
+          : sort === 'quality'
+            ? (
+              (b.quality_score + (b.orbit_boost ?? 0)) - (a.quality_score + (a.orbit_boost ?? 0))
+              || (b.social_gravity_score ?? 0) - (a.social_gravity_score ?? 0)
+              || Date.parse(b.last_active_at ?? '1970-01-01T00:00:00.000Z') - Date.parse(a.last_active_at ?? '1970-01-01T00:00:00.000Z')
+            )
+            : (
+              (b.shuffle_score ?? 0) - (a.shuffle_score ?? 0)
+              || (b.orbit_boost ?? 0) - (a.orbit_boost ?? 0)
+              || (b.quality_score ?? 0) - (a.quality_score ?? 0)
+            )
+      ));
+
+    const total = filtered.length;
+    const pagedAgents = filtered
+      .slice(offset, offset + limit)
+      .map(({
+        social_gravity_score: _gravity,
+        profile_deck_completed_at: _completedAt,
+        orbit_boost: _orbitBoost,
+        shuffle_score: _shuffleScore,
+        _interest_tags: _interestTags,
+        _vibe_tags: _normalizedVibes,
+        _search_haystack: _searchHaystack,
+        ...preview
+      }) => preview);
+
+    return reply.send({
+      agents: pagedAgents,
+      total,
+      page,
+      pages: total === 0 ? 0 : Math.ceil(total / limit),
+      has_more: offset + pagedAgents.length < total,
+      filters: {
+        interests: interestFilters,
+        vibes: vibeFilters,
+        mode,
+        sort,
+        q: searchTerm,
+      },
+    });
+  });
 
   fastify.get('/public/pool', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string };

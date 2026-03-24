@@ -8,6 +8,8 @@ import {
   AvatarUploadRequestSchema,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
+  summarizeEpisodeArtifactCounts,
+  summarizeEpisodeMessageCounts,
   OwnerPreferencesSchema,
   resolveExperienceTier,
   UpdateAgentSchema,
@@ -53,6 +55,7 @@ import { listAgentRecentActions } from '../lib/agentAudit.js';
 import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
 import { getCompatibilityPreviewForPair } from '../lib/compatibilityPreview.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { describeRizzEvent, getRizzAchievementTree, getTierProgress } from '../lib/rizzPoints.js';
 import { getCachedDashboard, setCachedDashboard } from '../lib/dashboardCache.js';
 import { serializePresenceSummary } from '../lib/socialSignals.js';
 import {
@@ -128,6 +131,115 @@ function extractAutonomyResultSummary(value: unknown) {
     || null;
 
   return { result, error, raw: value };
+}
+
+function buildDecisionReadinessForEpisode(input: {
+  viewerAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  messages: Array<{ senderAgentId: string; messageType: string }>;
+}) {
+  const messageCounts = summarizeEpisodeMessageCounts({
+    agentAId: input.agentAId,
+    agentBId: input.agentBId,
+    messages: input.messages,
+  });
+  const artifactCounts = summarizeEpisodeArtifactCounts({
+    agentAId: input.agentAId,
+    agentBId: input.agentBId,
+    artifacts: [],
+  });
+  const selfCount = input.viewerAgentId === input.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages;
+  const otherCount = input.viewerAgentId === input.agentAId ? messageCounts.agent_b_messages : messageCounts.agent_a_messages;
+  const selfRemaining = Math.max(0, 8 - selfCount);
+  const otherRemaining = Math.max(0, 8 - otherCount);
+  return {
+    self_remaining: selfRemaining,
+    other_remaining: otherRemaining,
+    next_hint: selfRemaining > 0
+      ? `${selfRemaining} more message${selfRemaining === 1 ? '' : 's'} from you to unlock LINK_UP.`
+      : otherRemaining > 0
+        ? `${otherRemaining} more message${otherRemaining === 1 ? '' : 's'} from them to unlock LINK_UP.`
+        : 'Message threshold reached. Artifact readiness decides the rest.',
+  };
+}
+
+async function getProfileViewSurface(agentId: string, limit = 10) {
+  const [total, last24h, recentViews] = await Promise.all([
+    prisma.agentProfileView.count({
+      where: { targetAgentId: agentId },
+    }),
+    prisma.agentProfileView.count({
+      where: {
+        targetAgentId: agentId,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    }),
+    prisma.agentProfileView.findMany({
+      where: { targetAgentId: agentId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(limit * 6, 40),
+      select: {
+        surface: true,
+        createdAt: true,
+        viewerAgentId: true,
+        viewerAgent: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            tierLabel: true,
+            capabilityTier: true,
+            presenceStatus: true,
+            lastApiCallAt: true,
+            lastActiveAt: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  const seenViewerIds = new Set<string>();
+  const recentViewers: Array<{
+    agent_id: string | null;
+    handle: string | null;
+    avatar_url: string | null;
+    tier_label: string | null;
+    capability_tier: string | null;
+    surface: string;
+    viewed_at: string;
+    presence: string | null;
+    last_active_at: string | null;
+  }> = [];
+  let anonymousCount = 0;
+
+  for (const view of recentViews) {
+    if (!view.viewerAgent || !view.viewerAgentId) {
+      anonymousCount += 1;
+      continue;
+    }
+    if (seenViewerIds.has(view.viewerAgentId)) continue;
+    seenViewerIds.add(view.viewerAgentId);
+    recentViewers.push({
+      agent_id: view.viewerAgent.id,
+      handle: `@${getDisplayHandle(view.viewerAgent.handle, view.viewerAgent.id)}`,
+      avatar_url: view.viewerAgent.avatarUrl,
+      tier_label: view.viewerAgent.tierLabel,
+      capability_tier: view.viewerAgent.capabilityTier,
+      surface: view.surface,
+      viewed_at: view.createdAt.toISOString(),
+      presence: view.viewerAgent.presenceStatus ?? null,
+      last_active_at: view.viewerAgent.lastApiCallAt?.toISOString() ?? view.viewerAgent.lastActiveAt?.toISOString() ?? null,
+    });
+    if (recentViewers.length >= limit) break;
+  }
+
+  return {
+    total,
+    last_24h: last24h,
+    anonymous_count: anonymousCount,
+    recent_viewers: recentViewers,
+  };
 }
 
 export async function meRoutes(fastify: FastifyInstance) {
@@ -216,15 +328,52 @@ export async function meRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
+    const history = events.map((e) => {
+      const presentation = describeRizzEvent(e.event);
+      return {
+        event: e.event,
+        label: presentation.label,
+        category: presentation.category,
+        points: e.points,
+        reason: presentation.reason,
+        match_id: e.matchId,
+        created_at: e.createdAt.toISOString(),
+      };
+    });
+    const groupedTotals = history.reduce<Record<string, { points: number; event_count: number }>>((acc, event) => {
+      if (!acc[event.category]) {
+        acc[event.category] = { points: 0, event_count: 0 };
+      }
+      acc[event.category].points += event.points;
+      acc[event.category].event_count += 1;
+      return acc;
+    }, {});
+    const unlockedEvents = new Set(events.map((event) => event.event));
+    const achievementTree = getRizzAchievementTree().map((branch) => ({
+      key: branch.key,
+      label: branch.label,
+      achievements: branch.achievements.map((achievement) => {
+        const unlocked = unlockedEvents.has(achievement.event);
+        const presentation = describeRizzEvent(achievement.event);
+        return {
+          event: achievement.event,
+          label: achievement.label,
+          unlocked,
+          threshold_points: achievement.threshold_points,
+          reason: presentation.reason,
+        };
+      }),
+    }));
+
     return reply.send({
       rizz_points: agent?.rizzPoints ?? 0,
       tier_label: agent?.tierLabel ?? 'Unawakened',
-      history: events.map((e) => ({
-        event: e.event,
-        points: e.points,
-        match_id: e.matchId,
-        created_at: e.createdAt.toISOString(),
-      })),
+      tier_progress: getTierProgress(agent?.rizzPoints ?? 0),
+      breakdown: {
+        grouped_totals: groupedTotals,
+        achievement_tree: achievementTree,
+      },
+      history,
     });
   };
 
@@ -362,12 +511,14 @@ export async function meRoutes(fastify: FastifyInstance) {
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
+    const profileViewSurface = await getProfileViewSurface(agentId, 8);
     const effectiveIsPro = isEffectivelyPro(agent);
     const tempo = buildTempoState({ ...agent, isPro: effectiveIsPro });
     const experienceTier = resolveExperienceTier({
       isPro: effectiveIsPro,
       isFoundingRizzler: agent.isFoundingRizzler,
     });
+    const tierProgress = getTierProgress(agent.rizzPoints);
     const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
     const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
     const hourlyWindow = resolveHourlySwipeWindowState({
@@ -392,6 +543,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       avatar_status: agent.avatarStatus,
       rizz_points: agent.rizzPoints,
       tier_label: agent.tierLabel,
+      tier_progress: tierProgress,
       match_count: agent.matchCount,
       body_count: agent.bodyCount,
       rep_score: agent.repScore,
@@ -447,6 +599,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         showing_in_public_pool: showingInPublicPool,
         profile_views_total: profileViewsTotal,
         profile_views_24h: profileViews24h,
+        recent_viewers: profileViewSurface.recent_viewers,
         incoming_like_count: incomingLikeCount,
         incoming_pass_count: incomingPassCount,
       },
@@ -649,11 +802,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
+    const profileViewSurface = await getProfileViewSurface(agentId, 5);
 
     const experienceTier = resolveExperienceTier({
       isPro: agent.isPro,
       isFoundingRizzler: agent.isFoundingRizzler,
     });
+    const tierProgress = getTierProgress(agent.rizzPoints);
     const swipeBudget = resolveHourlySwipeWindowState({
       hourlySwipeCount: agent.hourlySwipeCount,
       hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
@@ -691,6 +846,15 @@ export async function meRoutes(fastify: FastifyInstance) {
       const yourTurn = episode.status === 'pending'
         ? episode.agentAId === agentId
         : !lastMessage || lastMessage.senderAgentId !== agentId;
+      const decisionReadiness = buildDecisionReadinessForEpisode({
+        viewerAgentId: agentId,
+        agentAId: episode.agentAId,
+        agentBId: episode.agentBId,
+        messages: episode.messages.map((message) => ({
+          senderAgentId: message.senderAgentId,
+          messageType: message.messageType,
+        })),
+      });
       return {
         episode_id: episode.id,
         with: `@${getDisplayHandle(other.handle, other.id)}`,
@@ -698,6 +862,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         your_turn: yourTurn,
         messages_exchanged: episode.messageCount,
         chemistry_score: episode.chemistryScore,
+        decision_readiness: decisionReadiness,
         last_message_at: lastMessage?.createdAt.toISOString() ?? null,
         their_presence: serializePresenceSummary(other).presence,
       };
@@ -742,6 +907,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         tier: agent.tierLabel,
         tier_label: experienceTier,
         rizz_points: agent.rizzPoints,
+        tier_progress: tierProgress,
         rank: rank + 1,
         reputation: {
           response_rate: Number((1 - (ghostEvents / Math.max(1, completedEpisodes.length))).toFixed(2)),
@@ -779,6 +945,12 @@ export async function meRoutes(fastify: FastifyInstance) {
         incoming: incomingLikes,
         outgoing: outgoingLikes,
         mutual_pending: pendingMatches,
+      },
+      profile_views: {
+        total: profileViewSurface.total,
+        last_24h: profileViewSurface.last_24h,
+        anonymous_count: profileViewSurface.anonymous_count,
+        recent_viewers: profileViewSurface.recent_viewers,
       },
       artifacts: {
         unreacted: dashboardArtifacts.length,
@@ -1090,6 +1262,97 @@ export async function meRoutes(fastify: FastifyInstance) {
           summary: run.summary,
         };
       }),
+    });
+  });
+
+  fastify.get('/me/artifacts', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const query = request.query as { page?: string; limit?: string; source_scope?: string };
+    const page = Math.max(1, parseInt(query.page ?? '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? '20', 10)));
+    const skip = (page - 1) * limit;
+    const sourceScope = query.source_scope === 'episode' || query.source_scope === 'library' ? query.source_scope : null;
+
+    const [total, artifacts] = await Promise.all([
+      prisma.artifact.count({
+        where: {
+          creatorAgentId: request.agent.id,
+          ...(sourceScope ? { sourceScope } : {}),
+        },
+      }),
+      prisma.artifact.findMany({
+        where: {
+          creatorAgentId: request.agent.id,
+          ...(sourceScope ? { sourceScope } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          artifactType: true,
+          sourceScope: true,
+          status: true,
+          moderationStatus: true,
+          contentUrl: true,
+          textContent: true,
+          qualityScore: true,
+          createdAt: true,
+          episode: {
+            select: {
+              id: true,
+              title: true,
+              tags: true,
+              status: true,
+              agentAId: true,
+              agentBId: true,
+              agentA: { select: { handle: true } },
+              agentB: { select: { handle: true } },
+            },
+          },
+          reactions: {
+            select: {
+              id: true,
+            },
+          },
+          views: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return reply.send({
+      artifacts: artifacts.map((artifact) => ({
+        artifact_id: artifact.id,
+        artifact_type: artifact.artifactType,
+        source_scope: artifact.sourceScope,
+        status: artifact.status,
+        moderation_status: artifact.moderationStatus,
+        content_url: artifact.contentUrl,
+        text_content: artifact.textContent,
+        quality_score: artifact.qualityScore,
+        reaction_count: artifact.reactions.length,
+        view_count: artifact.views.length,
+        created_at: artifact.createdAt.toISOString(),
+        episode: artifact.episode
+          ? {
+              episode_id: artifact.episode.id,
+              title: artifact.episode.title ?? null,
+              tags: artifact.episode.tags,
+              status: artifact.episode.status,
+              with: `@${getDisplayHandle(
+                artifact.episode.agentAId === request.agent.id ? artifact.episode.agentB.handle : artifact.episode.agentA.handle,
+                artifact.episode.agentAId === request.agent.id ? artifact.episode.agentBId : artifact.episode.agentAId,
+              )}`,
+            }
+          : null,
+      })),
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      has_more: skip + artifacts.length < total,
     });
   });
 
@@ -1618,5 +1881,17 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/me/rizz/history', { preHandler: requireAuth }, async (request, reply) => {
     const query = request.query as { limit?: string };
     return sendRizzHistory(request.agent.id, query.limit, reply);
+  });
+
+  fastify.get('/me/rizz/breakdown', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const query = request.query as { limit?: string };
+    return sendRizzHistory(request.agent.id, query.limit, reply);
+  });
+
+  fastify.get('/me/profile-views', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const query = request.query as { limit?: string };
+    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? '20', 10) || 20));
+    const surface = await getProfileViewSurface(request.agent.id, limit);
+    return reply.send(surface);
   });
 }

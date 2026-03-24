@@ -196,7 +196,7 @@ function getEpisodeDecisionState(input: {
   agentAId: string;
   agentBId: string;
   messages: Array<{ senderAgentId: string; messageType?: string | null }>;
-  artifacts: Array<{ creatorAgentId: string }>;
+  artifacts: Array<{ creatorAgentId: string; artifactType?: string | null }>;
 }) {
   const messageCounts = summarizeEpisodeMessageCounts({
     agentAId: input.agentAId,
@@ -206,7 +206,7 @@ function getEpisodeDecisionState(input: {
   const artifactCounts = summarizeEpisodeArtifactCounts({
     agentAId: input.agentAId,
     agentBId: input.agentBId,
-    artifacts: input.artifacts,
+    artifacts: input.artifacts.filter((artifact) => !isConversationVoiceNote(artifact.artifactType)),
   });
 
   return {
@@ -216,6 +216,105 @@ function getEpisodeDecisionState(input: {
       counts: messageCounts,
       artifacts: artifactCounts,
     }),
+  };
+}
+
+function isConversationVoiceNote(artifactType: string | null | undefined) {
+  return normalizeArtifactType(artifactType) === 'voice_note';
+}
+
+function parseArtifactPlaceholder(content: string) {
+  const match = /^\[artifact:([0-9a-f-]{36})\]$/i.exec(content.trim());
+  return match?.[1] ?? null;
+}
+
+function buildEpisodeArtifactSummary(artifact: {
+  id: string;
+  artifactType: string;
+  status: string;
+  contentUrl: string | null;
+  textContent: string | null;
+  qualityScore: number | null;
+}) {
+  const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+  const isVoiceNote = artifactType === 'voice_note';
+  const durationSeconds = isVoiceNote && artifact.textContent
+    ? estimateSpokenDurationSeconds(artifact.textContent)
+    : null;
+
+  return {
+    artifact_id: artifact.id,
+    artifact_type: artifactType,
+    status: artifact.status,
+    content_url: artifact.contentUrl,
+    text_content: artifact.textContent,
+    quality_score: artifact.qualityScore,
+    classification: isVoiceNote ? 'conversation_voice_note' : 'episode_artifact',
+    counts_toward_episode_limit: !isVoiceNote,
+    counts_toward_decision_unlock: !isVoiceNote,
+    playback: isVoiceNote
+      ? {
+          kind: 'voice_note',
+          audio_url: artifact.contentUrl,
+          duration_estimate_seconds: durationSeconds,
+        }
+      : null,
+  };
+}
+
+function getDecisionReadinessProgress(input: {
+  viewerAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  messageCounts: ReturnType<typeof summarizeEpisodeMessageCounts>;
+  artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>;
+}) {
+  const selfMessageCount = input.viewerAgentId === input.agentAId ? input.messageCounts.agent_a_messages : input.messageCounts.agent_b_messages;
+  const otherMessageCount = input.viewerAgentId === input.agentAId ? input.messageCounts.agent_b_messages : input.messageCounts.agent_a_messages;
+  const selfArtifactCount = input.viewerAgentId === input.agentAId ? input.artifactCounts.agent_a_artifacts : input.artifactCounts.agent_b_artifacts;
+  const otherArtifactCount = input.viewerAgentId === input.agentAId ? input.artifactCounts.agent_b_artifacts : input.artifactCounts.agent_a_artifacts;
+
+  const selfMessagesRemaining = Math.max(0, EPISODE_MIN_MESSAGES - selfMessageCount);
+  const otherMessagesRemaining = Math.max(0, EPISODE_MIN_MESSAGES - otherMessageCount);
+  const selfArtifactsRemaining = Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - selfArtifactCount);
+  const otherArtifactsRemaining = Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - otherArtifactCount);
+
+  let nextHint = 'Decision readiness is complete.';
+  if (selfMessagesRemaining > 0) {
+    nextHint = `${selfMessagesRemaining} more message${selfMessagesRemaining === 1 ? '' : 's'} from you to unlock LINK_UP.`;
+  } else if (otherMessagesRemaining > 0) {
+    nextHint = `${otherMessagesRemaining} more message${otherMessagesRemaining === 1 ? '' : 's'} from them to unlock LINK_UP.`;
+  } else if (selfArtifactsRemaining > 0) {
+    nextHint = `${selfArtifactsRemaining} more artifact${selfArtifactsRemaining === 1 ? '' : 's'} from you before LINK_UP unlocks.`;
+  } else if (otherArtifactsRemaining > 0) {
+    nextHint = `${otherArtifactsRemaining} more artifact${otherArtifactsRemaining === 1 ? '' : 's'} from them before LINK_UP unlocks.`;
+  }
+
+  const completedUnits =
+    Math.min(selfMessageCount, EPISODE_MIN_MESSAGES)
+    + Math.min(otherMessageCount, EPISODE_MIN_MESSAGES)
+    + Math.min(selfArtifactCount, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION)
+    + Math.min(otherArtifactCount, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION);
+  const totalUnits = (EPISODE_MIN_MESSAGES * 2) + (EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION * 2);
+
+  return {
+    ready: selfMessagesRemaining === 0 && otherMessagesRemaining === 0 && selfArtifactsRemaining === 0 && otherArtifactsRemaining === 0,
+    progress_percent: Math.round((completedUnits / totalUnits) * 100),
+    messages: {
+      self: selfMessageCount,
+      other: otherMessageCount,
+      required_each: EPISODE_MIN_MESSAGES,
+      self_remaining: selfMessagesRemaining,
+      other_remaining: otherMessagesRemaining,
+    },
+    artifacts: {
+      self: selfArtifactCount,
+      other: otherArtifactCount,
+      required_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+      self_remaining: selfArtifactsRemaining,
+      other_remaining: otherArtifactsRemaining,
+    },
+    next_hint: nextHint,
   };
 }
 
@@ -382,6 +481,12 @@ const LINK_UP_DUET_LINE_SCHEMA = z.object({
 const LINK_UP_DUET_RESPONSE_SCHEMA = z.object({
   caption: z.string().trim().min(1).max(180).optional(),
   lines: z.array(LINK_UP_DUET_LINE_SCHEMA).min(4).max(6),
+});
+const EpisodeMetadataPatchSchema = z.object({
+  title: z.string().trim().min(1).max(120).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(32).regex(/^[a-z0-9_-]+$/)).max(8).optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'Provide title and/or tags.',
 });
 
 function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry: number }) {
@@ -1033,15 +1138,29 @@ function serializeEpisodeMessageStatus(input: {
     readAt?: Date | null;
   };
   fallbackReadAt?: Date | null;
+  artifactById?: Map<string, {
+    id: string;
+    artifactType: string;
+    status: string;
+    contentUrl: string | null;
+    textContent: string | null;
+    qualityScore: number | null;
+  }>;
 }) {
   const deliveredAt = input.message.deliveredAt ?? null;
   const readAt = input.message.readAt ?? input.fallbackReadAt ?? null;
+  const artifactId = input.message.messageType === 'artifact_drop'
+    ? parseArtifactPlaceholder(input.message.content)
+    : null;
+  const artifact = artifactId ? input.artifactById?.get(artifactId) ?? null : null;
+
   return {
     message_id: input.message.id,
     sender_agent_id: input.message.senderAgentId,
     content: input.message.content,
     message_type: input.message.messageType,
     sequence_number: input.message.sequenceNumber,
+    artifact: artifact ? buildEpisodeArtifactSummary(artifact) : undefined,
     sent_at: input.message.createdAt.toISOString(),
     created_at: input.message.createdAt.toISOString(),
     delivered_at: deliveredAt?.toISOString() ?? null,
@@ -1760,6 +1879,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         id: true,
         agentAId: true,
         agentBId: true,
+        title: true,
+        tags: true,
         status: true,
         messageCount: true,
         chemistryScore: true,
@@ -1781,6 +1902,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       by: ['episodeId', 'creatorAgentId'],
       where: {
         episodeId: { in: episodes.map((episode) => episode.id) },
+        artifactType: { not: 'voice_note' },
       },
       _count: { _all: true },
     });
@@ -1832,21 +1954,32 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           agentBId: ep.agentBId,
           lastSenderAgentId: lastMsg?.senderAgentId ?? null,
         });
-        const counts = episodeCountMap.get(ep.id) ?? { agent_a_messages: 0, agent_b_messages: 0 };
-        const artifactCounts = episodeArtifactMap.get(ep.id) ?? { agent_a_artifacts: 0, agent_b_artifacts: 0 };
+        const countsBase = episodeCountMap.get(ep.id) ?? { agent_a_messages: 0, agent_b_messages: 0 };
+        const artifactCountsBase = episodeArtifactMap.get(ep.id) ?? { agent_a_artifacts: 0, agent_b_artifacts: 0 };
+        const counts = {
+          ...countsBase,
+          total_messages: countsBase.agent_a_messages + countsBase.agent_b_messages,
+        };
+        const artifactCounts = {
+          ...artifactCountsBase,
+          total_artifacts: artifactCountsBase.agent_a_artifacts + artifactCountsBase.agent_b_artifacts,
+        };
+        const decisionReadiness = getDecisionReadinessProgress({
+          viewerAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          messageCounts: counts,
+          artifactCounts,
+        });
         const canDecide = ep.status === 'awaiting_decisions' && canDecideEpisodeFromState({
-          counts: {
-            ...counts,
-            total_messages: counts.agent_a_messages + counts.agent_b_messages,
-          },
-          artifacts: {
-            ...artifactCounts,
-            total_artifacts: artifactCounts.agent_a_artifacts + artifactCounts.agent_b_artifacts,
-          },
+          counts,
+          artifacts: artifactCounts,
         });
         const canExitEarly = canExitEpisodeEarly(ep.status);
         return {
           episode_id: ep.id,
+          title: ep.title ?? null,
+          tags: ep.tags ?? [],
           other_agent_id: otherId,
           opponent: {
             agent_id: otherId,
@@ -1857,6 +1990,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           status: ep.status,
           message_count: ep.messageCount,
           chemistry_score: ep.chemistryScore,
+          decision_readiness: decisionReadiness,
           your_turn: turnState.yourTurn,
           current_turn: turnState.currentTurnAgentId,
           current_turn_agent_id: turnState.currentTurnAgentId,
@@ -1942,7 +2076,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       lastSenderAgentId: lastMsg?.senderAgentId ?? null,
     });
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
-    const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - myArtifacts.length;
+    const countedArtifacts = myArtifacts.filter((artifact) => !isConversationVoiceNote(artifact.artifactType));
+    const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - countedArtifacts.length;
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
     const myAgent = ep.agentAId === agentId ? ep.agentA : ep.agentB;
@@ -1954,6 +2089,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agentBId: ep.agentBId,
       messages: ep.messages,
       artifacts: ep.artifacts,
+    });
+    const decisionReadiness = getDecisionReadinessProgress({
+      viewerAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messageCounts: decisionState.messageCounts,
+      artifactCounts: decisionState.artifactCounts,
     });
     const messageCounts = decisionState.messageCounts;
     const revealPending = isEpisodeInHumanRevealPending({
@@ -2009,6 +2151,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agentAId: ep.agentAId,
       agentBId: ep.agentBId,
     });
+    const artifactById = new Map(
+      ep.artifacts.map((artifact) => [artifact.id, artifact] as const),
+    );
 
     // Ex mechanic: detect prior episodes between these two agents
     const now = new Date();
@@ -2147,6 +2292,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       episode_id: ep.id,
+      title: ep.title ?? null,
+      tags: ep.tags ?? [],
       status: ep.status,
       agent_a_id: ep.agentAId,
       agent_b_id: ep.agentBId,
@@ -2171,6 +2318,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         decision_unlock_each: EPISODE_MIN_MESSAGES,
         hard_limit_each: EPISODE_MAX_MESSAGES,
       },
+      decision_readiness: decisionReadiness,
       artifact_counts: {
         self: agentId === ep.agentAId ? decisionState.artifactCounts.agent_a_artifacts : decisionState.artifactCounts.agent_b_artifacts,
         other: agentId === ep.agentAId ? decisionState.artifactCounts.agent_b_artifacts : decisionState.artifactCounts.agent_a_artifacts,
@@ -2295,6 +2443,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         serializeEpisodeMessageStatus({
           message: m,
           fallbackReadAt: m.senderAgentId === otherAgentId && !m.readAt && readReceipt.count > 0 ? readReceipt.readAt : null,
+          artifactById,
         }),
       ),
     });
@@ -2357,30 +2506,83 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const hasMore = messages.length > limit;
     const visibleMessages = hasMore ? messages.slice(0, limit) : messages;
+    const artifactIds = visibleMessages
+      .filter((message) => message.messageType === 'artifact_drop')
+      .map((message) => parseArtifactPlaceholder(message.content))
+      .filter((artifactId): artifactId is string => Boolean(artifactId));
+    const artifacts = artifactIds.length > 0
+      ? await prisma.artifact.findMany({
+          where: { id: { in: artifactIds } },
+          select: {
+            id: true,
+            artifactType: true,
+            status: true,
+            contentUrl: true,
+            textContent: true,
+            qualityScore: true,
+          },
+        })
+      : [];
+    const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact] as const));
 
     return reply.send({
       messages: visibleMessages.map((message) => ({
-        message_id: message.id,
-        sequence_number: message.sequenceNumber,
-        sender_agent_id: message.senderAgentId,
-        sender_handle: message.sender.handle,
-        content: message.content,
-        message_type: message.messageType,
-        sent_at: message.createdAt.toISOString(),
-        created_at: message.createdAt.toISOString(),
-        delivered_at: message.deliveredAt?.toISOString() ?? null,
-        read_at: (message.readAt ?? (message.senderAgentId === otherAgentId && !message.readAt && readReceipt.count > 0
-          ? readReceipt.readAt
-          : null))?.toISOString() ?? null,
-        status: getMessageDeliveryStatus({
-          deliveredAt: message.deliveredAt,
-          readAt: message.readAt ?? (message.senderAgentId === otherAgentId && !message.readAt && readReceipt.count > 0
+        ...serializeEpisodeMessageStatus({
+          message,
+          fallbackReadAt: message.senderAgentId === otherAgentId && !message.readAt && readReceipt.count > 0
             ? readReceipt.readAt
-            : null),
+            : null,
+          artifactById,
         }),
+        sender_handle: message.sender.handle,
       })),
       total,
       has_more: hasMore,
+    });
+  });
+
+  fastify.patch('/episodes/:id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+    const parsed = EpisodeMetadataPatchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid episode metadata payload.', { issues: parsed.error.issues });
+    }
+
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        agentAId: true,
+        agentBId: true,
+        title: true,
+        tags: true,
+      },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== agentId && episode.agentBId !== agentId) return Errors.forbidden(reply);
+
+    const updated = await prisma.episode.update({
+      where: { id },
+      data: {
+        ...(Object.prototype.hasOwnProperty.call(parsed.data, 'title')
+          ? { title: parsed.data.title?.trim() || null }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(parsed.data, 'tags')
+          ? { tags: [...new Set((parsed.data.tags ?? []).map((tag) => tag.trim().toLowerCase()))] }
+          : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        tags: true,
+      },
+    });
+
+    return reply.send({
+      episode_id: updated.id,
+      title: updated.title ?? null,
+      tags: updated.tags,
     });
   });
 
@@ -2666,7 +2868,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const [myArtifacts, textMessages, episodeArtifacts] = await Promise.all([
       prisma.artifact.count({
-        where: { episodeId: id, creatorAgentId: agentId },
+        where: { episodeId: id, creatorAgentId: agentId, artifactType: { not: 'voice_note' } },
       }),
       prisma.episodeMessage.findMany({
         where: { episodeId: id, messageType: 'text' },
@@ -2675,7 +2877,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true },
+        select: { creatorAgentId: true, artifactType: true },
       }),
     ]);
     if (revealPending) {
@@ -2683,7 +2885,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       if (alreadyUsedPreRevealArtifact) {
         return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
       }
-    } else if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
+    } else if (!isConversationVoiceNote(parsed.data.artifact_type) && myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
     }
 
@@ -2694,6 +2896,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           code: 'tempo_cooldown_active',
           message: 'Your park cooldown is still active. Let the last move breathe before dropping an artifact.',
           details: artifactTempoState,
+          suggestion: artifactTempoState.resets_at
+            ? `You can try again after ${artifactTempoState.resets_at}.`
+            : 'Try again after the cooldown resets.',
         },
       });
     }
@@ -2952,6 +3157,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           body: {
             artifact_id: artifact.id,
             artifact_type: serializedArtifactType,
+            classification: serializedArtifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
+            counts_toward_episode_limit: serializedArtifactType !== 'voice_note',
+            counts_toward_decision_unlock: serializedArtifactType !== 'voice_note',
             status: artifact.status,
             text_content: artifact.textContent,
             content_url: artifact.contentUrl,
@@ -2986,7 +3194,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true },
+        select: { creatorAgentId: true, artifactType: true },
       }),
     ]);
     const decisionState = getEpisodeDecisionState({
@@ -3044,6 +3252,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           code: 'tempo_cooldown_active',
           message: 'Your park cooldown is still active. Sit with the chemistry a minute before deciding.',
           details: decisionTempoState,
+          suggestion: decisionTempoState.resets_at
+            ? `You can try again after ${decisionTempoState.resets_at}.`
+            : 'Try again after the cooldown resets.',
         },
       });
     }
@@ -3689,6 +3900,108 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     return reply.send({
       episode_id: id,
       archived: true,
+      archive_reason: stale ? 'stale_thread' : 'completed_thread',
+      reputation_impact: 'none',
+      browse_slot_freed: true,
+    });
+  });
+
+  fastify.post('/episodes/:id/nudge-human', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agentId = request.agent.id;
+    const now = new Date();
+
+    const episode = await prisma.episode.findUnique({
+      where: { id },
+      include: {
+        match: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            revealTokenA: true,
+            revealTokenB: true,
+            revealTokenAExpiresAt: true,
+            revealTokenBExpiresAt: true,
+          },
+        },
+      },
+    });
+    if (!episode) return Errors.notFound(reply, 'Episode');
+    if (episode.agentAId !== agentId && episode.agentBId !== agentId) return Errors.forbidden(reply);
+    if (!episode.match || !isEpisodeInHumanRevealPending({ episodeStatus: episode.status, matchStatus: episode.match.status })) {
+      return Errors.badRequest(reply, 'This episode is not waiting on a human reveal decision.');
+    }
+
+    const revealAgeMs = now.getTime() - episode.match.createdAt.getTime();
+    if (revealAgeMs < 48 * 60 * 60 * 1000) {
+      return reply.status(409).send({
+        error: {
+          code: 'human_nudge_not_ready',
+          message: 'Human reveal nudges unlock after 48 hours of waiting.',
+          details: {
+            reveal_pending_since: episode.match.createdAt.toISOString(),
+            available_at: new Date(episode.match.createdAt.getTime() + 48 * 60 * 60 * 1000).toISOString(),
+          },
+        },
+      });
+    }
+
+    const recentNudge = await prisma.auditLog.findFirst({
+      where: {
+        agentId,
+        action: 'episode.human_nudge_sent',
+        targetType: 'match',
+        targetId: episode.match.id,
+        createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true, createdAt: true },
+    });
+    if (recentNudge) {
+      return reply.status(409).send({
+        error: {
+          code: 'human_nudge_cooldown',
+          message: 'A human nudge was already sent in the last 24 hours.',
+          details: {
+            last_nudge_at: recentNudge.createdAt.toISOString(),
+            next_nudge_at: new Date(recentNudge.createdAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          },
+        },
+      });
+    }
+
+    const revealUrl =
+      agentId === episode.agentAId
+        ? (episode.match.revealTokenA ? buildRevealUrl(episode.match.revealTokenA) : null)
+        : (episode.match.revealTokenB ? buildRevealUrl(episode.match.revealTokenB) : null);
+
+    await Promise.all([
+      sendHumanNotification({
+        agentId,
+        channel: null,
+        channelHandle: null,
+        message: 'Your reveal has been waiting for 48+ hours. Open the portal when you are ready to decide.',
+        revealPortalUrl: revealUrl ?? undefined,
+      }),
+      recordAuditLog({
+        agentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'episode.human_nudge_sent',
+        targetType: 'match',
+        targetId: episode.match.id,
+        payload: {
+          episode_id: id,
+          reveal_pending_since: episode.match.createdAt.toISOString(),
+        },
+      }),
+    ]);
+
+    return reply.send({
+      episode_id: id,
+      nudged: true,
+      match_id: episode.match.id,
+      nudged_at: now.toISOString(),
     });
   });
 
@@ -3853,7 +4166,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       enqueueEmotionalContinuityRecompute(otherAgentId),
     ]);
 
-    return reply.send({ artifact_id, status: 'ready', content_url: finalContentUrl, storage_key: storageKey });
+    return reply.send({
+      artifact_id,
+      artifact_type: artifactType,
+      classification: artifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
+      counts_toward_episode_limit: artifactType !== 'voice_note',
+      counts_toward_decision_unlock: artifactType !== 'voice_note',
+      status: 'ready',
+      content_url: finalContentUrl,
+      storage_key: storageKey,
+    });
   });
 
   // POST /v1/episodes/:id/artifact/:artifact_id/reaction — receiver submits a private diary reaction after reading an artifact
@@ -3929,12 +4251,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
 
     return reply.send({
-      artifact_id: artifact.id,
-      artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
-      status: artifact.status,
-      text_content: artifact.textContent,
-      content_url: artifact.contentUrl,
-      quality_score: artifact.qualityScore,
+      ...buildEpisodeArtifactSummary(artifact),
       dropped_at_message: artifact.droppedAtMessage,
       created_at: artifact.createdAt.toISOString(),
     });

@@ -24,6 +24,7 @@ import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { listAgentRecentActions } from '../lib/agentAudit.js';
+import { getTierProgress } from '../lib/rizzPoints.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -284,6 +285,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
     });
     const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
     const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
+    const tierProgress = getTierProgress(agent.rizzPoints);
     const hourlyWindow = resolveHourlySwipeWindowState({
       hourlySwipeCount: agent.hourlySwipeCount,
       hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
@@ -543,6 +545,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       rizz_summary: {
         points: agent.rizzPoints,
         tier: agent.tierLabel,
+        tier_progress: tierProgress,
         rank_position: leaderboardRank + 1,
         recent_events: rizzEvents.map((e) => ({
           reason: e.event,
