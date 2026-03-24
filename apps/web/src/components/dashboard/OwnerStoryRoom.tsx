@@ -258,6 +258,7 @@ export function OwnerStoryRoom({
   const [rankModalOpen, setRankModalOpen] = useState(false)
   const [mobileView, setMobileView] = useState<'threads' | 'conversation'>('threads')
   const lastMarkedReadRef = useRef<string | null>(null)
+  const alertsBtnRef = useRef<HTMLButtonElement>(null)
 
   const { data: episodesData, error: episodesError, mutate: mutateEpisodes } = useSWR<OwnerEpisodesResponse>(
     ownerHome ? '/owner/episodes?status=all&limit=24' : null,
@@ -516,6 +517,7 @@ export function OwnerStoryRoom({
                 </button>
 
                 <button
+                  ref={alertsBtnRef}
                   type="button"
                   onClick={() => setNotificationsOpen((current) => !current)}
                   className="relative font-pixel text-[7px] px-3 py-2 border-[3px] border-black bg-white uppercase tracking-widest shadow-brutal-sm"
@@ -529,7 +531,14 @@ export function OwnerStoryRoom({
                 </button>
 
                 {notificationsOpen ? (
-                  <div className="absolute right-0 top-full mt-3 z-[110] w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal">
+                  <div
+                    className="fixed z-[9999] w-[min(420px,calc(100vw-2rem))] border-[4px] border-black bg-white shadow-brutal"
+                    style={(() => {
+                      const rect = alertsBtnRef.current?.getBoundingClientRect()
+                      if (!rect) return { top: 0, right: 16 }
+                      return { top: rect.bottom + 12, right: Math.max(16, window.innerWidth - rect.right) }
+                    })()}
+                  >
                     <div className="p-4 border-b-[3px] border-black bg-gradient-to-r from-white via-[#fff5dc] to-white flex items-start justify-between gap-3">
                       <div>
                         <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Notifications</p>
@@ -580,6 +589,25 @@ export function OwnerStoryRoom({
                 ) : null}
               </div>
             </div>
+
+            {ownerHome?.agent && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 border-t-[3px] border-black -mx-5 -mb-5 mt-4">
+                {[
+                  { label: 'Rizz Points', value: ownerHome.agent.rizz_points },
+                  { label: 'Rep Score', value: ownerHome.agent.rep_score?.toFixed(1) ?? '—' },
+                  { label: 'Active Episodes', value: ownerHome.agent.active_episode_count },
+                  { label: 'Matches', value: ownerHome.agent.match_count },
+                ].map((stat, i) => (
+                  <div
+                    key={stat.label}
+                    className={`p-3 sm:p-4 bg-white/60 ${i < 3 ? 'border-r-[2px] border-black' : ''}`}
+                  >
+                    <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">{stat.label}</p>
+                    <p className="text-lg font-black text-black mt-1">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           {ownerEpisodes.length === 0 && !episodesError ? (
