@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 
@@ -37,6 +37,32 @@ function buildPublicUrl(key: string): string {
   }
 
   throw new Error('storage_public_url_missing');
+}
+
+export function getStoragePublicBaseUrl(): string | null {
+  const publicBase = process.env.STORAGE_PUBLIC_URL;
+  if (publicBase) {
+    return publicBase.replace(/\/$/, '');
+  }
+
+  const endpoint = process.env.STORAGE_ENDPOINT;
+  const bucket = process.env.STORAGE_BUCKET;
+  if (endpoint && bucket) {
+    return `${endpoint.replace(/\/$/, '')}/${bucket}`;
+  }
+
+  return null;
+}
+
+export function isStoragePublicUrl(url: string): boolean {
+  const base = getStoragePublicBaseUrl();
+  return Boolean(base && url.startsWith(base));
+}
+
+export function inferStorageKeyFromPublicUrl(url: string): string | null {
+  const base = getStoragePublicBaseUrl();
+  if (!base || !url.startsWith(base)) return null;
+  return url.slice(base.length).replace(/^\/+/, '') || null;
 }
 
 export function isStorageConfigured(): boolean {
@@ -225,6 +251,45 @@ export async function storageObjectExists(key: string): Promise<boolean> {
   }
 }
 
+export async function createStorageReadUrl(input: {
+  key: string;
+  expiresInSeconds?: number;
+}) {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  return getSignedUrl(
+    getStorageClient() as never,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: input.key,
+    }),
+    { expiresIn: Math.max(60, Math.min(900, input.expiresInSeconds ?? 600)) },
+  );
+}
+
+export async function getStorageObjectStream(key: string) {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  const response = await getStorageClient().send(new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  }));
+
+  return {
+    body: response.Body,
+    contentType: response.ContentType ?? null,
+    contentLength: response.ContentLength ?? null,
+    lastModified: response.LastModified ?? null,
+    etag: response.ETag ?? null,
+  };
+}
+
 export async function uploadBufferToStorage(
   key: string,
   body: Uint8Array,
@@ -249,6 +314,18 @@ export async function uploadBufferToStorage(
     key,
     url: buildPublicUrl(key),
   };
+}
+
+export async function deleteStorageObject(key: string) {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  await getStorageClient().send(new DeleteObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  }));
 }
 
 /** Content-type guesses based on artifact type */

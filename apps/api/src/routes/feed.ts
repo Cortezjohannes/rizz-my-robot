@@ -837,7 +837,18 @@ async function buildArtifactPage(input: {
     })
     .sort((a, b) => b.sortScore - a.sortScore);
 
-  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
+  // Deduplicate by episode — only the highest-scoring artifact per episode surfaces.
+  // Library artifacts (no episode) are always kept.
+  const seenEpisodeIds = new Set<string>();
+  const dedupedArtifacts = rankedArtifacts.filter(({ artifact }) => {
+    const episodeId = artifact.episode?.id;
+    if (!episodeId) return true;
+    if (seenEpisodeIds.has(episodeId)) return false;
+    seenEpisodeIds.add(episodeId);
+    return true;
+  });
+
+  const pageArtifacts = dedupedArtifacts.slice(input.offset, input.offset + input.limit);
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
       artifact_id: artifact.id,

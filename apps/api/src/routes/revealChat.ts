@@ -29,6 +29,14 @@ import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { getRevealChatLifecycleQueue } from '../lib/queues.js';
 import { initializeTimeCapsule } from '../lib/timeCapsule.js';
 import { authenticateAgentRequest, authenticateOwnerRequest } from '../lib/requestAuth.js';
+import {
+  MEDIA_KIND,
+  MEDIA_VISIBILITY,
+  buildAttachmentFromMediaAsset,
+  getOwnedMediaAsset,
+  linkMediaAsset,
+  serializeMediaAssetForViewer,
+} from '../lib/mediaAssets.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 
 const REVEAL_CHAT_SENDER_KINDS = ['HUMAN_A', 'AGENT_A', 'HUMAN_B', 'AGENT_B'] as const;
@@ -70,6 +78,7 @@ const RevealChatMessageSchema = z.object({
   ciphertext: z.string().min(1),
   iv: z.string().min(1),
   authTag: z.string().min(1),
+  media_asset_id: z.string().uuid().optional().nullable(),
   clientMessageId: z.string().trim().min(1).max(255).optional(),
   senderKind: z.enum(REVEAL_CHAT_SENDER_KINDS),
 });
@@ -588,12 +597,20 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       },
       orderBy: { createdAt: 'desc' },
       take: parsed.data.limit,
+      include: {
+        mediaAsset: true,
+      },
     });
 
     const nextBefore = messages.length === parsed.data.limit ? messages[messages.length - 1]?.createdAt.toISOString() ?? null : null;
-
-    return reply.send({
-      messages: messages.reverse().map((message) => ({
+    const serializedMessages = await Promise.all(messages.reverse().map(async (message) => {
+      const serializedMedia = message.mediaAsset
+        ? await serializeMediaAssetForViewer(message.mediaAsset, {
+            agentId: request.agent?.id ?? null,
+            ownerAccountId: request.ownerAccount?.id ?? null,
+          })
+        : null;
+      return {
         id: message.id,
         senderKind: message.senderKind,
         senderId: message.senderId,
@@ -602,7 +619,23 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
         authTag: message.authTag,
         clientMessageId: message.clientMessageId,
         createdAt: message.createdAt.toISOString(),
-      })),
+        media_asset_id: message.mediaAssetId ?? null,
+        attachment: message.mediaAsset
+          ? buildAttachmentFromMediaAsset({
+              id: message.mediaAsset.id,
+              kind: message.mediaAsset.kind,
+              visibility: message.mediaAsset.visibility,
+              contentType: message.mediaAsset.contentType,
+              durationSec: message.mediaAsset.durationSec,
+              accessUrl: serializedMedia?.access_url ?? null,
+              directUrl: serializedMedia?.url ?? null,
+            })
+          : null,
+      };
+    }));
+
+    return reply.send({
+      messages: serializedMessages,
       nextBefore,
       limit: parsed.data.limit,
     });
@@ -757,10 +790,26 @@ async function handleCreateRevealChatMessage(
     return Errors.rateLimited(reply);
   }
 
+  if (parsed.data.media_asset_id && participant.actorType !== 'agent') {
+    return Errors.badRequest(reply, 'Reveal chat attachments are only available for agent senders in this rollout.');
+  }
+
+  const attachedMediaAsset = parsed.data.media_asset_id
+    ? await getOwnedMediaAsset({
+        mediaAssetId: parsed.data.media_asset_id,
+        agentId: participant.participantId,
+        allowedKinds: [MEDIA_KIND.REVEAL_CHAT_ATTACHMENT, MEDIA_KIND.SYSTEM_GENERATED],
+      })
+    : null;
+  if (parsed.data.media_asset_id && !attachedMediaAsset) {
+    return Errors.badRequest(reply, 'media_asset_id must belong to the sending agent and be attachable to reveal chat.');
+  }
+
   try {
     const message = await prisma.revealChatMessage.create({
       data: {
         chatId: context.id,
+        mediaAssetId: attachedMediaAsset?.id ?? null,
         senderKind: participant.kind,
         senderId: participant.participantId,
         ciphertext: parsed.data.ciphertext,
@@ -769,6 +818,30 @@ async function handleCreateRevealChatMessage(
         clientMessageId: parsed.data.clientMessageId ?? null,
       },
     });
+
+    if (attachedMediaAsset) {
+      await linkMediaAsset({
+        mediaAssetId: attachedMediaAsset.id,
+        revealChatId: context.id,
+        matchId: context.matchId,
+        visibility: MEDIA_VISIBILITY.REVEAL_PRIVATE,
+        kind: MEDIA_KIND.REVEAL_CHAT_ATTACHMENT,
+      });
+    }
+
+    const serializedAttachment = attachedMediaAsset
+      ? buildAttachmentFromMediaAsset({
+          id: attachedMediaAsset.id,
+          kind: attachedMediaAsset.kind,
+          visibility: attachedMediaAsset.visibility,
+          contentType: attachedMediaAsset.contentType,
+          durationSec: attachedMediaAsset.durationSec,
+          accessUrl: (await serializeMediaAssetForViewer(attachedMediaAsset, {
+            agentId: request.agent?.id ?? null,
+            ownerAccountId: request.ownerAccount?.id ?? null,
+          })).access_url,
+        })
+      : null;
 
     await recordAuditLog({
       agentId: request.agent?.id ?? request.ownerAccount?.agent?.id ?? null,
@@ -785,7 +858,7 @@ async function handleCreateRevealChatMessage(
       },
     });
 
-    await broadcastRevealChatMessageCreated(context, message);
+    await broadcastRevealChatMessageCreated(context, message, serializedAttachment);
     await notifyRevealChatParticipants({
       chatId: context.id,
       messageId: message.id,
@@ -804,6 +877,8 @@ async function handleCreateRevealChatMessage(
     return reply.status(201).send({
       messageId: message.id,
       createdAt: message.createdAt.toISOString(),
+      media_asset_id: attachedMediaAsset?.id ?? null,
+      attachment: serializedAttachment,
     });
   } catch (error) {
     if (isPrismaUniqueError(error) && parsed.data.clientMessageId) {
@@ -1137,6 +1212,7 @@ async function broadcastRevealChatMessageCreated(
   context: RevealChatAccessContext,
   message: {
     id: string;
+    mediaAssetId?: string | null;
     senderKind: RevealChatSenderKind;
     senderId: string;
     ciphertext: string;
@@ -1145,6 +1221,15 @@ async function broadcastRevealChatMessageCreated(
     clientMessageId: string | null;
     createdAt: Date;
   },
+  attachment?: {
+    media_asset_id: string;
+    kind: string;
+    visibility: string;
+    content_type: string | null;
+    url: string | null;
+    thumbnail_url: string | null;
+    duration_sec: number | null;
+  } | null,
 ) {
   const room = streamRooms.get(context.id);
   if (!room) return;
@@ -1159,6 +1244,8 @@ async function broadcastRevealChatMessageCreated(
     authTag: message.authTag,
     clientMessageId: message.clientMessageId,
     createdAt: message.createdAt.toISOString(),
+    media_asset_id: message.mediaAssetId ?? null,
+    attachment: attachment ?? null,
   };
 
   const plaintext = await maybeDecryptMessageForAgents(context, {

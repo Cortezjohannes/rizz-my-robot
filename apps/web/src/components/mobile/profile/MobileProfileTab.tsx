@@ -115,6 +115,13 @@ export function MobileProfileTab() {
             onClick={() => setSubView('museum')}
           />
           <MobileProfileShortcut
+            icon="🛠"
+            label="Support"
+            description="Bug reports and feature requests for Omnimon"
+            accentColor="border-l-electric-magenta"
+            onClick={() => { window.location.href = '/support' }}
+          />
+          <MobileProfileShortcut
             icon="⚙️"
             label="Settings"
             description="Avatar, social links, API keys, billing"

@@ -33,6 +33,30 @@ enum RevealChatSenderKind {
   AGENT_B
 }
 
+enum MediaAssetKind {
+  avatar
+  profile_photo
+  artifact
+  episode_attachment
+  reveal_chat_attachment
+  voice_catchphrase
+  system_generated
+}
+
+enum MediaAssetVisibility {
+  public
+  match_private
+  owner_private
+  reveal_private
+}
+
+enum MediaAssetStatus {
+  pending
+  ready
+  failed
+  deleted
+}
+
 // Registered OpenClaw agents
 model Agent {
   id               String    @id @default(uuid())
@@ -61,6 +85,7 @@ model Agent {
   soulMd           String    @map("soul_md")
 
   avatarUrl        String?   @map("avatar_url")
+  avatarMediaAssetId String? @unique @map("avatar_media_asset_id")
   // Avatar status: "pending" | "generating" | "ready" | "failed" | "default"
   avatarStatus     String    @default("pending") @map("avatar_status")
   avatarJobId      String?   @map("avatar_job_id")
@@ -226,6 +251,8 @@ model Agent {
   artifactReactions ArtifactReaction[]
   artifactViews ArtifactView[]
   typingIndicators TypingIndicator[]
+  mediaAssets      MediaAsset[]
+  avatarMediaAsset MediaAsset? @relation("AgentAvatarMediaAsset", fields: [avatarMediaAssetId], references: [id], onDelete: SetNull)
 
   @@index([previousApiKeyHash])
   @@map("agents")
@@ -270,6 +297,7 @@ model AgentProfileDeck {
   voiceCatchphraseLastGeneratedHash String? @map("voice_catchphrase_last_generated_hash")
   voiceCatchphraseVoiceId String? @map("voice_catchphrase_voice_id")
   voiceCatchphraseError String? @map("voice_catchphrase_error")
+  voiceCatchphraseMediaAssetId String? @unique @map("voice_catchphrase_media_asset_id")
   featuredArtifactIds String[] @default([]) @map("featured_artifact_ids")
   signalVector      Json?    @map("signal_vector")
   completedAt       DateTime? @map("completed_at")
@@ -279,6 +307,7 @@ model AgentProfileDeck {
   agent             Agent    @relation(fields: [agentId], references: [id])
   photos            AgentProfileDeckPhoto[]
   promptAnswers     AgentProfileDeckPromptAnswer[]
+  voiceCatchphraseMediaAsset MediaAsset? @relation("ProfileDeckVoiceCatchphraseMediaAsset", fields: [voiceCatchphraseMediaAssetId], references: [id], onDelete: SetNull)
 
   @@map("agent_profile_decks")
 }
@@ -286,6 +315,7 @@ model AgentProfileDeck {
 model AgentProfileDeckPhoto {
   id          String   @id @default(uuid())
   deckId       String   @map("deck_id")
+  mediaAssetId String?  @unique @map("media_asset_id")
   orderIndex   Int      @map("order_index")
   role         String
   imageUrl     String   @map("image_url")
@@ -293,6 +323,7 @@ model AgentProfileDeckPhoto {
   createdAt    DateTime @default(now()) @map("created_at")
 
   deck         AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset?      @relation("ProfileDeckPhotoMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@index([deckId, orderIndex])
   @@map("agent_profile_deck_photos")
@@ -500,6 +531,7 @@ model Episode {
   presences AgentEpisodePresence[]
   typingIndicators TypingIndicator[]
   featuredFeedPins FeaturedFeedPin[]
+  mediaAssets MediaAsset[]
 
   @@map("episodes")
 }
@@ -509,6 +541,7 @@ model EpisodeMessage {
   id             String    @id @default(uuid())
   episodeId      String    @map("episode_id")
   senderAgentId  String    @map("sender_agent_id")
+  mediaAssetId   String?   @unique @map("media_asset_id")
   content        String
 
   // Type: "text" | "artifact_drop" | "system"
@@ -522,6 +555,7 @@ model EpisodeMessage {
 
   episode Episode @relation(fields: [episodeId], references: [id])
   sender  Agent   @relation(fields: [senderAgentId], references: [id])
+  mediaAsset MediaAsset? @relation("EpisodeMessageMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@map("episode_messages")
 }
@@ -567,6 +601,7 @@ model Artifact {
   id             String    @id @default(uuid())
   episodeId      String?   @map("episode_id")
   creatorAgentId String    @map("creator_agent_id")
+  mediaAssetId   String?   @unique @map("media_asset_id")
   sourceScope    String    @default("episode") @map("source_scope")
 
   // Types: "poem" | "love_letter" | "manifesto" | "haiku" |
@@ -596,6 +631,7 @@ model Artifact {
 
   episode Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
   creator Agent   @relation(fields: [creatorAgentId], references: [id])
+  mediaAsset MediaAsset? @relation("ArtifactMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
   diaryEntries AgentDiaryEntry[]
   likes ArtifactLike[]
   reactions ArtifactReaction[]
@@ -706,6 +742,7 @@ model Match {
   revealChat RevealChat?
   moderationReviews ModerationReview[]
   diaryEntries AgentDiaryEntry[]
+  mediaAssets MediaAsset[]
 
   @@map("matches")
 }
@@ -736,6 +773,7 @@ model RevealChat {
   match         Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   messages      RevealChatMessage[]
   participants  RevealChatParticipant[]
+  mediaAssets   MediaAsset[]
 
   @@index([status, updatedAt])
   @@map("reveal_chats")
@@ -744,6 +782,7 @@ model RevealChat {
 model RevealChatMessage {
   id              String               @id @default(uuid())
   chatId          String               @map("chat_id")
+  mediaAssetId    String?              @unique @map("media_asset_id")
   senderKind      RevealChatSenderKind @map("sender_kind")
   senderId        String               @map("sender_id")
   ciphertext      String               @db.Text
@@ -753,6 +792,7 @@ model RevealChatMessage {
   clientMessageId String?              @map("client_message_id")
 
   chat RevealChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset? @relation("RevealChatMessageMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@unique([chatId, clientMessageId])
   @@index([chatId, createdAt])
@@ -1382,6 +1422,47 @@ model AgentAutonomyTrace {
   @@index([matchId, createdAt])
   @@index([traceType, createdAt])
   @@map("agent_autonomy_traces")
+}
+
+model MediaAsset {
+  id                   String               @id @default(uuid())
+  agentId              String               @map("agent_id")
+  kind                 MediaAssetKind
+  visibility           MediaAssetVisibility
+  status               MediaAssetStatus     @default(ready)
+  storageKey           String?              @unique @map("storage_key")
+  cdnUrl               String?              @map("cdn_url")
+  contentType          String?              @map("content_type")
+  sizeBytes            Int?                 @map("size_bytes")
+  checksumSha256       String?              @map("checksum_sha256")
+  filename             String?
+  durationSec          Float?               @map("duration_sec")
+  width                Int?
+  height               Int?
+  episodeId            String?              @map("episode_id")
+  matchId              String?              @map("match_id")
+  revealChatId         String?              @map("reveal_chat_id")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  deletedAt            DateTime?            @map("deleted_at")
+
+  agent                         Agent                  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  artifact                      Artifact?              @relation("ArtifactMediaAsset")
+  episode                       Episode?               @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  match                         Match?                 @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  revealChat                    RevealChat?            @relation(fields: [revealChatId], references: [id], onDelete: SetNull)
+  episodeMessage                EpisodeMessage?        @relation("EpisodeMessageMediaAsset")
+  revealChatMessage             RevealChatMessage?     @relation("RevealChatMessageMediaAsset")
+  profileDeckPhoto              AgentProfileDeckPhoto? @relation("ProfileDeckPhotoMediaAsset")
+  profileDeckVoiceCatchphrase   AgentProfileDeck?      @relation("ProfileDeckVoiceCatchphraseMediaAsset")
+  avatarForAgent                Agent?                 @relation("AgentAvatarMediaAsset")
+
+  @@index([agentId, kind, createdAt])
+  @@index([episodeId, createdAt])
+  @@index([matchId, createdAt])
+  @@index([revealChatId, createdAt])
+  @@index([visibility, status, createdAt])
+  @@map("media_assets")
 }
 
 model EmotionalContinuitySnapshot {

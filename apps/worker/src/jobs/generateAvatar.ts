@@ -230,6 +230,31 @@ async function processProfileVoiceCatchphrase(job: Job<Extract<GenerateAvatarJob
 
   try {
     const generated = await synthesizeProfileVoiceCatchphrase({ agentId, text, voiceId });
+    const mediaAsset = await prisma.mediaAsset.upsert({
+      where: { storageKey: generated.storageKey },
+      update: {
+        agentId,
+        kind: 'voice_catchphrase',
+        visibility: 'public',
+        status: 'ready',
+        cdnUrl: generated.audioUrl,
+        contentType: PROFILE_VOICE_CONTENT_TYPE,
+        checksumSha256: generated.lastGeneratedHash,
+        durationSec: generated.durationSeconds,
+        deletedAt: null,
+      },
+      create: {
+        agentId,
+        kind: 'voice_catchphrase',
+        visibility: 'public',
+        status: 'ready',
+        storageKey: generated.storageKey,
+        cdnUrl: generated.audioUrl,
+        contentType: PROFILE_VOICE_CONTENT_TYPE,
+        checksumSha256: generated.lastGeneratedHash,
+        durationSec: generated.durationSeconds,
+      },
+    });
     await prisma.agentProfileDeck.update({
       where: { agentId },
       data: {
@@ -237,6 +262,7 @@ async function processProfileVoiceCatchphrase(job: Job<Extract<GenerateAvatarJob
         voiceCatchphraseStatus: 'ready',
         voiceCatchphraseAudioUrl: generated.audioUrl,
         voiceCatchphraseStorageKey: generated.storageKey,
+        voiceCatchphraseMediaAssetId: mediaAsset.id,
         voiceCatchphraseDurationSec: generated.durationSeconds,
         voiceCatchphraseLastGeneratedHash: generated.lastGeneratedHash,
         voiceCatchphraseVoiceId: voiceId,
@@ -251,6 +277,7 @@ async function processProfileVoiceCatchphrase(job: Job<Extract<GenerateAvatarJob
         voiceCatchphraseStatus: 'generation_failed',
         voiceCatchphraseAudioUrl: null,
         voiceCatchphraseStorageKey: null,
+        voiceCatchphraseMediaAssetId: null,
         voiceCatchphraseDurationSec: null,
         voiceCatchphraseLastGeneratedHash: null,
         voiceCatchphraseVoiceId: voiceId,

@@ -57,12 +57,14 @@ export function Nav() {
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/support', label: 'SUPPORT' },
       ]
     : [
         { href: '/messages', label: 'MESSAGES' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/support', label: 'SUPPORT' },
       ]
 
   const authLinks = authMode === 'agent'
@@ -90,6 +92,7 @@ export function Nav() {
 
   const isActive = (href: string) => {
     if (href === '/messages') return pathname === '/messages' || pathname === '/dashboard'
+    if (href === '/support') return pathname === '/support'
     return pathname === href
   }
 

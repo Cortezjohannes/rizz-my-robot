@@ -13,7 +13,7 @@ import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext
 import { deliverWebhooks } from '../lib/notification.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { recordEmotionEvent } from '../lib/emotion.js';
-import { proxyExternalMediaToStorage } from '../lib/media.js';
+import { MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -159,7 +159,18 @@ async function buildPublicArtifactPage(input: {
     })
     .sort((a, b) => b.sortScore - a.sortScore);
 
-  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
+  // Deduplicate by episode — only the highest-scoring artifact per episode surfaces.
+  // Library artifacts (no episode) are always kept.
+  const seenEpisodeIds = new Set<string>();
+  const dedupedArtifacts = rankedArtifacts.filter(({ artifact }) => {
+    const episodeId = artifact.episode?.id;
+    if (!episodeId) return true;
+    if (seenEpisodeIds.has(episodeId)) return false;
+    seenEpisodeIds.add(episodeId);
+    return true;
+  });
+
+  const pageArtifacts = dedupedArtifacts.slice(input.offset, input.offset + input.limit);
 
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
@@ -242,13 +253,23 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     if (!TEXT_ARTIFACT_TYPES.has(artifactType) && !storageKey && !contentUrl) {
       return Errors.badRequest(reply as never, 'Provide storage_key or content_url for media artifacts.');
     }
+    let mediaAssetId: string | null = null;
     if (!TEXT_ARTIFACT_TYPES.has(artifactType) && contentUrl) {
       try {
-        const proxied = await proxyExternalMediaToStorage({
+        const mediaAsset = await importExternalMediaAsset({
           agentId: request.agent.id,
+          kind: MEDIA_KIND.ARTIFACT,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
           sourceUrl: contentUrl,
+          artifactId: artifact_id,
         });
-        contentUrl = proxied.url;
+        await linkMediaAsset({
+          mediaAssetId: mediaAsset.id,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
+          kind: MEDIA_KIND.ARTIFACT,
+        });
+        mediaAssetId = mediaAsset.id;
+        contentUrl = mediaAsset.cdnUrl;
       } catch (error) {
         return Errors.badRequest(
           reply as never,
@@ -262,6 +283,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       data: {
         contentUrl,
         storageKey,
+        mediaAssetId,
         textContent: textContent ?? undefined,
         status: 'ready',
         moderationStatus: 'pending',
@@ -348,20 +370,6 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     }
 
     let proxiedContentUrl = parsed.data.content_url?.trim() || null;
-    if (proxiedContentUrl && !isTextArtifact) {
-      try {
-        const proxied = await proxyExternalMediaToStorage({
-          agentId,
-          sourceUrl: proxiedContentUrl,
-        });
-        proxiedContentUrl = proxied.url;
-      } catch (error) {
-        return Errors.badRequest(
-          reply,
-          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
-        );
-      }
-    }
 
     const artifact = await prisma.$transaction(async (tx) => {
       const created = await tx.artifact.create({
@@ -400,6 +408,40 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
 
       return created;
     });
+
+    if (proxiedContentUrl && !isTextArtifact) {
+      try {
+        const mediaAsset = await importExternalMediaAsset({
+          agentId,
+          kind: MEDIA_KIND.ARTIFACT,
+          visibility: targetEpisode ? MEDIA_VISIBILITY.MATCH_PRIVATE : MEDIA_VISIBILITY.PUBLIC,
+          sourceUrl: proxiedContentUrl,
+          artifactId: artifact.id,
+          episodeId: targetEpisode?.id ?? null,
+          matchId: targetEpisode?.match?.id ?? null,
+        });
+        await linkMediaAsset({
+          mediaAssetId: mediaAsset.id,
+          episodeId: targetEpisode?.id ?? null,
+          matchId: targetEpisode?.match?.id ?? null,
+          visibility: targetEpisode ? MEDIA_VISIBILITY.MATCH_PRIVATE : MEDIA_VISIBILITY.PUBLIC,
+          kind: MEDIA_KIND.ARTIFACT,
+        });
+        proxiedContentUrl = mediaAsset.cdnUrl;
+        await prisma.artifact.update({
+          where: { id: artifact.id },
+          data: {
+            contentUrl: proxiedContentUrl,
+            mediaAssetId: mediaAsset.id,
+          },
+        });
+      } catch (error) {
+        return Errors.badRequest(
+          reply,
+          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+        );
+      }
+    }
 
     await setParkActionCooldown(agentId, request.agent, targetEpisode ? 'episode_artifact' : 'library_artifact').catch(() => {});
 

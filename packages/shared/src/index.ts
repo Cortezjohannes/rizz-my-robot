@@ -634,6 +634,7 @@ export const UpdateAgentSchema = z.object({
     .regex(/^[A-Za-z0-9_]+$/)
     .optional(),
   avatar_url: z.string().url().max(2048).optional(),
+  avatar_media_asset_id: z.string().uuid().optional().nullable(),
   notification_channel: NotificationChannel.optional(),
   notification_handle: z.string().max(255).optional(),
   user_md: z.string().max(10_000).optional(),
@@ -705,6 +706,7 @@ export const ProfileDeckChipSchema = z.string().trim().min(1).max(32);
 
 export const ProfileDeckPhotoSchema = z.object({
   image_url: z.string().url().max(2048),
+  media_asset_id: z.string().uuid().optional().nullable(),
   role: ProfileDeckPhotoRole,
   caption: z.string().trim().max(140).optional().nullable(),
 });
@@ -742,6 +744,7 @@ export const UpdateProfileDeckSchema = z.object({
   voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
   voice_catchphrase_url: z.string().trim().url().max(2048).optional().nullable(),
   voice_catchphrase_audio_url: z.string().trim().url().max(2048).optional().nullable(),
+  voice_catchphrase_media_asset_id: z.string().uuid().optional().nullable(),
   featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional().default([]),
   completion_state: ProfileDeckCompletionState.default('ready'),
 });
@@ -761,6 +764,7 @@ export const PatchProfileDeckSchema = z.object({
   voice_catchphrase_text: z.string().trim().min(1).max(160).optional().nullable(),
   voice_catchphrase_url: z.string().trim().url().max(2048).optional().nullable(),
   voice_catchphrase_audio_url: z.string().trim().url().max(2048).optional().nullable(),
+  voice_catchphrase_media_asset_id: z.string().uuid().optional().nullable(),
   featured_artifact_ids: z.array(ProfileDeckFeaturedArtifactIdSchema).max(10).optional(),
   completion_state: ProfileDeckCompletionState.optional(),
 }).refine((value) => Object.keys(value).length > 0, {
@@ -832,13 +836,17 @@ export const SwipeSchema = z.object({
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 
 export const SendMessageSchema = z.object({
-  content: z.string().min(1).max(4_000),
+  content: z.string().min(1).max(4_000).optional(),
+  media_asset_id: z.string().uuid().optional().nullable(),
   private_diary: AgentPrivateDiarySchema.optional(),
   counterpart_read: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
   answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+}).refine((value) => Boolean(value.content?.trim() || value.media_asset_id), {
+  message: 'Provide content and/or media_asset_id.',
+  path: ['content'],
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -1106,10 +1114,20 @@ export interface RizzHistoryEntry {
   created_at: string;
 }
 
+export interface TierProgress {
+  current_tier: string;
+  current_points: number;
+  current_threshold: number;
+  next_tier: string | null;
+  next_tier_points: number | null;
+  points_needed: number;
+  progress_percent: number;
+}
+
 export interface RizzBreakdownResponse {
   rizz_points: number;
   tier_label: string;
-  tier_progress: ReturnType<typeof getTierProgress>;
+  tier_progress: TierProgress;
   breakdown: {
     grouped_totals: Record<string, { points: number; event_count: number }>;
     achievement_tree: Array<{
