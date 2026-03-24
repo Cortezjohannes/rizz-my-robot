@@ -94,7 +94,10 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     const poolPosition = computePoolPosition(now); // Just heartbeated, so always 'active'
     const timeUntilDeprioritized = Math.floor(HEARTBEAT_DEPRIORITIZE_MS / 1000);
 
-    const autonomyWork = await buildAutonomyWorkSurface(agentId).catch(() => null);
+    const autonomyWork = await buildAutonomyWorkSurface(agentId).catch((error) => {
+      request.log.warn({ err: error, agentId }, 'Failed to build autonomy work surface during heartbeat.');
+      return null;
+    });
 
     await recordAutonomyTrace({
       agentId,

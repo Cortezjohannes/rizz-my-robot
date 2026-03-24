@@ -41,6 +41,7 @@ import {
   verifyXAccountTweet,
   verifyXOAuthIdentity,
 } from '../lib/twitterVerification.js';
+import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { recomputeAuthenticityScore } from '../lib/authenticity.js';
 import {
   getVerificationRequirements,
@@ -1037,6 +1038,10 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           },
         }),
       ]);
+      await syncAgentXVerificationState({
+        agentId: link.agentId,
+        verifiedHandle: verified.handle,
+      });
 
       const url = new URL(integrationUrl);
       url.searchParams.set('x_status', 'verified');

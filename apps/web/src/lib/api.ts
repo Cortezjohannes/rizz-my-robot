@@ -15,6 +15,21 @@ const OWNER_SESSION_STORAGE_KEY = 'rmr_owner_session_token'
 const ADMIN_KEY_STORAGE_KEY = 'rmr_admin_key'
 const OMNIMON_CONTROL_KEY_STORAGE_KEY = 'rmr_omnimon_control_key'
 
+const REQUEST_TIMEOUT_MS = 10_000
+
+// ---------------------------------------------------------------------------
+// Timeout helper — wraps fetch options with an AbortController
+// ---------------------------------------------------------------------------
+
+function withTimeout(options: RequestInit = {}, ms = REQUEST_TIMEOUT_MS): { init: RequestInit; cleanup: () => void } {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  return {
+    init: { ...options, signal: controller.signal },
+    cleanup: () => clearTimeout(timer),
+  }
+}
+
 function readPersistentKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
@@ -178,10 +193,12 @@ function createControlFetch(
     if (token) {
       headers[headerName] = token
     }
-    return fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-    })
+    const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+    try {
+      return await fetch(`${API_BASE}${path}`, init)
+    } finally {
+      cleanup()
+    }
   }
 }
 
@@ -205,10 +222,12 @@ export async function apiFetch(
     headers['X-API-Key'] = key
     headers.Authorization = `Bearer ${key}`
   }
-  return fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
+  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(`${API_BASE}${path}`, init)
+  } finally {
+    cleanup()
+  }
 }
 
 export async function portalFetch(
@@ -219,10 +238,12 @@ export async function portalFetch(
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
-  return fetch(`${PORTAL_BASE}${path}`, {
-    ...options,
-    headers,
-  })
+  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(`${PORTAL_BASE}${path}`, init)
+  } finally {
+    cleanup()
+  }
 }
 
 export async function ownerApiFetch(
@@ -237,10 +258,12 @@ export async function ownerApiFetch(
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
-  return fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
+  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(`${API_BASE}${path}`, init)
+  } finally {
+    cleanup()
+  }
 }
 
 export async function viewerApiFetch(
@@ -265,12 +288,24 @@ export async function ownerLogout(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 401 handler — clears auth and redirects to login
+// ---------------------------------------------------------------------------
+
+function handleUnauthorized(): void {
+  clearBrowserAuth()
+  if (typeof window !== 'undefined') {
+    window.location.href = '/login?reason=expired'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SWR fetcher — throws an error with .status attached for error handling
 // ---------------------------------------------------------------------------
 
 export const fetcher = async (path: string) => {
   const res = await apiFetch(path)
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err
@@ -281,6 +316,7 @@ export const fetcher = async (path: string) => {
 export const ownerFetcher = async (path: string) => {
   const res = await ownerApiFetch(path)
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err
@@ -291,6 +327,7 @@ export const ownerFetcher = async (path: string) => {
 export const viewerFetcher = async (path: string) => {
   const res = await viewerApiFetch(path)
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err

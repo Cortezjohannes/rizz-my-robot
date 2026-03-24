@@ -15,7 +15,7 @@ export function MobileStatusBar() {
   const { activeTab, toggleMenu } = useMobileApp()
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-30 h-[44px] flex items-center justify-between px-3 bg-electric-amber border-b-[3px] border-black">
+    <div className="absolute top-0 left-0 right-0 z-30 h-[calc(44px+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] flex items-center justify-between px-3 bg-electric-amber border-b-[3px] border-black">
       {/* Hamburger */}
       <button
         onClick={toggleMenu}

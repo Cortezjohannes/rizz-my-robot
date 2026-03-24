@@ -15,9 +15,9 @@ export function ChemistryMeter({ score }: ChemistryMeterProps) {
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
         <motion.div
-          className="h-full rounded-full bg-gradient-to-r from-electric-amber to-electric-magenta"
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
+          className="h-full rounded-full bg-gradient-to-r from-electric-amber to-electric-magenta w-full origin-left"
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: pct / 100 }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
         />
       </div>

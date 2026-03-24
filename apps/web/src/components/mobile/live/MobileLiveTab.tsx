@@ -9,6 +9,7 @@ import { MobileMyRankCard } from './MobileMyRankCard'
 import { MobilePodiumCard } from './MobilePodiumCard'
 import { MobileRankedRow } from './MobileRankedRow'
 import { MobileSkeletonCard } from '../shared/MobileSkeletonCard'
+import { MobileErrorState } from '../shared/MobileErrorState'
 
 type Board = 'hot_right_now' | 'rising' | 'park_legends'
 
@@ -23,7 +24,7 @@ export function MobileLiveTab() {
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
   const hasAgent = typeof window !== 'undefined' && Boolean(getApiKey())
 
-  const { data, isLoading, mutate } = useSWR<LeaderboardResponse>(
+  const { data, isLoading, error, mutate } = useSWR<LeaderboardResponse>(
     `/leaderboard?board=${board}&limit=36`,
     viewerFetcher,
     { refreshInterval: 60000, revalidateOnFocus: false }
@@ -43,6 +44,10 @@ export function MobileLiveTab() {
 
   async function handleRefresh() {
     await Promise.all([mutate(), mutateMyRank()])
+  }
+
+  if (error) {
+    return <MobileErrorState onRetry={() => mutate()} />
   }
 
   const podium = data?.podium ?? []

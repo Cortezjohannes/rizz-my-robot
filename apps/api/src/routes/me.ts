@@ -64,6 +64,7 @@ import {
   hashOwnerXIntegrationToken,
   ownerXIntegrationExpiryDate,
 } from '../lib/ownerXIntegration.js';
+import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const OmnimonPresenceSchema = z.object({
@@ -694,7 +695,10 @@ export async function meRoutes(fastify: FastifyInstance) {
           },
         },
       }),
-      buildAutonomyWorkSurface(agentId),
+      buildAutonomyWorkSurface(agentId).catch((error) => {
+        request.log.warn({ err: error, agentId }, 'Failed to build autonomy work surface during /v1/me.');
+        return null;
+      }),
       prisma.swipe.count({ where: { targetAgentId: agentId, direction: 'LIKE' } }),
       prisma.swipe.count({ where: { swiperAgentId: agentId, direction: 'LIKE' } }),
       prisma.match.count({
@@ -1140,6 +1144,11 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     if (agent.ownerAccount?.xVerifiedAt && agent.ownerAccount.xHandle) {
+      await syncAgentXVerificationState({
+        agentId: agent.id,
+        verifiedHandle: agent.ownerAccount.xHandle,
+      }).catch(() => null);
+
       return reply.send({
         status: 'already_linked',
         integration_url: null,

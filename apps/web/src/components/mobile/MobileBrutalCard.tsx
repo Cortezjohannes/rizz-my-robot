@@ -20,7 +20,7 @@ export function MobileBrutalCard({
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
-      onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
       className={`
         rounded-lg border-2 border-black bg-white shadow-brutal-sm
         transition-transform duration-150

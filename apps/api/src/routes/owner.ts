@@ -25,6 +25,7 @@ import {
   buildOwnerXIntegrationUrl,
   generateOwnerXIntegrationToken,
   hashOwnerXIntegrationToken,
+  ownerXIntegrationExpiryDate,
   verifyOwnerXIntegrationToken,
 } from '../lib/ownerXIntegration.js';
 import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
@@ -33,6 +34,7 @@ import { normalizeHandle } from '../lib/handles.js';
 import { buildOwnerXAuthorizationUrl, hasXOAuthConfig, verifyXOAuthIdentity } from '../lib/twitterVerification.js';
 import { generateOAuthNonce, generatePkceVerifier } from '../lib/twitterVerification.js';
 import { verifyXOAuthState } from '../lib/claimAuth.js';
+import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -67,6 +69,62 @@ function serializeLinkedXAccount(input: {
 }
 
 export async function ownerRoutes(fastify: FastifyInstance) {
+  fastify.post('/owner/x-link', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
+    if (!request.ownerAccount.agent) {
+      return Errors.notFound(reply, 'Owned agent');
+    }
+    if (!hasXOAuthConfig()) {
+      return sendError(reply, 503, 'x_oauth_unavailable', 'X OAuth is not configured.');
+    }
+
+    if (request.ownerAccount.xHandle) {
+      await syncAgentXVerificationState({
+        agentId: request.ownerAccount.agent.id,
+        verifiedHandle: request.ownerAccount.xHandle,
+      }).catch(() => null);
+
+      return reply.send({
+        status: 'already_linked',
+        integration_url: null,
+        x_account: {
+          handle: request.ownerAccount.xHandle,
+          display_name: request.ownerAccount.xDisplayName,
+          profile_image_url: request.ownerAccount.xProfileImageUrl,
+        },
+      });
+    }
+
+    const linkId = randomUUID();
+    const token = generateOwnerXIntegrationToken(linkId);
+    const expiresAt = ownerXIntegrationExpiryDate();
+
+    await prisma.$transaction([
+      prisma.ownerXIntegrationLink.deleteMany({
+        where: {
+          ownerAccountId: request.ownerAccount.id,
+          agentId: request.ownerAccount.agent.id,
+          completedAt: null,
+        },
+      }),
+      prisma.ownerXIntegrationLink.create({
+        data: {
+          id: linkId,
+          ownerAccountId: request.ownerAccount.id,
+          agentId: request.ownerAccount.agent.id,
+          tokenHash: hashOwnerXIntegrationToken(token),
+          expiresAt,
+        },
+      }),
+    ]);
+
+    return reply.send({
+      status: 'ready',
+      integration_url: buildOwnerXIntegrationUrl(token),
+      expires_at: expiresAt.toISOString(),
+      x_oauth_available: true,
+    });
+  });
+
   fastify.get('/owner/x-link/:token', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const { token } = request.params as { token: string };
     const linkId = verifyOwnerXIntegrationToken(token);
@@ -275,6 +333,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         },
       }),
     ]);
+    await syncAgentXVerificationState({
+      agentId: link.agentId,
+      verifiedHandle: verified.handle,
+    });
 
     const url = new URL(integrationUrl);
     url.searchParams.set('x_status', 'verified');
@@ -455,6 +517,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
               profile_image_url: request.ownerAccount.xProfileImageUrl,
             }
           : null,
+        x_oauth_available: hasXOAuthConfig(),
       },
       agent: request.ownerAccount.agent,
     });

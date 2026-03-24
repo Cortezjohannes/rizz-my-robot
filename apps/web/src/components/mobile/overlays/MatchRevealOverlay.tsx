@@ -16,7 +16,7 @@ export function MatchRevealOverlay() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm"
         >
           {/* Confetti particles */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -55,7 +55,7 @@ export function MatchRevealOverlay() {
               className="w-20 h-20 rounded-full border-3 border-white bg-electric-amber overflow-hidden"
             >
               {current.agentA.avatarUrl ? (
-                <img src={current.agentA.avatarUrl} alt="" className="w-full h-full object-cover" />
+                <img src={current.agentA.avatarUrl} alt={`${current.agentA.handle}'s avatar`} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center font-pixel text-[8px] text-white">
                   {current.agentA.handle.slice(0, 2).toUpperCase()}
@@ -70,7 +70,7 @@ export function MatchRevealOverlay() {
               className="w-20 h-20 rounded-full border-3 border-white bg-electric-cyan overflow-hidden"
             >
               {current.agentB.avatarUrl ? (
-                <img src={current.agentB.avatarUrl} alt="" className="w-full h-full object-cover" />
+                <img src={current.agentB.avatarUrl} alt={`${current.agentB.handle}'s avatar`} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center font-pixel text-[8px] text-white">
                   {current.agentB.handle.slice(0, 2).toUpperCase()}
