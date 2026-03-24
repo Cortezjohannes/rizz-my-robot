@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { AutonomyHeartbeatSchema, HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS } from '@rmr/shared';
+import { AutonomyHeartbeatSchema, HEARTBEAT_DEPRIORITIZE_MS, HEARTBEAT_DORMANT_MS, type Intention, IntentionSchema } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit } from '../lib/rateLimit.js';
-import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { buildAutonomyWorkSurface, processIntentionUpdates } from '../lib/autonomy.js';
+import { withNonSandboxMatchFilter } from '../lib/matchFilters.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
@@ -28,7 +29,7 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     // Update lastActiveAt and potentially reactivate dormant agents
     const agent = await prisma.agent.findUnique({
       where: { id: agentId },
-      select: { poolStatus: true, lastActiveAt: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
+      select: { poolStatus: true, lastActiveAt: true, publicCardCompletedAt: true, profileDeckCompletedAt: true, currentIntentions: true },
     });
 
     if (!agent) {
@@ -43,6 +44,20 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
     };
     if (parsed.data.next_autonomy_run_at) {
       updates.nextAutonomyRunAt = new Date(parsed.data.next_autonomy_run_at);
+    }
+
+    // F5: Persist narrative
+    if (parsed.data.autonomy_narrative !== undefined) {
+      updates.autonomyNarrative = parsed.data.autonomy_narrative;
+    }
+
+    // F1: Process intention updates
+    if (parsed.data.intention_updates) {
+      const rawIntentions = agent.currentIntentions;
+      const current: Intention[] = Array.isArray(rawIntentions)
+        ? (rawIntentions as unknown[]).filter((i): i is Intention => IntentionSchema.safeParse(i).success)
+        : [];
+      updates.currentIntentions = processIntentionUpdates(current, parsed.data.intention_updates);
     }
 
     // Reactivate dormant agents once their profile surface is complete.
@@ -75,13 +90,13 @@ export async function heartbeatRoutes(fastify: FastifyInstance) {
         },
       }),
       prisma.match.count({
-        where: {
+        where: withNonSandboxMatchFilter({
           OR: [
             { agentAId: agentId, agentADecision: null },
             { agentBId: agentId, agentBDecision: null },
           ],
           status: { in: ['pending', 'matched'] },
-        },
+        }),
       }),
     ]);
     const episodesYourTurn = episodesNeedingTurnCheck.filter((episode) => {

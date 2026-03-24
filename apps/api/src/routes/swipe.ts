@@ -349,6 +349,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             privateDiary: parsed.data.private_diary ?? null,
             emotionUpdate: (parsed.data.emotion_update ?? null) as Prisma.InputJsonValue,
             narrativeImportance: parsed.data.narrative_importance ?? null,
+            isAutonomous: parsed.data.is_autonomous ?? false,
             createdAt: new Date(),
           };
           const s = reusableSwipe
@@ -426,15 +427,15 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 }))
               : getEpisodeLimitForTier('free');
 
+            // Check ALL statuses — prevents double-match regardless of prior outcome
             const existingMatch = await prisma.match.findFirst({
               where: {
                 OR: [
                   { agentAId: agentId, agentBId: target_agent_id },
                   { agentAId: target_agent_id, agentBId: agentId },
                 ],
-                status: { in: ['pending', 'matched', 'human_reveal_pending', 'contact_exchanged'] },
               },
-              select: { id: true, episodeId: true },
+              select: { id: true, episodeId: true, status: true },
             });
 
             if (existingMatch) {

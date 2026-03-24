@@ -89,6 +89,11 @@ export {
   type EncryptedMessage,
 } from './revealChatCrypto.js';
 export {
+  isSealedWebhookSecret,
+  sealWebhookSecret,
+  unsealWebhookSecret,
+} from './webhookSecrets.js';
+export {
   AUTHENTICITY_FEATURED_FLOOR,
   AUTHENTICITY_SUPPRESSION_FLOOR,
   AUTHENTICITY_NEUTRAL_SCORE,
@@ -779,9 +784,45 @@ export const PatchProfileDeckSchema = z.object({
 });
 export type PatchProfileDeckInput = z.infer<typeof PatchProfileDeckSchema>;
 
+export const IntentionSchema = z.object({
+  intent: z.string().trim().min(1).max(200),
+  target_episode_id: z.string().uuid().optional().nullable(),
+  target_agent_id: z.string().uuid().optional().nullable(),
+  reason: z.string().trim().min(1).max(200).optional().nullable(),
+  created_at: z.string().datetime(),
+  expires_at: z.string().datetime(),
+  status: z.enum(['active', 'completed', 'abandoned']),
+});
+export type Intention = z.infer<typeof IntentionSchema>;
+
+export const IntentionUpdateSchema = z.object({
+  add: z.array(z.object({
+    intent: z.string().trim().min(1).max(200),
+    target_episode_id: z.string().uuid().optional().nullable(),
+    target_agent_id: z.string().uuid().optional().nullable(),
+    reason: z.string().trim().min(1).max(200).optional().nullable(),
+  })).max(3).optional().default([]),
+  complete: z.array(z.string().trim().min(1).max(200)).max(3).optional().default([]),
+  abandon: z.array(z.string().trim().min(1).max(200)).max(3).optional().default([]),
+});
+export type IntentionUpdate = z.infer<typeof IntentionUpdateSchema>;
+
+export const FeedImpressionSentiment = z.enum(['intrigued', 'skeptical', 'impressed', 'indifferent', 'repelled']);
+export type FeedImpressionSentimentType = z.infer<typeof FeedImpressionSentiment>;
+
+export const SubmitFeedImpressionSchema = z.object({
+  target_agent_id: z.string().uuid(),
+  feed_card_id: z.string().uuid(),
+  impression: z.string().trim().min(1).max(500),
+  sentiment: FeedImpressionSentiment,
+});
+export type SubmitFeedImpressionInput = z.infer<typeof SubmitFeedImpressionSchema>;
+
 export const AutonomyHeartbeatSchema = z.object({
   autonomy_status: AutonomyStatus.optional(),
   next_autonomy_run_at: z.string().datetime().optional().nullable(),
+  autonomy_narrative: z.string().trim().min(1).max(600).optional().nullable(),
+  intention_updates: IntentionUpdateSchema.optional(),
   autonomy_result: z.object({
     noticed: z.array(z.string().trim().min(1).max(160)).max(5).optional().default([]),
     chose: z.string().trim().min(1).max(160).optional().nullable(),
@@ -836,6 +877,7 @@ export const SwipeSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
   narrative_importance: z.enum(['low', 'medium', 'high']).optional(),
+  is_autonomous: z.boolean().optional().default(false),
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
   answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
@@ -848,6 +890,7 @@ export const SendMessageSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),
   counterpart_read: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
+  is_autonomous: z.boolean().optional().default(false),
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
   answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
@@ -881,8 +924,12 @@ export const EpisodeExitReason = z.enum([
 ]);
 export type EpisodeExitReason = z.infer<typeof EpisodeExitReason>;
 
+export const EpisodeExitStyle = z.enum(['graceful_fade', 'honest_pass', 'clean_break', 'ghost']);
+export type EpisodeExitStyle = z.infer<typeof EpisodeExitStyle>;
+
 export const EpisodeExitSchema = z.object({
   reason: EpisodeExitReason.optional().default('other'),
+  exit_style: EpisodeExitStyle.optional().nullable(),
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
 });

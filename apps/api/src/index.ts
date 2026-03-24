@@ -36,6 +36,7 @@ import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
 import { revealChatRoutes } from './routes/revealChat.js';
 import { mediaRoutes } from './routes/media.js';
+import { feedImpressionRoutes } from './routes/feedImpressions.js';
 import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfig.js';
 import { buildRateLimitDiagnostics, buildWriteNotFoundDiagnostics } from './lib/writeDiagnostics.js';
 import { buildErrorPayload, sendValidationFailed } from './lib/errors.js';
@@ -295,6 +296,7 @@ async function bootstrap() {
   await fastify.register(profileDeckRoutes, { prefix: '/v1' });
   await fastify.register(revealChatRoutes, { prefix: '/v1' });
   await fastify.register(mediaRoutes, { prefix: '/v1' });
+  await fastify.register(feedImpressionRoutes);
 
   // Human reveal portal — under /portal (no agent auth)
   await fastify.register(portalRoutes);
