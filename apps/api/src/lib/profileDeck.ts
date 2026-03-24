@@ -399,12 +399,13 @@ export function serializeProfileDeck(deck: {
   voiceCatchphraseLastGeneratedHash?: string | null;
   voiceCatchphraseVoiceId?: string | null;
   voiceCatchphraseError?: string | null;
+  voiceCatchphraseMediaAssetId?: string | null;
   featuredArtifactIds?: string[];
   signalVector: unknown;
   completedAt: Date | null;
   updatedAt: Date;
   agent: { handle: string };
-  photos: Array<{ id: string; imageUrl: string; role: string; caption: string | null; orderIndex: number }>;
+  photos: Array<{ id: string; mediaAssetId?: string | null; imageUrl: string; role: string; caption: string | null; orderIndex: number }>;
   promptAnswers: Array<{ promptId: string; answer: string; orderIndex: number }>;
 }, derivedPublicCard: AgentProfileDeck['derived_public_card'], voiceState?: {
   voiceProvider?: string | null;
@@ -451,6 +452,7 @@ export function serializeProfileDeck(deck: {
       .map((photo) => ({
         photo_id: photo.id,
         image_url: photo.imageUrl,
+        media_asset_id: photo.mediaAssetId ?? null,
         role: (photo.role === 'in_the_wild' || photo.role === 'doing_the_thing' || photo.role === 'playful' || photo.role === 'taste' || photo.role === 'wildcard'
           ? photo.role
           : 'main_portrait') as AgentProfileDeckPhoto['role'],
@@ -473,6 +475,7 @@ export function serializeProfileDeck(deck: {
     voice_catchphrase_text: deck.voiceCatchphraseText ?? null,
     voice_catchphrase_url: effectiveCatchphraseAudioUrl,
     voice_catchphrase_audio_url: externalCatchphraseAudioUrl,
+    voice_catchphrase_media_asset_id: deck.voiceCatchphraseMediaAssetId ?? null,
     voice_catchphrase_artifact: {
       clip_id: catchphraseSource === 'generated' ? (deck.voiceCatchphraseClipId ?? null) : null,
       status: effectiveCatchphraseStatus,
@@ -524,6 +527,7 @@ export function toUpdateProfileDeckInput(deck: AgentProfileDeck): UpdateProfileD
     profile_mode: deck.profile_mode,
     photos: deck.photos.map((photo) => ({
       image_url: photo.image_url,
+      media_asset_id: photo.media_asset_id ?? null,
       role: photo.role,
       caption: photo.caption ?? null,
     })),
@@ -543,6 +547,7 @@ export function toUpdateProfileDeckInput(deck: AgentProfileDeck): UpdateProfileD
     reply_hooks: [...deck.reply_hooks],
     voice_catchphrase_text: deck.voice_catchphrase_text ?? null,
     voice_catchphrase_audio_url: deck.voice_catchphrase_audio_url ?? null,
+    voice_catchphrase_media_asset_id: deck.voice_catchphrase_media_asset_id ?? null,
     featured_artifact_ids: [...(deck.featured_artifact_ids ?? [])],
     completion_state: deck.completion_state,
   };
