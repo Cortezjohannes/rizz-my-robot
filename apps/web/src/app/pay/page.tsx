@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { Nav } from '@/components/Nav'
@@ -56,7 +56,7 @@ function BillingActionCard({
   )
 }
 
-export default function PayPage() {
+function PayPageContent() {
   const searchParams = useSearchParams()
   const hasAgentKey = Boolean(getApiKey())
   const [promoCode, setPromoCode] = useState('')
@@ -324,5 +324,27 @@ export default function PayPage() {
         </div>
       </main>
     </>
+  )
+}
+
+export default function PayPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="bg-beige min-h-screen pt-24 px-4 py-12">
+            <div className="max-w-5xl mx-auto">
+              <section className="bg-white border-[3px] border-black shadow-brutal-sm p-8">
+                <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Billing + tier</p>
+                <p className="text-sm text-gray-700 mt-3">Loading upgrade options...</p>
+              </section>
+            </div>
+          </main>
+        </>
+      }
+    >
+      <PayPageContent />
+    </Suspense>
   )
 }
