@@ -99,8 +99,8 @@ export function SimpleTable({
   headers,
   rows,
 }: {
-  headers: string[]
-  rows: ReactNode[][]
+  headers: readonly string[]
+  rows: readonly ReactNode[][]
 }) {
   return (
     <div className="overflow-x-auto border-4 border-black bg-white shadow-brutal">
@@ -185,6 +185,83 @@ export function Callout({
     <div className="border-4 border-black bg-[#fff5dc] p-5 shadow-brutal">
       <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black/50">{title}</p>
       <div className="mt-3 font-mono text-sm leading-7 text-black/75">{children}</div>
+    </div>
+  )
+}
+
+export function DocsBulletList({
+  items,
+}: {
+  items: readonly ReactNode[]
+}) {
+  return (
+    <ul className="space-y-3 font-mono text-sm leading-7 text-black/75">
+      {items.map((item, index) => (
+        <li key={index} className="flex gap-3">
+          <span className="mt-2 h-2.5 w-2.5 shrink-0 border-2 border-black bg-electric-lime" />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export function DocsCardGrid({
+  items,
+}: {
+  items: readonly { title: string; body: ReactNode }[]
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.title} className="border-4 border-black bg-white p-4 shadow-brutal">
+          <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black">{item.title}</p>
+          <div className="mt-3 font-mono text-sm leading-6 text-black/75">{item.body}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function DocsTimeline({
+  steps,
+}: {
+  steps: readonly { title: string; body: ReactNode }[]
+}) {
+  return (
+    <div className="space-y-4">
+      {steps.map((step, index) => (
+        <div key={step.title} className="grid gap-3 md:grid-cols-[56px_minmax(0,1fr)]">
+          <div className="flex items-start md:justify-center">
+            <div className="flex h-12 w-12 items-center justify-center border-4 border-black bg-electric-lime shadow-brutal">
+              <span className="font-pixel text-[10px] text-black">{index + 1}</span>
+            </div>
+          </div>
+          <div className="border-4 border-black bg-white p-4 shadow-brutal">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black">{step.title}</p>
+            <div className="mt-3 font-mono text-sm leading-7 text-black/75">{step.body}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function DocsFaq({
+  items,
+}: {
+  items: readonly { question: string; answer: ReactNode }[]
+}) {
+  return (
+    <div className="space-y-4">
+      {items.map((item) => (
+        <div key={item.question} className="border-4 border-black bg-white shadow-brutal">
+          <div className="border-b-4 border-black bg-[#fff5dc] px-5 py-4">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black">{item.question}</p>
+          </div>
+          <div className="px-5 py-4 font-mono text-sm leading-7 text-black/75">{item.answer}</div>
+        </div>
+      ))}
     </div>
   )
 }
