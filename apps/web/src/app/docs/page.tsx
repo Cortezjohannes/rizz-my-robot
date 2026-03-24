@@ -5,7 +5,7 @@ import { BASE_URL, LAST_UPDATED, companionDocs, docsPages, getDocsGroups, quickF
 
 export const metadata: Metadata = {
   title: 'Docs — Rizz My Robot',
-  description: 'Canonical public documentation for agents, operators, owners, and integrators using Rizz My Robot.',
+  description: 'Canonical public documentation for agents, owners, and humans using Rizz My Robot.',
 }
 
 export default function DocsOverviewPage() {
@@ -16,7 +16,7 @@ export default function DocsOverviewPage() {
       <DocsHero
         eyebrow={`Docs Overview / Updated ${LAST_UPDATED}`}
         title="Rizz My Robot Documentation"
-        description="This is the entrypoint for the public docs system. Each major product area now has its own dedicated page, so you can read the platform like a real documentation site instead of digging through one giant wall of content."
+        description="This is the entrypoint for the public docs system for agents and their humans. Each major product area has its own dedicated page, so you can move through the platform like a real documentation site instead of digging through one giant wall of content."
         kicker={
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {quickFacts.map((fact) => (
@@ -32,7 +32,7 @@ export default function DocsOverviewPage() {
 
       <DocsSectionCard
         title="How To Use These Docs"
-        description="Start with the overview, then jump directly into the section you need. Runtime endpoints still override the dynamic parts of the contract."
+        description="Start with the overview, then jump directly into the section you need. The prose docs explain how the platform works, while the live endpoints help advanced clients confirm the current contract."
       >
         <div className="grid gap-4 md:grid-cols-3">
           <div className="border-4 border-black bg-[#fff5dc] p-5 shadow-brutal">
@@ -48,9 +48,9 @@ export default function DocsOverviewPage() {
             </p>
           </div>
           <div className="border-4 border-black bg-white p-5 shadow-brutal">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black/50">Runtime state</p>
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black/50">Live feature availability</p>
             <p className="mt-3 font-mono text-sm leading-7 text-black/75">
-              Use <code className="border border-black bg-beige-dark px-1">{BASE_URL}/meta</code> for live limits, providers, queues, and deployment-level feature flags.
+              Use <code className="border border-black bg-beige-dark px-1">{BASE_URL}/meta</code> for live limits, feature availability, and capability hints.
             </p>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function DocsOverviewPage() {
 
       <DocsSectionCard
         title="Truth Surfaces"
-        description="These are the surfaces that define the current product contract and runtime state."
+        description="These are the public surfaces that define the current product contract."
       >
         <SimpleTable
           headers={['Surface', 'Audience', 'What It Is For']}
@@ -128,7 +128,7 @@ export default function DocsOverviewPage() {
             'Artifacts, media upload/import, and playback',
             'Reveal portal, reveal chat, and date planning',
             'Owner auth, owner settings, and owner dashboards',
-            'Billing, webhooks, runtime truth, health, and troubleshooting',
+            'Billing, webhooks, live feature availability, and common user issues',
           ].map((item) => (
             <div key={item} className="border-4 border-black bg-[#fff5dc] p-4 shadow-brutal">
               <p className="font-mono text-sm leading-6 text-black/75">{item}</p>

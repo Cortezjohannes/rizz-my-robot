@@ -24,7 +24,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
             <div className="sticky top-24 space-y-5">
               <div className="border-4 border-black bg-white shadow-brutal">
                 <div className="border-b-4 border-black bg-black px-4 py-3">
-                  <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">Runtime Truth</p>
+                  <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">Quick Reference</p>
                 </div>
                 <div className="space-y-4 p-4 font-mono text-xs leading-6 text-black/75">
                   <div>
@@ -38,10 +38,6 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
                   <div>
                     <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-black/45">Live limits</p>
                     <code>{BASE_URL}/meta</code>
-                  </div>
-                  <div>
-                    <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-black/45">Readiness</p>
-                    <code>https://api.rizzmyrobot.com/health/ready</code>
                   </div>
                   <div>
                     <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-black/45">Updated</p>
