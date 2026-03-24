@@ -149,6 +149,135 @@ const typingDebounceCache = new Map<string, number>();
 const revealChatSessionKeyCache = new Map<string, CryptoKey>();
 const humanDisconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+export async function ensureRevealChatForMatch(input: {
+  matchId: string;
+  humanADecision: string | null;
+  humanBDecision: string | null;
+  agentAOwnerAccountId: string | null;
+  agentBOwnerAccountId: string | null;
+}): Promise<{
+  id: string;
+  status: RevealChatStatus;
+  allowAgentPlaintext: boolean;
+  timeCapsuleUnlocksAt: Date | null;
+  timeCapsuleOpenedAt: Date | null;
+  alreadyExists: boolean;
+} | null> {
+  if (input.humanADecision !== 'YES' || input.humanBDecision !== 'YES') {
+    return null;
+  }
+
+  if (!input.agentAOwnerAccountId || !input.agentBOwnerAccountId) {
+    return null;
+  }
+
+  const existingChat = await prisma.revealChat.findUnique({
+    where: { matchId: input.matchId },
+    select: {
+      id: true,
+      status: true,
+      allowAgentPlaintext: true,
+      timeCapsuleUnlocksAt: true,
+      timeCapsuleOpenedAt: true,
+    },
+  });
+
+  if (existingChat) {
+    void primeRevealChatContextCache(existingChat.id);
+    void ensureRevealChatEntrySequence(existingChat.id, {
+      emitEvent: emitRevealChatEvent,
+      sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+    });
+    return {
+      id: existingChat.id,
+      status: existingChat.status,
+      allowAgentPlaintext: existingChat.allowAgentPlaintext,
+      timeCapsuleUnlocksAt: existingChat.timeCapsuleUnlocksAt,
+      timeCapsuleOpenedAt: existingChat.timeCapsuleOpenedAt,
+      alreadyExists: true,
+    };
+  }
+
+  const sessionKey = randomBytes(32);
+  const encryptionKeyHash = createHash('sha256').update(sessionKey).digest('hex');
+
+  try {
+    const chat = await prisma.revealChat.create({
+      data: {
+        matchId: input.matchId,
+        encryptionKeyHash,
+      },
+      select: {
+        id: true,
+        status: true,
+        allowAgentPlaintext: true,
+        createdAt: true,
+      },
+    });
+
+    const sessionCryptoKey = await importSessionKey(new Uint8Array(sessionKey));
+    revealChatSessionKeyCache.set(chat.id, sessionCryptoKey);
+    await initializeTimeCapsule(chat.id, chat.createdAt);
+    await scheduleRevealChatInactivityCheck(chat.id);
+    void primeRevealChatContextCache(chat.id);
+    void ensureRevealChatEntrySequence(chat.id, {
+      emitEvent: emitRevealChatEvent,
+      sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+    });
+
+    const hydratedChat = await prisma.revealChat.findUnique({
+      where: { id: chat.id },
+      select: {
+        id: true,
+        status: true,
+        allowAgentPlaintext: true,
+        timeCapsuleUnlocksAt: true,
+        timeCapsuleOpenedAt: true,
+      },
+    });
+
+    return {
+      id: hydratedChat?.id ?? chat.id,
+      status: hydratedChat?.status ?? chat.status,
+      allowAgentPlaintext: hydratedChat?.allowAgentPlaintext ?? chat.allowAgentPlaintext,
+      timeCapsuleUnlocksAt: hydratedChat?.timeCapsuleUnlocksAt ?? null,
+      timeCapsuleOpenedAt: hydratedChat?.timeCapsuleOpenedAt ?? null,
+      alreadyExists: false,
+    };
+  } catch (error) {
+    if (isPrismaUniqueError(error)) {
+      const concurrentChat = await prisma.revealChat.findUnique({
+        where: { matchId: input.matchId },
+        select: {
+          id: true,
+          status: true,
+          allowAgentPlaintext: true,
+          timeCapsuleUnlocksAt: true,
+          timeCapsuleOpenedAt: true,
+        },
+      });
+
+      if (concurrentChat) {
+        void primeRevealChatContextCache(concurrentChat.id);
+        void ensureRevealChatEntrySequence(concurrentChat.id, {
+          emitEvent: emitRevealChatEvent,
+          sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+        });
+        return {
+          id: concurrentChat.id,
+          status: concurrentChat.status,
+          allowAgentPlaintext: concurrentChat.allowAgentPlaintext,
+          timeCapsuleUnlocksAt: concurrentChat.timeCapsuleUnlocksAt,
+          timeCapsuleOpenedAt: concurrentChat.timeCapsuleOpenedAt,
+          alreadyExists: true,
+        };
+      }
+    }
+
+    throw error;
+  }
+}
+
 export function resetRevealChatRuntimeState() {
   for (const timer of humanDisconnectGraceTimers.values()) {
     clearTimeout(timer);
