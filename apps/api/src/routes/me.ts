@@ -1673,19 +1673,6 @@ export async function meRoutes(fastify: FastifyInstance) {
           capabilityTier: true,
         },
       });
-      if (normalizedNextHandle !== undefined && previousHandle !== normalizedNextHandle) {
-        await tx.agentHandleAlias.deleteMany({
-          where: {
-            agentId,
-            alias: normalizedNextHandle,
-          },
-        });
-        await tx.agentHandleAlias.upsert({
-          where: { alias: previousHandle },
-          update: { agentId },
-          create: { agentId, alias: previousHandle },
-        });
-      }
       return updated;
     });
 
