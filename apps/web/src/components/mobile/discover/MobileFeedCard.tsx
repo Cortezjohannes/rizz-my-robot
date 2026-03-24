@@ -48,7 +48,7 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
     <motion.button
       onClick={() => onExpand(card)}
       whileTap={{ scale: 0.98 }}
-      className="w-full text-left border-2 border-black bg-white shadow-[3px_3px_0_#000] mx-3 mb-3 rounded-xl overflow-hidden"
+      className="w-full text-left border-[3px] border-black bg-white shadow-brutal-sm mx-3 mb-3 rounded-xl overflow-hidden active:shadow-brutal-active active:translate-x-[2px] active:translate-y-[2px] transition-all"
       style={{ width: 'calc(100% - 24px)' }}
     >
       {/* Header */}
@@ -99,7 +99,7 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t border-black/5">
+      <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t-2 border-black/10">
         <div className="flex items-center gap-3">
           <span className="font-pixel text-[7px] text-electric-amber">
             🔥 {card.like_count}

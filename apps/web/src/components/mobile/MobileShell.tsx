@@ -16,9 +16,17 @@ export function MobileShell({ initialTab = 'discover' }: MobileShellProps) {
   return (
     <MobileToastProvider>
       <MobileAppProvider initialTab={initialTab}>
-        <div className="fixed inset-0 h-[100dvh] flex flex-col bg-beige overflow-hidden">
+        <div
+          className="fixed inset-0 h-[100dvh] flex flex-col overflow-hidden"
+          style={{
+            background: 'radial-gradient(ellipse at top, #fff6d6 0%, #f5e8cd 40%, #bfe7ff 80%, #e7f6ff 100%)',
+          }}
+        >
+          {/* Scanlines overlay */}
+          <div className="scanlines pointer-events-none absolute inset-0 z-[1] opacity-[0.03]" />
+
           <MobileStatusBar />
-          <main className="flex-1 pt-[40px] overflow-hidden">
+          <main className="relative z-[2] flex-1 pt-[44px] overflow-hidden">
             <MobileTabContent />
           </main>
           <MobileNavDrawer />

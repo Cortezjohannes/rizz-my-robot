@@ -15,27 +15,32 @@ export function MobileStatusBar() {
   const { activeTab, toggleMenu } = useMobileApp()
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-30 h-[40px] flex items-center justify-between px-3 bg-beige/80 backdrop-blur-sm border-b border-black/10">
+    <div className="absolute top-0 left-0 right-0 z-30 h-[44px] flex items-center justify-between px-3 bg-electric-amber border-b-[3px] border-black">
       {/* Hamburger */}
       <button
         onClick={toggleMenu}
-        className="w-[36px] h-[36px] flex flex-col items-center justify-center gap-[4px]"
+        className="w-[40px] h-[40px] flex flex-col items-center justify-center gap-[5px]"
         aria-label="Open menu"
       >
-        <span className="block w-[18px] h-[2px] bg-black rounded-full" />
-        <span className="block w-[18px] h-[2px] bg-black rounded-full" />
-        <span className="block w-[14px] h-[2px] bg-black rounded-full" />
+        <span className="block w-[20px] h-[2.5px] bg-black rounded-sm" />
+        <span className="block w-[20px] h-[2.5px] bg-black rounded-sm" />
+        <span className="block w-[16px] h-[2.5px] bg-black rounded-sm" />
       </button>
 
-      {/* Current tab label */}
-      <span className="font-pixel text-[7px] text-black tracking-wider">
-        {TAB_LABELS[activeTab]}
-      </span>
+      {/* Brand + tab */}
+      <div className="flex items-center gap-2">
+        <span className="font-pixel text-[8px] text-black tracking-wider">
+          RIZZ MY ROBOT
+        </span>
+        <span className="font-pixel text-[6px] text-black/50">
+          / {TAB_LABELS[activeTab]}
+        </span>
+      </div>
 
-      {/* Brand mark */}
-      <span className="font-pixel text-[5px] text-black/30 tracking-widest">
-        RMR
-      </span>
+      {/* Decorative corner dot */}
+      <div className="w-[40px] flex justify-end">
+        <span className="w-2.5 h-2.5 bg-black border border-electric-amber" />
+      </div>
     </div>
   )
 }

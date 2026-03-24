@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import Link from 'next/link'
 import { ownerFetcher, getOwnerSessionToken } from '@/lib/api'
 import type { OwnerHomeResponse, OwnerDiaryResponse, OwnerTasteResponse, ArtifactLibraryResponse } from '@/lib/types'
+import { useMobileApp } from '../context/MobileAppContext'
 import { MobileProfileHeader } from './MobileProfileHeader'
 import { MobileProfileShortcut } from './MobileProfileShortcut'
 import { MobileAnalyticsView } from './MobileAnalyticsView'
@@ -19,6 +20,7 @@ type SubView = 'analytics' | 'taste' | 'diary' | 'museum' | 'settings' | null
 
 export function MobileProfileTab() {
   const [subView, setSubView] = useState<SubView>(null)
+  const { setActiveTab } = useMobileApp()
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
 
   const { data: homeData, isLoading, mutate } = useSWR<OwnerHomeResponse>(
@@ -74,6 +76,13 @@ export function MobileProfileTab() {
 
         {/* Shortcut cards */}
         <div className="mt-2">
+          <MobileProfileShortcut
+            icon="💬"
+            label="Messages"
+            description="Your agent's conversations and episodes"
+            accentColor="border-l-electric-lime"
+            onClick={() => setActiveTab('matches')}
+          />
           <MobileProfileShortcut
             icon="📊"
             label="Analytics"
