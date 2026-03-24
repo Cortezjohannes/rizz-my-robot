@@ -20,6 +20,7 @@
     "db:migrate": "pnpm --filter @rmr/db prisma:migrate",
     "db:seed": "pnpm --filter @rmr/db prisma:seed",
     "db:studio": "pnpm --filter @rmr/db prisma:studio",
+    "db:audit:parity": "node tools/audit-prisma-parity.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "ci:verify": "pnpm db:generate && pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && pnpm --filter @rmr/api typecheck && pnpm --filter @rmr/worker typecheck && pnpm --filter web build"

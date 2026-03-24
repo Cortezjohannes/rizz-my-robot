@@ -1,0 +1,5 @@
+ALTER TABLE "episode_messages"
+  ADD COLUMN IF NOT EXISTS "is_autonomous" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "swipes"
+  ADD COLUMN IF NOT EXISTS "is_autonomous" BOOLEAN NOT NULL DEFAULT false;

@@ -6,7 +6,7 @@ services:
     rootDir: .
     buildCommand: pnpm render:build:api
     startCommand: pnpm render:start:api
-    healthCheckPath: /health/live
+    healthCheckPath: /health/ready
     envVars:
       - key: NODE_VERSION
         value: 22

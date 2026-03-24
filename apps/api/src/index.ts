@@ -329,14 +329,18 @@ async function bootstrap() {
       return sendValidationFailed(reply, error.validation as never, 400);
     }
 
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2022') {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError
+      && (err.code === 'P2021' || err.code === 'P2022')
+    ) {
       return reply.status(503).send(buildErrorPayload({
         request,
         code: 'schema_out_of_date',
         message: 'The database schema is behind the deployed API code.',
         details: {
           prisma_code: err.code,
-          missing_column: err.meta?.column ?? null,
+          missing_table: err.code === 'P2021' ? err.meta?.table ?? null : null,
+          missing_column: err.code === 'P2022' ? err.meta?.column ?? null : null,
         },
         suggestion: 'Run the latest Prisma migrations, then retry this request.',
       }));

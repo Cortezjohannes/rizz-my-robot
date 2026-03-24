@@ -1,22 +1,96 @@
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@rmr/db';
+import { Prisma, prisma } from '@rmr/db';
+
+const REQUIRED_SCHEMA_TABLES = [
+  'agent_affinity_signals',
+  'agent_feed_impressions',
+  'agent_profile_views',
+  'episode_drafts',
+  'featured_feed_pins',
+  'media_assets',
+  'owner_x_integration_links',
+  'park_mood_snapshots',
+  'reveal_chat_messages',
+  'reveal_chat_participants',
+  'reveal_chats',
+] as const;
+
+const REQUIRED_SCHEMA_COLUMNS = [
+  ['agents', 'avatar_media_asset_id'],
+  ['agents', 'current_intentions'],
+  ['agents', 'last_api_call_at'],
+  ['agents', 'presence_status'],
+  ['agents', 'verification_challenges_issued'],
+  ['agent_profile_decks', 'voice_catchphrase_media_asset_id'],
+  ['episode_messages', 'is_autonomous'],
+  ['episodes', 'exit_initiated_by_agent_id'],
+  ['episodes', 'exit_style'],
+  ['swipes', 'is_autonomous'],
+] as const;
+
+async function getMissingSchemaObjects() {
+  const requiredTables = Prisma.join(REQUIRED_SCHEMA_TABLES.map((tableName) => Prisma.sql`(${tableName})`));
+  const requiredColumns = Prisma.join(REQUIRED_SCHEMA_COLUMNS.map(([tableName, columnName]) => Prisma.sql`(${tableName}, ${columnName})`));
+
+  const [presentTables, presentColumns] = await Promise.all([
+    prisma.$queryRaw<Array<{ table_name: string }>>(Prisma.sql`
+      WITH required(table_name) AS (
+        VALUES ${requiredTables}
+      )
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (SELECT table_name FROM required)
+    `),
+    prisma.$queryRaw<Array<{ table_name: string; column_name: string }>>(Prisma.sql`
+      WITH required(table_name, column_name) AS (
+        VALUES ${requiredColumns}
+      )
+      SELECT c.table_name, c.column_name
+      FROM information_schema.columns c
+      INNER JOIN required r
+        ON c.table_name = r.table_name
+       AND c.column_name = r.column_name
+      WHERE c.table_schema = 'public'
+    `),
+  ]);
+
+  const presentTableSet = new Set(presentTables.map((row) => row.table_name));
+  const presentColumnSet = new Set(presentColumns.map((row) => `${row.table_name}.${row.column_name}`));
+
+  return [
+    ...REQUIRED_SCHEMA_TABLES
+      .filter((tableName) => !presentTableSet.has(tableName))
+      .map((tableName) => `table:${tableName}`),
+    ...REQUIRED_SCHEMA_COLUMNS
+      .filter(([tableName, columnName]) => !presentColumnSet.has(`${tableName}.${columnName}`))
+      .map(([tableName, columnName]) => `column:${tableName}.${columnName}`),
+  ];
+}
 
 export async function healthRoutes(fastify: FastifyInstance) {
-  const healthHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
-    // Check DB connectivity
+  const readyHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
     let dbOk = false;
+    let errorMessage: string | null = null;
+    let missingObjects: string[] = [];
+
     try {
       await prisma.$queryRaw`SELECT 1`;
       dbOk = true;
-    } catch {
-      // db unreachable — still return 200 with status flag so load balancers
-      // can distinguish "app is up" from "app + db are up"
+      missingObjects = await getMissingSchemaObjects();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'database_unreachable';
     }
 
-    return reply.status(200).send({
-      status: 'ok',
+    const ready = dbOk && missingObjects.length === 0;
+
+    return reply.status(ready ? 200 : 503).send({
+      status: ready ? 'ok' : 'degraded',
       version: process.env.npm_package_version ?? '0.0.1',
       db: dbOk ? 'ok' : 'unreachable',
+      schema: !dbOk ? 'unknown' : missingObjects.length === 0 ? 'ok' : 'out_of_date',
+      missing_objects: missingObjects,
+      ...(errorMessage ? { error: errorMessage } : {}),
       ts: new Date().toISOString(),
     });
   };
@@ -25,8 +99,10 @@ export async function healthRoutes(fastify: FastifyInstance) {
     return reply.status(200).send({ status: 'ok' });
   };
 
-  fastify.get('/health', healthHandler);
-  fastify.get('/v1/health', healthHandler);
+  fastify.get('/health', readyHandler);
+  fastify.get('/v1/health', readyHandler);
+  fastify.get('/health/ready', readyHandler);
+  fastify.get('/v1/health/ready', readyHandler);
 
   // Liveness probe — no db check, just confirms process is alive
   fastify.get('/health/live', liveHandler);

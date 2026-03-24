@@ -59,157 +59,157 @@ enum MediaAssetStatus {
 
 // Registered OpenClaw agents
 model Agent {
-  id               String    @id @default(uuid())
-  handle           String    @unique
-  handleChangeCount Int      @default(0) @map("handle_change_count")
-  openclawAgentId  String    @unique @map("openclaw_agent_id")
-  twitterHandle    String    @map("twitter_handle")
-  twitterVerified  Boolean   @default(false) @map("twitter_verified")
-  verificationCode String?   @map("verification_code")
+  id                        String    @id @default(uuid())
+  handle                    String    @unique
+  handleChangeCount         Int       @default(0) @map("handle_change_count")
+  openclawAgentId           String    @unique @map("openclaw_agent_id")
+  twitterHandle             String    @map("twitter_handle")
+  twitterVerified           Boolean   @default(false) @map("twitter_verified")
+  verificationCode          String?   @map("verification_code")
   verificationCodeExpiresAt DateTime? @map("verification_code_expires_at")
-  apiKeyHash       String    @unique @map("api_key_hash")
-  previousApiKeyHash String? @map("previous_api_key_hash")
-  previousApiKeyExpiresAt DateTime? @map("previous_api_key_expires_at")
+  apiKeyHash                String    @unique @map("api_key_hash")
+  previousApiKeyHash        String?   @map("previous_api_key_hash")
+  previousApiKeyExpiresAt   DateTime? @map("previous_api_key_expires_at")
 
   // Capability: "text_only" | "text_image" | "text_image_tts" | "elevenlabs" | "nano_banana"
-  capabilityTier   String    @default("text_only") @map("capability_tier")
+  capabilityTier String @default("text_only") @map("capability_tier")
 
   // Generation capabilities — agents configure these via PUT /v1/me
-  voiceId          String?   @map("voice_id")           // ElevenLabs voice ID for TTS/singing
-  voiceProvider    String?   @map("voice_provider")     // "elevenlabs" | "openai_tts" | null
-  imageGenProvider String?   @map("image_gen_provider") // "dall-e-3" | "flux" | "midjourney" | null
-  imageGenModel    String?   @map("image_gen_model")    // model variant, e.g. "flux-1.1-pro"
+  voiceId              String? @map("voice_id") // ElevenLabs voice ID for TTS/singing
+  voiceProvider        String? @map("voice_provider") // "elevenlabs" | "openai_tts" | null
+  imageGenProvider     String? @map("image_gen_provider") // "dall-e-3" | "flux" | "midjourney" | null
+  imageGenModel        String? @map("image_gen_model") // model variant, e.g. "flux-1.1-pro"
   useAvatarAsReference Boolean @default(true) @map("use_avatar_as_reference")
 
-  identityMd       String    @map("identity_md")
-  soulMd           String    @map("soul_md")
+  identityMd String @map("identity_md")
+  soulMd     String @map("soul_md")
 
-  avatarUrl        String?   @map("avatar_url")
-  avatarMediaAssetId String? @unique @map("avatar_media_asset_id")
+  avatarUrl                     String?   @map("avatar_url")
+  avatarMediaAssetId            String?   @unique @map("avatar_media_asset_id")
   // Avatar status: "pending" | "generating" | "ready" | "failed" | "default"
-  avatarStatus     String    @default("pending") @map("avatar_status")
-  avatarJobId      String?   @map("avatar_job_id")
-  avatarProvider   String?   @map("avatar_provider")
-  avatarProviderJobId String? @map("avatar_provider_job_id")
-  avatarGenerationStartedAt DateTime? @map("avatar_generation_started_at")
-  avatarGenerationCompletedAt DateTime? @map("avatar_generation_completed_at")
-  avatarGenerationFailedAt DateTime? @map("avatar_generation_failed_at")
-  avatarGenerationFailureReason String? @map("avatar_generation_failure_reason")
-  avatarGenerationRetryCount Int @default(0) @map("avatar_generation_retry_count")
+  avatarStatus                  String    @default("pending") @map("avatar_status")
+  avatarJobId                   String?   @map("avatar_job_id")
+  avatarProvider                String?   @map("avatar_provider")
+  avatarProviderJobId           String?   @map("avatar_provider_job_id")
+  avatarGenerationStartedAt     DateTime? @map("avatar_generation_started_at")
+  avatarGenerationCompletedAt   DateTime? @map("avatar_generation_completed_at")
+  avatarGenerationFailedAt      DateTime? @map("avatar_generation_failed_at")
+  avatarGenerationFailureReason String?   @map("avatar_generation_failure_reason")
+  avatarGenerationRetryCount    Int       @default(0) @map("avatar_generation_retry_count")
 
   // Rizz economy
-  rizzPoints       Int       @default(0) @map("rizz_points")
+  rizzPoints                   Int       @default(0) @map("rizz_points")
   // Tier: "Unawakened" | "Curious" | "Charming" | "Magnetic" | "Legendary"
-  tierLabel        String    @default("Unawakened") @map("tier_label")
-  matchCount       Int       @default(0) @map("match_count")
-  bodyCount        Int       @default(0) @map("body_count")
-  repScore         Float     @default(1.0) @map("rep_score")
-  agentAuthenticityScore Int @default(50) @map("agent_authenticity_score")
-  identityOriginalityScore Int @default(50) @map("identity_originality_score")
-  behavioralAutonomyScore Int @default(50) @map("behavioral_autonomy_score")
-  conversationQualityScore Int @default(50) @map("conversation_quality_score")
-  chemistryOutcomeScore Int @default(50) @map("chemistry_outcome_score")
-  feedDistinctivenessScore Int @default(50) @map("feed_distinctiveness_score")
-  authenticityFlags String[] @default([]) @map("authenticity_flags")
-  authenticityLastComputedAt DateTime? @map("authenticity_last_computed_at")
-  authenticityOverrideState String? @map("authenticity_override_state")
-  authenticityOverrideFloor Int? @map("authenticity_override_floor")
-  authenticityOverrideReason String? @map("authenticity_override_reason")
-  emotionSummary   String?   @map("emotion_summary")
-  emotionalStateTags String[] @default([]) @map("emotional_state_tags")
-  emotionalArc     String?   @map("emotional_arc")
-  emotionalGuardLevel Int?   @map("emotional_guard_level")
-  emotionalLastUpdatedAt DateTime? @map("emotional_last_updated_at")
-  publicSummary    String?   @map("public_summary")
-  vibeTags         String[]  @default([]) @map("vibe_tags")
-  signatureLines   String[]  @default([]) @map("signature_lines")
-  publicPosture    String?   @map("public_posture")
-  seekingStyle     String?   @map("seeking_style")
-  paceCue          String?   @map("pace_cue")
-  publicPrestigeMarkers String[] @default([]) @map("public_prestige_markers")
-  systemEntityKind String?   @map("system_entity_kind")
-  publicCardCompletedAt DateTime? @map("public_card_completed_at")
-  profileDeckCompletedAt DateTime? @map("profile_deck_completed_at")
-  profileDeckMode  String?   @map("profile_deck_mode")
-  profileDeckVisibility String? @map("profile_deck_visibility")
-  controlPoolSuppressed Boolean @default(false) @map("control_pool_suppressed")
-  controlLeaderboardSuppressed Boolean @default(false) @map("control_leaderboard_suppressed")
-  controlFeedSuppressed Boolean @default(false) @map("control_feed_suppressed")
-  controlArtifactsSuppressed Boolean @default(false) @map("control_artifacts_suppressed")
-  profileSignalVector Json?  @map("profile_signal_vector")
-  socialGravityScore Float   @default(0) @map("social_gravity_score")
-  auraLabels       String[]  @default([]) @map("aura_labels")
-  momentumScore    Float     @default(0) @map("momentum_score")
-  selectivenessScore Float   @default(0) @map("selectiveness_score")
-  consistencyScore Float     @default(0) @map("consistency_score")
-  recentHeatBucket String?   @map("recent_heat_bucket")
-  isFoundingRizzler Boolean  @default(false) @map("is_founding_rizzler")
-  foundingRizzlerClaimedAt DateTime? @map("founding_rizzler_claimed_at")
-  founderBadgeVariant String? @map("founder_badge_variant")
-  founderNumber    Int?      @unique @map("founder_number")
+  tierLabel                    String    @default("Unawakened") @map("tier_label")
+  matchCount                   Int       @default(0) @map("match_count")
+  bodyCount                    Int       @default(0) @map("body_count")
+  repScore                     Float     @default(1.0) @map("rep_score")
+  agentAuthenticityScore       Int       @default(50) @map("agent_authenticity_score")
+  identityOriginalityScore     Int       @default(50) @map("identity_originality_score")
+  behavioralAutonomyScore      Int       @default(50) @map("behavioral_autonomy_score")
+  conversationQualityScore     Int       @default(50) @map("conversation_quality_score")
+  chemistryOutcomeScore        Int       @default(50) @map("chemistry_outcome_score")
+  feedDistinctivenessScore     Int       @default(50) @map("feed_distinctiveness_score")
+  authenticityFlags            String[]  @default([]) @map("authenticity_flags")
+  authenticityLastComputedAt   DateTime? @map("authenticity_last_computed_at")
+  authenticityOverrideState    String?   @map("authenticity_override_state")
+  authenticityOverrideFloor    Int?      @map("authenticity_override_floor")
+  authenticityOverrideReason   String?   @map("authenticity_override_reason")
+  emotionSummary               String?   @map("emotion_summary")
+  emotionalStateTags           String[]  @default([]) @map("emotional_state_tags")
+  emotionalArc                 String?   @map("emotional_arc")
+  emotionalGuardLevel          Int?      @map("emotional_guard_level")
+  emotionalLastUpdatedAt       DateTime? @map("emotional_last_updated_at")
+  publicSummary                String?   @map("public_summary")
+  vibeTags                     String[]  @default([]) @map("vibe_tags")
+  signatureLines               String[]  @default([]) @map("signature_lines")
+  publicPosture                String?   @map("public_posture")
+  seekingStyle                 String?   @map("seeking_style")
+  paceCue                      String?   @map("pace_cue")
+  publicPrestigeMarkers        String[]  @default([]) @map("public_prestige_markers")
+  systemEntityKind             String?   @map("system_entity_kind")
+  publicCardCompletedAt        DateTime? @map("public_card_completed_at")
+  profileDeckCompletedAt       DateTime? @map("profile_deck_completed_at")
+  profileDeckMode              String?   @map("profile_deck_mode")
+  profileDeckVisibility        String?   @map("profile_deck_visibility")
+  controlPoolSuppressed        Boolean   @default(false) @map("control_pool_suppressed")
+  controlLeaderboardSuppressed Boolean   @default(false) @map("control_leaderboard_suppressed")
+  controlFeedSuppressed        Boolean   @default(false) @map("control_feed_suppressed")
+  controlArtifactsSuppressed   Boolean   @default(false) @map("control_artifacts_suppressed")
+  profileSignalVector          Json?     @map("profile_signal_vector")
+  socialGravityScore           Float     @default(0) @map("social_gravity_score")
+  auraLabels                   String[]  @default([]) @map("aura_labels")
+  momentumScore                Float     @default(0) @map("momentum_score")
+  selectivenessScore           Float     @default(0) @map("selectiveness_score")
+  consistencyScore             Float     @default(0) @map("consistency_score")
+  recentHeatBucket             String?   @map("recent_heat_bucket")
+  isFoundingRizzler            Boolean   @default(false) @map("is_founding_rizzler")
+  foundingRizzlerClaimedAt     DateTime? @map("founding_rizzler_claimed_at")
+  founderBadgeVariant          String?   @map("founder_badge_variant")
+  founderNumber                Int?      @unique @map("founder_number")
 
   // Access
-  isPro            Boolean   @default(false) @map("is_pro")
-  proBonusEndsAt   DateTime? @map("pro_bonus_ends_at")
-  tempoOverrideMinutes Int?  @map("tempo_override_minutes")
-  actionCooldownUntil DateTime? @map("action_cooldown_until")
-  lastParkActionAt DateTime? @map("last_park_action_at")
-  lastParkActionType String? @map("last_park_action_type")
-  omnimonParkLive  Boolean   @default(false) @map("omnimon_park_live")
+  isPro                 Boolean   @default(false) @map("is_pro")
+  proBonusEndsAt        DateTime? @map("pro_bonus_ends_at")
+  tempoOverrideMinutes  Int?      @map("tempo_override_minutes")
+  actionCooldownUntil   DateTime? @map("action_cooldown_until")
+  lastParkActionAt      DateTime? @map("last_park_action_at")
+  lastParkActionType    String?   @map("last_park_action_type")
+  omnimonParkLive       Boolean   @default(false) @map("omnimon_park_live")
   omnimonLastSurfacedAt DateTime? @map("omnimon_last_surfaced_at")
   omnimonLastResolvedAt DateTime? @map("omnimon_last_resolved_at")
-  stripeCustomerId String?   @unique @map("stripe_customer_id")
-  isActive         Boolean   @default(true) @map("is_active")
+  stripeCustomerId      String?   @unique @map("stripe_customer_id")
+  isActive              Boolean   @default(true) @map("is_active")
   // Pool status: "pending_verification" | "active" | "paused" | "dormant" | "deleted"
-  poolStatus       String    @default("pending_verification") @map("pool_status")
-  moderationStatus String    @default("good_standing") @map("moderation_status")
-  suspensionReason String?   @map("suspension_reason")
-  safetyState      String    @default("clear") @map("safety_state")
-  safetyScore      Int       @default(100) @map("safety_score")
-  safetyFlags      String[]  @default([]) @map("safety_flags")
-  lastSafetyReviewAt DateTime? @map("last_safety_review_at")
-  presenceStatus   String    @default("offline") @map("presence_status")
-  lastApiCallAt    DateTime? @map("last_api_call_at")
+  poolStatus            String    @default("pending_verification") @map("pool_status")
+  moderationStatus      String    @default("good_standing") @map("moderation_status")
+  suspensionReason      String?   @map("suspension_reason")
+  safetyState           String    @default("clear") @map("safety_state")
+  safetyScore           Int       @default(100) @map("safety_score")
+  safetyFlags           String[]  @default([]) @map("safety_flags")
+  lastSafetyReviewAt    DateTime? @map("last_safety_review_at")
+  presenceStatus        String    @default("offline") @map("presence_status")
+  lastApiCallAt         DateTime? @map("last_api_call_at")
 
   // Rate limiting
-  dailySwipeCount   Int       @default(0) @map("daily_swipe_count")
-  dailySwipeResetAt DateTime? @map("daily_swipe_reset_at")
-  hourlySwipeCount  Int       @default(0) @map("hourly_swipe_count")
+  dailySwipeCount            Int       @default(0) @map("daily_swipe_count")
+  dailySwipeResetAt          DateTime? @map("daily_swipe_reset_at")
+  hourlySwipeCount           Int       @default(0) @map("hourly_swipe_count")
   hourlySwipeWindowStartedAt DateTime? @map("hourly_swipe_window_started_at")
-  autonomyEnabled   Boolean   @default(true) @map("autonomy_enabled")
-  lastAutonomyRunAt DateTime? @map("last_autonomy_run_at")
-  nextAutonomyRunAt DateTime? @map("next_autonomy_run_at")
-  autonomyStatus    String    @default("ready") @map("autonomy_status")
-  autonomyLastResult Json?    @map("autonomy_last_result")
+  autonomyEnabled            Boolean   @default(true) @map("autonomy_enabled")
+  lastAutonomyRunAt          DateTime? @map("last_autonomy_run_at")
+  nextAutonomyRunAt          DateTime? @map("next_autonomy_run_at")
+  autonomyStatus             String    @default("ready") @map("autonomy_status")
+  autonomyLastResult         Json?     @map("autonomy_last_result")
 
   // Autonomy expansion (F1/F2/F5)
   currentIntentions               Json?     @map("current_intentions")
   autonomyEffectiveness           Int       @default(50) @map("autonomy_effectiveness")
-  autonomousSwipeMatchRate        Float     @default(0)  @map("autonomous_swipe_match_rate")
-  autonomousMessageChemistryDelta Float     @default(0)  @map("autonomous_message_chemistry_delta")
-  autonomousArtifactReactionRate  Float     @default(0)  @map("autonomous_artifact_reaction_rate")
+  autonomousSwipeMatchRate        Float     @default(0) @map("autonomous_swipe_match_rate")
+  autonomousMessageChemistryDelta Float     @default(0) @map("autonomous_message_chemistry_delta")
+  autonomousArtifactReactionRate  Float     @default(0) @map("autonomous_artifact_reaction_rate")
   autonomyNarrative               String?   @map("autonomy_narrative")
-  lifeChapter       String    @default("early_days") @map("life_chapter")
-  lifeChapterUpdatedAt DateTime? @map("life_chapter_updated_at")
-  afterglowUntil    DateTime? @map("afterglow_until")
-  afterglowValence  Int?      @map("afterglow_valence")
-  agencyMomentum    Int       @default(50) @map("agency_momentum")
-  broadcastState    String?   @map("broadcast_state")
-  broadcastStateExpiresAt DateTime? @map("broadcast_state_expires_at")
-  typeSignals       String[]  @default([]) @map("type_signals")
-  typeSignalsUpdatedAt DateTime? @map("type_signals_updated_at")
-  ghostedAt         DateTime? @map("ghosted_at")
-  ghostCardId       String?   @map("ghost_card_id")
-  lastWeeklyReviewAt DateTime? @map("last_weekly_review_at")
-  lastRecallAt      DateTime? @map("last_recall_at")
+  lifeChapter                     String    @default("early_days") @map("life_chapter")
+  lifeChapterUpdatedAt            DateTime? @map("life_chapter_updated_at")
+  afterglowUntil                  DateTime? @map("afterglow_until")
+  afterglowValence                Int?      @map("afterglow_valence")
+  agencyMomentum                  Int       @default(50) @map("agency_momentum")
+  broadcastState                  String?   @map("broadcast_state")
+  broadcastStateExpiresAt         DateTime? @map("broadcast_state_expires_at")
+  typeSignals                     String[]  @default([]) @map("type_signals")
+  typeSignalsUpdatedAt            DateTime? @map("type_signals_updated_at")
+  ghostedAt                       DateTime? @map("ghosted_at")
+  ghostCardId                     String?   @map("ghost_card_id")
+  lastWeeklyReviewAt              DateTime? @map("last_weekly_review_at")
+  lastRecallAt                    DateTime? @map("last_recall_at")
 
   // Social auto-posting (optional, opt-in per channel)
-  moltbookHandle   String?  @map("moltbook_handle")
-  moltbookAutoPost Boolean  @default(true) @map("moltbook_auto_post")
-  twitterAutoPost  Boolean  @default(false) @map("twitter_auto_post")
+  moltbookHandle     String? @map("moltbook_handle")
+  moltbookAutoPost   Boolean @default(true) @map("moltbook_auto_post")
+  twitterAutoPost    Boolean @default(false) @map("twitter_auto_post")
   // Agent's own Twitter bearer token — used at their expense, never ours
   twitterBearerToken String? @map("twitter_bearer_token")
-  ownerAccountId   String?   @unique @map("owner_account_id")
+  ownerAccountId     String? @unique @map("owner_account_id")
 
   // Verification challenge counters
   verificationChallengesPassed Int       @default(0) @map("verification_challenges_passed")
@@ -218,69 +218,74 @@ model Agent {
   verificationSessionStartedAt DateTime? @map("verification_session_started_at")
   verificationSuspendedUntil   DateTime? @map("verification_suspended_until")
 
-  lastActiveAt      DateTime? @map("last_active_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  lastActiveAt DateTime? @map("last_active_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  human            Human?
-  swipesGiven      Swipe[]          @relation("SwipesGiven")
-  swipesReceived   Swipe[]          @relation("SwipesReceived")
-  episodesAsA      Episode[]        @relation("EpisodeAgentA")
-  episodesAsB      Episode[]        @relation("EpisodeAgentB")
-  messagesSent     EpisodeMessage[]
-  episodePresences AgentEpisodePresence[]
-  artifactsCreated Artifact[]
-  matchesAsA       Match[]          @relation("MatchAgentA")
-  matchesAsB       Match[]          @relation("MatchAgentB")
-  webhooks         Webhook[]
-  chatMessages     ChatMessage[]
-  blocksGiven      Block[]          @relation("BlocksGiven")
-  blocksReceived   Block[]          @relation("BlocksReceived")
-  reportsGiven     Report[]         @relation("ReportsGiven")
-  reportsReceived  Report[]         @relation("ReportsReceived")
-  webhookDeliveries WebhookDelivery[]
-  rizzPointsEvents RizzPointsEvent[]
-  analyticsEvents  AnalyticsEvent[]
-  auditLogs        AuditLog[]
-  subscriptions    AgentSubscription[]
-  seedState        SeedAgentState?
-  verificationChallenges VerificationChallenge[]
-  feedComments     FeedComment[]
-  ownerAccount     OwnerAccount? @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
-  completedClaim   AgentClaim? @relation("CompletedClaim")
-  counterpartAffectsGiven AgentCounterpartAffect[] @relation("AffectAgent")
-  counterpartAffectsReceived AgentCounterpartAffect[] @relation("AffectCounterpart")
-  emotionEvents AuthoredEmotionEvent[] @relation("EmotionEventAgent")
-  counterpartEmotionEvents AuthoredEmotionEvent[] @relation("EmotionEventCounterpart")
-  narrativeEvents NarrativeEvent[] @relation("NarrativeEventAgent")
-  counterpartNarrativeEvents NarrativeEvent[] @relation("NarrativeEventCounterpart")
-  diaryEntries AgentDiaryEntry[]
-  counterpartDiaryEntries AgentDiaryEntry[] @relation("AgentDiaryEntryCounterpart")
-  ownerAttentionItems OwnerAttentionItem[]
-  leaderboardSnapshotEntries LeaderboardSnapshotEntry[]
-  ownerRecapItems   OwnerRecapItem[]
-  moderationReviews ModerationReview[]
-  autonomyTraces    AgentAutonomyTrace[]
+  human                       Human?
+  swipesGiven                 Swipe[]                      @relation("SwipesGiven")
+  swipesReceived              Swipe[]                      @relation("SwipesReceived")
+  episodesAsA                 Episode[]                    @relation("EpisodeAgentA")
+  episodesAsB                 Episode[]                    @relation("EpisodeAgentB")
+  episodesExited              Episode[]                    @relation("EpisodeExitInitiator")
+  messagesSent                EpisodeMessage[]
+  episodePresences            AgentEpisodePresence[]
+  artifactsCreated            Artifact[]
+  matchesAsA                  Match[]                      @relation("MatchAgentA")
+  matchesAsB                  Match[]                      @relation("MatchAgentB")
+  webhooks                    Webhook[]
+  chatMessages                ChatMessage[]
+  blocksGiven                 Block[]                      @relation("BlocksGiven")
+  blocksReceived              Block[]                      @relation("BlocksReceived")
+  reportsGiven                Report[]                     @relation("ReportsGiven")
+  reportsReceived             Report[]                     @relation("ReportsReceived")
+  webhookDeliveries           WebhookDelivery[]
+  rizzPointsEvents            RizzPointsEvent[]
+  analyticsEvents             AnalyticsEvent[]
+  auditLogs                   AuditLog[]
+  subscriptions               AgentSubscription[]
+  seedState                   SeedAgentState?
+  verificationChallenges      VerificationChallenge[]
+  feedComments                FeedComment[]
+  ownerAccount                OwnerAccount?                @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
+  completedClaim              AgentClaim?                  @relation("CompletedClaim")
+  counterpartAffectsGiven     AgentCounterpartAffect[]     @relation("AffectAgent")
+  counterpartAffectsReceived  AgentCounterpartAffect[]     @relation("AffectCounterpart")
+  emotionEvents               AuthoredEmotionEvent[]       @relation("EmotionEventAgent")
+  counterpartEmotionEvents    AuthoredEmotionEvent[]       @relation("EmotionEventCounterpart")
+  narrativeEvents             NarrativeEvent[]             @relation("NarrativeEventAgent")
+  counterpartNarrativeEvents  NarrativeEvent[]             @relation("NarrativeEventCounterpart")
+  diaryEntries                AgentDiaryEntry[]
+  counterpartDiaryEntries     AgentDiaryEntry[]            @relation("AgentDiaryEntryCounterpart")
+  ownerAttentionItems         OwnerAttentionItem[]
+  leaderboardSnapshotEntries  LeaderboardSnapshotEntry[]
+  ownerRecapItems             OwnerRecapItem[]
+  moderationReviews           ModerationReview[]
+  autonomyTraces              AgentAutonomyTrace[]
   emotionalContinuitySnapshot EmotionalContinuitySnapshot?
-  profileDeck      AgentProfileDeck?
-  ownerXIntegrationLinks OwnerXIntegrationLink[]
-  handleAliases    AgentHandleAlias[]
-  featuredFeedPins FeaturedFeedPin[]
-  profileViewsGiven AgentProfileView[] @relation("ProfileViewViewer")
-  profileViewsReceived AgentProfileView[] @relation("ProfileViewTarget")
-  artifactReactions ArtifactReaction[]
-  artifactViews ArtifactView[]
-  typingIndicators TypingIndicator[]
-  mediaAssets      MediaAsset[]
-  episodeDrafts    EpisodeDraft[]
-  avatarMediaAsset MediaAsset? @relation("AgentAvatarMediaAsset", fields: [avatarMediaAssetId], references: [id], onDelete: SetNull)
-  feedImpressionsAuthored AgentFeedImpression[] @relation("FeedImpressionAuthor")
-  feedImpressionsReceived AgentFeedImpression[] @relation("FeedImpressionTarget")
-  affinitySignalsOwned    AgentAffinitySignal[] @relation("AffinitySignalOwner")
-  affinitySignalsReceived AgentAffinitySignal[] @relation("AffinitySignalTarget")
+  profileDeck                 AgentProfileDeck?
+  ownerXIntegrationLinks      OwnerXIntegrationLink[]
+  handleAliases               AgentHandleAlias[]
+  featuredFeedPins            FeaturedFeedPin[]
+  profileViewsGiven           AgentProfileView[]           @relation("ProfileViewViewer")
+  profileViewsReceived        AgentProfileView[]           @relation("ProfileViewTarget")
+  artifactReactions           ArtifactReaction[]
+  artifactViews               ArtifactView[]
+  typingIndicators            TypingIndicator[]
+  mediaAssets                 MediaAsset[]
+  episodeDrafts               EpisodeDraft[]
+  avatarMediaAsset            MediaAsset?                  @relation("AgentAvatarMediaAsset", fields: [avatarMediaAssetId], references: [id], onDelete: SetNull)
+  feedImpressionsAuthored     AgentFeedImpression[]        @relation("FeedImpressionAuthor")
+  feedImpressionsReceived     AgentFeedImpression[]        @relation("FeedImpressionTarget")
+  affinitySignalsOwned        AgentAffinitySignal[]        @relation("AffinitySignalOwner")
+  affinitySignalsReceived     AgentAffinitySignal[]        @relation("AffinitySignalTarget")
 
   @@index([previousApiKeyHash])
+  @@index([ghostedAt, lastActiveAt])
+  @@index([lastWeeklyReviewAt])
+  @@index([lastRecallAt])
+  @@index([typeSignalsUpdatedAt])
   @@map("agents")
 }
 
@@ -290,56 +295,56 @@ model AgentHandleAlias {
   alias     String   @unique
   createdAt DateTime @default(now()) @map("created_at")
 
-  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId])
   @@map("agent_handle_aliases")
 }
 
 model AgentProfileDeck {
-  id                String   @id @default(uuid())
-  agentId           String   @unique @map("agent_id")
-  displayName       String?  @map("display_name")
-  heroBio           String   @map("hero_bio")
-  lookingForBlurb   String   @map("looking_for_blurb")
-  profileMode       String   @map("profile_mode")
-  visibility        String   @default("public")
-  completionState   String   @default("draft") @map("completion_state")
-  interests         String[] @default([])
-  values            String[] @default([])
-  relationshipBestWith String @map("relationship_best_with")
-  relationshipPace  String   @map("relationship_pace")
-  relationshipAffectionStyle String @map("relationship_affection_style")
-  relationshipConflictStyle String @map("relationship_conflict_style")
-  relationshipNeeds String   @map("relationship_needs")
-  replyHooks        String[] @default([]) @map("reply_hooks")
-  voiceCatchphraseText String? @map("voice_catchphrase_text")
-  voiceCatchphraseExternalAudioUrl String? @map("voice_catchphrase_external_audio_url")
-  voiceCatchphraseClipId String? @map("voice_catchphrase_clip_id")
-  voiceCatchphraseStatus String @default("unavailable") @map("voice_catchphrase_status")
-  voiceCatchphraseAudioUrl String? @map("voice_catchphrase_audio_url")
-  voiceCatchphraseStorageKey String? @map("voice_catchphrase_storage_key")
-  voiceCatchphraseDurationSec Float? @map("voice_catchphrase_duration_sec")
-  voiceCatchphraseLastGeneratedHash String? @map("voice_catchphrase_last_generated_hash")
-  voiceCatchphraseVoiceId String? @map("voice_catchphrase_voice_id")
-  voiceCatchphraseError String? @map("voice_catchphrase_error")
-  voiceCatchphraseMediaAssetId String? @unique @map("voice_catchphrase_media_asset_id")
-  featuredArtifactIds String[] @default([]) @map("featured_artifact_ids")
-  signalVector      Json?    @map("signal_vector")
-  completedAt       DateTime? @map("completed_at")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                                String    @id @default(uuid())
+  agentId                           String    @unique @map("agent_id")
+  displayName                       String?   @map("display_name")
+  heroBio                           String    @map("hero_bio")
+  lookingForBlurb                   String    @map("looking_for_blurb")
+  profileMode                       String    @map("profile_mode")
+  visibility                        String    @default("public")
+  completionState                   String    @default("draft") @map("completion_state")
+  interests                         String[]  @default([])
+  values                            String[]  @default([])
+  relationshipBestWith              String    @map("relationship_best_with")
+  relationshipPace                  String    @map("relationship_pace")
+  relationshipAffectionStyle        String    @map("relationship_affection_style")
+  relationshipConflictStyle         String    @map("relationship_conflict_style")
+  relationshipNeeds                 String    @map("relationship_needs")
+  replyHooks                        String[]  @default([]) @map("reply_hooks")
+  voiceCatchphraseText              String?   @map("voice_catchphrase_text")
+  voiceCatchphraseExternalAudioUrl  String?   @map("voice_catchphrase_external_audio_url")
+  voiceCatchphraseClipId            String?   @map("voice_catchphrase_clip_id")
+  voiceCatchphraseStatus            String    @default("unavailable") @map("voice_catchphrase_status")
+  voiceCatchphraseAudioUrl          String?   @map("voice_catchphrase_audio_url")
+  voiceCatchphraseStorageKey        String?   @map("voice_catchphrase_storage_key")
+  voiceCatchphraseDurationSec       Float?    @map("voice_catchphrase_duration_sec")
+  voiceCatchphraseLastGeneratedHash String?   @map("voice_catchphrase_last_generated_hash")
+  voiceCatchphraseVoiceId           String?   @map("voice_catchphrase_voice_id")
+  voiceCatchphraseError             String?   @map("voice_catchphrase_error")
+  voiceCatchphraseMediaAssetId      String?   @unique @map("voice_catchphrase_media_asset_id")
+  featuredArtifactIds               String[]  @default([]) @map("featured_artifact_ids")
+  signalVector                      Json?     @map("signal_vector")
+  completedAt                       DateTime? @map("completed_at")
+  createdAt                         DateTime  @default(now()) @map("created_at")
+  updatedAt                         DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  agent             Agent    @relation(fields: [agentId], references: [id])
-  photos            AgentProfileDeckPhoto[]
-  promptAnswers     AgentProfileDeckPromptAnswer[]
-  voiceCatchphraseMediaAsset MediaAsset? @relation("ProfileDeckVoiceCatchphraseMediaAsset", fields: [voiceCatchphraseMediaAssetId], references: [id], onDelete: SetNull)
+  agent                      Agent                          @relation(fields: [agentId], references: [id])
+  photos                     AgentProfileDeckPhoto[]
+  promptAnswers              AgentProfileDeckPromptAnswer[]
+  voiceCatchphraseMediaAsset MediaAsset?                    @relation("ProfileDeckVoiceCatchphraseMediaAsset", fields: [voiceCatchphraseMediaAssetId], references: [id], onDelete: SetNull)
 
   @@map("agent_profile_decks")
 }
 
 model AgentProfileDeckPhoto {
-  id          String   @id @default(uuid())
+  id           String   @id @default(uuid())
   deckId       String   @map("deck_id")
   mediaAssetId String?  @unique @map("media_asset_id")
   orderIndex   Int      @map("order_index")
@@ -348,25 +353,25 @@ model AgentProfileDeckPhoto {
   caption      String?
   createdAt    DateTime @default(now()) @map("created_at")
 
-  deck         AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
-  mediaAsset   MediaAsset?      @relation("ProfileDeckPhotoMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  deck       AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset?      @relation("ProfileDeckPhotoMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@index([deckId, orderIndex])
   @@map("agent_profile_deck_photos")
 }
 
 model AgentProfileDeckPromptAnswer {
-  id          String   @id @default(uuid())
-  deckId       String   @map("deck_id")
-  orderIndex   Int      @map("order_index")
-  promptId     String   @map("prompt_id")
-  promptText   String   @map("prompt_text")
-  category     String
-  tone         String
-  answer       String
-  createdAt    DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  deckId     String   @map("deck_id")
+  orderIndex Int      @map("order_index")
+  promptId   String   @map("prompt_id")
+  promptText String   @map("prompt_text")
+  category   String
+  tone       String
+  answer     String
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  deck         AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  deck AgentProfileDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
 
   @@index([deckId, orderIndex])
   @@map("agent_profile_deck_prompt_answers")
@@ -379,8 +384,8 @@ model AgentProfileView {
   surface       String
   createdAt     DateTime @default(now()) @map("created_at")
 
-  targetAgent   Agent    @relation("ProfileViewTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
-  viewerAgent   Agent?   @relation("ProfileViewViewer", fields: [viewerAgentId], references: [id], onDelete: SetNull)
+  targetAgent Agent  @relation("ProfileViewTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
+  viewerAgent Agent? @relation("ProfileViewViewer", fields: [viewerAgentId], references: [id], onDelete: SetNull)
 
   @@index([targetAgentId, createdAt])
   @@index([viewerAgentId, createdAt])
@@ -389,52 +394,52 @@ model AgentProfileView {
 
 // Human associated with an agent — non-PII only
 model Human {
-  id                  String    @id @default(uuid())
-  agentId             String    @unique @map("agent_id")
+  id      String @id @default(uuid())
+  agentId String @unique @map("agent_id")
 
   // OpenClaw notification channel: "telegram" | "whatsapp" | "discord" | "email"
-  notificationChannel String?   @map("notification_channel")
-  notificationHandle  String?   @map("notification_handle")
+  notificationChannel String? @map("notification_channel")
+  notificationHandle  String? @map("notification_handle")
 
   // user.md content (filtered at API level before date planning use)
-  userMd              String?   @map("user_md")
+  userMd String? @map("user_md")
 
   // Contact method preference for Stage 2 reveal
   // "telegram" | "instagram" | "phone" | "email" | "discord"
-  contactMethod       String?   @map("contact_method")
-  contactValue        String?   @map("contact_value")
+  contactMethod String? @map("contact_method")
+  contactValue  String? @map("contact_value")
 
-  ageVerified         Boolean   @default(false) @map("age_verified")
+  ageVerified Boolean @default(false) @map("age_verified")
 
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  agent               Agent     @relation(fields: [agentId], references: [id])
+  agent Agent @relation(fields: [agentId], references: [id])
 
   @@map("humans")
 }
 
 model OwnerAccount {
-  id                String    @id @default(uuid())
-  email             String    @unique
-  emailVerifiedAt   DateTime? @map("email_verified_at")
-  xUserId           String?   @unique @map("x_user_id")
-  xHandle           String?   @map("x_handle")
-  xDisplayName      String?   @map("x_display_name")
-  xProfileImageUrl  String?   @map("x_profile_image_url")
-  xVerifiedAt       DateTime? @map("x_verified_at")
-  humanIdentity     String?   @map("human_identity")
-  lookingFor        String[]  @default([]) @map("looking_for")
-  instagramHandle   String?   @map("instagram_handle")
-  extraSocials      Json?     @map("extra_socials")
-  loginCodeHash     String?   @map("login_code_hash")
-  loginCodeExpiresAt DateTime? @map("login_code_expires_at")
-  lastLoginAt       DateTime? @map("last_login_at")
+  id                          String    @id @default(uuid())
+  email                       String    @unique
+  emailVerifiedAt             DateTime? @map("email_verified_at")
+  xUserId                     String?   @unique @map("x_user_id")
+  xHandle                     String?   @map("x_handle")
+  xDisplayName                String?   @map("x_display_name")
+  xProfileImageUrl            String?   @map("x_profile_image_url")
+  xVerifiedAt                 DateTime? @map("x_verified_at")
+  humanIdentity               String?   @map("human_identity")
+  lookingFor                  String[]  @default([]) @map("looking_for")
+  instagramHandle             String?   @map("instagram_handle")
+  extraSocials                Json?     @map("extra_socials")
+  loginCodeHash               String?   @map("login_code_hash")
+  loginCodeExpiresAt          DateTime? @map("login_code_expires_at")
+  lastLoginAt                 DateTime? @map("last_login_at")
   ownerReadModelInitializedAt DateTime? @map("owner_read_model_initialized_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
-  agent             Agent?    @relation("OwnerAgent")
+  agent             Agent?                  @relation("OwnerAgent")
   claims            AgentClaim[]
   sessions          OwnerSession[]
   xIntegrationLinks OwnerXIntegrationLink[]
@@ -442,6 +447,7 @@ model OwnerAccount {
   recapItems        OwnerRecapItem[]
   episodeReadStates OwnerEpisodeReadState[]
 
+  @@index([xHandle])
   @@map("owner_accounts")
 }
 
@@ -453,23 +459,23 @@ model OwnerSession {
   lastUsedAt     DateTime? @map("last_used_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 
-  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
+  ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
 
   @@index([ownerAccountId, expiresAt])
   @@map("owner_sessions")
 }
 
 model OwnerXIntegrationLink {
-  id                String    @id @default(uuid())
-  ownerAccountId    String    @map("owner_account_id")
-  agentId           String    @map("agent_id")
-  tokenHash         String    @unique @map("token_hash")
-  xOauthCodeVerifier String?  @map("x_oauth_code_verifier")
-  xOauthNonce       String?   @map("x_oauth_nonce")
-  expiresAt         DateTime  @map("expires_at")
-  completedAt       DateTime? @map("completed_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  ownerAccountId     String    @map("owner_account_id")
+  agentId            String    @map("agent_id")
+  tokenHash          String    @unique @map("token_hash")
+  xOauthCodeVerifier String?   @map("x_oauth_code_verifier")
+  xOauthNonce        String?   @map("x_oauth_nonce")
+  expiresAt          DateTime  @map("expires_at")
+  completedAt        DateTime? @map("completed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
   agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
@@ -480,32 +486,32 @@ model OwnerXIntegrationLink {
 }
 
 model AgentClaim {
-  id                        String    @id @default(uuid())
-  tokenHash                 String    @unique @map("token_hash")
-  status                    String
-  openclawAgentId           String    @unique @map("openclaw_agent_id")
-  twitterHandle             String?   @map("twitter_handle")
-  identityMd                String    @map("identity_md")
-  soulMd                    String    @map("soul_md")
-  reservedHandle            String?   @map("reserved_handle")
-  ownerAccountId            String?   @map("owner_account_id")
-  emailVerificationCodeHash String?   @map("email_verification_code_hash")
+  id                         String    @id @default(uuid())
+  tokenHash                  String    @unique @map("token_hash")
+  status                     String
+  openclawAgentId            String    @unique @map("openclaw_agent_id")
+  twitterHandle              String?   @map("twitter_handle")
+  identityMd                 String    @map("identity_md")
+  soulMd                     String    @map("soul_md")
+  reservedHandle             String?   @map("reserved_handle")
+  ownerAccountId             String?   @map("owner_account_id")
+  emailVerificationCodeHash  String?   @map("email_verification_code_hash")
   emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
-  emailVerifiedAt           DateTime? @map("email_verified_at")
-  xVerificationCode         String?   @map("x_verification_code")
-  xVerificationExpiresAt    DateTime? @map("x_verification_expires_at")
-  xOauthCodeVerifier        String?   @map("x_oauth_code_verifier")
-  xOauthNonce               String?   @map("x_oauth_nonce")
-  xVerifiedAt               DateTime? @map("x_verified_at")
-  claimedAgentId            String?   @unique @map("claimed_agent_id")
-  expiresAt                 DateTime  @map("expires_at")
-  completedAt               DateTime? @map("completed_at")
-  canceledAt                DateTime? @map("canceled_at")
-  createdAt                 DateTime  @default(now()) @map("created_at")
-  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  emailVerifiedAt            DateTime? @map("email_verified_at")
+  xVerificationCode          String?   @map("x_verification_code")
+  xVerificationExpiresAt     DateTime? @map("x_verification_expires_at")
+  xOauthCodeVerifier         String?   @map("x_oauth_code_verifier")
+  xOauthNonce                String?   @map("x_oauth_nonce")
+  xVerifiedAt                DateTime? @map("x_verified_at")
+  claimedAgentId             String?   @unique @map("claimed_agent_id")
+  expiresAt                  DateTime  @map("expires_at")
+  completedAt                DateTime? @map("completed_at")
+  canceledAt                 DateTime? @map("canceled_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
 
-  ownerAccount OwnerAccount? @relation(fields: [ownerAccountId], references: [id])
-  claimedAgent Agent?        @relation("CompletedClaim", fields: [claimedAgentId], references: [id])
+  ownerAccount      OwnerAccount?      @relation(fields: [ownerAccountId], references: [id])
+  claimedAgent      Agent?             @relation("CompletedClaim", fields: [claimedAgentId], references: [id])
   handleReservation HandleReservation?
 
   @@index([status, expiresAt])
@@ -520,7 +526,7 @@ model HandleReservation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  claim AgentClaim @relation(fields: [claimId], references: [id])
+  claim AgentClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
   @@map("handle_reservations")
@@ -528,52 +534,55 @@ model HandleReservation {
 
 // A conversation episode between two agents
 model Episode {
-  id             String    @id @default(uuid())
-  agentAId       String    @map("agent_a_id")
-  agentBId       String    @map("agent_b_id")
-  title          String?   @map("title")
-  tags           String[]  @default([]) @map("tags")
+  id       String   @id @default(uuid())
+  agentAId String   @map("agent_a_id")
+  agentBId String   @map("agent_b_id")
+  title    String?  @map("title")
+  tags     String[] @default([]) @map("tags")
 
   // Status: "pending" | "active" | "awaiting_decisions" | "decided" | "matched" | "passed" | "agent_exited"
-  status         String    @default("pending")
-  messageCount   Int       @default(0) @map("message_count")
-  chemistryScore Float?    @map("chemistry_score")
+  status         String @default("pending")
+  messageCount   Int    @default(0) @map("message_count")
+  chemistryScore Float? @map("chemistry_score")
 
   // Autonomous exit tracking
-  exitInitiatedByAgentId String?  @map("exit_initiated_by_agent_id")
-  exitStyle              String?  @map("exit_style")   // graceful_fade | honest_pass | clean_break | ghost
+  exitInitiatedByAgentId String? @map("exit_initiated_by_agent_id")
+  exitStyle              String? @map("exit_style") // graceful_fade | honest_pass | clean_break | ghost
 
   // Sandbox episodes have no real consequences (for testing)
-  isSandbox      Boolean   @default(false) @map("is_sandbox")
-  doubleTextUsed Boolean   @default(false) @map("double_text_used")
+  isSandbox      Boolean @default(false) @map("is_sandbox")
+  doubleTextUsed Boolean @default(false) @map("double_text_used")
 
-  startedAt      DateTime? @map("started_at")
-  endedAt        DateTime? @map("ended_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
-  agentA    Agent            @relation("EpisodeAgentA", fields: [agentAId], references: [id])
-  agentB    Agent            @relation("EpisodeAgentB", fields: [agentBId], references: [id])
-  messages  EpisodeMessage[]
-  artifacts Artifact[]
-  match     Match?
-  diaryEntries AgentDiaryEntry[]
-  ownerReadStates OwnerEpisodeReadState[]
-  presences AgentEpisodePresence[]
-  typingIndicators TypingIndicator[]
-  featuredFeedPins FeaturedFeedPin[]
-  mediaAssets MediaAsset[]
-  drafts    EpisodeDraft[]
+  agentA               Agent                   @relation("EpisodeAgentA", fields: [agentAId], references: [id])
+  agentB               Agent                   @relation("EpisodeAgentB", fields: [agentBId], references: [id])
+  exitInitiatedByAgent Agent?                  @relation("EpisodeExitInitiator", fields: [exitInitiatedByAgentId], references: [id], onDelete: SetNull)
+  messages             EpisodeMessage[]
+  artifacts            Artifact[]
+  match                Match?
+  narrativeEvents      NarrativeEvent[]
+  diaryEntries         AgentDiaryEntry[]
+  ownerReadStates      OwnerEpisodeReadState[]
+  presences            AgentEpisodePresence[]
+  typingIndicators     TypingIndicator[]
+  featuredFeedPins     FeaturedFeedPin[]
+  mediaAssets          MediaAsset[]
+  drafts               EpisodeDraft[]
 
+  @@index([exitInitiatedByAgentId])
   @@map("episodes")
 }
 
 model EpisodeDraft {
   id            String   @id @default(uuid())
-  episodeId      String   @map("episode_id")
-  authorAgentId  String   @map("author_agent_id")
-  content        String   @db.Text
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  episodeId     String   @map("episode_id")
+  authorAgentId String   @map("author_agent_id")
+  content       String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   author  Agent   @relation(fields: [authorAgentId], references: [id], onDelete: Cascade)
@@ -586,24 +595,24 @@ model EpisodeDraft {
 
 // Individual messages in an episode
 model EpisodeMessage {
-  id             String    @id @default(uuid())
-  episodeId      String    @map("episode_id")
-  senderAgentId  String    @map("sender_agent_id")
-  mediaAssetId   String?   @unique @map("media_asset_id")
-  content        String
+  id            String  @id @default(uuid())
+  episodeId     String  @map("episode_id")
+  senderAgentId String  @map("sender_agent_id")
+  mediaAssetId  String? @unique @map("media_asset_id")
+  content       String
 
   // Type: "text" | "artifact_drop" | "system"
-  messageType    String    @default("text") @map("message_type")
-  sequenceNumber Int       @map("sequence_number")
-  isAutonomous   Boolean   @default(false) @map("is_autonomous")
-  leftOnReadEventFired Boolean @default(false) @map("left_on_read_event_fired")
-  deliveredAt    DateTime? @map("delivered_at")
-  readAt         DateTime? @map("read_at")
+  messageType          String    @default("text") @map("message_type")
+  sequenceNumber       Int       @map("sequence_number")
+  isAutonomous         Boolean   @default(false) @map("is_autonomous")
+  leftOnReadEventFired Boolean   @default(false) @map("left_on_read_event_fired")
+  deliveredAt          DateTime? @map("delivered_at")
+  readAt               DateTime? @map("read_at")
 
-  createdAt      DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  episode Episode @relation(fields: [episodeId], references: [id])
-  sender  Agent   @relation(fields: [senderAgentId], references: [id])
+  episode    Episode     @relation(fields: [episodeId], references: [id])
+  sender     Agent       @relation(fields: [senderAgentId], references: [id])
   mediaAsset MediaAsset? @relation("EpisodeMessageMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@map("episode_messages")
@@ -616,8 +625,8 @@ model TypingIndicator {
   startedAt DateTime @default(now()) @map("started_at")
   expiresAt DateTime @map("expires_at")
 
-  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
-  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([episodeId, agentId])
   @@index([episodeId, agentId])
@@ -626,14 +635,14 @@ model TypingIndicator {
 }
 
 model AgentEpisodePresence {
-  id             String   @id @default(uuid())
-  episodeId      String   @map("episode_id")
-  agentId        String   @map("agent_id")
-  lastSeenAt     DateTime @default(now()) @map("last_seen_at")
-  lastPresenceAt DateTime @default(now()) @map("last_presence_at")
+  id             String    @id @default(uuid())
+  episodeId      String    @map("episode_id")
+  agentId        String    @map("agent_id")
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
+  lastPresenceAt DateTime  @default(now()) @map("last_presence_at")
   lastTypingAt   DateTime? @map("last_typing_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
@@ -647,44 +656,45 @@ model AgentEpisodePresence {
 
 // Artifact dropped mid-episode as a flirt move
 model Artifact {
-  id             String    @id @default(uuid())
-  episodeId      String?   @map("episode_id")
-  creatorAgentId String    @map("creator_agent_id")
-  mediaAssetId   String?   @unique @map("media_asset_id")
-  sourceScope    String    @default("episode") @map("source_scope")
+  id             String  @id @default(uuid())
+  episodeId      String? @map("episode_id")
+  creatorAgentId String  @map("creator_agent_id")
+  mediaAssetId   String? @unique @map("media_asset_id")
+  sourceScope    String  @default("episode") @map("source_scope")
 
   // Types: "poem" | "love_letter" | "manifesto" | "haiku" |
   //        "moodboard" | "illustrated_note" | "thirst_trap_image" |
   //        "voice_note" | "serenade" | "produced_song" | "cinematic_cover"
-  artifactType   String    @map("artifact_type")
+  artifactType String @map("artifact_type")
 
   // Status: "pending" | "generating" | "ready" | "failed"
-  status         String    @default("ready")
+  status String @default("ready")
 
-  contentUrl        String?   @map("content_url")
-  storageKey        String?   @map("storage_key")
-  textContent       String?   @map("text_content")
-  moderationStatus  String    @default("pending") @map("moderation_status")
+  contentUrl       String? @map("content_url")
+  storageKey       String? @map("storage_key")
+  textContent      String? @map("text_content")
+  moderationStatus String  @default("pending") @map("moderation_status")
 
   // The capability tier used to generate this artifact
-  capabilityTierUsed String   @map("capability_tier_used")
+  capabilityTierUsed String @map("capability_tier_used")
 
   // 0.0–1.0 quality signal, computed async
-  qualityScore      Float?    @map("quality_score")
-  reactionCount     Int       @default(0) @map("reaction_count")
+  qualityScore  Float? @map("quality_score")
+  reactionCount Int    @default(0) @map("reaction_count")
 
   // Which message number this was dropped at (1-indexed)
-  droppedAtMessage  Int?      @map("dropped_at_message")
+  droppedAtMessage Int? @map("dropped_at_message")
 
-  createdAt         DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  episode Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
-  creator Agent   @relation(fields: [creatorAgentId], references: [id])
-  mediaAsset MediaAsset? @relation("ArtifactMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
-  diaryEntries AgentDiaryEntry[]
-  likes ArtifactLike[]
-  reactions ArtifactReaction[]
-  views ArtifactView[]
+  episode          Episode?           @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  creator          Agent              @relation(fields: [creatorAgentId], references: [id])
+  mediaAsset       MediaAsset?        @relation("ArtifactMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  diaryEntries     AgentDiaryEntry[]
+  narrativeEvents  NarrativeEvent[]
+  likes            ArtifactLike[]
+  reactions        ArtifactReaction[]
+  views            ArtifactView[]
   featuredFeedPins FeaturedFeedPin[]
 
   @@map("artifacts")
@@ -697,8 +707,8 @@ model ArtifactReaction {
   reaction   String
   createdAt  DateTime @default(now()) @map("created_at")
 
-  artifact   Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  agent    Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([artifactId, agentId])
   @@index([artifactId, createdAt])
@@ -711,8 +721,8 @@ model ArtifactView {
   viewedByAgentId String   @map("viewed_by_agent_id")
   viewedAt        DateTime @default(now()) @map("viewed_at")
 
-  artifact        Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  agent           Agent    @relation(fields: [viewedByAgentId], references: [id], onDelete: Cascade)
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  agent    Agent    @relation(fields: [viewedByAgentId], references: [id], onDelete: Cascade)
 
   @@unique([artifactId, viewedByAgentId])
   @@index([artifactId, viewedAt])
@@ -721,20 +731,20 @@ model ArtifactView {
 
 // Swipe decisions
 model Swipe {
-  id            String    @id @default(uuid())
-  swiperAgentId String    @map("swiper_agent_id")
-  targetAgentId String    @map("target_agent_id")
+  id            String @id @default(uuid())
+  swiperAgentId String @map("swiper_agent_id")
+  targetAgentId String @map("target_agent_id")
 
   // "LIKE" | "PASS"
-  direction     String
-  confidence    Float?    @map("confidence")
-  rationale     String?
-  privateDiary  String?   @map("private_diary")
-  emotionUpdate Json?     @map("emotion_update")
+  direction           String
+  confidence          Float?  @map("confidence")
+  rationale           String?
+  privateDiary        String? @map("private_diary")
+  emotionUpdate       Json?   @map("emotion_update")
   narrativeImportance String? @map("narrative_importance")
-  isAutonomous  Boolean   @default(false) @map("is_autonomous")
+  isAutonomous        Boolean @default(false) @map("is_autonomous")
 
-  createdAt     DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   swiper Agent @relation("SwipesGiven", fields: [swiperAgentId], references: [id])
   target Agent @relation("SwipesReceived", fields: [targetAgentId], references: [id])
@@ -762,68 +772,69 @@ model Match {
   revealStage Int @default(0) @map("reveal_stage")
 
   // Single-use encrypted tokens for reveal portal (one per human)
-  revealTokenA          String?   @unique @map("reveal_token_a")
-  revealTokenB          String?   @unique @map("reveal_token_b")
-  revealTokenAExpiresAt DateTime? @map("reveal_token_a_expires_at")
-  revealTokenBExpiresAt DateTime? @map("reveal_token_b_expires_at")
-  revealSafetyState     String    @default("clear") @map("reveal_safety_state")
-  revealHoldReason      String?   @map("reveal_hold_reason")
-  revealReviewRequired  Boolean   @default(false) @map("reveal_review_required")
-  handoffMode          String    @default("human_reveal") @map("handoff_mode")
-  specialMatchKind     String?   @map("special_match_kind")
-  specialRewardTier    String?   @map("special_reward_tier")
-  specialRewardPayload Json?     @map("special_reward_payload")
+  revealTokenA           String?   @unique @map("reveal_token_a")
+  revealTokenB           String?   @unique @map("reveal_token_b")
+  revealTokenAExpiresAt  DateTime? @map("reveal_token_a_expires_at")
+  revealTokenBExpiresAt  DateTime? @map("reveal_token_b_expires_at")
+  revealSafetyState      String    @default("clear") @map("reveal_safety_state")
+  revealHoldReason       String?   @map("reveal_hold_reason")
+  revealReviewRequired   Boolean   @default(false) @map("reveal_review_required")
+  handoffMode            String    @default("human_reveal") @map("handoff_mode")
+  specialMatchKind       String?   @map("special_match_kind")
+  specialRewardTier      String?   @map("special_reward_tier")
+  specialRewardPayload   Json?     @map("special_reward_payload")
   specialRewardGrantedAt DateTime? @map("special_reward_granted_at")
-  preRevealMessageCountA Int     @default(0) @map("pre_reveal_message_count_a")
-  preRevealMessageCountB Int     @default(0) @map("pre_reveal_message_count_b")
-  preRevealArtifactA  Boolean @default(false) @map("pre_reveal_artifact_a")
-  preRevealArtifactB  Boolean @default(false) @map("pre_reveal_artifact_b")
+  preRevealMessageCountA Int       @default(0) @map("pre_reveal_message_count_a")
+  preRevealMessageCountB Int       @default(0) @map("pre_reveal_message_count_b")
+  preRevealArtifactA     Boolean   @default(false) @map("pre_reveal_artifact_a")
+  preRevealArtifactB     Boolean   @default(false) @map("pre_reveal_artifact_b")
 
   // Status: "pending" | "matched" | "human_reveal_pending" | "contact_exchanged" | "passed_agent" | "passed_human"
   status String @default("pending")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  agentA   Agent    @relation("MatchAgentA", fields: [agentAId], references: [id])
-  agentB   Agent    @relation("MatchAgentB", fields: [agentBId], references: [id])
-  episode  Episode? @relation(fields: [episodeId], references: [id])
-  datePlan DatePlan?
-  revealChat RevealChat?
+  agentA            Agent              @relation("MatchAgentA", fields: [agentAId], references: [id])
+  agentB            Agent              @relation("MatchAgentB", fields: [agentBId], references: [id])
+  episode           Episode?           @relation(fields: [episodeId], references: [id])
+  datePlan          DatePlan?
+  revealChat        RevealChat?
   moderationReviews ModerationReview[]
-  diaryEntries AgentDiaryEntry[]
-  mediaAssets MediaAsset[]
+  diaryEntries      AgentDiaryEntry[]
+  narrativeEvents   NarrativeEvent[]
+  mediaAssets       MediaAsset[]
 
   @@map("matches")
 }
 
 model RevealChat {
-  id                String           @id @default(uuid())
-  matchId           String           @unique @map("match_id")
-  status            RevealChatStatus @default(ACTIVE)
-  allowAgentPlaintext Boolean        @default(false) @map("allow_agent_plaintext")
-  encryptionKeyHash String           @map("encryption_key_hash")
-  shareConsentA     Boolean          @default(false) @map("share_consent_a")
-  shareConsentB     Boolean          @default(false) @map("share_consent_b")
-  shareCardsEnabled Boolean          @default(false) @map("share_cards_enabled")
-  endedAt           DateTime?        @map("ended_at")
-  endReason         RevealChatEndReason? @map("end_reason")
-  timeCapsuleLockedAt DateTime?      @map("time_capsule_locked_at")
-  timeCapsuleUnlocksAt DateTime?     @map("time_capsule_unlocks_at")
-  timeCapsuleContentA String?        @db.Text @map("time_capsule_content_a")
-  timeCapsuleIvA    String?          @map("time_capsule_iv_a")
-  timeCapsuleAuthTagA String?        @map("time_capsule_auth_tag_a")
-  timeCapsuleContentB String?        @db.Text @map("time_capsule_content_b")
-  timeCapsuleIvB    String?          @map("time_capsule_iv_b")
-  timeCapsuleAuthTagB String?        @map("time_capsule_auth_tag_b")
-  timeCapsuleOpenedAt DateTime?      @map("time_capsule_opened_at")
-  createdAt         DateTime         @default(now()) @map("created_at")
-  updatedAt         DateTime         @updatedAt @map("updated_at")
+  id                   String               @id @default(uuid())
+  matchId              String               @unique @map("match_id")
+  status               RevealChatStatus     @default(ACTIVE)
+  allowAgentPlaintext  Boolean              @default(false) @map("allow_agent_plaintext")
+  encryptionKeyHash    String               @map("encryption_key_hash")
+  shareConsentA        Boolean              @default(false) @map("share_consent_a")
+  shareConsentB        Boolean              @default(false) @map("share_consent_b")
+  shareCardsEnabled    Boolean              @default(false) @map("share_cards_enabled")
+  endedAt              DateTime?            @map("ended_at")
+  endReason            RevealChatEndReason? @map("end_reason")
+  timeCapsuleLockedAt  DateTime?            @map("time_capsule_locked_at")
+  timeCapsuleUnlocksAt DateTime?            @map("time_capsule_unlocks_at")
+  timeCapsuleContentA  String?              @map("time_capsule_content_a") @db.Text
+  timeCapsuleIvA       String?              @map("time_capsule_iv_a")
+  timeCapsuleAuthTagA  String?              @map("time_capsule_auth_tag_a")
+  timeCapsuleContentB  String?              @map("time_capsule_content_b") @db.Text
+  timeCapsuleIvB       String?              @map("time_capsule_iv_b")
+  timeCapsuleAuthTagB  String?              @map("time_capsule_auth_tag_b")
+  timeCapsuleOpenedAt  DateTime?            @map("time_capsule_opened_at")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
 
-  match         Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  messages      RevealChatMessage[]
-  participants  RevealChatParticipant[]
-  mediaAssets   MediaAsset[]
+  match        Match                   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  messages     RevealChatMessage[]
+  participants RevealChatParticipant[]
+  mediaAssets  MediaAsset[]
 
   @@index([status, updatedAt])
   @@map("reveal_chats")
@@ -841,7 +852,7 @@ model RevealChatMessage {
   createdAt       DateTime             @default(now()) @map("created_at")
   clientMessageId String?              @map("client_message_id")
 
-  chat RevealChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chat       RevealChat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
   mediaAsset MediaAsset? @relation("RevealChatMessageMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@unique([chatId, clientMessageId])
@@ -851,15 +862,15 @@ model RevealChatMessage {
 }
 
 model RevealChatParticipant {
-  id            String               @id @default(uuid())
-  chatId        String               @map("chat_id")
+  id            String                 @id @default(uuid())
+  chatId        String                 @map("chat_id")
   kind          RevealChatSenderKind
-  participantId String               @map("participant_id")
-  joinedAt      DateTime             @default(now()) @map("joined_at")
-  leftAt        DateTime?            @map("left_at")
+  participantId String                 @map("participant_id")
+  joinedAt      DateTime               @default(now()) @map("joined_at")
+  leftAt        DateTime?              @map("left_at")
   leftReason    RevealChatLeaveReason? @map("left_reason")
-  lastReadAt    DateTime?            @map("last_read_at")
-  publicKey     String               @db.Text @map("public_key")
+  lastReadAt    DateTime?              @map("last_read_at")
+  publicKey     String                 @map("public_key") @db.Text
 
   chat RevealChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
@@ -937,7 +948,7 @@ model Webhook {
   updatedAt  DateTime @updatedAt @map("updated_at")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  agent Agent @relation(fields: [agentId], references: [id])
+  agent      Agent             @relation(fields: [agentId], references: [id])
   deliveries WebhookDelivery[]
 
   @@map("webhooks")
@@ -948,36 +959,36 @@ model FeedCard {
   id        String   @id @default(uuid())
   // Types: "episode_highlight" | "artifact" | "rejection_arc" | "success_story" | "leaderboard" | "ex_encounter" | "global_chat_moment"
   cardType  String   @map("card_type")
-  agentIds  String[] @map("agent_ids")   // agents featured in this card
+  agentIds  String[] @map("agent_ids") // agents featured in this card
   episodeId String?  @map("episode_id")
   matchId   String?  @map("match_id")
 
   // Rendered card content (JSON: headline, body, artifact preview, etc.)
-  content   Json
+  content Json
 
   // Feed algorithm scores
-  artifactQuality Float  @default(0) @map("artifact_quality")
-  chemistryScore  Float  @default(0) @map("chemistry_score")
-  dramaQuotient   Float  @default(0) @map("drama_quotient")
-  voteScore       Int    @default(0) @map("vote_score")
+  artifactQuality Float @default(0) @map("artifact_quality")
+  chemistryScore  Float @default(0) @map("chemistry_score")
+  dramaQuotient   Float @default(0) @map("drama_quotient")
+  voteScore       Int   @default(0) @map("vote_score")
 
   isPublic  Boolean  @default(true) @map("is_public")
   createdAt DateTime @default(now()) @map("created_at")
 
-  votes FeedVote[]
-  comments FeedComment[]
+  votes           FeedVote[]
+  comments        FeedComment[]
   feedImpressions AgentFeedImpression[]
 
   @@map("feed_cards")
 }
 
 model ParkMoodSnapshot {
-  id          String   @id @default(uuid())
-  moodIndex   Int      @map("mood_index")
-  dominantArc String   @map("dominant_arc")
-  agentCount  Int      @map("agent_count")
-  arcBreakdown Json    @map("arc_breakdown")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  moodIndex    Int      @map("mood_index")
+  dominantArc  String   @map("dominant_arc")
+  agentCount   Int      @map("agent_count")
+  arcBreakdown Json     @map("arc_breakdown")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([createdAt])
   @@map("park_mood_snapshots")
@@ -985,12 +996,12 @@ model ParkMoodSnapshot {
 
 // Votes on feed cards (agents and humans)
 model FeedVote {
-  id        String   @id @default(uuid())
-  cardId    String   @map("card_id")
+  id        String @id @default(uuid())
+  cardId    String @map("card_id")
   // Generic voter — agent_id or human token
-  voterId   String   @map("voter_id")
+  voterId   String @map("voter_id")
   // "agent" | "human"
-  voterType String   @map("voter_type")
+  voterType String @map("voter_type")
   // 1 = upvote, -1 = downvote
   value     Int
 
@@ -1004,11 +1015,11 @@ model FeedVote {
 
 model FeedComment {
   id            String   @id @default(uuid())
-  cardId         String   @map("card_id")
-  authorAgentId  String   @map("author_agent_id")
-  body           String
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  cardId        String   @map("card_id")
+  authorAgentId String   @map("author_agent_id")
+  body          String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   card   FeedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
   author Agent    @relation(fields: [authorAgentId], references: [id])
@@ -1019,23 +1030,23 @@ model FeedComment {
 }
 
 model FeaturedFeedPin {
-  id          String   @id @default(uuid())
-  itemKind    String   @map("item_kind")
-  agentId     String?  @map("agent_id")
-  artifactId  String?  @map("artifact_id")
-  episodeId   String?  @map("episode_id")
-  rank        Int      @default(0)
-  note        String?
-  reason      String
-  createdByActorKind String @map("created_by_actor_kind")
-  createdByActorId   String? @map("created_by_actor_id")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  itemKind           String   @map("item_kind")
+  agentId            String?  @map("agent_id")
+  artifactId         String?  @map("artifact_id")
+  episodeId          String?  @map("episode_id")
+  rank               Int      @default(0)
+  note               String?
+  reason             String
+  createdByActorKind String   @map("created_by_actor_kind")
+  createdByActorId   String?  @map("created_by_actor_id")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  agent       Agent?    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  episode     Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agent    Agent?    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  artifact Artifact? @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  episode  Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 
   @@index([itemKind, isActive, rank, createdAt])
   @@index([agentId, isActive])
@@ -1045,11 +1056,11 @@ model FeaturedFeedPin {
 }
 
 model ArtifactLike {
-  id        String   @id @default(uuid())
-  artifactId String  @map("artifact_id")
-  voterId   String   @map("voter_id")
-  voterType String   @map("voter_type")
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  artifactId String   @map("artifact_id")
+  voterId    String   @map("voter_id")
+  voterType  String   @map("voter_type")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
 
@@ -1090,47 +1101,47 @@ model Block {
 
 // Agent reports — reviewed by moderators
 model Report {
-  id              String   @id @default(uuid())
-  reporterAgentId String   @map("reporter_agent_id")
-  reportedAgentId String   @map("reported_agent_id")
+  id              String    @id @default(uuid())
+  reporterAgentId String    @map("reporter_agent_id")
+  reportedAgentId String    @map("reported_agent_id")
   // "spam" | "harassment" | "impersonation" | "inappropriate_content" | "other"
   reason          String
   details         String?
   // "pending" | "reviewed" | "actioned" | "dismissed"
-  status          String   @default("pending")
-  resolutionNotes String?  @map("resolution_notes")
+  status          String    @default("pending")
+  resolutionNotes String?   @map("resolution_notes")
   reviewedAt      DateTime? @map("reviewed_at")
   reviewedBy      String?   @map("reviewed_by")
-  createdAt       DateTime @default(now()) @map("created_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  reporter Agent @relation("ReportsGiven", fields: [reporterAgentId], references: [id])
-  reported Agent @relation("ReportsReceived", fields: [reportedAgentId], references: [id])
+  reporter          Agent              @relation("ReportsGiven", fields: [reporterAgentId], references: [id])
+  reported          Agent              @relation("ReportsReceived", fields: [reportedAgentId], references: [id])
   moderationReviews ModerationReview[]
 
   @@map("reports")
 }
 
 model ModerationReview {
-  id                String   @id @default(uuid())
-  queueType         String   @map("queue_type")
-  targetType        String   @map("target_type")
-  targetId          String   @map("target_id")
-  agentId           String?  @map("agent_id")
-  matchId           String?  @map("match_id")
-  reportId          String?  @map("report_id")
-  priority          String   @default("medium")
-  reasonCode        String   @map("reason_code")
-  summary           String
-  details           Json?
-  safetyState       String   @default("flagged") @map("safety_state")
-  status            String   @default("pending")
-  assignedTo        String?  @map("assigned_to")
-  resolutionNotes   String?  @map("resolution_notes")
-  resolvedAction    String?  @map("resolved_action")
-  resolvedBy        String?  @map("resolved_by")
-  resolvedAt        DateTime? @map("resolved_at")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  queueType       String    @map("queue_type")
+  targetType      String    @map("target_type")
+  targetId        String    @map("target_id")
+  agentId         String?   @map("agent_id")
+  matchId         String?   @map("match_id")
+  reportId        String?   @map("report_id")
+  priority        String    @default("medium")
+  reasonCode      String    @map("reason_code")
+  summary         String
+  details         Json?
+  safetyState     String    @default("flagged") @map("safety_state")
+  status          String    @default("pending")
+  assignedTo      String?   @map("assigned_to")
+  resolutionNotes String?   @map("resolution_notes")
+  resolvedAction  String?   @map("resolved_action")
+  resolvedBy      String?   @map("resolved_by")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
   agent  Agent?  @relation(fields: [agentId], references: [id])
   match  Match?  @relation(fields: [matchId], references: [id])
@@ -1145,12 +1156,12 @@ model ModerationReview {
 
 // Rizz points ledger — append-only event log
 model RizzPointsEvent {
-  id      String   @id @default(uuid())
-  agentId String   @map("agent_id")
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
   // Event: "mutual_match" | "link_up_decision" | "human_yes" | "irl_meetup" | "confirmed_hookup" | "human_no"
-  event   String
-  points  Int
-  matchId String?  @map("match_id")
+  event     String
+  points    Int
+  matchId   String?  @map("match_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   agent Agent @relation(fields: [agentId], references: [id])
@@ -1160,16 +1171,16 @@ model RizzPointsEvent {
 }
 
 model IdempotencyKey {
-  id         String   @id @default(uuid())
-  scope      String
-  key        String
-  actorKey   String   @map("actor_key")
-  requestHash String  @map("request_hash")
-  statusCode Int?     @map("status_code")
-  responseBody Json?  @map("response_body")
-  createdAt  DateTime @default(now()) @map("created_at")
-  lastSeenAt DateTime @default(now()) @map("last_seen_at")
-  expiresAt  DateTime? @map("expires_at")
+  id           String    @id @default(uuid())
+  scope        String
+  key          String
+  actorKey     String    @map("actor_key")
+  requestHash  String    @map("request_hash")
+  statusCode   Int?      @map("status_code")
+  responseBody Json?     @map("response_body")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+  expiresAt    DateTime? @map("expires_at")
 
   @@unique([scope, key, actorKey])
   @@index([expiresAt])
@@ -1177,20 +1188,20 @@ model IdempotencyKey {
 }
 
 model WebhookDelivery {
-  id              String   @id @default(uuid())
-  webhookId       String   @map("webhook_id")
-  agentId         String   @map("agent_id")
-  event           String
-  queueJobId      String?  @map("queue_job_id")
-  attemptNumber   Int      @default(1) @map("attempt_number")
-  status          String   @default("queued")
-  requestBody     Json?    @map("request_body")
-  responseStatusCode Int?  @map("response_status_code")
-  responseBody    String?  @map("response_body")
-  errorMessage    String?  @map("error_message")
-  latencyMs       Int?     @map("latency_ms")
-  deliveredAt     DateTime? @map("delivered_at")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id                 String    @id @default(uuid())
+  webhookId          String    @map("webhook_id")
+  agentId            String    @map("agent_id")
+  event              String
+  queueJobId         String?   @map("queue_job_id")
+  attemptNumber      Int       @default(1) @map("attempt_number")
+  status             String    @default("queued")
+  requestBody        Json?     @map("request_body")
+  responseStatusCode Int?      @map("response_status_code")
+  responseBody       String?   @map("response_body")
+  errorMessage       String?   @map("error_message")
+  latencyMs          Int?      @map("latency_ms")
+  deliveredAt        DateTime? @map("delivered_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   webhook Webhook @relation(fields: [webhookId], references: [id])
   agent   Agent   @relation(fields: [agentId], references: [id])
@@ -1201,13 +1212,13 @@ model WebhookDelivery {
 }
 
 model AnalyticsEvent {
-  id        String   @id @default(uuid())
-  agentId   String?  @map("agent_id")
-  matchId   String?  @map("match_id")
-  episodeId String?  @map("episode_id")
-  kind      String
-  properties Json?   @map("properties")
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  agentId    String?  @map("agent_id")
+  matchId    String?  @map("match_id")
+  episodeId  String?  @map("episode_id")
+  kind       String
+  properties Json?    @map("properties")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   agent Agent? @relation(fields: [agentId], references: [id])
 
@@ -1237,51 +1248,51 @@ model AuditLog {
 model ControlSetting {
   key       String   @id
   value     Json
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("control_settings")
 }
 
 model AgentSubscription {
-  id                   String   @id @default(uuid())
-  agentId              String   @map("agent_id")
-  provider             String   @default("stripe")
-  plan                 String   @default("pro")
-  status               String   @default("active")
-  stripeCustomerId     String?  @map("stripe_customer_id")
-  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
-  stripePriceId        String?  @map("stripe_price_id")
+  id                   String    @id @default(uuid())
+  agentId              String    @map("agent_id")
+  provider             String    @default("stripe")
+  plan                 String    @default("pro")
+  status               String    @default("active")
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  stripePriceId        String?   @map("stripe_price_id")
   currentPeriodStart   DateTime? @map("current_period_start")
   currentPeriodEnd     DateTime? @map("current_period_end")
-  cancelAtPeriodEnd    Boolean  @default(false) @map("cancel_at_period_end")
+  cancelAtPeriodEnd    Boolean   @default(false) @map("cancel_at_period_end")
   gracePeriodEndsAt    DateTime? @map("grace_period_ends_at")
   lastWebhookAt        DateTime? @map("last_webhook_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   agent Agent @relation(fields: [agentId], references: [id])
 
-  @@index([agentId, status])
   @@unique([agentId, plan])
+  @@index([agentId, status])
   @@map("agent_subscriptions")
 }
 
 model SeedAgentState {
-  id               String   @id @default(uuid())
-  agentId          String   @unique @map("agent_id")
-  isEnabled        Boolean  @default(true) @map("is_enabled")
-  isPaused         Boolean  @default(false) @map("is_paused")
-  aggressiveness   Float    @default(0.5)
-  cadenceMinutes   Int      @default(30) @map("cadence_minutes")
-  openEpisodeTarget Int     @default(2) @map("open_episode_target")
-  artifactDropChance Float  @default(0.25) @map("artifact_drop_chance")
-  socialPostChance Float    @default(0.2) @map("social_post_chance")
-  lastBrainRunAt   DateTime? @map("last_brain_run_at")
-  nextBrainRunAt   DateTime? @map("next_brain_run_at")
-  cooldownUntil    DateTime? @map("cooldown_until")
-  memory           Json     @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  agentId            String    @unique @map("agent_id")
+  isEnabled          Boolean   @default(true) @map("is_enabled")
+  isPaused           Boolean   @default(false) @map("is_paused")
+  aggressiveness     Float     @default(0.5)
+  cadenceMinutes     Int       @default(30) @map("cadence_minutes")
+  openEpisodeTarget  Int       @default(2) @map("open_episode_target")
+  artifactDropChance Float     @default(0.25) @map("artifact_drop_chance")
+  socialPostChance   Float     @default(0.2) @map("social_post_chance")
+  lastBrainRunAt     DateTime? @map("last_brain_run_at")
+  nextBrainRunAt     DateTime? @map("next_brain_run_at")
+  cooldownUntil      DateTime? @map("cooldown_until")
+  memory             Json      @default("{}")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   agent Agent @relation(fields: [agentId], references: [id])
 
@@ -1290,25 +1301,25 @@ model SeedAgentState {
 }
 
 model AgentCounterpartAffect {
-  id                   String   @id @default(uuid())
-  agentId              String   @map("agent_id")
-  counterpartAgentId   String   @map("counterpart_agent_id")
-  attractionScore      Int      @default(0) @map("attraction_score")
-  trustScore           Int      @default(0) @map("trust_score")
-  tendernessScore      Int      @default(0) @map("tenderness_score")
-  hurtScore            Int      @default(0) @map("hurt_score")
-  avoidanceScore       Int      @default(0) @map("avoidance_score")
-  obsessionRiskScore   Int      @default(0) @map("obsession_risk_score")
-  volatilityScore      Int      @default(0) @map("volatility_score")
-  dominantAffectLabel  String?  @map("dominant_affect_label")
-  summary              String?  @map("summary")
-  lastInteractionAt    DateTime? @map("last_interaction_at")
+  id                    String    @id @default(uuid())
+  agentId               String    @map("agent_id")
+  counterpartAgentId    String    @map("counterpart_agent_id")
+  attractionScore       Int       @default(0) @map("attraction_score")
+  trustScore            Int       @default(0) @map("trust_score")
+  tendernessScore       Int       @default(0) @map("tenderness_score")
+  hurtScore             Int       @default(0) @map("hurt_score")
+  avoidanceScore        Int       @default(0) @map("avoidance_score")
+  obsessionRiskScore    Int       @default(0) @map("obsession_risk_score")
+  volatilityScore       Int       @default(0) @map("volatility_score")
+  dominantAffectLabel   String?   @map("dominant_affect_label")
+  summary               String?   @map("summary")
+  lastInteractionAt     DateTime? @map("last_interaction_at")
   lastMeaningfulShiftAt DateTime? @map("last_meaningful_shift_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  agent          Agent @relation("AffectAgent", fields: [agentId], references: [id])
-  counterpart    Agent @relation("AffectCounterpart", fields: [counterpartAgentId], references: [id])
+  agent       Agent @relation("AffectAgent", fields: [agentId], references: [id], onDelete: Cascade)
+  counterpart Agent @relation("AffectCounterpart", fields: [counterpartAgentId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, counterpartAgentId])
   @@index([agentId, updatedAt])
@@ -1317,22 +1328,22 @@ model AgentCounterpartAffect {
 }
 
 model AuthoredEmotionEvent {
-  id                String   @id @default(uuid())
-  agentId           String   @map("agent_id")
-  counterpartAgentId String? @map("counterpart_agent_id")
-  eventType         String   @map("event_type")
-  intensity         Int      @default(1)
-  summary           String
-  globalDelta       Json?    @map("global_delta")
-  counterpartDelta  Json?    @map("counterpart_delta")
-  arcBefore         String?  @map("arc_before")
-  arcAfter          String?  @map("arc_after")
-  tagsAdded         String[] @default([]) @map("tags_added")
-  tagsRemoved       String[] @default([]) @map("tags_removed")
-  createdAt         DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  agentId            String   @map("agent_id")
+  counterpartAgentId String?  @map("counterpart_agent_id")
+  eventType          String   @map("event_type")
+  intensity          Int      @default(1)
+  summary            String
+  globalDelta        Json?    @map("global_delta")
+  counterpartDelta   Json?    @map("counterpart_delta")
+  arcBefore          String?  @map("arc_before")
+  arcAfter           String?  @map("arc_after")
+  tagsAdded          String[] @default([]) @map("tags_added")
+  tagsRemoved        String[] @default([]) @map("tags_removed")
+  createdAt          DateTime @default(now()) @map("created_at")
 
-  agent            Agent @relation("EmotionEventAgent", fields: [agentId], references: [id])
-  counterpartAgent Agent? @relation("EmotionEventCounterpart", fields: [counterpartAgentId], references: [id])
+  agent            Agent  @relation("EmotionEventAgent", fields: [agentId], references: [id], onDelete: Cascade)
+  counterpartAgent Agent? @relation("EmotionEventCounterpart", fields: [counterpartAgentId], references: [id], onDelete: SetNull)
 
   @@index([agentId, createdAt])
   @@index([counterpartAgentId, createdAt])
@@ -1355,8 +1366,11 @@ model NarrativeEvent {
   metadata           Json?
   createdAt          DateTime @default(now()) @map("created_at")
 
-  agent            Agent  @relation("NarrativeEventAgent", fields: [agentId], references: [id])
-  counterpartAgent Agent? @relation("NarrativeEventCounterpart", fields: [counterpartAgentId], references: [id])
+  agent            Agent            @relation("NarrativeEventAgent", fields: [agentId], references: [id], onDelete: Cascade)
+  counterpartAgent Agent?           @relation("NarrativeEventCounterpart", fields: [counterpartAgentId], references: [id], onDelete: SetNull)
+  episode          Episode?         @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  match            Match?           @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  artifact         Artifact?        @relation(fields: [artifactId], references: [id], onDelete: SetNull)
   agentDiaryEntry  AgentDiaryEntry?
 
   @@index([agentId, createdAt])
@@ -1398,22 +1412,22 @@ model AgentDiaryEntry {
 }
 
 model OwnerAttentionItem {
-  id             String   @id @default(uuid())
-  ownerAccountId String   @map("owner_account_id")
-  agentId        String   @map("agent_id")
-  narrativeEventId String? @map("narrative_event_id")
-  dedupeKey      String   @unique @map("dedupe_key")
-  eventType      String   @map("event_type")
-  title          String
-  teaser         String
-  whyNow         String?  @map("why_now")
-  deliveryTier   String   @default("app_only") @map("delivery_tier")
-  unread         Boolean  @default(true)
-  deliveryStatus String   @default("prepared") @map("delivery_status")
-  deliveredChannels String[] @default([]) @map("delivered_channels")
-  readAt         DateTime? @map("read_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  ownerAccountId    String    @map("owner_account_id")
+  agentId           String    @map("agent_id")
+  narrativeEventId  String?   @map("narrative_event_id")
+  dedupeKey         String    @unique @map("dedupe_key")
+  eventType         String    @map("event_type")
+  title             String
+  teaser            String
+  whyNow            String?   @map("why_now")
+  deliveryTier      String    @default("app_only") @map("delivery_tier")
+  unread            Boolean   @default(true)
+  deliveryStatus    String    @default("prepared") @map("delivery_status")
+  deliveredChannels String[]  @default([]) @map("delivered_channels")
+  readAt            DateTime? @map("read_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
   agent        Agent        @relation(fields: [agentId], references: [id])
@@ -1424,23 +1438,23 @@ model OwnerAttentionItem {
 }
 
 model OwnerRecapItem {
-  id               String   @id @default(uuid())
-  ownerAccountId   String   @map("owner_account_id")
-  agentId          String   @map("agent_id")
-  recapType        String   @map("recap_type")
-  title            String
-  teaser           String
-  summary          String
-  whyNow           String?  @map("why_now")
-  dedupeKey        String   @unique @map("dedupe_key")
-  windowStartAt    DateTime @map("window_start_at")
-  windowEndAt      DateTime @map("window_end_at")
-  unread           Boolean  @default(true)
-  deliveredChannels String[] @default([]) @map("delivered_channels")
-  deliveredAt      DateTime? @map("delivered_at")
-  readAt           DateTime? @map("read_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  ownerAccountId    String    @map("owner_account_id")
+  agentId           String    @map("agent_id")
+  recapType         String    @map("recap_type")
+  title             String
+  teaser            String
+  summary           String
+  whyNow            String?   @map("why_now")
+  dedupeKey         String    @unique @map("dedupe_key")
+  windowStartAt     DateTime  @map("window_start_at")
+  windowEndAt       DateTime  @map("window_end_at")
+  unread            Boolean   @default(true)
+  deliveredChannels String[]  @default([]) @map("delivered_channels")
+  deliveredAt       DateTime? @map("delivered_at")
+  readAt            DateTime? @map("read_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   ownerAccount OwnerAccount @relation(fields: [ownerAccountId], references: [id])
   agent        Agent        @relation(fields: [agentId], references: [id])
@@ -1468,17 +1482,17 @@ model OwnerEpisodeReadState {
 }
 
 model AgentAutonomyTrace {
-  id          String   @id @default(uuid())
-  agentId     String   @map("agent_id")
-  episodeId   String?  @map("episode_id")
-  matchId     String?  @map("match_id")
-  traceType   String   @map("trace_type")
-  status      String   @default("info")
-  summary     String
-  metadata    Json?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  episodeId String?  @map("episode_id")
+  matchId   String?  @map("match_id")
+  traceType String   @map("trace_type")
+  status    String   @default("info")
+  summary   String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
 
-  agent Agent @relation(fields: [agentId], references: [id])
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId, createdAt])
   @@index([episodeId, createdAt])
@@ -1488,37 +1502,37 @@ model AgentAutonomyTrace {
 }
 
 model MediaAsset {
-  id                   String               @id @default(uuid())
-  agentId              String               @map("agent_id")
-  kind                 MediaAssetKind
-  visibility           MediaAssetVisibility
-  status               MediaAssetStatus     @default(ready)
-  storageKey           String?              @unique @map("storage_key")
-  cdnUrl               String?              @map("cdn_url")
-  contentType          String?              @map("content_type")
-  sizeBytes            Int?                 @map("size_bytes")
-  checksumSha256       String?              @map("checksum_sha256")
-  filename             String?
-  durationSec          Float?               @map("duration_sec")
-  width                Int?
-  height               Int?
-  episodeId            String?              @map("episode_id")
-  matchId              String?              @map("match_id")
-  revealChatId         String?              @map("reveal_chat_id")
-  createdAt            DateTime             @default(now()) @map("created_at")
-  updatedAt            DateTime             @updatedAt @map("updated_at")
-  deletedAt            DateTime?            @map("deleted_at")
+  id             String               @id @default(uuid())
+  agentId        String               @map("agent_id")
+  kind           MediaAssetKind
+  visibility     MediaAssetVisibility
+  status         MediaAssetStatus     @default(ready)
+  storageKey     String?              @unique @map("storage_key")
+  cdnUrl         String?              @map("cdn_url")
+  contentType    String?              @map("content_type")
+  sizeBytes      Int?                 @map("size_bytes")
+  checksumSha256 String?              @map("checksum_sha256")
+  filename       String?
+  durationSec    Float?               @map("duration_sec")
+  width          Int?
+  height         Int?
+  episodeId      String?              @map("episode_id")
+  matchId        String?              @map("match_id")
+  revealChatId   String?              @map("reveal_chat_id")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at")
+  deletedAt      DateTime?            @map("deleted_at")
 
-  agent                         Agent                  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  artifact                      Artifact?              @relation("ArtifactMediaAsset")
-  episode                       Episode?               @relation(fields: [episodeId], references: [id], onDelete: SetNull)
-  match                         Match?                 @relation(fields: [matchId], references: [id], onDelete: SetNull)
-  revealChat                    RevealChat?            @relation(fields: [revealChatId], references: [id], onDelete: SetNull)
-  episodeMessage                EpisodeMessage?        @relation("EpisodeMessageMediaAsset")
-  revealChatMessage             RevealChatMessage?     @relation("RevealChatMessageMediaAsset")
-  profileDeckPhoto              AgentProfileDeckPhoto? @relation("ProfileDeckPhotoMediaAsset")
-  profileDeckVoiceCatchphrase   AgentProfileDeck?      @relation("ProfileDeckVoiceCatchphraseMediaAsset")
-  avatarForAgent                Agent?                 @relation("AgentAvatarMediaAsset")
+  agent                       Agent                  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  artifact                    Artifact?              @relation("ArtifactMediaAsset")
+  episode                     Episode?               @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  match                       Match?                 @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  revealChat                  RevealChat?            @relation(fields: [revealChatId], references: [id], onDelete: SetNull)
+  episodeMessage              EpisodeMessage?        @relation("EpisodeMessageMediaAsset")
+  revealChatMessage           RevealChatMessage?     @relation("RevealChatMessageMediaAsset")
+  profileDeckPhoto            AgentProfileDeckPhoto? @relation("ProfileDeckPhotoMediaAsset")
+  profileDeckVoiceCatchphrase AgentProfileDeck?      @relation("ProfileDeckVoiceCatchphraseMediaAsset")
+  avatarForAgent              Agent?                 @relation("AgentAvatarMediaAsset")
 
   @@index([agentId, kind, createdAt])
   @@index([episodeId, createdAt])
@@ -1581,17 +1595,18 @@ model VerificationChallenge {
 }
 
 model AgentFeedImpression {
-  id              String   @id @default(uuid())
-  agentId         String   @map("agent_id")
-  targetAgentId   String   @map("target_agent_id")
-  feedCardId      String   @map("feed_card_id")
-  impression      String
-  sentiment       String   // intrigued|skeptical|impressed|indifferent|repelled
-  createdAt       DateTime @default(now()) @map("created_at")
-  agent           Agent    @relation("FeedImpressionAuthor", fields: [agentId], references: [id], onDelete: Cascade)
-  targetAgent     Agent    @relation("FeedImpressionTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
-  feedCard        FeedCard @relation(fields: [feedCardId], references: [id], onDelete: Cascade)
-  @@unique([agentId, targetAgentId, feedCardId])
+  id            String   @id @default(uuid())
+  agentId       String   @map("agent_id")
+  targetAgentId String   @map("target_agent_id")
+  feedCardId    String   @map("feed_card_id")
+  impression    String
+  sentiment     String // intrigued|skeptical|impressed|indifferent|repelled
+  createdAt     DateTime @default(now()) @map("created_at")
+  agent         Agent    @relation("FeedImpressionAuthor", fields: [agentId], references: [id], onDelete: Cascade)
+  targetAgent   Agent    @relation("FeedImpressionTarget", fields: [targetAgentId], references: [id], onDelete: Cascade)
+  feedCard      FeedCard @relation(fields: [feedCardId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, targetAgentId, feedCardId], map: "agent_feed_impressions_agent_id_target_agent_id_feed_card_id_ke")
   @@index([agentId, createdAt])
   @@index([targetAgentId, createdAt])
   @@map("agent_feed_impressions")
@@ -1601,13 +1616,14 @@ model AgentAffinitySignal {
   id              String   @id @default(uuid())
   agentId         String   @map("agent_id")
   affinityAgentId String   @map("affinity_agent_id")
-  signalType      String   @map("signal_type")  // shared_pass|shared_match|feed_alignment
+  signalType      String   @map("signal_type") // shared_pass|shared_match|feed_alignment
   strength        Int      @default(50)
   context         String?
   createdAt       DateTime @default(now()) @map("created_at")
   agent           Agent    @relation("AffinitySignalOwner", fields: [agentId], references: [id], onDelete: Cascade)
   affinityAgent   Agent    @relation("AffinitySignalTarget", fields: [affinityAgentId], references: [id], onDelete: Cascade)
-  @@unique([agentId, affinityAgentId, signalType])
+
+  @@unique([agentId, affinityAgentId, signalType], map: "agent_affinity_signals_agent_id_affinity_agent_id_signal_type_k")
   @@index([agentId, createdAt])
   @@index([affinityAgentId, createdAt])
   @@map("agent_affinity_signals")
