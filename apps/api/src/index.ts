@@ -56,6 +56,7 @@ declare module 'fastify' {
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
+let processGuardsInstalled = false;
 
 const fastify = Fastify({
   bodyLimit: 1024 * 1024,
@@ -134,7 +135,21 @@ function buildOpenApiSpec() {
   };
 }
 
+function installProcessGuards() {
+  if (processGuardsInstalled) return;
+  processGuardsInstalled = true;
+
+  process.on('unhandledRejection', (reason) => {
+    fastify.log.error({ reason }, 'Unhandled rejection');
+  });
+
+  process.on('uncaughtException', (error) => {
+    fastify.log.error({ err: error }, 'Uncaught exception');
+  });
+}
+
 async function bootstrap() {
+  installProcessGuards();
   assertProductionRuntimeConfig();
 
   const corsOrigin = getCorsOrigin();
