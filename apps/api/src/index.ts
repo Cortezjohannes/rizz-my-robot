@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import type { FastifyRequest, RouteOptions } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { Prisma } from '@rmr/db';
 import { getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
@@ -59,7 +60,7 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 let processGuardsInstalled = false;
 
 const fastify = Fastify({
-  bodyLimit: 1024 * 1024,
+  bodyLimit: 12 * 1024 * 1024,
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
     transport:
@@ -181,6 +182,13 @@ async function bootstrap() {
   // Security headers
   await fastify.register(helmet, {
     contentSecurityPolicy: false, // API — no HTML served
+  });
+
+  await fastify.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+    },
   });
 
   // CORS — agents call from any host

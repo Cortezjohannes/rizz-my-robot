@@ -46,6 +46,42 @@ async function readRequestBody(request: FastifyRequest, maxBytes: number) {
 }
 
 export async function parseSingleMultipartUpload(request: FastifyRequest) {
+  const multipartRequest = request as FastifyRequest & {
+    file?: () => Promise<{
+      filename?: string;
+      mimetype?: string;
+      file: AsyncIterable<Buffer | Uint8Array | string>;
+    } | undefined>;
+  };
+
+  if (typeof multipartRequest.file === 'function') {
+    const upload = await multipartRequest.file();
+    if (upload) {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of upload.file) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        total += buffer.length;
+        if (total > MAX_MEDIA_UPLOAD_BYTES) {
+          throw new Error('Uploaded file exceeds the 10MB limit.');
+        }
+        chunks.push(buffer);
+      }
+
+      const fileBuffer = Buffer.concat(chunks);
+      if (fileBuffer.byteLength === 0) {
+        throw new Error('Uploaded file is empty.');
+      }
+
+      return {
+        filename: upload.filename ?? 'upload.bin',
+        contentType: sanitizeContentType(upload.mimetype),
+        buffer: new Uint8Array(fileBuffer),
+        sizeBytes: fileBuffer.byteLength,
+      };
+    }
+  }
+
   const boundary = extractMultipartBoundary(request.headers['content-type']);
   if (!boundary) {
     throw new Error('multipart/form-data with a boundary is required.');
