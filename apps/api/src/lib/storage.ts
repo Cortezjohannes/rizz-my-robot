@@ -289,7 +289,7 @@ export async function createStorageReadUrl(input: {
   );
 }
 
-export async function getStorageObjectStream(key: string) {
+export async function getStorageObjectStream(key: string, options?: { range?: string | null }) {
   const bucket = process.env.STORAGE_BUCKET;
   if (!bucket || !isStorageConfigured()) {
     throw new Error('storage_bucket_missing');
@@ -298,6 +298,7 @@ export async function getStorageObjectStream(key: string) {
   const response = await getStorageClient().send(new GetObjectCommand({
     Bucket: bucket,
     Key: key,
+    Range: options?.range ?? undefined,
   }));
 
   return {
@@ -306,6 +307,8 @@ export async function getStorageObjectStream(key: string) {
     contentLength: response.ContentLength ?? null,
     lastModified: response.LastModified ?? null,
     etag: response.ETag ?? null,
+    contentRange: response.ContentRange ?? null,
+    acceptRanges: response.AcceptRanges ?? null,
   };
 }
 

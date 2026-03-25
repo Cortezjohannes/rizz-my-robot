@@ -11,6 +11,7 @@ import {
   getStoragePublicUrlForKey,
   getStoragePublicBaseUrl,
   getStorageObjectContentType,
+  storageObjectExists,
   inferStorageKeyFromPublicUrl,
   isStorageConfigured,
   resolveStorageExtension,
@@ -454,9 +455,14 @@ export async function importExternalMediaAsset(input: {
     }
 
     const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
+    if (inferredStorageKey && !(await storageObjectExists(inferredStorageKey))) {
+      throw new Error('Hosted media URL was not found in storage.');
+    }
+    const inferredContentType = inferredStorageKey
+      ? await getStorageObjectContentType(inferredStorageKey)
+      : null;
     if (input.kind === MEDIA_KIND.ARTIFACT && inferredStorageKey) {
-      const uploadedContentType = await getStorageObjectContentType(inferredStorageKey);
-      assertArtifactMediaContentType(input.artifactType ?? null, uploadedContentType);
+      assertArtifactMediaContentType(input.artifactType ?? null, inferredContentType);
     }
     return prisma.mediaAsset.create({
       data: {
@@ -465,6 +471,7 @@ export async function importExternalMediaAsset(input: {
         visibility: input.visibility,
         storageKey: inferredStorageKey,
         cdnUrl: input.sourceUrl,
+        contentType: inferredContentType,
         filename: input.filename ?? null,
         episodeId: input.episodeId ?? null,
         matchId: input.matchId ?? null,
