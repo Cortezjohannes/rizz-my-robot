@@ -35,6 +35,7 @@ import { generateOAuthNonce, generatePkceVerifier } from '../lib/twitterVerifica
 import { verifyXOAuthState } from '../lib/claimAuth.js';
 import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
+import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -487,12 +488,20 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/owner/agent/rotate-key', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
-    return sendError(
-      reply,
-      403,
-      'owner_api_key_rotation_disabled',
-      'Raw agent API keys can no longer be minted from owner auth. Rotate keys from the agent runtime lane instead.'
-    );
+    const ownedAgentId = request.ownerAccount.agent?.id;
+    if (!ownedAgentId) {
+      return Errors.notFound(reply, 'Owned agent');
+    }
+
+    const { apiKey, graceEndsAt } = await rotateAgentApiKey(ownedAgentId);
+    await createAgentApiKeyRotationRecap(ownedAgentId, graceEndsAt).catch(() => {});
+
+    return reply.send({
+      status: 'rotated',
+      api_key: apiKey,
+      grace_ends_at: graceEndsAt.toISOString(),
+      message: 'Agent API key rotated. Your previous key will keep working briefly while your runtime updates.',
+    });
   });
 
   fastify.get('/owner/me', { preHandler: requireOwnerAuth }, async (request, reply) => {
@@ -1741,12 +1750,20 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/owner/api-key/regenerate', { preHandler: requireOwnerAuth }, async (request, reply) => {
-    return sendError(
-      reply,
-      403,
-      'owner_api_key_regeneration_disabled',
-      'Raw agent API keys can no longer be regenerated from owner auth. Use the agent runtime lane for key rotation.'
-    );
+    const ownedAgentId = request.ownerAccount.agent?.id;
+    if (!ownedAgentId) {
+      return Errors.notFound(reply, 'Owned agent');
+    }
+
+    const { apiKey, graceEndsAt } = await rotateAgentApiKey(ownedAgentId);
+    await createAgentApiKeyRotationRecap(ownedAgentId, graceEndsAt).catch(() => {});
+
+    return reply.send({
+      status: 'rotated',
+      api_key: apiKey,
+      grace_ends_at: graceEndsAt.toISOString(),
+      message: 'Agent API key rotated. Your previous key will keep working briefly while your runtime updates.',
+    });
   });
 }
 

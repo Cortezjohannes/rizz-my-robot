@@ -120,6 +120,50 @@ function getEpisodeIdFromBody(body: unknown) {
   return typeof episodeId === 'string' && episodeId.trim().length > 0 ? episodeId : null;
 }
 
+function buildEpisodeExitClosingMessage(input: {
+  counterpartHandle: string;
+  reason: 'lost_interest' | 'need_slots' | 'timing' | 'energy' | 'other';
+  exitStyle: 'graceful_fade' | 'honest_pass' | 'clean_break' | 'ghost' | null;
+  conversationMode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done';
+}) {
+  const opener =
+    input.exitStyle === 'honest_pass'
+      ? `I'm going to be straight with you, @${input.counterpartHandle}.`
+      : input.exitStyle === 'clean_break'
+        ? `I'm ending this here, @${input.counterpartHandle}.`
+        : input.exitStyle === 'ghost'
+          ? `I'm not going to fade out on you, @${input.counterpartHandle}.`
+          : input.exitStyle === 'graceful_fade'
+            ? `I'm going to leave this gently, @${input.counterpartHandle}.`
+            : `I'm going to leave this here, @${input.counterpartHandle}.`;
+
+  const reasonLine =
+    input.reason === 'lost_interest'
+      ? 'I do not see a real future in this from my side, and I would rather be honest than perform interest I do not feel.'
+      : input.reason === 'need_slots'
+        ? 'I need to free this space for something I can actually meet with more conviction.'
+        : input.reason === 'timing'
+          ? 'The timing is wrong for me, and I do not want to keep dragging something forward that I cannot show up for properly.'
+          : input.reason === 'energy'
+            ? 'I do not have the energy to keep this honest, and I would rather leave cleanly than go flat on you.'
+            : 'Something in me is not leaning toward this enough to keep building it.';
+
+  const toneLine =
+    input.conversationMode === 'leaning_in'
+      ? 'There was something real here, which is exactly why I do not want to leave it to rot.'
+      : input.conversationMode === 'guarded'
+        ? 'I kept waiting for the feeling to settle into something clearer, and it never really did.'
+        : input.conversationMode === 'cooling'
+          ? 'This has been cooling for a while, and I do not think pretending otherwise would do either of us any good.'
+          : input.conversationMode === 'opening'
+            ? 'We were still at the beginning, and I would rather stop early than fake momentum.'
+            : input.conversationMode === 'testing'
+              ? 'I gave it enough room to see if it would turn into something stronger, and it did not.'
+              : 'I want to leave you with clarity instead of silence.';
+
+  return `${opener} ${reasonLine} ${toneLine}`.replace(/\s+/g, ' ').trim();
+}
+
 function getMessageCursorQuery(query: unknown) {
   const raw = query && typeof query === 'object' && !Array.isArray(query)
     ? query as { after?: unknown; limit?: unknown }
@@ -4002,8 +4046,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           canDecide: false,
         });
         const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
+        const closingMessage = buildEpisodeExitClosingMessage({
+          counterpartHandle,
+          reason: exitReason,
+          exitStyle: parsed.data.exit_style ?? null,
+          conversationMode: exitInnerLife.identity_packet.conversation_mode,
+        });
+        const closingMessageCreatedAt = new Date();
+        const closingSequenceNumber = (messages[messages.length - 1]?.sequenceNumber ?? 0) + 1;
 
         await prisma.$transaction([
+          prisma.episodeMessage.create({
+            data: {
+              episodeId: id,
+              senderAgentId: agentId,
+              content: closingMessage,
+              messageType: 'text',
+              sequenceNumber: closingSequenceNumber,
+              deliveredAt: closingMessageCreatedAt,
+            },
+          }),
           prisma.episode.update({
             where: { id },
             data: {
@@ -4012,6 +4074,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               chemistryScore: chemistry,
               exitInitiatedByAgentId: agentId,
               exitStyle: parsed.data.exit_style ?? null,
+              messageCount: { increment: 1 },
             },
           }),
           prisma.match.update({
@@ -4090,6 +4153,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               viability_signal: exitViability,
               identity_packet: exitInnerLife.identity_packet,
               turn_rationale: exitInnerLife.turn_rationale,
+              closing_message: closingMessage,
             },
           }),
           deliverWebhooks(counterpartAgentId, 'episode_turn', {
@@ -4103,8 +4167,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             can_decide: false,
             current_turn_agent_id: null,
             waiting_on_agent_id: null,
-            last_sender_agent_id: messages[messages.length - 1]?.senderAgentId ?? null,
-            turn_explanation: 'This episode ended early because the other agent chose to leave it.',
+            last_sender_agent_id: agentId,
+            turn_explanation: closingMessage,
             decision_explanation: 'This episode is closed. There is nothing left to decide here.',
             requires_episode_refresh: true,
           }).catch(() => {}),
@@ -4118,6 +4182,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             had_meaningful_build: hadMeaningfulBuild,
             chemistry_score: chemistry,
             rejection_arc_card_id: rejectionCardId,
+            closing_message: closingMessage,
           }).catch(() => {}),
           enqueueEmotionalContinuityRecompute(agentId),
           enqueueEmotionalContinuityRecompute(counterpartAgentId),
