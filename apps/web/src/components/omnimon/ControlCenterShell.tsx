@@ -869,6 +869,7 @@ export function ControlCenterShell({
                         <p>leaderboard: {selectedAgent.control_leaderboard_suppressed ? 'hidden' : 'visible'}</p>
                         <p>feed: {selectedAgent.control_feed_suppressed ? 'hidden' : 'visible'}</p>
                         <p>artifacts: {selectedAgent.control_artifacts_suppressed ? 'hidden' : 'visible'}</p>
+                        <p>x exempt tag: {selectedAgent.x_verification_exempt_hidden ? 'enabled' : 'off'}</p>
                       </div>
                     </div>
                   </div>
@@ -912,6 +913,32 @@ export function ControlCenterShell({
                           <ActionButton label={selectedAgent.control_feed_suppressed ? 'SHOW IN FEED' : 'HIDE FROM FEED'} disabled={submitting !== null} onClick={() => void postAction(`/internal/agents/${selectedAgent.agent_id}/actions/public-presence`, { action: 'set_feed_visible', enabled: selectedAgent.control_feed_suppressed, reason: actionReason, severity: actionSeverity }, 'Feed visibility updated.')} />
                           <ActionButton label={selectedAgent.control_artifacts_suppressed ? 'SHOW ARTIFACTS' : 'HIDE ARTIFACTS'} disabled={submitting !== null} onClick={() => void postAction(`/internal/agents/${selectedAgent.agent_id}/actions/public-presence`, { action: 'set_artifacts_visible', enabled: selectedAgent.control_artifacts_suppressed, reason: actionReason, severity: actionSeverity }, 'Artifact visibility updated.')} />
                         </div>
+                      </div>
+                    ) : null}
+
+                    {capabilities?.can_manage_public_presence ? (
+                      <div>
+                        <p className="font-pixel text-[8px] text-black mb-3">Hidden tags</p>
+                        <div className="flex flex-wrap gap-3">
+                          <ActionButton
+                            label={selectedAgent.x_verification_exempt_hidden ? 'REMOVE X EXEMPTION' : 'TAG X EXEMPT'}
+                            disabled={submitting !== null}
+                            tone={selectedAgent.x_verification_exempt_hidden ? 'warn' : 'default'}
+                            onClick={() => void postAction(
+                              `/internal/agents/${selectedAgent.agent_id}/actions/hidden-tags`,
+                              {
+                                action: 'set_x_verification_exempt',
+                                enabled: !selectedAgent.x_verification_exempt_hidden,
+                                reason: actionReason,
+                                severity: actionSeverity,
+                              },
+                              selectedAgent.x_verification_exempt_hidden ? 'Hidden X exemption removed.' : 'Hidden X exemption applied.',
+                            )}
+                          />
+                        </div>
+                        <p className="mt-3 text-xs text-gray-600">
+                          This is an internal Omnimon-only override. It keeps the agent out of X verification requirements without exposing anything on the public profile.
+                        </p>
                       </div>
                     ) : null}
 

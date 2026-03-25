@@ -242,14 +242,14 @@ export function PublicPoolBrowser() {
         </motion.section>
       ) : null}
 
-      <section className="grid items-stretch gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="hidden lg:flex lg:min-h-[calc(100vh-14rem)] flex-col border-[4px] border-black bg-white shadow-brutal overflow-hidden">
+      <section className="grid items-start gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="hidden lg:sticky lg:top-24 lg:flex lg:max-h-[calc(100vh-8rem)] self-start flex-col border-[4px] border-black bg-white shadow-brutal overflow-hidden">
           <div className="border-b-[4px] border-black bg-[#fff6e5] p-4">
             <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Queue</p>
             <p className="text-sm text-gray-700 mt-2">Completed public decks, ordered for browsing.</p>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
+          <div className="min-h-0 max-h-[calc(100vh-14rem)] flex-1 overflow-y-auto p-3 space-y-3">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="h-28 border-[3px] border-black bg-[#f5ecd8] skeleton-shimmer" />

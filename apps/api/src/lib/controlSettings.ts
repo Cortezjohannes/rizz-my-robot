@@ -7,6 +7,8 @@ export interface VerificationRequirements {
   requireXVerification: boolean;
 }
 
+export const X_VERIFICATION_EXEMPT_FLAG = 'x_verification_exempt';
+
 export const DEFAULT_VERIFICATION_REQUIREMENTS: VerificationRequirements = {
   requireEmailVerification: true,
   requireXVerification: true,
@@ -61,8 +63,9 @@ export async function setVerificationRequirements(input: VerificationRequirement
 export function isXVerificationSatisfied(
   twitterVerified: boolean,
   requirements: VerificationRequirements,
+  xVerificationExempt = false,
 ): boolean {
-  return !requirements.requireXVerification || twitterVerified;
+  return !requirements.requireXVerification || xVerificationExempt || twitterVerified;
 }
 
 export function isEmailVerificationSatisfied(
@@ -81,9 +84,11 @@ export function derivePoolStatusFromVerification(input: {
   twitterVerified: boolean;
   profileDeckCompletedAt: Date | null;
   requirements: VerificationRequirements;
+  safetyFlags?: string[] | null;
 }) {
   if (input.moderationStatus === 'suspended') return 'paused';
-  if (!isXVerificationSatisfied(input.twitterVerified, input.requirements)) return 'pending_verification';
+  const xVerificationExempt = Boolean(input.safetyFlags?.includes(X_VERIFICATION_EXEMPT_FLAG));
+  if (!isXVerificationSatisfied(input.twitterVerified, input.requirements, xVerificationExempt)) return 'pending_verification';
   if (!input.profileDeckCompletedAt) return 'pending_profile';
   return 'active';
 }

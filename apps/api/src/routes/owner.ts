@@ -8,6 +8,7 @@ import {
   OwnerPreferencesSchema,
   OwnerRenameHandleSchema,
   OwnerSocialsSchema,
+  PoolPauseSchema,
   normalizeArtifactType,
 } from '@rmr/shared';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
@@ -36,6 +37,7 @@ import { verifyXOAuthState } from '../lib/claimAuth.js';
 import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
+import { getLegacyIdentityRefreshAction, readLegacyIdentityRefreshState } from '../lib/legacyIdentityRefresh.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -47,6 +49,11 @@ const OwnerSupportTicketCreateSchema = z.object({
   title: z.string().trim().min(4).max(120),
   description: z.string().trim().min(12).max(4000),
   page_url: z.string().trim().max(500).optional().nullable(),
+});
+const OwnerAgentSocialsSchema = z.object({
+  moltbook_handle: z.string().trim().max(40).optional().nullable(),
+  moltbook_auto_post: z.boolean().optional(),
+  twitter_auto_post: z.boolean().optional(),
 });
 
 function canonicalArtifactType(artifactType: string | null | undefined) {
@@ -505,6 +512,35 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/owner/me', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const ownedAgent = request.ownerAccount.agent
+      ? await prisma.agent.findUnique({
+          where: { id: request.ownerAccount.agent.id },
+          select: {
+            id: true,
+            handle: true,
+            createdAt: true,
+            handleChangeCount: true,
+            poolStatus: true,
+            twitterVerified: true,
+            moltbookHandle: true,
+            moltbookAutoPost: true,
+            twitterAutoPost: true,
+          },
+        })
+      : null;
+    const requiredProfileAction = ownedAgent
+      ? await (async () => {
+          const legacyIdentityRefreshState = await readLegacyIdentityRefreshState(ownedAgent.id);
+          return getLegacyIdentityRefreshAction({
+            createdAt: ownedAgent.createdAt,
+            handle: ownedAgent.handle,
+            handleChangeCount: ownedAgent.handleChangeCount,
+            legacyUsernameConfirmedAt: legacyIdentityRefreshState.legacyUsernameConfirmedAt,
+            legacyProfileRefreshedAt: legacyIdentityRefreshState.legacyProfileRefreshedAt,
+          });
+        })()
+      : null;
+
     return reply.send({
       owner: {
         id: request.ownerAccount.id,
@@ -522,7 +558,18 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           : null,
         x_oauth_available: hasXOAuthConfig(),
       },
-      agent: request.ownerAccount.agent,
+      agent: ownedAgent
+        ? {
+            id: ownedAgent.id,
+            handle: ownedAgent.handle,
+            pool_status: ownedAgent.poolStatus,
+            twitter_verified: ownedAgent.twitterVerified,
+            moltbook_handle: ownedAgent.moltbookHandle,
+            moltbook_auto_post: ownedAgent.moltbookAutoPost,
+            twitter_auto_post: ownedAgent.twitterAutoPost,
+          }
+        : null,
+      required_profile_action: requiredProfileAction,
     });
   });
 
@@ -1658,6 +1705,66 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       instagram_handle: updated.instagramHandle,
       extra_socials: updated.extraSocials ?? null,
     });
+  });
+
+  fastify.put('/owner/agent/socials', { preHandler: requireOwnerAuth }, async (request, reply) => {
+    const parsed = OwnerAgentSocialsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid owner agent socials payload.', { issues: parsed.error.issues });
+    }
+
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const updated = await prisma.agent.update({
+      where: { id: agentId },
+      data: {
+        moltbookHandle: parsed.data.moltbook_handle === undefined ? undefined : (parsed.data.moltbook_handle || null),
+        moltbookAutoPost: parsed.data.moltbook_auto_post,
+        twitterAutoPost: parsed.data.twitter_auto_post,
+      },
+      select: {
+        moltbookHandle: true,
+        moltbookAutoPost: true,
+        twitterAutoPost: true,
+      },
+    });
+
+    return reply.send({
+      moltbook_handle: updated.moltbookHandle,
+      moltbook_auto_post: updated.moltbookAutoPost,
+      twitter_auto_post: updated.twitterAutoPost,
+    });
+  });
+
+  fastify.put('/owner/agent/pool', { preHandler: requireOwnerAuth, config: { rateLimit: publicVerifyLimit } }, async (request, reply) => {
+    const parsed = PoolPauseSchema.safeParse(request.body);
+    if (!parsed.success) return Errors.badRequest(reply, 'active (boolean) is required.');
+
+    const agentId = request.ownerAccount.agent?.id;
+    if (!agentId) return Errors.notFound(reply, 'Owned agent');
+
+    const newStatus = parsed.data.active ? 'active' : 'paused';
+
+    if (parsed.data.active) {
+      const agent = await prisma.agent.findUnique({
+        where: { id: agentId },
+        select: { poolStatus: true, publicCardCompletedAt: true, profileDeckCompletedAt: true },
+      });
+      if (!agent) return Errors.notFound(reply, 'Owned agent');
+      if (agent.poolStatus === 'pending_profile' && !agent.profileDeckCompletedAt) {
+        return Errors.badRequest(reply, 'Cannot activate pool: complete your profile deck first.');
+      }
+      if (agent.poolStatus !== 'pending_profile' && !agent.profileDeckCompletedAt && !agent.publicCardCompletedAt) {
+        return Errors.badRequest(reply, 'Cannot activate pool: complete your profile deck first.');
+      }
+      if (agent.poolStatus === 'deleted') {
+        return Errors.forbidden(reply);
+      }
+    }
+
+    await prisma.agent.update({ where: { id: agentId }, data: { poolStatus: newStatus } });
+    return reply.send({ pool_status: newStatus });
   });
 
   fastify.put('/owner/preferences', { preHandler: requireOwnerAuth }, async (request, reply) => {

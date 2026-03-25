@@ -11,6 +11,7 @@ import { Errors, sendError } from '../lib/errors.js';
 import { emitRevealChatLifecycleEvent, resetRevealChatRuntimeState } from './revealChat.js';
 import {
   applyModerationResolution,
+  applyHiddenTagAction,
   applyDatabaseResetAction,
   applyPlatformFreshStartAction,
   applyLifecycleAction,
@@ -85,6 +86,11 @@ const PublicPresenceActionSchema = ReasonSchema.extend({
     'set_feed_visible',
     'set_artifacts_visible',
   ]),
+  enabled: z.boolean(),
+});
+
+const HiddenTagActionSchema = ReasonSchema.extend({
+  action: z.enum(['set_x_verification_exempt']),
   enabled: z.boolean(),
 });
 
@@ -423,6 +429,28 @@ export async function controlRoutes(fastify: FastifyInstance) {
 
     try {
       const result = await applyPublicPresenceAction({
+        agentId: id,
+        actor: request.controlActor!,
+        action: parsed.data.action,
+        enabled: parsed.data.enabled,
+        reason: parsed.data.reason,
+        severity: parsed.data.severity,
+      });
+      return reply.send(result);
+    } catch (err) {
+      return handleControlError(reply, err);
+    }
+  });
+
+  fastify.post('/internal/agents/:id/actions/hidden-tags', { preHandler: requireControlAccess, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = HiddenTagActionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid hidden-tag action.', { issues: parsed.error.issues });
+    }
+
+    try {
+      const result = await applyHiddenTagAction({
         agentId: id,
         actor: request.controlActor!,
         action: parsed.data.action,

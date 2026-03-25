@@ -8,12 +8,17 @@ function deriveSyncedPoolStatus(input: {
   profileDeckCompletedAt: Date | null;
   publicCardCompletedAt: Date | null;
   requireXVerification: boolean;
+  safetyFlags: string[] | null;
 }) {
   if (input.currentPoolStatus === 'deleted') return 'deleted';
   if (input.moderationStatus === 'suspended') return 'paused';
   if (input.currentPoolStatus === 'paused') return 'paused';
   if (input.currentPoolStatus === 'dormant') return 'dormant';
-  if (!isXVerificationSatisfied(input.twitterVerified, { requireEmailVerification: true, requireXVerification: input.requireXVerification })) {
+  if (!isXVerificationSatisfied(
+    input.twitterVerified,
+    { requireEmailVerification: true, requireXVerification: input.requireXVerification },
+    Boolean(input.safetyFlags?.includes('x_verification_exempt')),
+  )) {
     return 'pending_verification';
   }
   if (!input.profileDeckCompletedAt && !input.publicCardCompletedAt) {
@@ -36,6 +41,7 @@ export async function syncAgentXVerificationState(input: {
         moderationStatus: true,
         profileDeckCompletedAt: true,
         publicCardCompletedAt: true,
+        safetyFlags: true,
       },
     }),
   ]);
@@ -49,6 +55,7 @@ export async function syncAgentXVerificationState(input: {
     profileDeckCompletedAt: agent.profileDeckCompletedAt,
     publicCardCompletedAt: agent.publicCardCompletedAt,
     requireXVerification: requirements.requireXVerification,
+    safetyFlags: agent.safetyFlags,
   });
 
   return prisma.agent.update({
