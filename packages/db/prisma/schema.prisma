@@ -689,7 +689,7 @@ model Artifact {
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  episode          Episode?           @relation(fields: [episodeId], references: [id])
+  episode          Episode?           @relation(fields: [episodeId], references: [id], onDelete: Restrict)
   creator          Agent              @relation(fields: [creatorAgentId], references: [id])
   mediaAsset       MediaAsset?        @relation("ArtifactMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
   diaryEntries     AgentDiaryEntry[]
