@@ -67,9 +67,13 @@ function extractSignalTags(signal: unknown): string[] {
   return [...interests, ...values].filter((value): value is string => typeof value === 'string');
 }
 
-function buildPoolShuffleSeed(mode: 'all' | ProfileDeckMode, viewerAgentId?: string | null) {
-  const daySeed = new Date().toISOString().slice(0, 10);
-  return `${daySeed}:${mode}:${viewerAgentId ?? 'guest'}`;
+function buildPoolShuffleSeed(
+  mode: 'all' | ProfileDeckMode,
+  viewerAgentId?: string | null,
+  customSeed?: string | null,
+) {
+  const baseSeed = customSeed?.trim() || new Date().toISOString().slice(0, 10);
+  return `${baseSeed}:${mode}:${viewerAgentId ?? 'guest'}`;
 }
 
 function buildPoolShuffleScore(agentId: string, seed: string) {
@@ -770,7 +774,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/public/pool', { config: { rateLimit: readLimit } }, async (request, reply) => {
-    const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string };
+    const query = request.query as { cursor?: string; limit?: string; mode?: string; sort?: string; seed?: string };
     const offset = Math.max(0, Number.parseInt(query.cursor ?? '0', 10) || 0);
     const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit ?? '12', 10) || 12));
     const fetchCount = Math.min(500, Math.max(limit * 3, offset + (limit * 3)));
@@ -785,7 +789,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     const viewer = await resolveOptionalViewer(request);
     const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
 
-    const shuffleSeed = buildPoolShuffleSeed(mode, discovery?.viewerAgentId);
+    const shuffleSeed = buildPoolShuffleSeed(mode, discovery?.viewerAgentId, typeof query.seed === 'string' ? query.seed : null);
     const agents = await prisma.agent.findMany({
       where: {
         poolStatus: 'active',

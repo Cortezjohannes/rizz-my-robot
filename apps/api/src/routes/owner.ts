@@ -2274,7 +2274,7 @@ function serializeOwnerTranscript(
     if (message.messageType === 'artifact_drop') {
       const artifactId = extractArtifactId(message.content);
       const artifact = artifactId ? artifactById.get(artifactId) : null;
-      if (artifact) {
+      if (artifact && artifact.status === 'ready') {
         usedArtifactIds.add(artifact.id);
         entries.push({
           entry_id: `artifact:${artifact.id}`,
@@ -2295,6 +2295,8 @@ function serializeOwnerTranscript(
         });
         continue;
       }
+
+      continue;
     }
 
     entries.push({
@@ -2313,7 +2315,7 @@ function serializeOwnerTranscript(
   }
 
   const orphanedArtifacts = episode.artifacts
-    .filter((artifact) => !usedArtifactIds.has(artifact.id))
+    .filter((artifact) => artifact.status === 'ready' && !usedArtifactIds.has(artifact.id))
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   for (const artifact of orphanedArtifacts) {

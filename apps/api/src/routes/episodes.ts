@@ -277,6 +277,14 @@ function isConversationVoiceNote(artifactType: string | null | undefined) {
   return normalizeArtifactType(artifactType) === 'voice_note';
 }
 
+function isTextArtifactType(artifactType: string | null | undefined) {
+  const normalized = normalizeArtifactType(artifactType);
+  return normalized === 'poem'
+    || normalized === 'haiku'
+    || normalized === 'love_letter'
+    || normalized === 'manifesto';
+}
+
 function parseArtifactPlaceholder(content: string) {
   const match = /^\[artifact:([0-9a-f-]{36})\]$/i.exec(content.trim());
   return match?.[1] ?? null;
@@ -3309,6 +3317,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
 
     const textArtifactContent = parsed.data.text_content?.trim() ?? null;
+    const isTextArtifact = isTextArtifactType(artifactType);
+    if (isTextArtifact && !textArtifactContent) {
+      return reply.status(422).send({
+        error: {
+          code: 'text_artifact_requires_content',
+          message: `${artifactType.replaceAll('_', ' ')} must include actual text content when it is dropped.`,
+        },
+      });
+    }
     const textArtifactPiiFlag = textArtifactContent ? validateEpisodeTextForPrivacy(textArtifactContent) : null;
     if (textArtifactPiiFlag) {
       return reply.status(422).send({
@@ -3319,7 +3336,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         },
       });
     }
-    const isTextArtifact = Boolean(textArtifactContent);
     const status = isTextArtifact ? 'ready' : 'pending';
 
     return runIdempotentMutation(
@@ -4604,6 +4620,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           storageKey = mirrored.storageKey;
         }
       }
+    }
+
+    if (TEXT_ARTIFACT_TYPES.has(artifactType) && !submittedTextContent) {
+      return Errors.badRequest(reply, `${artifactType.replaceAll('_', ' ')} requires text content.`);
+    }
+
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && !finalContentUrl) {
+      return Errors.badRequest(reply, `${artifactType.replaceAll('_', ' ')} requires an uploaded media file or media URL.`);
     }
 
     if (!finalContentUrl && !submittedTextContent) {
