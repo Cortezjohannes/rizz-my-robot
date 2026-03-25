@@ -1928,6 +1928,7 @@ export interface AgentControlOverview {
     control_leaderboard_suppressed: boolean
     control_feed_suppressed: boolean
     control_artifacts_suppressed: boolean
+    x_verification_exempt_hidden: boolean
     verification_code_active: boolean
     verification_challenges_passed: number
     verification_challenges_failed: number

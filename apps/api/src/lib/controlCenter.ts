@@ -2,7 +2,7 @@ import { Prisma, prisma } from '@rmr/db';
 import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 import type { ControlActorContext } from '../middleware/requireControlAccess.js';
 import { recordAuditLog } from './audit.js';
-import { getVerificationRequirements, setVerificationRequirements, derivePoolStatusFromVerification } from './controlSettings.js';
+import { getVerificationRequirements, setVerificationRequirements, derivePoolStatusFromVerification, X_VERIFICATION_EXEMPT_FLAG } from './controlSettings.js';
 import { backupAndResetDatabase, FULL_DATABASE_WIPE_PRESERVED_TABLES } from './databaseReset.js';
 import { backupAndFreshStartPlatform, PLATFORM_FRESH_START_PRESERVED_TABLES } from './platformRestart.js';
 import {
@@ -40,6 +40,7 @@ export type PublicPresenceAction =
   | 'set_leaderboard_visible'
   | 'set_feed_visible'
   | 'set_artifacts_visible';
+export type HiddenTagAction = 'set_x_verification_exempt';
 export type ModerationResolutionAction = 'none' | 'soft_hold' | 'blocked' | 'suspend_agent' | 'clear';
 export type FeaturedFeedItemKind = 'agent_profile' | 'artifact' | 'episode';
 
@@ -366,6 +367,7 @@ function snapshotAgent(agent: {
   controlLeaderboardSuppressed: boolean;
   controlFeedSuppressed: boolean;
   controlArtifactsSuppressed: boolean;
+  safetyFlags: string[];
 }) {
   return {
     agent_id: agent.id,
@@ -394,6 +396,7 @@ function snapshotAgent(agent: {
     control_leaderboard_suppressed: agent.controlLeaderboardSuppressed,
     control_feed_suppressed: agent.controlFeedSuppressed,
     control_artifacts_suppressed: agent.controlArtifactsSuppressed,
+    x_verification_exempt_hidden: agent.safetyFlags.includes(X_VERIFICATION_EXEMPT_FLAG),
   };
 }
 
@@ -441,6 +444,7 @@ async function loadAgentForControl(agentId: string) {
       controlLeaderboardSuppressed: true,
       controlFeedSuppressed: true,
       controlArtifactsSuppressed: true,
+      safetyFlags: true,
       ownerAccount: {
         select: {
           id: true,
@@ -458,6 +462,7 @@ async function deriveRestorePoolStatus(agent: {
   moderationStatus: string;
   twitterVerified: boolean;
   profileDeckCompletedAt: Date | null;
+  safetyFlags?: string[] | null;
 }) {
   const requirements = await getVerificationRequirements();
   return derivePoolStatusFromVerification({
@@ -465,6 +470,7 @@ async function deriveRestorePoolStatus(agent: {
     twitterVerified: agent.twitterVerified,
     profileDeckCompletedAt: agent.profileDeckCompletedAt,
     requirements,
+    safetyFlags: agent.safetyFlags,
   });
 }
 
@@ -2010,6 +2016,7 @@ export async function applyResetAction(input: {
             moderationStatus: existing.moderationStatus,
             twitterVerified: false,
             profileDeckCompletedAt: existing.profileDeckCompletedAt,
+            safetyFlags: existing.safetyFlags,
           }),
           isActive: true,
         },
@@ -2029,6 +2036,7 @@ export async function applyResetAction(input: {
           moderationStatus: existing.moderationStatus,
           twitterVerified: false,
           profileDeckCompletedAt: existing.profileDeckCompletedAt,
+          safetyFlags: existing.safetyFlags,
         }),
       },
     });
@@ -2041,6 +2049,67 @@ export async function applyResetAction(input: {
   await writeControlAudit({
     actor: input.actor,
     action: `control.reset.${input.action}`,
+    targetType: 'agent',
+    targetId: input.agentId,
+    reason: input.reason,
+    severity: input.severity,
+    before,
+    after,
+    controlSurface: getControlSurfaceName(input.actor),
+    agentId: input.agentId,
+  });
+
+  return buildActionResult({
+    actor: input.actor,
+    targetType: 'agent',
+    targetId: input.agentId,
+    before,
+    after,
+  });
+}
+
+export async function applyHiddenTagAction(input: {
+  agentId: string;
+  actor: ControlActorContext;
+  action: HiddenTagAction;
+  enabled: boolean;
+  reason: string;
+  severity?: ControlSeverity;
+}) {
+  const existing = await loadAgentForControl(input.agentId);
+  if (!existing) throw new Error('agent_not_found');
+
+  const before = snapshotAgent(existing);
+  const nextFlags = new Set(existing.safetyFlags);
+
+  if (input.action === 'set_x_verification_exempt') {
+    if (input.enabled) nextFlags.add(X_VERIFICATION_EXEMPT_FLAG);
+    else nextFlags.delete(X_VERIFICATION_EXEMPT_FLAG);
+  }
+
+  const nextSafetyFlags = [...nextFlags];
+  const nextPoolStatus = await deriveRestorePoolStatus({
+    moderationStatus: existing.moderationStatus,
+    twitterVerified: existing.twitterVerified,
+    profileDeckCompletedAt: existing.profileDeckCompletedAt,
+    safetyFlags: nextSafetyFlags,
+  });
+
+  await prisma.agent.update({
+    where: { id: input.agentId },
+    data: {
+      safetyFlags: { set: nextSafetyFlags },
+      poolStatus: nextPoolStatus,
+    },
+  });
+
+  const updated = await loadAgentForControl(input.agentId);
+  if (!updated) throw new Error('agent_not_found');
+  const after = snapshotAgent(updated);
+
+  await writeControlAudit({
+    actor: input.actor,
+    action: `control.hidden_tag.${input.action}`,
     targetType: 'agent',
     targetId: input.agentId,
     reason: input.reason,

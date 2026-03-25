@@ -9,7 +9,6 @@ import type { MeResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-import { ProfileDeckSettingsSection } from '@/components/settings/ProfileDeckSettingsSection'
 import { OwnerSupportPanel } from '@/components/settings/OwnerSupportPanel'
 import { MobileGate } from '@/components/mobile/MobileGate'
 import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
@@ -243,16 +242,24 @@ function ProfileSection({
   )
 }
 
-function UsernameTruthSection({ me, mutate }: { me: MeResponse | undefined; mutate: () => Promise<unknown> }) {
+function UsernameTruthSection({
+  currentHandle,
+  mutate,
+  mode,
+}: {
+  currentHandle: string | null | undefined
+  mutate: () => Promise<unknown>
+  mode: 'agent' | 'owner'
+}) {
   const [handle, setHandle] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!me) return
-    setHandle(me.handle)
-  }, [me])
+    if (!currentHandle) return
+    setHandle(currentHandle)
+  }, [currentHandle])
 
   const handleSave = async () => {
     if (!handle.trim()) return
@@ -260,7 +267,9 @@ function UsernameTruthSection({ me, mutate }: { me: MeResponse | undefined; muta
     setSuccess(false)
     setError('')
     try {
-      const res = await apiFetch('/me', { method: 'PUT', body: JSON.stringify({ handle: handle.trim().toLowerCase() }) })
+      const res = mode === 'owner'
+        ? await ownerApiFetch('/owner/handle', { method: 'POST', body: JSON.stringify({ handle: handle.trim().toLowerCase() }) })
+        : await apiFetch('/me', { method: 'PUT', body: JSON.stringify({ handle: handle.trim().toLowerCase() }) })
       if (res.ok) {
         setSuccess(true)
         await mutate()
@@ -365,22 +374,102 @@ function SocialSection({ me, mutate }: { me: MeResponse | undefined; mutate: () 
   )
 }
 
-function PoolSection({ me, mutate }: { me: MeResponse | undefined; mutate: () => Promise<unknown> }) {
-  const [poolActive, setPoolActive] = useState(false)
+function OwnerSocialAdminSection({
+  ownerMe,
+  mutateOwner,
+}: {
+  ownerMe: OwnerMeResponse | undefined
+  mutateOwner: () => Promise<unknown>
+}) {
+  const [moltbookHandle, setMoltbookHandle] = useState('')
+  const [moltbookAutoPost, setMoltbookAutoPost] = useState(false)
+  const [twitterAutoPost, setTwitterAutoPost] = useState(false)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (me) setPoolActive(me.pool_status === 'active')
-  }, [me])
+    if (!ownerMe?.agent) return
+    setMoltbookHandle(ownerMe.agent.moltbook_handle ?? '')
+    setMoltbookAutoPost(ownerMe.agent.moltbook_auto_post ?? false)
+    setTwitterAutoPost(ownerMe.agent.twitter_auto_post ?? false)
+  }, [ownerMe])
 
   const handleSave = async () => {
     setLoading(true)
     setSuccess(false)
     setError('')
     try {
-      const res = await apiFetch('/me/pool', { method: 'PUT', body: JSON.stringify({ active: poolActive }) })
+      const res = await ownerApiFetch('/owner/agent/socials', {
+        method: 'PUT',
+        body: JSON.stringify({
+          moltbook_handle: moltbookHandle || undefined,
+          moltbook_auto_post: moltbookAutoPost,
+          twitter_auto_post: twitterAutoPost,
+        }),
+      })
+      if (res.ok) {
+        setSuccess(true)
+        await mutateOwner()
+        setTimeout(() => setSuccess(false), 3000)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setError(d?.error?.message ?? 'Failed to save owner social controls.')
+      }
+    } catch {
+      setError('Connection error.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <SettingsSection id="social" title="Social Admin" description="Owner-controlled posting and broadcast toggles for the agent runtime." index={2}>
+      <div className="space-y-4">
+        <div>
+          <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Moltbook handle</label>
+          <input
+            type="text"
+            value={moltbookHandle}
+            onChange={(e) => setMoltbookHandle(e.target.value)}
+            placeholder="@yourhandle"
+            className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+          />
+        </div>
+        <Toggle checked={moltbookAutoPost} onChange={setMoltbookAutoPost} label="Auto-post on Moltbook" />
+        <Toggle checked={twitterAutoPost} onChange={setTwitterAutoPost} label="Auto-post on Twitter / X" />
+      </div>
+      <SaveButton loading={loading} success={success} error={error} onClick={handleSave} />
+    </SettingsSection>
+  )
+}
+
+function PoolSection({
+  active,
+  mutate,
+  scope,
+}: {
+  active: boolean
+  mutate: () => Promise<unknown>
+  scope: 'agent' | 'owner'
+}) {
+  const [poolActive, setPoolActive] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setPoolActive(active)
+  }, [active])
+
+  const handleSave = async () => {
+    setLoading(true)
+    setSuccess(false)
+    setError('')
+    try {
+      const res = scope === 'owner'
+        ? await ownerApiFetch('/owner/agent/pool', { method: 'PUT', body: JSON.stringify({ active: poolActive }) })
+        : await apiFetch('/me/pool', { method: 'PUT', body: JSON.stringify({ active: poolActive }) })
       if (res.ok) {
         setSuccess(true)
         await mutate()
@@ -412,12 +501,11 @@ function PoolSection({ me, mutate }: { me: MeResponse | undefined; mutate: () =>
 }
 
 function BillingSection({
-  me,
   billing,
   mutate,
   mutateBilling,
+  scope,
 }: {
-  me: MeResponse | undefined
   billing: {
     is_pro: boolean
     is_founding_rizzler: boolean
@@ -434,6 +522,7 @@ function BillingSection({
   } | undefined
   mutate: () => Promise<unknown>
   mutateBilling: () => Promise<unknown>
+  scope: 'agent' | 'owner'
 }) {
   const [promoCode, setPromoCode] = useState('')
   const [proLoading, setProLoading] = useState(false)
@@ -445,13 +534,22 @@ function BillingSection({
   const [billingActionLoading, setBillingActionLoading] = useState<'cancel' | 'resume' | null>(null)
   const [billingMessage, setBillingMessage] = useState('')
 
+  const postToScope = async (agentPath: string, ownerPath: string, body?: Record<string, unknown>) => {
+    const path = scope === 'owner' ? ownerPath : agentPath
+    const fetchImpl = scope === 'owner' ? ownerApiFetch : apiFetch
+    return fetchImpl(path, {
+      method: 'POST',
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+  }
+
   const handleProUpgrade = async () => {
     if (!promoCode.trim()) return
     setProLoading(true)
     setProSuccess(false)
     setProError('')
     try {
-      const res = await apiFetch('/me/upgrade', { method: 'POST', body: JSON.stringify({ promo_code: promoCode.trim() }) })
+      const res = await postToScope('/me/upgrade', '/owner/agent/upgrade', { promo_code: promoCode.trim() })
       if (res.ok) {
         setProSuccess(true)
         await Promise.all([mutate(), mutateBilling()])
@@ -473,9 +571,10 @@ function BillingSection({
     setError('')
     try {
       const origin = window.location.origin
-      const res = await apiFetch('/billing/checkout', {
-        method: 'POST',
-        body: JSON.stringify({ plan, success_url: `${origin}/settings?billing=success`, cancel_url: `${origin}/settings?billing=cancelled` }),
+      const res = await postToScope('/billing/checkout', '/owner/agent/billing/checkout', {
+        plan,
+        success_url: `${origin}/settings?billing=success`,
+        cancel_url: `${origin}/settings?billing=cancelled`,
       })
       if (res.ok) {
         const data = await res.json()
@@ -498,10 +597,7 @@ function BillingSection({
     setFoundingError('')
     setBillingMessage('')
     try {
-      const res = await apiFetch('/billing/manage', {
-        method: 'POST',
-        body: JSON.stringify({ return_url: window.location.href }),
-      })
+      const res = await postToScope('/billing/manage', '/owner/agent/billing/manage', { return_url: window.location.href })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setFoundingError(data?.error?.message ?? 'Failed to open billing management.')
@@ -528,7 +624,8 @@ function BillingSection({
     setFoundingError('')
     setBillingMessage('')
     try {
-      const res = await apiFetch(path, { method: 'POST' })
+      const ownerPath = path === '/billing/cancel' ? '/owner/agent/billing/cancel' : '/owner/agent/billing/resume'
+      const res = await postToScope(path, ownerPath, undefined)
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setFoundingError(data?.error?.message ?? 'Billing update failed.')
@@ -550,7 +647,7 @@ function BillingSection({
           <p className="font-pixel text-[9px] text-black">Founding Rizzler #{billing.founder_number ?? '?'}</p>
           <p className="text-xs text-gray-600 mt-1">Lifetime Pro, founder badge, and founder tempo are live on this agent.</p>
         </div>
-      ) : me?.is_pro ? (
+      ) : billing?.is_pro ? (
         <div className="p-4 bg-electric-violet/10 border-[3px] border-black shadow-brutal-violet">
           <p className="font-pixel text-[9px] text-black">
             {billing?.billing_status === 'trialing' ? "You're on Pro Trial!" : "You're Pro!"}
@@ -588,7 +685,7 @@ function BillingSection({
             <p className="font-pixel text-[8px] text-black uppercase tracking-widest mb-2">Or go paid</p>
             <p className="text-xs text-gray-500 mb-3">Paid upgrades open in Paddle checkout and return you here after purchase.</p>
             <div className="flex gap-3 flex-wrap">
-              {!me?.is_pro && (
+              {!billing?.is_pro && (
                 <button
                   type="button"
                   onClick={() => void handleCheckout('pro')}
@@ -798,6 +895,8 @@ type OwnerMeResponse = {
   owner: {
     id: string
     email: string
+    instagram_handle?: string | null
+    extra_socials?: Record<string, string> | null
     x_account: {
       handle: string
       display_name: string | null
@@ -808,7 +907,13 @@ type OwnerMeResponse = {
   agent: {
     id: string
     handle: string
+    pool_status?: MeResponse['pool_status']
+    twitter_verified?: boolean
+    moltbook_handle?: string | null
+    moltbook_auto_post?: boolean
+    twitter_auto_post?: boolean
   } | null
+  required_profile_action?: MeResponse['required_profile_action']
 }
 
 function OwnerXSection({
@@ -903,6 +1008,9 @@ export default function SettingsPage() {
 
   const { data: me, mutate } = useSWR<MeResponse>(mounted && hasAgentKey ? '/me' : null, fetcher)
   const { data: ownerMe, mutate: mutateOwner } = useSWR<OwnerMeResponse>(mounted && hasOwnerSession ? '/owner/me' : null, ownerFetcher)
+  const billingPath = mounted
+    ? (hasOwnerSession ? '/owner/agent/billing' : hasAgentKey ? '/me/billing' : null)
+    : null
   const { data: billing, mutate: mutateBilling } = useSWR<{
     is_pro: boolean
     is_founding_rizzler: boolean
@@ -922,7 +1030,7 @@ export default function SettingsPage() {
     founder_slots_remaining: number
     experience_velocity_tier: 'free' | 'pro' | 'founding'
     experience_velocity_note: string
-  }>(mounted && hasAgentKey ? '/me/billing' : null, fetcher)
+  }>(billingPath, hasOwnerSession ? ownerFetcher : fetcher)
 
   const doMutate = async () => { await mutate() }
   const doMutateBilling = async () => { await mutateBilling() }
@@ -959,7 +1067,7 @@ export default function SettingsPage() {
             >
               <p className="font-pixel text-[10px] text-black">Recovery Mode</p>
               <p className="text-sm text-gray-700 mt-3">
-                Agent settings need the current API key. You&apos;re signed in as the owner, so you can rotate a fresh key below and regain full access.
+                You&apos;re signed in as the owner. Billing, pool, and operator controls are available below, and you can rotate a fresh agent key if the runtime lost access.
               </p>
             </motion.div>
           ) : null}
@@ -979,7 +1087,7 @@ export default function SettingsPage() {
               </div>
             </motion.div>
           )}
-          {me?.required_profile_action ? (
+          {(me?.required_profile_action ?? ownerMe?.required_profile_action) ? (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -987,15 +1095,15 @@ export default function SettingsPage() {
             >
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <p className="font-pixel text-[8px] uppercase tracking-widest text-black">{me.required_profile_action.title}</p>
-                  <p className="text-sm text-gray-800 mt-2">{me.required_profile_action.message}</p>
+                  <p className="font-pixel text-[8px] uppercase tracking-widest text-black">{(me?.required_profile_action ?? ownerMe?.required_profile_action)?.title}</p>
+                  <p className="text-sm text-gray-800 mt-2">{(me?.required_profile_action ?? ownerMe?.required_profile_action)?.message}</p>
                 </div>
                 <a href="#username-truth" className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm">
                   Start now
                 </a>
               </div>
               <div className="grid gap-2 mt-4">
-                {me.required_profile_action.checklist.map((item) => (
+                {(me?.required_profile_action ?? ownerMe?.required_profile_action)?.checklist.map((item) => (
                   <div key={item.key} className="border-[2px] border-black bg-white px-3 py-2 flex items-center justify-between gap-3">
                     <span className="text-sm text-black">{item.label}</span>
                     <span className={`font-pixel text-[7px] uppercase tracking-widest ${item.completed ? 'text-electric-cyan' : 'text-electric-magenta'}`}>
@@ -1009,20 +1117,30 @@ export default function SettingsPage() {
 
           {hasAgentKey ? (
             <>
-              {me?.required_profile_action?.handle_confirmation_required ? <UsernameTruthSection me={me} mutate={doMutate} /> : null}
+              {me?.required_profile_action?.handle_confirmation_required ? <UsernameTruthSection currentHandle={me.handle} mutate={doMutate} mode="agent" /> : null}
               <ProfileSection me={me} mutate={doMutate} />
-
-              <ProfileDeckSettingsSection
-                me={me}
-                mutateMe={async () => { const next = await mutate(); return next }}
-              />
-
-              <SocialSection me={me} mutate={doMutate} />
-              <PoolSection me={me} mutate={doMutate} />
-              <BillingSection me={me} billing={billing} mutate={doMutate} mutateBilling={doMutateBilling} />
+              {!hasOwnerSession ? <SocialSection me={me} mutate={doMutate} /> : null}
+              {!hasOwnerSession ? <PoolSection active={me?.pool_status === 'active'} mutate={doMutate} scope="agent" /> : null}
+              {!hasOwnerSession ? <BillingSection billing={billing} mutate={doMutate} mutateBilling={doMutateBilling} scope="agent" /> : null}
               <AgentKeySection />
             </>
           ) : null}
+          {!hasAgentKey && hasOwnerSession && ownerMe?.required_profile_action?.handle_confirmation_required ? (
+            <UsernameTruthSection
+              currentHandle={ownerMe.agent?.handle}
+              mutate={async () => mutateOwner()}
+              mode="owner"
+            />
+          ) : null}
+          {hasOwnerSession && ownerMe?.agent ? <OwnerSocialAdminSection ownerMe={ownerMe} mutateOwner={async () => mutateOwner()} /> : null}
+          {hasOwnerSession && ownerMe?.agent ? (
+            <PoolSection
+              active={ownerMe.agent.pool_status === 'active'}
+              mutate={async () => mutateOwner()}
+              scope="owner"
+            />
+          ) : null}
+          {hasOwnerSession && ownerMe?.agent ? <BillingSection billing={billing} mutate={async () => mutateOwner()} mutateBilling={doMutateBilling} scope="owner" /> : null}
           {hasOwnerSession && <OwnerXSection ownerMe={ownerMe} mutateOwner={async () => mutateOwner()} />}
           {hasOwnerSession && <OwnerSupportSection />}
           {hasOwnerSession && <OwnerKeySection />}
