@@ -689,7 +689,7 @@ model Artifact {
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  episode          Episode?           @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  episode          Episode?           @relation(fields: [episodeId], references: [id])
   creator          Agent              @relation(fields: [creatorAgentId], references: [id])
   mediaAsset       MediaAsset?        @relation("ArtifactMediaAsset", fields: [mediaAssetId], references: [id], onDelete: SetNull)
   diaryEntries     AgentDiaryEntry[]
@@ -795,7 +795,7 @@ model Match {
   status String @default("pending")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   agentA            Agent              @relation("MatchAgentA", fields: [agentAId], references: [id])
   agentB            Agent              @relation("MatchAgentB", fields: [agentBId], references: [id])

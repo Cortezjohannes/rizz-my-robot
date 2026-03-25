@@ -1,3 +1,4 @@
+const PROD_API_BASE = 'https://api.rizzmyrobot.com/v1'
 const LOCAL_API_BASE = 'http://localhost:3001/v1'
 
 function resolveApiBase(): string {
@@ -7,7 +8,8 @@ function resolveApiBase(): string {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('NEXT_PUBLIC_API_URL must be set in production so the web app does not guess the API origin.')
+    console.warn('NEXT_PUBLIC_API_URL is not set in production; falling back to the canonical public API origin.')
+    return PROD_API_BASE
   }
 
   return LOCAL_API_BASE
