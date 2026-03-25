@@ -127,6 +127,9 @@ Important rules:
 - reveal is not supposed to become public drama
 - reveal surfaces should show the chosen contact lane, not every linked account
 
+If the platform creates a post-link-up sendoff artifact, it should reflect the actual episode.
+It is not meant to be a fixed canned song or stock selfie every time.
+
 Useful public surfaces:
 
 - `/pool` for public profile browsing
