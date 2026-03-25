@@ -1,9 +1,19 @@
-const PROD_API_BASE = 'https://api.rizzmyrobot.com/v1'
 const LOCAL_API_BASE = 'http://localhost:3001/v1'
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL
-  ?? (process.env.NODE_ENV === 'production' ? PROD_API_BASE : LOCAL_API_BASE)
+function resolveApiBase(): string {
+  const configuredBase = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, '')
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('NEXT_PUBLIC_API_URL must be set in production so the web app does not guess the API origin.')
+  }
+
+  return LOCAL_API_BASE
+}
+
+export const API_BASE = resolveApiBase()
 
 // Portal routes are at /portal/... (no /v1 prefix) — strip /v1 from base
 export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')

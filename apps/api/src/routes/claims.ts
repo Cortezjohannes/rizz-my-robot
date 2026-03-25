@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { prisma } from '@rmr/db';
+import { z } from 'zod';
 import {
   ClaimEmailSchema,
   ClaimRestartSchema,
@@ -147,6 +148,10 @@ async function findClaimByToken(token: string) {
   });
 }
 
+const ClaimCompleteSchema = z.object({
+  claim_token: z.string().trim().min(32).max(255),
+});
+
 export async function claimsRoutes(fastify: FastifyInstance) {
   fastify.get('/handles/:handle/availability', { config: { rateLimit: publicReadLimit } }, async (request, reply) => {
     const params = request.params as { handle: string };
@@ -204,8 +209,6 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         ? existingClaim
         : null;
 
-    const shouldRestart = Boolean(parsed.data.restart && activeExistingClaim);
-
     const available = await isHandleAvailable(parsed.data.handle, {
       excludeClaimId: existingClaim?.id,
     });
@@ -213,77 +216,12 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
     }
 
-    if (shouldRestart && activeExistingClaim) {
-      const token = generateClaimToken(activeExistingClaim.id);
-      const tokenHash = hashClaimToken(token);
-      const expiresAt = claimExpiryDate();
-
-      const [claim] = await prisma.$transaction([
-        prisma.agentClaim.update({
-          where: { id: activeExistingClaim.id },
-          data: {
-            tokenHash,
-            status: 'pending_email',
-            ownerAccountId: null,
-            twitterHandle: null,
-            identityMd: parsed.data.identity_md,
-            soulMd: parsed.data.soul_md,
-            reservedHandle: parsed.data.handle,
-            expiresAt,
-            emailVerificationCodeHash: null,
-            emailVerificationExpiresAt: null,
-            emailVerifiedAt: null,
-            xVerificationCode: null,
-            xVerificationExpiresAt: null,
-            xOauthCodeVerifier: null,
-            xOauthNonce: null,
-            xVerifiedAt: null,
-            completedAt: null,
-            canceledAt: null,
-          },
-          select: {
-            id: true,
-            status: true,
-            openclawAgentId: true,
-            twitterHandle: true,
-            identityMd: true,
-            reservedHandle: true,
-            expiresAt: true,
-            emailVerifiedAt: true,
-            xVerifiedAt: true,
-          },
-        }),
-        prisma.handleReservation.upsert({
-          where: { claimId: activeExistingClaim.id },
-          update: {
-            handle: parsed.data.handle,
-            expiresAt,
-          },
-          create: {
-            claimId: activeExistingClaim.id,
-            handle: parsed.data.handle,
-            expiresAt,
-          },
-        }),
-      ]);
-
-      return reply.status(200).send({
-        ...claimPreview(claim, token),
-        email_verified: false,
-        x_verified: false,
-        ...serializeVerificationRequirements(verificationRequirements),
-        restarted: true,
-      });
-    }
-
     if (activeExistingClaim) {
-      const activeToken = await rotateClaimToken(activeExistingClaim.id);
-      return reply.status(200).send({
-        ...claimPreview(activeExistingClaim, activeToken),
-        email_verified: !!activeExistingClaim.emailVerifiedAt,
-        x_verified: !!activeExistingClaim.xVerifiedAt,
-        ...serializeVerificationRequirements(verificationRequirements),
-      });
+      return Errors.conflict(
+        reply,
+        'claim_in_progress',
+        'This agent already has an active claim. Open the existing claim link or use the token-protected restart flow.',
+      );
     }
 
     const claimId = existingClaim?.id ?? randomUUID();
@@ -1170,6 +1108,10 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
   fastify.post('/claims/:id/complete', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const parsed = ClaimCompleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid claim completion payload.', { issues: parsed.error.issues });
+    }
     await expireStaleClaims();
     const verificationRequirements = await getVerificationRequirements();
 
@@ -1181,6 +1123,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       },
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
+    if (hashClaimToken(parsed.data.claim_token) !== claim.tokenHash) {
+      return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
+    }
     if (!claim.ownerAccount || !claim.ownerAccountId) return Errors.staleState(reply, 'Claim has no verified owner.');
     if (!isEmailVerificationSatisfied(Boolean(claim.emailVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'Email verification is incomplete.');
     if (!isXVerificationSatisfied(Boolean(claim.xVerifiedAt), verificationRequirements)) return Errors.staleState(reply, 'X verification is incomplete.');

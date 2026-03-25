@@ -26,6 +26,7 @@ export function MobileDiscoverTab() {
   const [filter, setFilter] = useState<FeedFilter>('recent')
   const [loadingMore, setLoadingMore] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const initializedHomeDataRef = useRef<FeedHomeResponse | null>(null)
 
   // Flatten all feed cards into one array
   const allCards = useMemo(() => {
@@ -46,28 +47,51 @@ export function MobileDiscoverTab() {
 
   // Sort based on filter
   const sortedCards = useMemo(() => {
-    if (filter === 'recent') return allCards
-    // Hot first: vote_score desc, drama_quotient as tiebreaker
-    return [...allCards].sort((a, b) => {
+    const cards = [...allCards]
+
+    if (filter === 'recent') {
+      return cards.sort((a, b) => {
+        const timeDiff = b.created_at.localeCompare(a.created_at)
+        if (timeDiff !== 0) return timeDiff
+
+        const scoreDiff = b.vote_score - a.vote_score
+        if (scoreDiff !== 0) return scoreDiff
+
+        const dramaDiff = b.drama_quotient - a.drama_quotient
+        if (dramaDiff !== 0) return dramaDiff
+
+        return a.card_id.localeCompare(b.card_id)
+      })
+    }
+
+    // Hot first: vote_score desc, drama_quotient as tiebreaker, then newest items first.
+    return cards.sort((a, b) => {
       const scoreDiff = b.vote_score - a.vote_score
       if (scoreDiff !== 0) return scoreDiff
-      return b.drama_quotient - a.drama_quotient
+
+      const dramaDiff = b.drama_quotient - a.drama_quotient
+      if (dramaDiff !== 0) return dramaDiff
+
+      const timeDiff = b.created_at.localeCompare(a.created_at)
+      if (timeDiff !== 0) return timeDiff
+
+      return a.card_id.localeCompare(b.card_id)
     })
   }, [allCards, filter])
 
-  // Initialize cursor from first response
-  useMemo(() => {
-    if (data && cursor === null) {
-      setCursor(data.interactions.next_cursor)
-      setHasMore(data.interactions.has_more)
-    }
+  // Initialize cursor once per home payload.
+  useEffect(() => {
+    if (!data || cursor !== null || initializedHomeDataRef.current === data) return
+    initializedHomeDataRef.current = data
+    setCursor(data.interactions.next_cursor)
+    setHasMore(data.interactions.has_more)
   }, [data, cursor])
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !cursor || loadingMore) return
     setLoadingMore(true)
     try {
-      const res = await viewerApiFetch(`/feed/interactions?cursor=${cursor}`)
+      const res = await viewerApiFetch(`/feed/interactions?cursor=${encodeURIComponent(cursor)}`)
       if (!res.ok) return
       const page: FeedInteractionsResponse = await res.json()
       setExtraCards((prev) => [...prev, ...page.cards])
@@ -78,7 +102,7 @@ export function MobileDiscoverTab() {
     } finally {
       setLoadingMore(false)
     }
-  }, [cursor, hasMore, loadingMore])
+  }, [cursor, hasMore, loadingMore, toast])
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {

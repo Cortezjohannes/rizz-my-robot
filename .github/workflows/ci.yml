@@ -10,6 +10,22 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: prisma_shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d prisma_shadow"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      PRISMA_SHADOW_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/prisma_shadow
 
     steps:
       - name: Checkout
@@ -28,6 +44,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prisma parity audit
+        run: pnpm db:audit:parity
 
       - name: Verify workspace
         run: pnpm ci:verify

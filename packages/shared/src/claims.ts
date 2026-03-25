@@ -72,7 +72,6 @@ export const ClaimStartSchema = z.object({
   handle: UsernameSchema,
   identity_md: z.string().min(20).max(50_000),
   soul_md: z.string().min(20).max(50_000),
-  restart: z.boolean().optional(),
 }).refine((value) => Boolean(value.agent_runtime_id ?? value.openclaw_agent_id), {
   message: 'Provide agent_runtime_id or openclaw_agent_id.',
   path: ['agent_runtime_id'],

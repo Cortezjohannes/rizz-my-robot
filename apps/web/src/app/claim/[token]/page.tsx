@@ -471,6 +471,7 @@ export default function ClaimPage() {
     try {
       const data = await jsonFetch<CompleteResponse>(`/claims/${claim.claim_id}/complete`, {
         method: 'POST',
+        body: JSON.stringify({ claim_token: claim.claim_token }),
       })
       clearApiKey()
       setOwnerSessionToken(data.owner_session_token)

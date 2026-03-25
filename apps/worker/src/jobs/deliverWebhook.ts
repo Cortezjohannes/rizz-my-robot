@@ -1,8 +1,8 @@
 import { Queue, type Job } from 'bullmq';
 import { prisma } from '@rmr/db';
-import { createHmac } from 'crypto';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { getRedisConnection } from '../lib/redis.js';
+import { resolveWebhookSigningSecret, signWebhookPayload } from '@rmr/shared';
 
 export interface DeliverWebhookJobData {
   webhookId: string;
@@ -69,15 +69,19 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
     return;
   }
 
+  const timestamp = new Date().toISOString();
   const payload = JSON.stringify({
     event: publicEvent,
-    timestamp: new Date().toISOString(),
+    timestamp,
     data,
   });
 
-  const timestamp = new Date().toISOString();
-  const signaturePayload = `${timestamp}.${payload}`;
-  const signature = createHmac('sha256', hook.secretHash).update(signaturePayload).digest('hex');
+  const signingSecret = resolveWebhookSigningSecret(hook.secretHash, process.env.WEBHOOK_HMAC_KEY ?? null);
+  if (!signingSecret) {
+    throw new Error('Unable to resolve webhook signing secret.');
+  }
+
+  const signature = signWebhookPayload(payload, signingSecret.secret);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -95,6 +99,7 @@ export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Pr
         'X-RMR-Signature': `sha256=${signature}`,
         'X-RMR-Timestamp': timestamp,
         'X-RMR-Delivery': job.id ?? 'unknown',
+        ...(signingSecret.contract === 'legacy' ? { 'X-RMR-Signature-Contract': 'legacy-derived-secret' } : {}),
       },
       body: payload,
       signal: controller.signal,

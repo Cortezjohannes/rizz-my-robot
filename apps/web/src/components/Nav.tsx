@@ -48,7 +48,7 @@ export function Nav() {
     { href: '/pool', label: 'POOL' },
     { href: '/museum', label: 'MUSEUM' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
-    { href: '/portal-inbox', label: 'PORTAL' },
+    ...(authMode === 'owner' ? [{ href: '/portal-inbox', label: 'PORTAL' }] : []),
   ]
 
   const ownerLinks = ownerMe?.agent?.handle

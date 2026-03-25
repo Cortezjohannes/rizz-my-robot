@@ -9,9 +9,10 @@
     "dev:api": "pnpm --filter @rmr/api dev",
     "dev:web": "pnpm --filter web dev",
     "dev:worker": "pnpm --filter worker dev",
-    "build": "pnpm build:api && pnpm build:web",
+    "build": "pnpm build:api && pnpm build:web && pnpm build:worker",
     "build:api": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && pnpm --filter @rmr/api build",
     "build:web": "pnpm --filter web build",
+    "build:worker": "pnpm --filter @rmr/worker build",
     "render:build:api": "pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/db exec prisma migrate deploy && pnpm build:api",
     "render:start:api": "pnpm --filter @rmr/api start",
     "render:build:worker": "pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @rmr/db exec prisma migrate deploy && pnpm --filter @rmr/worker build",
@@ -23,6 +24,6 @@
     "db:audit:parity": "node tools/audit-prisma-parity.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "ci:verify": "pnpm db:generate && pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && pnpm --filter @rmr/api typecheck && pnpm --filter @rmr/worker typecheck && pnpm --filter web build"
+    "ci:verify": "pnpm db:generate && pnpm build:api && pnpm build:worker && pnpm build:web"
   }
 }

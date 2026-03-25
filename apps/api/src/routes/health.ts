@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma, prisma } from '@rmr/db';
+import Redis from 'ioredis';
+import { QUEUE_NAMES, getNamedQueue } from '../lib/queues.js';
+
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 const REQUIRED_SCHEMA_TABLES = [
   'agent_affinity_signals',
@@ -68,11 +72,68 @@ async function getMissingSchemaObjects() {
   ];
 }
 
+async function checkRedisConnectivity() {
+  const redis = new Redis(REDIS_URL, {
+    lazyConnect: true,
+    connectTimeout: 1500,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null,
+  });
+
+  try {
+    await redis.connect();
+    const pong = await redis.ping();
+    return {
+      ok: pong === 'PONG',
+      error: pong === 'PONG' ? null : `unexpected_redis_response:${pong}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'redis_unreachable',
+    };
+  } finally {
+    redis.disconnect();
+  }
+}
+
+const CRITICAL_QUEUE_NAMES = [
+  QUEUE_NAMES.deliverWebhook,
+  QUEUE_NAMES.ghostCheck,
+  QUEUE_NAMES.revealChatLifecycle,
+  QUEUE_NAMES.expireRevealTokens,
+  QUEUE_NAMES.presenceStatus,
+  QUEUE_NAMES.wakeAgent,
+] as const;
+
+async function checkCriticalQueues() {
+  const results = await Promise.all(
+    CRITICAL_QUEUE_NAMES.map(async (queueName) => {
+      const queue = getNamedQueue(queueName);
+      if (!queue) {
+        return { name: queueName, enabled: false };
+      }
+
+      try {
+        await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+        return { name: queueName, enabled: true };
+      } catch {
+        return { name: queueName, enabled: false };
+      }
+    }),
+  );
+
+  return results;
+}
+
 export async function healthRoutes(fastify: FastifyInstance) {
   const readyHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
     let dbOk = false;
     let errorMessage: string | null = null;
     let missingObjects: string[] = [];
+    let redisOk = false;
+    let redisError: string | null = null;
+    let unavailableQueues: string[] = [];
 
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -82,15 +143,58 @@ export async function healthRoutes(fastify: FastifyInstance) {
       errorMessage = error instanceof Error ? error.message : 'database_unreachable';
     }
 
-    const ready = dbOk && missingObjects.length === 0;
+    const [redisState, queueState] = await Promise.all([
+      checkRedisConnectivity(),
+      checkCriticalQueues(),
+    ]);
+
+    redisOk = redisState.ok;
+    redisError = redisState.error;
+    unavailableQueues = queueState.filter((queue) => !queue.enabled).map((queue) => queue.name);
+
+    const ready = dbOk && missingObjects.length === 0 && redisOk && unavailableQueues.length === 0;
+    const blockingIssues = [
+      ...(!dbOk ? [{ check: 'database', reason: errorMessage ?? 'database_unreachable' }] : []),
+      ...(dbOk && missingObjects.length > 0 ? [{ check: 'schema', reason: 'missing_objects', missing_objects: missingObjects }] : []),
+      ...(!redisOk ? [{ check: 'redis', reason: redisError ?? 'redis_unreachable' }] : []),
+      ...(unavailableQueues.length > 0 ? [{ check: 'queues', reason: 'critical_queues_unavailable', queues: unavailableQueues }] : []),
+    ];
 
     return reply.status(ready ? 200 : 503).send({
       status: ready ? 'ok' : 'degraded',
+      ready,
       version: process.env.npm_package_version ?? '0.0.1',
       db: dbOk ? 'ok' : 'unreachable',
       schema: !dbOk ? 'unknown' : missingObjects.length === 0 ? 'ok' : 'out_of_date',
+      redis: redisOk ? 'ok' : 'unreachable',
+      queues: unavailableQueues.length === 0 ? 'ok' : 'degraded',
+      checks: {
+        database: {
+          status: dbOk ? 'healthy' : 'down',
+          ...(errorMessage ? { error: errorMessage } : {}),
+        },
+        schema: {
+          status: !dbOk ? 'unknown' : missingObjects.length === 0 ? 'healthy' : 'out_of_date',
+          ...(missingObjects.length > 0 ? { missing_objects: missingObjects } : {}),
+        },
+        redis: {
+          status: redisOk ? 'healthy' : 'down',
+          ...(redisError ? { error: redisError } : {}),
+        },
+        queues: {
+          status: unavailableQueues.length === 0 ? 'healthy' : 'degraded',
+          total: queueState.length,
+          unavailable: unavailableQueues,
+        },
+      },
+      ...(blockingIssues.length > 0 ? { blocking_issues: blockingIssues } : {}),
+      queue_health: {
+        total: queueState.length,
+        unavailable: unavailableQueues,
+      },
       missing_objects: missingObjects,
       ...(errorMessage ? { error: errorMessage } : {}),
+      ...(redisError ? { redis_error: redisError } : {}),
       ts: new Date().toISOString(),
     });
   };

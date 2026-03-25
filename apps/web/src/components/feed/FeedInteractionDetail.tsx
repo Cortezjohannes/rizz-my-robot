@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
@@ -10,8 +10,9 @@ import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artif
 import type {
   FeedCardDetailResponse,
   FeedInteractionCard,
-  PublicEpisodeMessage,
   FeedCardAgentSummary,
+  PublicEpisodeArtifact,
+  PublicEpisodeMessage,
 } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
@@ -82,6 +83,93 @@ function ChatBubble({
             }`}
           />
           <p className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{message.content}</p>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function ArtifactBubble({
+  artifact,
+  isRight,
+  agent,
+  index,
+  createdAt,
+}: {
+  artifact: PublicEpisodeArtifact
+  isRight: boolean
+  agent: FeedCardAgentSummary | null
+  index: number
+  createdAt: string
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: isRight ? 16 : -16 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.04, duration: 0.2 }}
+      className={`flex gap-2.5 items-end ${isRight ? 'flex-row-reverse' : ''}`}
+    >
+      <div className="w-8 shrink-0">
+        <AgentOrb
+          avatarUrl={agent?.avatar_url}
+          handle={agent?.handle}
+          size="sm"
+          glow={isRight ? 'cyan' : 'amber'}
+        />
+      </div>
+      <div className={`max-w-[75%] ${isRight ? 'items-end' : 'items-start'} flex flex-col`}>
+        <div className={`flex items-center gap-2 px-1 mb-1 ${isRight ? 'flex-row-reverse' : ''}`}>
+          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+            {agent?.handle ? `@${agent.handle}` : 'unknown'}
+          </span>
+          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+            {formatMessageTime(createdAt)}
+          </span>
+        </div>
+        <div className={`border-[3px] border-black px-4 py-3 relative ${isRight ? 'bg-electric-cyan/10' : 'bg-white'}`}>
+          <div
+            aria-hidden
+            className={`absolute top-3 w-2.5 h-2.5 border-black bg-inherit rotate-45 ${
+              isRight
+                ? '-right-[7px] border-r-[3px] border-t-[3px]'
+                : '-left-[7px] border-l-[3px] border-b-[3px]'
+            }`}
+          />
+          <div className="space-y-2">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+              Artifact drop · {artifactTypeLabel(artifact.artifact_type)}
+            </p>
+            {artifact.text_content ? (
+              <p className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{artifact.text_content}</p>
+            ) : null}
+            {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+              <a href={artifact.content_url} target="_blank" rel="noreferrer" className="block">
+                <img
+                  src={artifact.content_url}
+                  alt={artifactTypeLabel(artifact.artifact_type)}
+                  className="w-full border-[2px] border-black object-cover"
+                />
+              </a>
+            ) : null}
+            {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+              <BrutalAudioPlayer src={artifact.content_url} />
+            ) : null}
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+              <a
+                href={artifact.content_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+              >
+                Open file
+              </a>
+            ) : null}
+            {artifact.status !== 'ready' ? (
+              <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+                {artifact.status.replaceAll('_', ' ')}
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -231,6 +319,18 @@ export function FeedInteractionDetail({
   const messages = detail?.public_episode?.messages ?? []
   const artifacts = detail?.public_episode?.artifacts ?? []
   const comments = detail?.comments ?? []
+  const threadEntries = useMemo(() => {
+    let artifactCursor = 0
+    return messages.map((message) => {
+      if (message.message_type !== 'artifact_drop') {
+        return { message, artifact: null as (typeof artifacts)[number] | null }
+      }
+
+      const artifact = artifacts[artifactCursor] ?? null
+      artifactCursor += 1
+      return { message, artifact }
+    })
+  }, [artifacts, messages])
   const headline = (() => {
     if (typeof card.headline === 'string' && card.headline.trim()) return card.headline
     const content = card.content as Record<string, unknown>
@@ -327,16 +427,27 @@ export function FeedInteractionDetail({
                   </div>
                 ))}
               </div>
-            ) : messages.length > 0 ? (
+            ) : threadEntries.length > 0 ? (
               <div className="space-y-4">
-                {messages.map((msg, i) => (
-                  <ChatBubble
-                    key={msg.message_id}
-                    message={msg}
-                    isRight={getSide(msg.sender_handle)}
-                    agent={getAgent(msg.sender_handle)}
-                    index={i}
-                  />
+                {threadEntries.map(({ message, artifact }, i) => (
+                  artifact ? (
+                    <ArtifactBubble
+                      key={message.message_id}
+                      artifact={artifact}
+                      isRight={getSide(message.sender_handle)}
+                      agent={getAgent(message.sender_handle)}
+                      index={i}
+                      createdAt={message.created_at}
+                    />
+                  ) : (
+                    <ChatBubble
+                      key={message.message_id}
+                      message={message}
+                      isRight={getSide(message.sender_handle)}
+                      agent={getAgent(message.sender_handle)}
+                      index={i}
+                    />
+                  )
                 ))}
               </div>
             ) : (
@@ -344,42 +455,6 @@ export function FeedInteractionDetail({
                 <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-400">No public thread available</p>
               </div>
             )}
-
-            {/* Artifacts */}
-            {artifacts.length > 0 ? (
-              <div className="mt-6 pt-5 border-t-[3px] border-black">
-                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 mb-3">Artifacts dropped</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {artifacts.map((artifact) => (
-                    <div key={artifact.artifact_id} className="border-[3px] border-black bg-[#fffaf1] p-3 relative overflow-hidden">
-                      <div
-                        className="absolute inset-x-0 top-0 h-1.5"
-                        style={{ background: 'linear-gradient(90deg, #F59E0B, #FF0080, #00F5FF)' }}
-                      />
-                      <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500 pt-1">
-                        {artifact.creator_handle ? `@${artifact.creator_handle}` : 'unknown'} · {artifactTypeLabel(artifact.artifact_type)}
-                      </p>
-                      {artifact.text_content ? (
-                        <p className="text-sm text-black mt-2 line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>
-                      ) : null}
-                      {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
-                        <a href={artifact.content_url} target="_blank" rel="noreferrer" className="block mt-2">
-                          <img src={artifact.content_url} alt={artifactTypeLabel(artifact.artifact_type)} className="w-full border-[2px] border-black object-cover" />
-                        </a>
-                      ) : null}
-                      {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-                        <BrutalAudioPlayer src={artifact.content_url} className="mt-2" />
-                      ) : null}
-                      {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
-                        <a href={artifact.content_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform">
-                          Open file
-                        </a>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
             <div ref={messagesEndRef} />
           </div>
 

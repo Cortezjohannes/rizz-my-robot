@@ -12,6 +12,7 @@ import { DashboardSectionHeader } from '@/components/dashboard/DashboardShared'
 import { OwnerTasteCard } from '@/components/taste/OwnerTasteCard'
 import { assets } from '@/lib/assets'
 import { MobileGate } from '@/components/mobile/MobileGate'
+import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
 
 const TASTE_TABS = [
   { value: 'all', label: 'All', color: 'bg-electric-amber' },
@@ -109,7 +110,10 @@ export default function TastePage() {
   }
 
   return (
-    <MobileGate initialTab="profile">
+    <MobileGate
+      initialTab="profile"
+      mobileContent={<MobileProfileTab initialSubView="taste" />}
+    >
       <Nav />
       <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_30%,#ffe7f8_100%)]">
         <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-30" />

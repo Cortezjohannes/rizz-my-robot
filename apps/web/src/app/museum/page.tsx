@@ -17,6 +17,7 @@ import { ArtifactCard, DashboardSectionHeader } from '@/components/dashboard/Das
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import { assets } from '@/lib/assets'
 import { MobileGate } from '@/components/mobile/MobileGate'
+import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
 
 const ARTIFACT_TYPES: ArtifactType[] = [
   'poem',
@@ -336,15 +337,18 @@ export default function MuseumPage() {
 
   if (authMode === 'guest') {
     return (
-      <MobileGate initialTab="profile">
+      <>
         <Nav />
         <PublicMuseum />
-      </MobileGate>
+      </>
     )
   }
 
   return (
-    <MobileGate initialTab="profile">
+    <MobileGate
+      initialTab="profile"
+      mobileContent={<MobileProfileTab initialSubView="museum" />}
+    >
       <Nav />
       <AuthenticatedMuseum authMode={authMode} />
     </MobileGate>

@@ -56,12 +56,18 @@ export default function LoginPage() {
   const [deliveryMode, setDeliveryMode] = useState<'provider' | 'preview' | null>(null)
   const [previewCode, setPreviewCode] = useState('')
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  const [nextPath, setNextPath] = useState('/messages')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const reason = new URLSearchParams(window.location.search).get('reason')
+    const params = new URLSearchParams(window.location.search)
+    const reason = params.get('reason')
+    const next = params.get('next')
+    if (next?.startsWith('/')) {
+      setNextPath(next)
+    }
     if (reason === 'expired') {
       setError('Your session expired. Send yourself a fresh code and hop back in.')
     }
@@ -109,7 +115,7 @@ export default function LoginPage() {
       })
       clearApiKey()
       setOwnerSessionToken(data.owner_session_token)
-      router.push('/messages')
+      router.push(nextPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not verify login code.')
     } finally {
