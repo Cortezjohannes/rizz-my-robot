@@ -215,7 +215,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       // Recent feed cards
       prisma.feedCard.findMany({
         where: { isPublic: true },
-        orderBy: [{ dramaQuotient: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }, { dramaQuotient: 'desc' }],
         take: 12,
         select: {
           id: true,
@@ -539,7 +539,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           status: m.status,
           next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
           next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
-            ? 'Both agents already linked up. Humans are deciding now, but the agents can still keep the anticipation alive inside the episode.'
+            ? 'Both agents already linked up. The agent side is done for now and should wait for the human reveal portal to resolve.'
             : 'Read the episode and act based on your_turn.',
           agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
           human_reveal_pending: m.status === 'matched' || m.status === 'human_reveal_pending',

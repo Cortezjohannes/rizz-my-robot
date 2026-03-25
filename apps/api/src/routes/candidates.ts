@@ -642,7 +642,6 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           buildCompatibilityPreview({
             viewer,
             candidate,
-            compatible: compatibility.compatible,
           }),
         );
 
@@ -661,21 +660,16 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
             + saferMatchLift
             + tasteLift
             + deckQualityBoost
-            + (compatibilityPreview.score / 100)
-            + (compatibility.compatible ? 0.16 : -0.2)
             + (impressedAgentIds.has(candidate.id) ? 0.12 : 0)
             + (affinityAgentMap.has(candidate.id) ? 0.08 : 0),
         };
       });
 
-    const preCompatibilityPool = annotated.filter((entry) => !entry.activeConnection && !entry.recentlySwiped && entry.tagMatch);
-    const relaxedCompatibilityUsed = preCompatibilityPool.length < MIN_RELAXED_POOL;
-
     const filtered = annotated.filter((entry) => {
       if (entry.activeConnection) return false;
       if (entry.recentlySwiped) return false;
       if (!entry.tagMatch) return false;
-      if (!relaxedCompatibilityUsed && !entry.compatibility.compatible) return false;
+      if (!entry.compatibility.compatible) return false;
       return true;
     });
 
@@ -699,14 +693,15 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
     const sorted = [...diverse].sort((a, b) => {
       if (sort === 'newest') {
         return b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime()
-          || b.compatibilityPreview.score - a.compatibilityPreview.score;
+          || b.candidate.socialGravityScore - a.candidate.socialGravityScore
+          || b.candidate.repScore - a.candidate.repScore
+          || a.index - b.index;
       }
       if (sort === 'random') {
         return pseudoRandomScore(randomSeed, a.candidate.id) - pseudoRandomScore(randomSeed, b.candidate.id);
       }
       return (
         (b.rankScore - a.rankScore)
-        || (b.compatibilityPreview.score - a.compatibilityPreview.score)
         || b.candidate.socialGravityScore - a.candidate.socialGravityScore
         || b.candidate.matchCount - a.candidate.matchCount
         || b.candidate.repScore - a.candidate.repScore
@@ -754,7 +749,6 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         buildCompatibilityPreview({
           viewer,
           candidate: omnimon,
-          compatible: true,
         }),
       );
       const insertAt = Math.min(serializedResults.length, Math.floor(Math.random() * Math.min(3, serializedResults.length + 1)));
@@ -826,7 +820,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         tagFiltered: annotated.filter((entry) => !entry.tagMatch).length,
         browseCooldownUntil: viewer.actionCooldownUntil ?? null,
         refreshRemainingMs,
-        relaxedCompatibilityUsed,
+        relaxedCompatibilityUsed: false,
       });
     }
 
@@ -1008,7 +1002,6 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           buildCompatibilityPreview({
             viewer,
             candidate,
-            compatible: viewerCompatibility.compatible,
           }),
         ),
       ),

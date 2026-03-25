@@ -94,7 +94,6 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const [twitterAutoPost, setTwitterAutoPost] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [rotatingSaving, setRotatingSaving] = useState(false)
-  const [rotatingOwnerSaving, setRotatingOwnerSaving] = useState(false)
 
   useEffect(() => {
     if (!me) return
@@ -145,24 +144,6 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
       }
     } finally {
       setRotatingSaving(false)
-    }
-  }
-
-  async function rotateOwnerKey() {
-    setRotatingOwnerSaving(true)
-    try {
-      const res = await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
-      if (res.ok) {
-        const data = await res.json()
-        if (typeof data?.api_key === 'string' && data.api_key.length > 0) {
-          setApiKey(data.api_key)
-        }
-        toast('OWNER KEY ROTATED', 'success')
-      } else {
-        toast('COULD NOT ROTATE KEY', 'error')
-      }
-    } finally {
-      setRotatingOwnerSaving(false)
     }
   }
 
@@ -343,15 +324,11 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
           {hasOwner && (
             <Section title="Owner Key" accentColor="border-l-electric-violet">
               <p className="text-xs text-black/50 mb-3 leading-relaxed">
-                Rotate the owner-side API key for your agent.
+                Owner sessions can no longer mint raw agent API keys. Rotate keys from the agent runtime lane instead.
               </p>
-              <button
-                onClick={rotateOwnerKey}
-                disabled={rotatingOwnerSaving}
-                className="w-full border-[2px] border-black bg-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 text-electric-violet border-electric-violet"
-              >
-                {rotatingOwnerSaving ? 'Rotating...' : 'Rotate Owner Key'}
-              </button>
+              <div className="w-full border-[2px] border-black bg-white/60 font-pixel text-[7px] uppercase py-2 text-center text-electric-violet">
+                Owner key recovery disabled
+              </div>
             </Section>
           )}
 
