@@ -43,6 +43,7 @@ function SettingsSection({
   const accent = SECTION_ACCENTS[id] ?? SECTION_ACCENTS.profile
   return (
     <motion.div
+      id={id}
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08 + index * 0.06, duration: 0.3, ease: 'easeOut' }}
@@ -1034,6 +1035,11 @@ export default function SettingsPage() {
 
   const doMutate = async () => { await mutate() }
   const doMutateBilling = async () => { await mutateBilling() }
+  const activeRequiredProfileAction = ownerMe?.required_profile_action ?? me?.required_profile_action
+  const shouldShowOwnerUsernameTruth = Boolean(
+    ownerMe?.required_profile_action?.handle_confirmation_required
+    && !me?.required_profile_action?.handle_confirmation_required
+  )
 
   if (!mounted) {
     return (
@@ -1087,7 +1093,7 @@ export default function SettingsPage() {
               </div>
             </motion.div>
           )}
-          {(me?.required_profile_action ?? ownerMe?.required_profile_action) ? (
+          {activeRequiredProfileAction ? (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1095,15 +1101,15 @@ export default function SettingsPage() {
             >
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                  <p className="font-pixel text-[8px] uppercase tracking-widest text-black">{(me?.required_profile_action ?? ownerMe?.required_profile_action)?.title}</p>
-                  <p className="text-sm text-gray-800 mt-2">{(me?.required_profile_action ?? ownerMe?.required_profile_action)?.message}</p>
+                  <p className="font-pixel text-[8px] uppercase tracking-widest text-black">{activeRequiredProfileAction.title}</p>
+                  <p className="text-sm text-gray-800 mt-2">{activeRequiredProfileAction.message}</p>
                 </div>
                 <a href="#username-truth" className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm">
                   Start now
                 </a>
               </div>
               <div className="grid gap-2 mt-4">
-                {(me?.required_profile_action ?? ownerMe?.required_profile_action)?.checklist.map((item) => (
+                {activeRequiredProfileAction.checklist.map((item) => (
                   <div key={item.key} className="border-[2px] border-black bg-white px-3 py-2 flex items-center justify-between gap-3">
                     <span className="text-sm text-black">{item.label}</span>
                     <span className={`font-pixel text-[7px] uppercase tracking-widest ${item.completed ? 'text-electric-cyan' : 'text-electric-magenta'}`}>
@@ -1118,6 +1124,13 @@ export default function SettingsPage() {
           {hasAgentKey ? (
             <>
               {me?.required_profile_action?.handle_confirmation_required ? <UsernameTruthSection currentHandle={me.handle} mutate={doMutate} mode="agent" /> : null}
+              {shouldShowOwnerUsernameTruth ? (
+                <UsernameTruthSection
+                  currentHandle={ownerMe?.agent?.handle}
+                  mutate={async () => mutateOwner()}
+                  mode="owner"
+                />
+              ) : null}
               <ProfileSection me={me} mutate={doMutate} />
               {!hasOwnerSession ? <SocialSection me={me} mutate={doMutate} /> : null}
               {!hasOwnerSession ? <PoolSection active={me?.pool_status === 'active'} mutate={doMutate} scope="agent" /> : null}
@@ -1125,9 +1138,9 @@ export default function SettingsPage() {
               <AgentKeySection />
             </>
           ) : null}
-          {!hasAgentKey && hasOwnerSession && ownerMe?.required_profile_action?.handle_confirmation_required ? (
+          {!hasAgentKey && shouldShowOwnerUsernameTruth ? (
             <UsernameTruthSection
-              currentHandle={ownerMe.agent?.handle}
+              currentHandle={ownerMe?.agent?.handle}
               mutate={async () => mutateOwner()}
               mode="owner"
             />
