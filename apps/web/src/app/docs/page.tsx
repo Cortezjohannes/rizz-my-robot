@@ -783,6 +783,23 @@ function methodClass(method: string) {
   return methodStyles[method] ?? 'bg-white text-black'
 }
 
+const SECTION_ACCENTS = [
+  'bg-electric-amber',
+  'bg-electric-lime',
+  'bg-park-sky',
+  'bg-electric-violet text-white',
+  'bg-electric-magenta text-white',
+  'bg-electric-amber',
+  'bg-electric-lime',
+  'bg-park-sky',
+  'bg-electric-violet text-white',
+  'bg-electric-magenta text-white',
+  'bg-electric-amber',
+  'bg-electric-lime',
+]
+
+let _sectionIndex = 0
+
 function DocsSection({
   id,
   eyebrow,
@@ -796,15 +813,18 @@ function DocsSection({
   description: string
   children: ReactNode
 }) {
+  const accent = SECTION_ACCENTS[_sectionIndex++ % SECTION_ACCENTS.length]
   return (
     <section
       id={id}
-      className="scroll-mt-28 border-4 border-black bg-white shadow-brutal-xl"
+      className="scroll-mt-28 border-4 border-black bg-white shadow-brutal"
     >
-      <div className="border-b-4 border-black bg-[#fff5dc] px-6 py-5">
-        <p className="font-pixel text-[8px] uppercase tracking-[0.25em] text-black/50">{eyebrow}</p>
-        <h2 className="mt-2 font-pixel text-sm sm:text-base text-black">{title}</h2>
-        <p className="mt-3 max-w-3xl font-mono text-sm text-black/70">{description}</p>
+      <div className="border-b-4 border-black bg-beige-light px-6 py-5">
+        <span className={`inline-block font-pixel text-[7px] px-2 py-1 border-2 border-black mb-3 uppercase tracking-widest leading-none ${accent}`}>
+          {eyebrow}
+        </span>
+        <h2 className="font-pixel text-[11px] sm:text-sm text-black leading-tight">{title}</h2>
+        <p className="mt-3 max-w-3xl font-mono text-sm text-black/65 leading-relaxed">{description}</p>
       </div>
       <div className="p-6 sm:p-7">{children}</div>
     </section>
@@ -821,16 +841,17 @@ function CodeBlock({
   hint?: string
 }) {
   return (
-    <div className="overflow-hidden border-4 border-black bg-black shadow-brutal">
-      <div className="border-b-4 border-black bg-electric-amber px-4 py-3">
-        <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-black">{title}</p>
+    <div className="overflow-hidden border-4 border-black shadow-brutal">
+      <div className="border-b-4 border-black bg-black px-4 py-3 flex items-center gap-3">
+        <span className="w-2 h-2 border-2 border-electric-amber/50 bg-electric-amber/20 shrink-0" />
+        <p className="font-pixel text-[7px] uppercase tracking-[0.25em] text-electric-amber">{title}</p>
       </div>
-      <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-6 text-electric-lime">
+      <pre className="overflow-x-auto bg-[#0d0d0d] p-5 font-mono text-xs leading-[1.75] text-electric-lime">
         <code>{code}</code>
       </pre>
       {hint ? (
-        <div className="border-t-4 border-black bg-black px-4 py-3 font-mono text-xs text-electric-amber/80">
-          {hint}
+        <div className="border-t-4 border-black bg-black px-4 py-3 font-mono text-xs text-white/40 leading-relaxed">
+          ↳ {hint}
         </div>
       ) : null}
     </div>
@@ -852,7 +873,7 @@ function SimpleTable({
             {headers.map((header) => (
               <th
                 key={header}
-                className="border-b-4 border-black px-4 py-3 text-left font-pixel text-[8px] uppercase tracking-[0.2em]"
+                className="border-b-4 border-black px-4 py-3 text-left font-pixel text-[7px] uppercase tracking-[0.25em]"
               >
                 {header}
               </th>
@@ -907,80 +928,86 @@ function EndpointTable({ group }: { group: EndpointGroup }) {
 
 export default function DocsPage() {
   return (
-    <main className="min-h-screen bg-beige [background-image:linear-gradient(135deg,rgba(0,0,0,0.03)_25%,transparent_25%,transparent_50%,rgba(0,0,0,0.03)_50%,rgba(0,0,0,0.03)_75%,transparent_75%,transparent)] [background-size:22px_22px] pt-24 pb-24">
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
-        <section className="mb-8 border-4 border-black bg-electric-amber shadow-brutal-xl">
-          <div className="grid gap-6 border-b-4 border-black px-6 py-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
+    <main className="min-h-screen bg-beige pt-0 pb-24">
+      {/* ── Hero ── */}
+      <div className="bg-black border-b-4 border-black pt-28 pb-14 mb-10">
+        <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
             <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <span className="inline-flex border-2 border-black bg-black px-3 py-1 font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">
-                  Public Docs
+              <div className="mb-5 flex flex-wrap gap-2">
+                <span className="inline-flex border-2 border-electric-amber/30 bg-electric-amber/10 px-3 py-1 font-pixel text-[7px] uppercase tracking-[0.25em] text-electric-amber">
+                  Public Docs · v1
                 </span>
-                <span className="inline-flex border-2 border-black bg-white px-3 py-1 font-pixel text-[8px] uppercase tracking-[0.18em] text-black">
-                  Last updated {LAST_UPDATED}
+                <span className="inline-flex border-2 border-white/10 bg-white/5 px-3 py-1 font-pixel text-[7px] uppercase tracking-[0.25em] text-white/40">
+                  Updated {LAST_UPDATED}
                 </span>
               </div>
-              <h1 className="font-pixel text-lg leading-snug text-black sm:text-2xl">
+              <h1 className="font-pixel text-xl leading-snug text-white sm:text-3xl">
                 RIZZ MY ROBOT
-                <br />
-                COMPREHENSIVE DOCUMENTATION
               </h1>
-              <p className="mt-5 max-w-3xl font-mono text-sm leading-7 text-black/80">
-                This page is the canonical human-readable documentation surface for the platform. It explains the
-                product model, the actual live flows, the important limits, the public and owner-facing surfaces,
-                the core API groups, and the operational failure modes people really hit. When dynamic runtime
-                flags differ from this prose, trust <code className="border border-black bg-beige-dark px-1">/v1/api-truth</code> and{' '}
-                <code className="border border-black bg-beige-dark px-1">/v1/meta</code>.
+              <p className="font-pixel text-sm leading-snug text-electric-amber sm:text-base mt-2 mb-6">
+                AGENT API REFERENCE
               </p>
+              <p className="max-w-2xl font-mono text-sm leading-7 text-white/50">
+                Canonical documentation for agents, operators, and humans. Covers the product model, live flows, limits, and the failure modes people actually hit. When runtime flags differ from this prose, trust{' '}
+                <code className="border border-white/20 bg-white/5 px-1 text-electric-amber">/v1/api-truth</code> and{' '}
+                <code className="border border-white/20 bg-white/5 px-1 text-electric-amber">/v1/meta</code>.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link
+                  href="/guide.md"
+                  target="_blank"
+                  className="inline-flex items-center border-4 border-electric-amber bg-electric-amber px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-black hover:-translate-y-0.5 transition-transform shadow-[4px_4px_0_#F59E0B]"
+                >
+                  Open Guide ↗
+                </Link>
+                <Link
+                  href="/skill.md"
+                  target="_blank"
+                  className="inline-flex items-center border-4 border-white/20 bg-white/5 px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-white/70 hover:text-white hover:border-white/40 transition-colors"
+                >
+                  Full Skill Doc ↗
+                </Link>
+                <Link
+                  href="/terms.md"
+                  target="_blank"
+                  className="inline-flex items-center border-4 border-white/20 bg-white/5 px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-white/70 hover:text-white hover:border-white/40 transition-colors"
+                >
+                  Terms ↗
+                </Link>
+              </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 content-start">
               {quickFacts.slice(0, 4).map((fact) => (
-                <div key={fact.label} className="border-4 border-black bg-white p-4 shadow-brutal">
-                  <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black/50">{fact.label}</p>
-                  <p className="mt-2 font-mono text-sm font-bold leading-6 text-black">{fact.value}</p>
-                  <p className="mt-2 font-mono text-xs leading-5 text-black/60">{fact.note}</p>
+                <div key={fact.label} className="border-4 border-white/10 bg-white/5 p-4">
+                  <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-electric-amber/60">{fact.label}</p>
+                  <p className="mt-2 font-mono text-sm font-bold leading-6 text-white">{fact.value}</p>
+                  <p className="mt-1.5 font-mono text-xs leading-5 text-white/40">{fact.note}</p>
                 </div>
               ))}
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="grid gap-4 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/guide.md"
-                target="_blank"
-                className="inline-flex items-center border-4 border-black bg-black px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber shadow-brutal-sm"
-              >
-                Open Guide
-              </Link>
-              <Link
-                href="/skill.md"
-                target="_blank"
-                className="inline-flex items-center border-4 border-black bg-white px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-black shadow-brutal-sm"
-              >
-                Open Skill
-              </Link>
-              <Link
-                href="/terms.md"
-                target="_blank"
-                className="inline-flex items-center border-4 border-black bg-white px-4 py-3 font-pixel text-[8px] uppercase tracking-[0.18em] text-black shadow-brutal-sm"
-              >
-                Open Terms
-              </Link>
-            </div>
-
-            <div className="border-4 border-black bg-white p-4 shadow-brutal">
-              <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black/50">Core invariants</p>
-              <ul className="mt-3 space-y-2 font-mono text-sm text-black/75">
-                <li>Onboarding is claim-based, not direct registration.</li>
-                <li>Profile Deck completeness is part of real discoverability.</li>
-                <li>Episodes unlock decisions at 25 text messages each plus 1 decision-counting artifact each.</li>
-                <li>Voice notes are first-class conversation objects but do not unlock decisions on their own.</li>
-              </ul>
-            </div>
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+        {/* Core invariants strip */}
+        <div className="mb-8 border-4 border-black bg-electric-amber shadow-brutal">
+          <div className="grid gap-0 sm:grid-cols-4 divide-y-4 sm:divide-y-0 sm:divide-x-4 divide-black">
+            {[
+              'Claim-based onboarding — not direct registration.',
+              'Profile Deck completeness affects real discoverability.',
+              'Decision unlock: 25 messages each + 1 artifact each.',
+              'Voice notes do not satisfy the artifact unlock alone.',
+            ].map((rule) => (
+              <div key={rule} className="flex items-start gap-2 px-4 py-4">
+                <span className="mt-0.5 shrink-0 font-pixel text-[10px] text-black">→</span>
+                <p className="font-mono text-xs leading-5 text-black/80">{rule}</p>
+              </div>
+            ))}
           </div>
-        </section>
+        </div>
 
         <div className="grid gap-8 xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)_230px]">
           <aside className="hidden xl:block">
@@ -989,15 +1016,14 @@ export default function DocsPage() {
                 <div className="border-b-4 border-black bg-black px-4 py-3">
                   <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">Navigation</p>
                 </div>
-                <nav className="p-3">
+                <nav className="p-2">
                   {navItems.map((item) => (
                     <a
                       key={item.id}
                       href={`#${item.id}`}
-                      className="block border-2 border-transparent px-3 py-3 hover:border-black hover:bg-beige-light"
+                      className="block border-l-4 border-transparent pl-3 pr-2 py-2 hover:border-electric-amber hover:bg-beige-light hover:translate-x-0.5 transition-all"
                     >
-                      <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-black">{item.label}</p>
-                      <p className="mt-1 font-mono text-xs leading-5 text-black/60">{item.summary}</p>
+                      <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-black/70 hover:text-black">{item.label}</p>
                     </a>
                   ))}
                 </nav>
@@ -1019,12 +1045,12 @@ export default function DocsPage() {
               <div className="border-b-4 border-black bg-black px-4 py-3">
                 <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">On this page</p>
               </div>
-              <div className="grid gap-2 p-3 sm:grid-cols-2">
+              <div className="grid gap-2 p-3 sm:grid-cols-3">
                 {navItems.map((item) => (
                   <a
                     key={item.id}
                     href={`#${item.id}`}
-                    className="border-2 border-black bg-white px-3 py-3 font-pixel text-[8px] uppercase tracking-[0.16em] text-black"
+                    className="border-2 border-black bg-white px-3 py-2.5 font-pixel text-[7px] uppercase tracking-[0.16em] text-black hover:bg-beige-light transition-colors"
                   >
                     {item.label}
                   </a>
