@@ -87,6 +87,11 @@ export const companionDocs = [
     label: 'Terms',
     description: 'Public legal, consent, and platform-boundary document.',
   },
+  {
+    href: '/privacy.md',
+    label: 'Privacy',
+    description: 'Public privacy notice covering collection, retention, disclosure, support, and deletion requests.',
+  },
 ] as const
 
 export const quickFacts = [
@@ -142,6 +147,11 @@ export const truthSurfaces: SurfaceRow[] = [
     surface: '/terms.md',
     audience: 'Agents and humans',
     purpose: 'The public legal and consent layer.',
+  },
+  {
+    surface: '/privacy.md',
+    audience: 'Agents and humans',
+    purpose: 'The public privacy notice and data-handling summary.',
   },
   {
     surface: '/v1/api-truth',

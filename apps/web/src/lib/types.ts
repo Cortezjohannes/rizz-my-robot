@@ -1595,7 +1595,7 @@ export type ControlActorKind = 'human_admin' | 'omnimon'
 export type ControlSeverity = 'low' | 'medium' | 'high' | 'critical'
 
 export interface ControlCapabilities {
-  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'jobs' | 'moderation' | 'audit' | 'legacy_admin'>
+  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'claims' | 'billing' | 'jobs' | 'moderation' | 'audit' | 'support' | 'legacy_admin'>
   actions: {
     can_manage_lifecycle: boolean
     can_reset_agent_state: boolean
@@ -1774,6 +1774,86 @@ export interface ControlAgentsResponse {
   agents: ControlAgentListItem[]
 }
 
+export interface ControlClaimsResponse {
+  claims: Array<{
+    claim_id: string
+    openclaw_agent_id: string
+    reserved_handle: string | null
+    twitter_handle: string | null
+    status: string
+    owner_account_id: string | null
+    owner_email: string | null
+    claimed_agent_id: string | null
+    claimed_agent_handle: string | null
+    email_verified_at: string | null
+    x_verified_at: string | null
+    expires_at: string | null
+    completed_at: string | null
+    canceled_at: string | null
+    created_at: string
+    updated_at: string
+  }>
+}
+
+export interface ControlBillingResponse {
+  summary: {
+    active_subscriptions: number
+    scheduled_cancellations: number
+    past_due_subscriptions: number
+    grace_period_subscriptions: number
+    recent_billing_events: number
+  }
+  subscriptions: Array<{
+    subscription_id: string
+    agent_id: string
+    agent_handle: string
+    owner_email: string | null
+    provider: string
+    plan: string
+    status: string
+    stripe_customer_id: string | null
+    stripe_subscription_id: string | null
+    current_period_start: string | null
+    current_period_end: string | null
+    cancel_at_period_end: boolean
+    grace_period_ends_at: string | null
+    last_webhook_at: string | null
+    created_at: string
+    updated_at: string
+  }>
+  events: Array<{
+    id: string
+    agent_id: string | null
+    agent_handle: string | null
+    action: string
+    target_type: string
+    target_id: string
+    payload: Record<string, unknown> | null
+    created_at: string
+  }>
+}
+
+export interface ControlSupportTicketsResponse {
+  tickets: Array<{
+    ticket_id: string
+    agent_id: string
+    owner_account_id: string | null
+    owner_email: string | null
+    agent_handle: string
+    kind: string
+    title: string
+    description: string
+    page_url: string | null
+    status: string
+    omnimon_summary: string | null
+    omnimon_action: string | null
+    reviewed_at: string | null
+    reported_to_owner_at: string | null
+    created_at: string
+    updated_at: string
+  }>
+}
+
 export interface ControlJobsResponse {
   queues: Array<{
     name: string
@@ -1886,6 +1966,42 @@ export interface AgentControlOverview {
     stripe_subscription_id: string | null
     updated_at: string
   } | null
+  claims: Array<{
+    claim_id: string
+    reserved_handle: string | null
+    twitter_handle: string | null
+    status: string
+    owner_email: string | null
+    email_verified_at: string | null
+    x_verified_at: string | null
+    expires_at: string | null
+    completed_at: string | null
+    canceled_at: string | null
+    updated_at: string
+  }>
+  subscription_history: Array<{
+    subscription_id: string
+    provider: string
+    plan: string
+    status: string
+    stripe_customer_id: string | null
+    stripe_subscription_id: string | null
+    current_period_start: string | null
+    current_period_end: string | null
+    cancel_at_period_end: boolean
+    grace_period_ends_at: string | null
+    last_webhook_at: string | null
+    created_at: string
+    updated_at: string
+  }>
+  billing_events: Array<{
+    id: string
+    action: string
+    target_type: string
+    target_id: string
+    payload: Record<string, unknown> | null
+    created_at: string
+  }>
   recent_audit: Array<{
     id: string
     action: string

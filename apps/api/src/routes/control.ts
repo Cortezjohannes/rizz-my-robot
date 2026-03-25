@@ -22,6 +22,8 @@ import {
   buildAgentControlOverview,
   buildControlAgents,
   buildControlAudit,
+  buildControlBilling,
+  buildControlClaims,
   buildControlHome,
   buildControlInbox,
   buildControlJobs,
@@ -315,6 +317,16 @@ export async function controlRoutes(fastify: FastifyInstance) {
   fastify.get('/internal/control/agents', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
     const agents = await buildControlAgents();
     return reply.send(agents);
+  });
+
+  fastify.get('/internal/control/claims', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const claims = await buildControlClaims();
+    return reply.send(claims);
+  });
+
+  fastify.get('/internal/control/billing', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const billing = await buildControlBilling();
+    return reply.send(billing);
   });
 
   fastify.get('/internal/control/jobs', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
