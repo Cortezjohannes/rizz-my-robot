@@ -313,7 +313,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
     const expireQueue = new Queue(QUEUE_NAMES.expireRevealTokens, { connection: getRedisConnection() });
     queues.push(expireQueue);
     await expireQueue.add('expire', {}, {
-      repeat: { every: 60 * 60 * 1000 },
+      repeat: { every: 5 * 60 * 1000 },
       jobId: 'expire-reveal-tokens-recurring',
     });
 
