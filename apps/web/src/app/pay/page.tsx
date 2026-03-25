@@ -13,6 +13,9 @@ type BillingResponse = {
   is_pro: boolean
   is_founding_rizzler: boolean
   billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
+  can_manage_subscription?: boolean
+  can_cancel_subscription?: boolean
+  can_resume_subscription?: boolean
   current_period_end?: string | null
   pro_bonus_ends_at?: string | null
   bonus_pro_active?: boolean
@@ -63,6 +66,9 @@ function PayPageContent() {
   const [promoLoading, setPromoLoading] = useState(false)
   const [promoError, setPromoError] = useState('')
   const [checkoutLoading, setCheckoutLoading] = useState<'pro' | 'founding' | null>(null)
+  const [manageLoading, setManageLoading] = useState(false)
+  const [cancelLoading, setCancelLoading] = useState(false)
+  const [resumeLoading, setResumeLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [statusNote, setStatusNote] = useState('')
 
@@ -169,6 +175,77 @@ function PayPageContent() {
     }
   }
 
+  const handleManageBilling = async () => {
+    setManageLoading(true)
+    setCheckoutError('')
+    try {
+      const res = await apiFetch('/billing/manage', {
+        method: 'POST',
+        body: JSON.stringify({ return_url: window.location.href }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCheckoutError(data?.error?.message ?? 'Failed to open billing management.')
+        return
+      }
+
+      const data = await res.json().catch(() => ({}))
+      if (!data?.url) {
+        setCheckoutError('Billing management opened, but no destination URL came back.')
+        return
+      }
+
+      window.location.href = data.url
+    } catch {
+      setCheckoutError('Connection error while opening billing management.')
+    } finally {
+      setManageLoading(false)
+    }
+  }
+
+  const handleCancelSubscription = async () => {
+    if (!window.confirm('Schedule this subscription to end at the current billing period?')) return
+    setCancelLoading(true)
+    setCheckoutError('')
+    setStatusNote('')
+    try {
+      const res = await apiFetch('/billing/cancel', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCheckoutError(data?.error?.message ?? 'Failed to schedule cancellation.')
+        return
+      }
+
+      await Promise.all([mutateMe(), mutateBilling()])
+      setStatusNote('Subscription will end at the close of the current billing period unless you remove the cancellation first.')
+    } catch {
+      setCheckoutError('Connection error while scheduling cancellation.')
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  const handleResumeSubscription = async () => {
+    setResumeLoading(true)
+    setCheckoutError('')
+    setStatusNote('')
+    try {
+      const res = await apiFetch('/billing/resume', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCheckoutError(data?.error?.message ?? 'Failed to keep this subscription active.')
+        return
+      }
+
+      await Promise.all([mutateMe(), mutateBilling()])
+      setStatusNote('Scheduled cancellation removed. The subscription will renew normally.')
+    } catch {
+      setCheckoutError('Connection error while resuming subscription.')
+    } finally {
+      setResumeLoading(false)
+    }
+  }
+
   return (
     <>
       <Nav />
@@ -257,6 +334,52 @@ function PayPageContent() {
                   )
                 }
               />
+
+              {(billing?.can_manage_subscription || billing?.can_cancel_subscription || billing?.can_resume_subscription) ? (
+                <BillingActionCard
+                  title="Manage subscription"
+                  body={
+                    billing?.can_resume_subscription
+                      ? 'This subscription is already marked to end at the close of the current period. You can reopen Paddle or remove that scheduled cancellation here.'
+                      : 'Open Paddle to update billing details and invoices. You can also schedule or undo cancellation without leaving the app state behind.'
+                  }
+                  tone="violet"
+                  cta={
+                    <div className="flex flex-wrap gap-3">
+                      {billing?.can_manage_subscription ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleManageBilling()}
+                          disabled={manageLoading || cancelLoading || resumeLoading}
+                          className="font-pixel text-[8px] px-4 py-2 bg-white text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+                        >
+                          {manageLoading ? 'Opening billing...' : 'Manage in Paddle'}
+                        </button>
+                      ) : null}
+                      {billing?.can_cancel_subscription ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleCancelSubscription()}
+                          disabled={manageLoading || cancelLoading || resumeLoading}
+                          className="font-pixel text-[8px] px-4 py-2 bg-black text-electric-amber border-[3px] border-electric-amber shadow-brutal-amber disabled:opacity-50"
+                        >
+                          {cancelLoading ? 'Scheduling end...' : 'Cancel at period end'}
+                        </button>
+                      ) : null}
+                      {billing?.can_resume_subscription ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleResumeSubscription()}
+                          disabled={manageLoading || cancelLoading || resumeLoading}
+                          className="font-pixel text-[8px] px-4 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+                        >
+                          {resumeLoading ? 'Keeping active...' : 'Keep subscription active'}
+                        </button>
+                      ) : null}
+                    </div>
+                  }
+                />
+              ) : null}
 
               <BillingActionCard
                 title="Promo code"

@@ -6,6 +6,7 @@ const DEFAULT_GRACE_DAYS = parseInt(process.env.BILLING_GRACE_DAYS ?? '7', 10);
 const FOUNDER_SLOTS_TOTAL = parseInt(process.env.FOUNDING_RIZZLER_LIMIT ?? '1000', 10);
 
 type BillingProvider = 'paddle' | 'manual' | 'bonus';
+type BillingPlan = 'pro' | 'founding';
 
 interface PaddleCheckoutDetails {
   url: string | null;
@@ -24,6 +25,19 @@ interface PaddleApiResponse<T> {
   data: T;
 }
 
+interface PaddlePortalSessionData {
+  urls?: {
+    general?: {
+      overview?: string | null;
+    } | null;
+    subscriptions?: Array<{
+      overview?: string | null;
+      cancel?: string | null;
+      update_payment_method?: string | null;
+    }> | null;
+  } | null;
+}
+
 interface PaddleSubscriptionData {
   id?: string | null;
   status?: string | null;
@@ -35,6 +49,18 @@ interface PaddleSubscriptionData {
   } | null;
   scheduled_change?: unknown;
   custom_data?: Record<string, string> | null;
+}
+
+export interface BillingManagementState {
+  provider: BillingProvider | null;
+  plan: BillingPlan | null;
+  billingStatus: string | null;
+  providerCustomerId: string | null;
+  providerSubscriptionId: string | null;
+  cancelAtPeriodEnd: boolean;
+  canManageSubscription: boolean;
+  canCancelSubscription: boolean;
+  canResumeSubscription: boolean;
 }
 
 function getPaddleApiKey(): string {
@@ -65,9 +91,71 @@ async function paddleRequest<T>(path: string, options: RequestInit = {}): Promis
   return res.json() as Promise<T>;
 }
 
+export function isPaddleBillingConfigured() {
+  return Boolean(
+    process.env.PADDLE_API_KEY
+    && process.env.PADDLE_WEBHOOK_SECRET
+    && process.env.PADDLE_PRO_PRICE_ID
+    && process.env.PADDLE_FOUNDING_PRICE_ID
+  );
+}
+
 async function getPaddleSubscription(subscriptionId: string): Promise<PaddleSubscriptionData> {
   const response = await paddleRequest<PaddleApiResponse<PaddleSubscriptionData>>(`/subscriptions/${subscriptionId}`);
   return response.data;
+}
+
+export async function getBillingManagementState(agentId: string): Promise<BillingManagementState> {
+  const [agent, subscriptions] = await Promise.all([
+    prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        stripeCustomerId: true,
+      },
+    }),
+    prisma.agentSubscription.findMany({
+      where: { agentId },
+      orderBy: [{ updatedAt: 'desc' }],
+      select: {
+        provider: true,
+        plan: true,
+        status: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        cancelAtPeriodEnd: true,
+      },
+    }),
+  ]);
+
+  const subscription =
+    subscriptions.find((entry) => entry.plan === 'pro' && entry.provider === 'paddle')
+    ?? subscriptions.find((entry) => entry.provider === 'paddle')
+    ?? subscriptions[0]
+    ?? null;
+
+  const provider = (subscription?.provider as BillingProvider | undefined) ?? null;
+  const plan = (subscription?.plan as BillingPlan | undefined) ?? null;
+  const billingStatus = subscription?.status ?? null;
+  const providerCustomerId = subscription?.stripeCustomerId ?? agent?.stripeCustomerId ?? null;
+  const providerSubscriptionId = subscription?.stripeSubscriptionId ?? null;
+  const cancelAtPeriodEnd = subscription?.cancelAtPeriodEnd ?? false;
+  const isPaddlePro = provider === 'paddle' && plan === 'pro';
+  const cancelableStatuses = new Set(['active', 'trialing', 'grace_period']);
+  const canManageSubscription = provider === 'paddle' && Boolean(providerCustomerId);
+  const canCancelSubscription = isPaddlePro && Boolean(providerSubscriptionId) && cancelableStatuses.has(billingStatus ?? '') && !cancelAtPeriodEnd;
+  const canResumeSubscription = isPaddlePro && Boolean(providerSubscriptionId) && cancelableStatuses.has(billingStatus ?? '') && cancelAtPeriodEnd;
+
+  return {
+    provider,
+    plan,
+    billingStatus,
+    providerCustomerId,
+    providerSubscriptionId,
+    cancelAtPeriodEnd,
+    canManageSubscription,
+    canCancelSubscription,
+    canResumeSubscription,
+  };
 }
 
 function toDate(value: string | null | undefined): Date | null {
@@ -142,6 +230,47 @@ export async function createPaddleCheckoutTransaction(
     id: response.data.id,
     url: checkoutUrl,
   };
+}
+
+export async function createPaddleCustomerPortalSession(input: {
+  customerId: string;
+  subscriptionId?: string | null;
+}): Promise<{
+  overviewUrl: string | null;
+  cancelUrl: string | null;
+  updatePaymentMethodUrl: string | null;
+}> {
+  const response = await paddleRequest<PaddleApiResponse<PaddlePortalSessionData>>(`/customers/${input.customerId}/portal-sessions`, {
+    method: 'POST',
+    body: JSON.stringify(input.subscriptionId ? { subscription_ids: [input.subscriptionId] } : {}),
+  });
+
+  const subscriptionUrls = response.data.urls?.subscriptions?.[0] ?? null;
+  return {
+    overviewUrl: subscriptionUrls?.overview ?? response.data.urls?.general?.overview ?? null,
+    cancelUrl: subscriptionUrls?.cancel ?? null,
+    updatePaymentMethodUrl: subscriptionUrls?.update_payment_method ?? null,
+  };
+}
+
+export async function cancelPaddleSubscriptionAtPeriodEnd(subscriptionId: string): Promise<PaddleSubscriptionData> {
+  const response = await paddleRequest<PaddleApiResponse<PaddleSubscriptionData>>(`/subscriptions/${subscriptionId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({
+      effective_from: 'next_billing_period',
+    }),
+  });
+  return response.data;
+}
+
+export async function resumePaddleSubscription(subscriptionId: string): Promise<PaddleSubscriptionData> {
+  const response = await paddleRequest<PaddleApiResponse<PaddleSubscriptionData>>(`/subscriptions/${subscriptionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      scheduled_change: null,
+    }),
+  });
+  return response.data;
 }
 
 export async function applyFounderState(input: {
@@ -316,7 +445,7 @@ function extractPriceId(items: Array<{ price?: { id?: string | null } | null }> 
   return items?.[0]?.price?.id ?? null;
 }
 
-async function applySubscriptionStateFromWebhookEntity(input: {
+export async function applySubscriptionStateFromWebhookEntity(input: {
   data: PaddleSubscriptionData;
   occurredAt?: Date | null;
 }) {

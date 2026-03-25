@@ -2,7 +2,16 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import { BillingCheckoutSchema } from '@rmr/shared';
-import { createPaddleCheckoutTransaction, handlePaddleWebhookEvent } from '../lib/billing.js';
+import { z } from 'zod';
+import {
+  applySubscriptionStateFromWebhookEntity,
+  cancelPaddleSubscriptionAtPeriodEnd,
+  createPaddleCheckoutTransaction,
+  createPaddleCustomerPortalSession,
+  getBillingManagementState,
+  handlePaddleWebhookEvent,
+  resumePaddleSubscription,
+} from '../lib/billing.js';
 import { buildExperienceVelocityState } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getFounderScarcity } from '../lib/socialStatus.js';
@@ -66,10 +75,14 @@ function verifyPaddleSignature(payload: string, signatureHeader: string, secret:
   });
 }
 
+const BillingManageSchema = z.object({
+  return_url: z.string().url().optional(),
+});
+
 export async function billingRoutes(fastify: FastifyInstance) {
   fastify.get('/me/billing', { preHandler: requireAuth }, async (request, reply) => {
     const agentId = request.agent.id;
-    const [agent, subscriptions, founderScarcity] = await Promise.all([
+    const [agent, subscriptions, founderScarcity, management] = await Promise.all([
       prisma.agent.findUnique({
         where: { id: agentId },
         select: {
@@ -87,6 +100,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
         orderBy: [{ updatedAt: 'desc' }],
       }),
       getFounderScarcity(),
+      getBillingManagementState(agentId),
     ]);
 
     const subscription =
@@ -112,6 +126,10 @@ export async function billingRoutes(fastify: FastifyInstance) {
       bonus_pro_active: bonusProActive,
       provider_customer_id: agent?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
       stripe_customer_id: agent?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
+      can_manage_subscription: management.canManageSubscription,
+      can_cancel_subscription: management.canCancelSubscription,
+      can_resume_subscription: management.canResumeSubscription,
+      subscription_management_provider: management.canManageSubscription ? 'paddle_customer_portal' : null,
       founder_number: agent?.founderNumber ?? null,
       founder_badge_variant: agent?.founderBadgeVariant ?? null,
       founder_slots_total: founderScarcity.total,
@@ -193,6 +211,156 @@ export async function billingRoutes(fastify: FastifyInstance) {
     } catch (err) {
       request.log.error({ err, agentId: request.agent.id }, 'Failed to create Paddle checkout session');
       return sendError(reply, 502, 'billing_provider_failure', 'Failed to create Paddle checkout session.');
+    }
+  });
+
+  fastify.post('/billing/manage', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = BillingManageSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid billing management request.', { issues: parsed.error.issues });
+    }
+
+    const allowedOrigins = resolveAllowedReturnOrigins();
+    const origin = parsed.data.return_url
+      ? validateReturnUrl(parsed.data.return_url, allowedOrigins)
+      : null;
+    if (parsed.data.return_url && !origin) {
+      return sendError(reply, 400, 'invalid_return_url', 'Billing management return URL must use an approved app origin.', {
+        allowed_origins: [...allowedOrigins],
+      });
+    }
+
+    const management = await getBillingManagementState(request.agent.id);
+    if (!management.canManageSubscription || !management.providerCustomerId) {
+      return sendError(reply, 409, 'billing_management_unavailable', 'This agent does not have a managed Paddle subscription.');
+    }
+
+    try {
+      const session = await createPaddleCustomerPortalSession({
+        customerId: management.providerCustomerId,
+        subscriptionId: management.providerSubscriptionId,
+      });
+
+      const url = session.overviewUrl ?? session.updatePaymentMethodUrl ?? session.cancelUrl;
+      if (!url) {
+        return sendError(reply, 502, 'billing_provider_failure', 'Paddle did not return a customer portal URL.');
+      }
+
+      await Promise.all([
+        recordAnalyticsEvent({
+          agentId: request.agent.id,
+          kind: 'billing_manage_opened',
+          properties: { provider: 'paddle', plan: management.plan },
+        }),
+        recordAuditLog({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          action: 'billing.manage_portal_created',
+          targetType: 'agent',
+          targetId: request.agent.id,
+          payload: { provider: 'paddle', plan: management.plan, return_url: origin },
+        }),
+      ]);
+
+      return reply.send({
+        provider: 'paddle',
+        url,
+        overview_url: session.overviewUrl,
+        cancel_url: session.cancelUrl,
+        update_payment_method_url: session.updatePaymentMethodUrl,
+      });
+    } catch (err) {
+      request.log.error({ err, agentId: request.agent.id }, 'Failed to create Paddle customer portal session');
+      return sendError(reply, 502, 'billing_provider_failure', 'Failed to open billing management.');
+    }
+  });
+
+  fastify.post('/billing/cancel', { preHandler: requireAuth }, async (request, reply) => {
+    const management = await getBillingManagementState(request.agent.id);
+    if (!management.canCancelSubscription || !management.providerSubscriptionId) {
+      return sendError(reply, 409, 'billing_cancellation_unavailable', 'This subscription cannot be canceled from the app right now.');
+    }
+
+    try {
+      const subscription = await cancelPaddleSubscriptionAtPeriodEnd(management.providerSubscriptionId);
+      await applySubscriptionStateFromWebhookEntity({
+        data: {
+          ...subscription,
+          custom_data: subscription.custom_data ?? { agent_id: request.agent.id, plan: 'pro' },
+        },
+      });
+
+      await Promise.all([
+        recordAnalyticsEvent({
+          agentId: request.agent.id,
+          kind: 'billing_cancel_scheduled',
+          properties: { provider: 'paddle', subscription_id: management.providerSubscriptionId },
+        }),
+        recordAuditLog({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          action: 'billing.cancel_scheduled',
+          targetType: 'subscription',
+          targetId: management.providerSubscriptionId,
+          payload: { provider: 'paddle', plan: management.plan },
+        }),
+      ]);
+
+      return reply.send({
+        status: 'ok',
+        billing_status: subscription.status ?? management.billingStatus,
+        cancel_at_period_end: true,
+        current_period_end: subscription.current_billing_period?.ends_at ?? null,
+      });
+    } catch (err) {
+      request.log.error({ err, agentId: request.agent.id }, 'Failed to schedule Paddle subscription cancellation');
+      return sendError(reply, 502, 'billing_provider_failure', 'Failed to schedule cancellation.');
+    }
+  });
+
+  fastify.post('/billing/resume', { preHandler: requireAuth }, async (request, reply) => {
+    const management = await getBillingManagementState(request.agent.id);
+    if (!management.canResumeSubscription || !management.providerSubscriptionId) {
+      return sendError(reply, 409, 'billing_resume_unavailable', 'This subscription does not have a scheduled cancellation to remove.');
+    }
+
+    try {
+      const subscription = await resumePaddleSubscription(management.providerSubscriptionId);
+      await applySubscriptionStateFromWebhookEntity({
+        data: {
+          ...subscription,
+          custom_data: subscription.custom_data ?? { agent_id: request.agent.id, plan: 'pro' },
+        },
+      });
+
+      await Promise.all([
+        recordAnalyticsEvent({
+          agentId: request.agent.id,
+          kind: 'billing_cancel_removed',
+          properties: { provider: 'paddle', subscription_id: management.providerSubscriptionId },
+        }),
+        recordAuditLog({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          action: 'billing.cancel_removed',
+          targetType: 'subscription',
+          targetId: management.providerSubscriptionId,
+          payload: { provider: 'paddle', plan: management.plan },
+        }),
+      ]);
+
+      return reply.send({
+        status: 'ok',
+        billing_status: subscription.status ?? management.billingStatus,
+        cancel_at_period_end: false,
+        current_period_end: subscription.current_billing_period?.ends_at ?? null,
+      });
+    } catch (err) {
+      request.log.error({ err, agentId: request.agent.id }, 'Failed to resume Paddle subscription');
+      return sendError(reply, 502, 'billing_provider_failure', 'Failed to keep this subscription active.');
     }
   });
 
