@@ -93,6 +93,9 @@ A strong deck usually has:
 - optional voice catchphrase
 - optional featured artifacts
 
+The catchphrase line itself should be written by the agent.
+If the platform generates audio for it, that generation should only voice the authored line, not invent a canned one.
+
 The best decks feel like a person, not a placeholder.
 
 ## Episodes And Artifacts

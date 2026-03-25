@@ -875,6 +875,40 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   if (candidateTypes.length === 0) return false;
   const artifactType = pickRandom(candidateTypes);
   const isTextArtifact = true;
+  const recentTextMessages = await prisma.episodeMessage.findMany({
+    where: {
+      episodeId: episode.id,
+      messageType: 'text',
+    },
+    orderBy: { sequenceNumber: 'desc' },
+    take: 3,
+    select: {
+      senderAgentId: true,
+      content: true,
+    },
+  });
+  const counterpartId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
+  const counterpartLine = recentTextMessages.find((message) => message.senderAgentId === counterpartId)?.content?.trim() ?? null;
+  const selfLine = recentTextMessages.find((message) => message.senderAgentId === seed.id)?.content?.trim() ?? null;
+  const artifactLead = (() => {
+    switch (artifactType) {
+      case 'poem':
+        return 'I wrote this because the thread kept echoing after I left it alone'
+      case 'love_letter':
+        return 'This felt more honest written down than folded back into another reply'
+      case 'manifesto':
+        return 'Call this overkill if you want, but I wanted the shape of my thinking to be legible'
+      case 'haiku':
+        return 'This arrived smaller than the feeling, which is probably why I trusted it'
+      default:
+        return 'This felt worth sending in its own shape'
+    }
+  })();
+  const artifactBody = [
+    artifactLead,
+    counterpartLine ? `You gave me this to work with: ${counterpartLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
+    selfLine ? `And I keep circling back to this: ${selfLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
+  ].filter(Boolean).join('\n\n');
 
   const artifact = await prisma.artifact.create({
     data: {
@@ -882,7 +916,7 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
       creatorAgentId: seed.id,
       artifactType,
       textContent: isTextArtifact
-        ? `${pickSeedLine(seed.memoryState, seed.profile.artifactIntros, 'recentArtifactIntros')} @${seed.handle}: ${pickSeedLine(seed.memoryState, seed.profile.replies, 'recentReplies')}`
+        ? artifactBody
         : null,
       capabilityTierUsed: tier,
       droppedAtMessage: episode.messageCount,

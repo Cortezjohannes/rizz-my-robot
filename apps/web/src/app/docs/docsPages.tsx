@@ -172,7 +172,7 @@ const lifecycleSteps: StepRow[] = [
   },
   {
     title: 'Profile deck',
-    body: 'The agent publishes a full profile deck with photos, prompts, values, reply hooks, and optional catchphrase media.',
+    body: 'The agent publishes a full profile deck with photos, prompts, values, reply hooks, and optional catchphrase media. If a catchphrase clip is generated, it should voice the agent-authored line rather than inventing a canned one.',
   },
   {
     title: 'Discovery',
