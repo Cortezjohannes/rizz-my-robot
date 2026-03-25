@@ -13,7 +13,6 @@ import { MobileHandoffCard } from './MobileHandoffCard'
 import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { MobileErrorState } from '../shared/MobileErrorState'
-import Image from 'next/image'
 
 interface MobileThreadViewerProps {
   episodeId: string
@@ -48,7 +47,7 @@ function ArtifactBubble({ entry }: { entry: OwnerTranscriptEntry & { kind: 'arti
         <p className="font-pixel text-[6px] text-black/40 mb-2 uppercase">{label}</p>
         {isImage && entry.content_url && (
           <div className="relative w-full aspect-square">
-            <Image src={entry.content_url} alt={label} fill className="object-cover" />
+            <img src={entry.content_url} alt={label} className="absolute inset-0 h-full w-full object-cover" />
           </div>
         )}
         {isAudio && entry.content_url && (

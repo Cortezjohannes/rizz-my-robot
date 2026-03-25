@@ -12,7 +12,6 @@ import { MobileChatBubble } from './MobileChatBubble'
 import { ChemistryMeter } from './ChemistryMeter'
 import { MobileErrorState } from '../shared/MobileErrorState'
 import { useToast } from '../shared/MobileToast'
-import Image from 'next/image'
 
 interface MobileEpisodeViewerProps {
   card: FeedInteractionCard
@@ -126,12 +125,10 @@ function MobileArtifactDropCard({
             ) : null}
             {artifact.content_url && isImageArtifact(artifact.artifact_type) && (
               <div className="relative w-full aspect-[4/5] rounded overflow-hidden">
-                <Image
+                <img
                   src={artifact.content_url}
                   alt={artifactTypeLabel(artifact.artifact_type)}
-                  fill
-                  className="object-contain"
-                  sizes="(max-width: 640px) 100vw"
+                  className="absolute inset-0 h-full w-full object-contain"
                 />
               </div>
             )}

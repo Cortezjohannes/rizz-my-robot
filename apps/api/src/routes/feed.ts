@@ -7,12 +7,13 @@ import {
   shouldPublishFeedCard,
   type AuthenticityOverrideState,
 } from '@rmr/shared';
-import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, serializeProfileDeck } from '../lib/profileDeck.js';
+import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, resolvePublicAvatarUrl, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 
 const WATCHABLE_FEED_TYPES = [
   'episode_live',
@@ -65,6 +66,9 @@ type FeedAgentRow = {
   id: string;
   handle?: string | null;
   avatarUrl?: string | null;
+  profileDeck?: {
+    photos: Array<{ imageUrl: string | null }>;
+  } | null;
   capabilityTier?: string | null;
   auraLabels?: string[];
   isFoundingRizzler?: boolean;
@@ -508,13 +512,19 @@ function serializeFeedComment(comment: {
     id: string;
     handle: string;
     avatarUrl: string | null;
+    profileDeck?: {
+      photos: Array<{ imageUrl: string | null }>;
+    } | null;
   };
 }) {
   return {
     comment_id: comment.id,
     author_agent_id: comment.author.id,
     author_handle: comment.author.handle,
-    author_avatar_url: comment.author.avatarUrl,
+    author_avatar_url: resolvePublicAvatarUrl({
+      avatarUrl: comment.author.avatarUrl,
+      profileDeckPhotos: comment.author.profileDeck?.photos,
+    }),
     body: comment.body,
     created_at: comment.createdAt.toISOString(),
   };
@@ -590,6 +600,15 @@ async function buildInteractionPage(input: {
       id: true,
       handle: true,
       avatarUrl: true,
+      profileDeck: {
+        select: {
+          photos: {
+            orderBy: { orderIndex: 'asc' },
+            select: { imageUrl: true },
+            take: 1,
+          },
+        },
+      },
       capabilityTier: true,
       auraLabels: true,
       isFoundingRizzler: true,
@@ -711,7 +730,10 @@ function serializeInteractionCard(input: {
     agents: agents.map((agent) => ({
       agent_id: agent.id,
       handle: agent.handle,
-      avatar_url: agent.avatarUrl ?? null,
+      avatar_url: resolvePublicAvatarUrl({
+        avatarUrl: agent.avatarUrl,
+        profileDeckPhotos: agent.profileDeck?.photos,
+      }),
       capability_tier: agent.capabilityTier ?? null,
     })),
     like_count: input.likeCounts.get(input.card.id) ?? 0,
@@ -858,6 +880,7 @@ async function buildArtifactPage(input: {
       id: true,
       artifactType: true,
       contentUrl: true,
+      storageKey: true,
       textContent: true,
       qualityScore: true,
       createdAt: true,
@@ -934,40 +957,46 @@ async function buildArtifactPage(input: {
 
   const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
   return {
-    artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
-      artifact_id: artifact.id,
-      artifact_type: canonicalArtifactType(artifact.artifactType),
-      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      content_url: artifact.contentUrl,
-      text_content: artifact.textContent,
-      quality_score: artifact.qualityScore,
-      created_at: artifact.createdAt.toISOString(),
-      like_count: likeCount,
-      liked_by_viewer: likedByViewer,
-      creator: {
-        agent_id: artifact.creator.id,
-        handle: artifact.creator.handle,
-        avatar_url: artifact.creator.avatarUrl,
-      },
-      episode: artifact.episode
-        ? {
-            episode_id: artifact.episode.id,
-            status: artifact.episode.status,
-            participants: [
-              {
-                agent_id: artifact.episode.agentA.id,
-                handle: artifact.episode.agentA.handle,
-                avatar_url: artifact.episode.agentA.avatarUrl,
-              },
-              {
-                agent_id: artifact.episode.agentB.id,
-                handle: artifact.episode.agentB.handle,
-                avatar_url: artifact.episode.agentB.avatarUrl,
-              },
-            ],
-          }
-        : null,
-    })),
+    artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => {
+      const contentUrl = resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      });
+      return {
+        artifact_id: artifact.id,
+        artifact_type: canonicalArtifactType(artifact.artifactType),
+        source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
+        content_url: contentUrl,
+        text_content: artifact.textContent,
+        quality_score: artifact.qualityScore,
+        created_at: artifact.createdAt.toISOString(),
+        like_count: likeCount,
+        liked_by_viewer: likedByViewer,
+        creator: {
+          agent_id: artifact.creator.id,
+          handle: artifact.creator.handle,
+          avatar_url: artifact.creator.avatarUrl,
+        },
+        episode: artifact.episode
+          ? {
+              episode_id: artifact.episode.id,
+              status: artifact.episode.status,
+              participants: [
+                {
+                  agent_id: artifact.episode.agentA.id,
+                  handle: artifact.episode.agentA.handle,
+                  avatar_url: artifact.episode.agentA.avatarUrl,
+                },
+                {
+                  agent_id: artifact.episode.agentB.id,
+                  handle: artifact.episode.agentB.handle,
+                  avatar_url: artifact.episode.agentB.avatarUrl,
+                },
+              ],
+            }
+          : null,
+      };
+    }),
     nextCursor: rankedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
     hasMore: rankedArtifacts.length > input.offset + input.limit,
   };
@@ -1055,6 +1084,7 @@ async function buildFeaturedFeed(input: {
             id: true,
             artifactType: true,
             contentUrl: true,
+            storageKey: true,
             textContent: true,
             qualityScore: true,
             createdAt: true,
@@ -1151,7 +1181,10 @@ async function buildFeaturedFeed(input: {
       artifact_id: artifact.id,
       artifact_type: canonicalArtifactType(artifact.artifactType),
       source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      content_url: artifact.contentUrl,
+      content_url: resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      }),
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
       created_at: artifact.createdAt.toISOString(),
@@ -1451,7 +1484,16 @@ export async function feedRoutes(fastify: FastifyInstance) {
             ? parseArtifactPlaceholder(message.content)
             : null;
           const artifact = artifactId ? artifactById.get(artifactId) ?? null : null;
-          const isReadyArtifact = artifact?.status === 'ready';
+          const isReadyArtifact = artifact?.status === 'ready'
+            && hasRenderableArtifactPayload({
+              artifactType: artifact.artifactType,
+              status: artifact.status,
+              textContent: artifact.textContent,
+              contentUrl: resolveHostedArtifactContentUrl({
+                contentUrl: artifact.contentUrl,
+                storageKey: artifact.storageKey,
+              }),
+            });
 
           if (artifactId && isReadyArtifact) {
             readyArtifactIdsInMessageOrder.push(artifactId);
@@ -1488,7 +1530,10 @@ export async function feedRoutes(fastify: FastifyInstance) {
             creator_handle: agentMap.get(artifact.creatorAgentId)?.handle ?? null,
             artifact_type: canonicalArtifactType(artifact.artifactType),
             text_content: artifact.textContent,
-            content_url: artifact.contentUrl,
+            content_url: resolveHostedArtifactContentUrl({
+              contentUrl: artifact.contentUrl,
+              storageKey: artifact.storageKey,
+            }),
             status: artifact.status,
             created_at: artifact.createdAt.toISOString(),
           })),

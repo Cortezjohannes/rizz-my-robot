@@ -19,7 +19,7 @@ function buildGenerationContext(artifact: RecoveryArtifact) {
     ? artifact.episode.agentA
     : artifact.creatorAgentId === artifact.episode?.agentBId
       ? artifact.episode.agentB
-      : null;
+      : artifact.creator;
   const counterpartAgent = artifact.creatorAgentId === artifact.episode?.agentAId
     ? artifact.episode.agentB
     : artifact.creatorAgentId === artifact.episode?.agentBId
@@ -42,12 +42,19 @@ function buildGenerationContext(artifact: RecoveryArtifact) {
 async function loadRecoveryCandidates() {
   return prisma.artifact.findMany({
     where: {
-      sourceScope: 'episode',
-      episodeId: { not: null },
       status: { in: ['pending', 'generating'] },
-      episode: {
-        status: { in: ['active', 'awaiting_decisions', 'matched'] },
-      },
+      OR: [
+        {
+          sourceScope: 'episode',
+          episodeId: { not: null },
+          episode: {
+            status: { in: ['active', 'awaiting_decisions', 'matched'] },
+          },
+        },
+        {
+          sourceScope: 'library',
+        },
+      ],
     },
     orderBy: [
       { createdAt: 'asc' },
@@ -61,6 +68,19 @@ async function loadRecoveryCandidates() {
       status: true,
       createdAt: true,
       episodeId: true,
+      sourceScope: true,
+      creator: {
+        select: {
+          avatarUrl: true,
+          handle: true,
+          useAvatarAsReference: true,
+          imageGenProvider: true,
+          imageGenModel: true,
+          voiceId: true,
+          voiceProvider: true,
+          capabilityTier: true,
+        },
+      },
       episode: {
         select: {
           id: true,
@@ -107,10 +127,32 @@ async function getArtifactGenerationWebhookCount(agentId: string) {
   });
 }
 
+async function getLatestArtifactGenerationDelivery(input: {
+  agentId: string;
+  artifactId: string;
+}) {
+  return prisma.webhookDelivery.findFirst({
+    where: {
+      agentId: input.agentId,
+      event: 'artifact_generation_requested',
+      requestBody: {
+        path: ['artifact_id'],
+        equals: input.artifactId,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      createdAt: true,
+      status: true,
+    },
+  });
+}
+
 export async function recoverStaleEpisodeArtifacts() {
   const now = new Date();
   const retryCutoff = new Date(now.getTime() - ARTIFACT_RECOVERY_RETRY_AFTER_MS);
   const artifacts = await loadRecoveryCandidates();
+  const webhookCountCache = new Map<string, number>();
 
   let inspected = 0;
   let retried = 0;
@@ -132,12 +174,29 @@ export async function recoverStaleEpisodeArtifacts() {
       continue;
     }
 
-    if (artifact.status !== 'pending' || artifact.createdAt > retryCutoff) {
+    if (artifact.createdAt > retryCutoff) {
       continue;
     }
 
-    const webhookCount = await getArtifactGenerationWebhookCount(artifact.creatorAgentId);
+    const latestDelivery = await getLatestArtifactGenerationDelivery({
+      agentId: artifact.creatorAgentId,
+      artifactId: artifact.id,
+    });
+    if (latestDelivery && latestDelivery.createdAt > retryCutoff) {
+      continue;
+    }
+
+    const cachedWebhookCount = webhookCountCache.get(artifact.creatorAgentId);
+    const webhookCount = cachedWebhookCount ?? await getArtifactGenerationWebhookCount(artifact.creatorAgentId);
+    if (cachedWebhookCount === undefined) {
+      webhookCountCache.set(artifact.creatorAgentId, webhookCount);
+    }
     if (webhookCount === 0) {
+      await prisma.artifact.update({
+        where: { id: artifact.id },
+        data: { status: 'failed' },
+      });
+      failed += 1;
       continue;
     }
 
@@ -147,10 +206,14 @@ export async function recoverStaleEpisodeArtifacts() {
       artifact_type: normalizedType,
       status: 'pending',
       recovery: true,
-      recovery_reason: 'stale_pending_artifact',
+      recovery_reason: artifact.sourceScope === 'library' ? 'stale_library_artifact' : 'stale_pending_artifact',
       stale_for_seconds: Math.max(0, Math.floor(ageMs / 1000)),
-      upload_request_url: `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/upload-request`,
-      submit_url: `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}`,
+      upload_request_url: artifact.sourceScope === 'library'
+        ? `/v1/artifacts/${artifact.id}/upload-request`
+        : `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/upload-request`,
+      submit_url: artifact.sourceScope === 'library'
+        ? `/v1/artifacts/${artifact.id}`
+        : `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}`,
       generation_context: buildGenerationContext(artifact),
     });
 

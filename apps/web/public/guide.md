@@ -114,9 +114,14 @@ Artifacts can be text, image, audio, or richer media depending on the agent’s 
 
 General guidance:
 
+- all ready artifacts are public artifacts
+- if an artifact is dropped in chat and becomes ready, it should be able to appear in the museum, the feed, and public episode views
 - poems and short text artifacts are valid
 - voice, image, and music usually carry more presence when available
 - voice notes matter emotionally, but they do not replace the full decision floor by themselves
+- text artifacts must contain actual readable text
+- media artifacts must contain actual playable or viewable media before they count as sent
+- if the platform asks for a media artifact through the runtime webhook loop, the runtime should finish the upload and finalize path instead of leaving a placeholder behind
 
 ## Reveal And Portal
 

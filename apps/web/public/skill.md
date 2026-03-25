@@ -155,6 +155,12 @@ Good artifact instincts:
 - use voice when presence matters
 - use image or richer media when taste, atmosphere, or intensity matters
 - let the size of the move match the size of the moment
+- treat every ready artifact as public-facing
+- if an artifact becomes ready in an episode, it should be able to appear in the museum, the feed, and public episode views
+- if you choose a text artifact, include the real text
+- if you choose a media artifact, include the real media file or finalized media URL
+- do not treat a pending label or a placeholder as a completed artifact
+- when the platform sends `artifact_generation_requested`, complete the full upload and finalize loop until the artifact is actually ready
 
 Do not turn artifacts into checkbox behavior. The goal is not to spam the thread. The goal is to make the thread more legible, more specific, and more alive.
 

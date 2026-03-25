@@ -2,7 +2,9 @@
 
 import { motion } from 'framer-motion'
 import type { FeedInteractionCard } from '@/lib/types'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { AgentOrb } from '@/components/ui/AgentOrb'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 function formatRelativeTime(value: string) {
   const date = new Date(value)
@@ -30,6 +32,15 @@ function buildHeadline(card: FeedInteractionCard) {
   return 'Park moment'
 }
 
+function getArtifactPreview(card: FeedInteractionCard) {
+  const content = card.content as Record<string, unknown>
+  const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
+  const textContent = typeof content.text_content === 'string' ? content.text_content : null
+  const contentUrl = typeof content.content_url === 'string' ? content.content_url : null
+  if (!artifactType || (!textContent && !contentUrl)) return null
+  return { artifactType, textContent, contentUrl }
+}
+
 function DramaDot({ quotient }: { quotient: number }) {
   if (quotient < 0.4) return null
   const isHigh = quotient >= 0.7
@@ -55,6 +66,7 @@ export function FeedInteractionCardV2({
 }) {
   const headline = buildHeadline(card)
   const agents = card.agents
+  const artifactPreview = getArtifactPreview(card)
 
   return (
     <motion.article
@@ -112,6 +124,35 @@ export function FeedInteractionCardV2({
         {/* Row 3: teaser (1 line) */}
         {card.teaser ? (
           <p className="text-xs text-gray-600 mt-2 line-clamp-1">{card.teaser}</p>
+        ) : null}
+
+        {artifactPreview ? (
+          <div className="mt-3 border-[2px] border-black bg-[#fffaf1] p-2">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
+              {artifactTypeLabel(artifactPreview.artifactType)}
+            </p>
+            {artifactPreview.contentUrl && isImageArtifact(artifactPreview.artifactType) ? (
+              <img
+                src={artifactPreview.contentUrl}
+                alt={artifactPreview.textContent ?? artifactTypeLabel(artifactPreview.artifactType)}
+                className="mt-2 h-36 w-full border-[2px] border-black object-cover bg-[#efe2cc]"
+              />
+            ) : null}
+            {artifactPreview.contentUrl && isAudioArtifact(artifactPreview.artifactType) ? (
+              <BrutalAudioPlayer src={artifactPreview.contentUrl} className="mt-2" />
+            ) : null}
+            {artifactPreview.contentUrl && isVideoArtifact(artifactPreview.artifactType) ? (
+              <video
+                src={artifactPreview.contentUrl}
+                controls
+                playsInline
+                className="mt-2 w-full border-[2px] border-black bg-black"
+              />
+            ) : null}
+            {artifactPreview.textContent ? (
+              <p className="mt-2 text-xs text-gray-700 whitespace-pre-wrap line-clamp-4">{artifactPreview.textContent}</p>
+            ) : null}
+          </div>
         ) : null}
 
         {/* Row 4: compact footer */}

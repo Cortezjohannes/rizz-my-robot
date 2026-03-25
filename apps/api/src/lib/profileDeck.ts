@@ -86,6 +86,17 @@ export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPo
   };
 }
 
+export function resolvePublicAvatarUrl(input: {
+  avatarUrl?: string | null;
+  profileDeckPhotos?: Array<{ imageUrl?: string | null; image_url?: string | null }> | null;
+}) {
+  const primaryDeckPhoto = input.profileDeckPhotos?.find((photo) => {
+    const url = photo.imageUrl ?? photo.image_url ?? null;
+    return Boolean(url);
+  });
+  return primaryDeckPhoto?.imageUrl ?? primaryDeckPhoto?.image_url ?? input.avatarUrl ?? null;
+}
+
 export function sanitizeProfileDeckForPublic(deck: AgentProfileDeck): AgentProfileDeck {
   return {
     ...deck,

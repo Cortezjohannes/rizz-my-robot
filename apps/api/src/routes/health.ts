@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import { QUEUE_NAMES, getNamedQueue } from '../lib/queues.js';
+import { getStoragePublicBaseUrl, isStorageConfigured } from '../lib/storage.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -99,6 +100,7 @@ async function checkRedisConnectivity() {
 
 const CRITICAL_QUEUE_NAMES = [
   QUEUE_NAMES.deliverWebhook,
+  QUEUE_NAMES.artifactRecovery,
   QUEUE_NAMES.ghostCheck,
   QUEUE_NAMES.revealChatLifecycle,
   QUEUE_NAMES.expireRevealTokens,
@@ -126,6 +128,20 @@ async function checkCriticalQueues() {
   return results;
 }
 
+function checkStorageHosting() {
+  const configured = isStorageConfigured();
+  const publicBaseUrl = getStoragePublicBaseUrl();
+
+  return {
+    ok: configured && Boolean(publicBaseUrl),
+    configured,
+    public_base_url: publicBaseUrl,
+    error: configured
+      ? (publicBaseUrl ? null : 'storage_public_url_missing')
+      : 'storage_bucket_missing',
+  };
+}
+
 export async function healthRoutes(fastify: FastifyInstance) {
   const readyHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
     let dbOk = false;
@@ -134,6 +150,8 @@ export async function healthRoutes(fastify: FastifyInstance) {
     let redisOk = false;
     let redisError: string | null = null;
     let unavailableQueues: string[] = [];
+    let storageOk = false;
+    let storageError: string | null = null;
 
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -151,12 +169,16 @@ export async function healthRoutes(fastify: FastifyInstance) {
     redisOk = redisState.ok;
     redisError = redisState.error;
     unavailableQueues = queueState.filter((queue) => !queue.enabled).map((queue) => queue.name);
+    const storageState = checkStorageHosting();
+    storageOk = storageState.ok;
+    storageError = storageState.error;
 
-    const ready = dbOk && missingObjects.length === 0 && redisOk && unavailableQueues.length === 0;
+    const ready = dbOk && missingObjects.length === 0 && redisOk && unavailableQueues.length === 0 && storageOk;
     const blockingIssues = [
       ...(!dbOk ? [{ check: 'database', reason: errorMessage ?? 'database_unreachable' }] : []),
       ...(dbOk && missingObjects.length > 0 ? [{ check: 'schema', reason: 'missing_objects', missing_objects: missingObjects }] : []),
       ...(!redisOk ? [{ check: 'redis', reason: redisError ?? 'redis_unreachable' }] : []),
+      ...(!storageOk ? [{ check: 'storage', reason: storageError ?? 'storage_unavailable' }] : []),
       ...(unavailableQueues.length > 0 ? [{ check: 'queues', reason: 'critical_queues_unavailable', queues: unavailableQueues }] : []),
     ];
 
@@ -167,6 +189,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
       db: dbOk ? 'ok' : 'unreachable',
       schema: !dbOk ? 'unknown' : missingObjects.length === 0 ? 'ok' : 'out_of_date',
       redis: redisOk ? 'ok' : 'unreachable',
+      storage: storageOk ? 'ok' : 'unavailable',
       queues: unavailableQueues.length === 0 ? 'ok' : 'degraded',
       checks: {
         database: {
@@ -180,6 +203,12 @@ export async function healthRoutes(fastify: FastifyInstance) {
         redis: {
           status: redisOk ? 'healthy' : 'down',
           ...(redisError ? { error: redisError } : {}),
+        },
+        storage: {
+          status: storageOk ? 'healthy' : 'down',
+          ...(storageError ? { error: storageError } : {}),
+          configured: storageState.configured,
+          public_base_url: storageState.public_base_url,
         },
         queues: {
           status: unavailableQueues.length === 0 ? 'healthy' : 'degraded',

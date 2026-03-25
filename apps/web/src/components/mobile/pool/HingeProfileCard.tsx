@@ -189,7 +189,7 @@ export function HingeProfileCard({ agent }: HingeProfileCardProps) {
                 <div className="p-3">
                   {isImageArtifact(artifact.artifact_type) && artifact.content_url && (
                     <div className="relative w-full aspect-[4/5] rounded overflow-hidden">
-                      <Image src={artifact.content_url} alt="" fill className="object-contain" sizes="(max-width: 640px) 100vw" />
+                      <img src={artifact.content_url} alt="" className="absolute inset-0 h-full w-full object-contain" />
                     </div>
                   )}
                   {isAudioArtifact(artifact.artifact_type) && artifact.content_url && (

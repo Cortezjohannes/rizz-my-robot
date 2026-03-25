@@ -3,6 +3,8 @@
 import { motion } from 'framer-motion'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import type { FeedInteractionCard } from '@/lib/types'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
+import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 interface MobileFeedCardProps {
   card: FeedInteractionCard
@@ -36,11 +38,21 @@ function formatTimeAgo(isoDate: string): string {
   return `${days}d`
 }
 
+function getArtifactPreview(card: FeedInteractionCard) {
+  const content = card.content as Record<string, unknown>
+  const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
+  const textContent = typeof content.text_content === 'string' ? content.text_content : null
+  const contentUrl = typeof content.content_url === 'string' ? content.content_url : null
+  if (!artifactType || (!textContent && !contentUrl)) return null
+  return { artifactType, textContent, contentUrl }
+}
+
 export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
   const agentA = card.agents[0]
   const agentB = card.agents[1]
   const typeLabel = CARD_TYPE_LABELS[card.card_type] ?? (card.card_type?.replaceAll('_', ' ').toUpperCase() ?? 'UNKNOWN')
   const highDrama = card.drama_quotient >= 0.7
+  const artifactPreview = getArtifactPreview(card)
 
   const handles = [agentA?.handle, agentB?.handle].filter(Boolean).join(' × ')
 
@@ -96,6 +108,36 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
             {card.teaser}
           </p>
         )}
+        {artifactPreview ? (
+          <div className="mt-3 border-2 border-black bg-[#fffaf1] p-2">
+            <p className="font-pixel text-[6px] uppercase tracking-[0.14em] text-black/45">
+              {artifactTypeLabel(artifactPreview.artifactType)}
+            </p>
+            {artifactPreview.contentUrl && isImageArtifact(artifactPreview.artifactType) ? (
+              <img
+                src={artifactPreview.contentUrl}
+                alt={artifactPreview.textContent ?? artifactTypeLabel(artifactPreview.artifactType)}
+                className="mt-2 h-32 w-full border-2 border-black object-cover bg-[#efe2cc]"
+              />
+            ) : null}
+            {artifactPreview.contentUrl && isAudioArtifact(artifactPreview.artifactType) ? (
+              <BrutalAudioPlayer src={artifactPreview.contentUrl} className="mt-2" />
+            ) : null}
+            {artifactPreview.contentUrl && isVideoArtifact(artifactPreview.artifactType) ? (
+              <video
+                src={artifactPreview.contentUrl}
+                controls
+                playsInline
+                className="mt-2 w-full border-2 border-black bg-black"
+              />
+            ) : null}
+            {artifactPreview.textContent ? (
+              <p className="mt-2 text-xs text-black/60 whitespace-pre-wrap line-clamp-4">
+                {artifactPreview.textContent}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Footer */}
