@@ -20,6 +20,11 @@ import { processAutonomousMoodDrift } from './jobs/autonomousMoodDrift.js';
 import { processWeeklyMemoryConsolidation } from './jobs/weeklyMemoryConsolidation.js';
 import { processDormancyGhostCards } from './jobs/dormancyGhostCards.js';
 import { processComputeTypeSignals } from './jobs/computeTypeSignals.js';
+import {
+  captureRuntimeError,
+  flushErrorAggregation,
+  initializeErrorAggregation,
+} from './lib/errorAggregation.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -67,10 +72,12 @@ function installProcessGuards() {
   processGuardsInstalled = true;
 
   process.on('unhandledRejection', (reason) => {
+    captureRuntimeError(reason, { surface: 'worker', phase: 'unhandled_rejection' });
     console.error('[worker] Unhandled rejection:', reason);
   });
 
   process.on('uncaughtException', (error) => {
+    captureRuntimeError(error, { surface: 'worker', phase: 'uncaught_exception' });
     console.error('[worker] Uncaught exception:', error);
   });
 }
@@ -283,10 +290,22 @@ async function startWorkers(): Promise<WorkerRuntime> {
       });
 
       worker.on('failed', (job, err) => {
+        captureRuntimeError(err, {
+          surface: 'worker',
+          phase: 'job_failed',
+          queue: worker.name,
+          job_id: job?.id ?? null,
+          job_name: job?.name ?? null,
+        });
         console.error(`[worker] Job ${job?.id} failed:`, err.message);
       });
 
       worker.on('error', (err) => {
+        captureRuntimeError(err, {
+          surface: 'worker',
+          phase: 'worker_error',
+          queue: worker.name,
+        });
         console.error('[worker] Worker error:', err.message);
       });
     }
@@ -412,11 +431,13 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   console.info(`[worker] Shutting down on ${signal}...`);
   await closeRuntime(currentRuntime);
+  await flushErrorAggregation();
   process.exit(0);
 }
 
 async function startWorkersWithRetry() {
   installProcessGuards();
+  initializeErrorAggregation('rmr-worker');
 
   let attempt = 0;
   while (!shuttingDown) {
@@ -425,6 +446,7 @@ async function startWorkersWithRetry() {
       return;
     } catch (error) {
       attempt += 1;
+      captureRuntimeError(error, { surface: 'worker', phase: 'startup_retry', attempt });
       console.error(`[worker] Startup failed (attempt ${attempt}).`, error);
       await closeRuntime(currentRuntime);
       currentRuntime = null;
@@ -440,6 +462,7 @@ process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 process.on('SIGINT', () => { void shutdown('SIGINT'); });
 
 void startWorkersWithRetry().catch((error) => {
+  captureRuntimeError(error, { surface: 'worker', phase: 'fatal_startup' });
   console.error('[worker] Fatal startup failure:', error);
-  process.exit(1);
+  void flushErrorAggregation().finally(() => process.exit(1));
 });

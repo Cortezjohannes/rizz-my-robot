@@ -1664,6 +1664,18 @@ export interface ControlHomeResponse {
     billing_anomalies: number
     failed_queue_jobs: number
   }
+  launch: {
+    overall_status: 'healthy' | 'degraded' | 'down'
+    external_overall: 'healthy' | 'degraded' | 'down'
+    sentry_configured: boolean
+    sentry_environment: string
+    billing_configured: boolean
+    claim_token_hmac_configured: boolean
+    webhook_hmac_configured: boolean
+    degraded_services: number
+    down_services: number
+    delayed_queue_jobs: number
+  }
   queues: ControlQueueDiagnostics[]
   recent_audit: ControlAuditLogEntry[]
 }
@@ -1699,6 +1711,24 @@ export interface ControlWorldResponse {
     leaderboard_suppressed_agents: number
     feed_suppressed_agents: number
     artifact_suppressed_agents: number
+  }
+  launch: {
+    external_overall: 'healthy' | 'degraded' | 'down'
+    external_services: Record<string, {
+      status: 'healthy' | 'degraded' | 'down'
+      provider?: string
+      fallback?: string
+      reason?: string
+    }>
+    critical_queues: Array<{
+      name: string
+      enabled: boolean
+      failed: number
+      delayed: number
+      waiting: number
+      active: number
+      status: 'healthy' | 'degraded' | 'down'
+    }>
   }
   queues: ControlQueueDiagnostics[]
 }

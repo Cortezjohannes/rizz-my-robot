@@ -13,6 +13,9 @@ import {
 } from './queues.js';
 import { evaluateRevealGate, recomputeAndPersistAgentSafety } from './safety.js';
 import { resolveHourlySwipeWindowState } from './throughput.js';
+import { getSystemStatus } from './externalHealth.js';
+import { getErrorAggregationStatus } from './errorAggregation.js';
+import { isPaddleBillingConfigured } from './billing.js';
 
 export type ControlSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type LifecycleAction =
@@ -76,6 +79,24 @@ export interface ControlFeaturedFeedResponse {
   items: ControlFeaturedFeedItem[];
 }
 
+interface ControlLaunchServiceStatus {
+  status: 'healthy' | 'degraded' | 'down';
+  provider?: string;
+  fallback?: string;
+  reason?: string;
+}
+
+interface ControlAuditLogEntry {
+  id: string;
+  actor_type: string;
+  actor_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface ControlSettingsResponse {
   actor_kind: ControlActorContext['actorKind'];
   capabilities: ControlCapabilities;
@@ -95,6 +116,79 @@ export interface ControlSettingsResponse {
     backup_storage_configured: boolean;
     preserved_tables: string[];
   };
+}
+
+export interface ControlHomeResponse {
+  actor_kind: ControlActorContext['actorKind'];
+  command_center: {
+    active_agents: number;
+    pending_profile_agents: number;
+    paused_agents: number;
+    dormant_agents: number;
+    soft_deleted_agents: number;
+    public_profiles: number;
+    visibility_issues: number;
+    pending_moderation_reviews: number;
+    failed_webhook_deliveries: number;
+    pending_reveals: number;
+    stuck_reveals: number;
+    billing_anomalies: number;
+    failed_queue_jobs: number;
+  };
+  launch: {
+    overall_status: 'healthy' | 'degraded' | 'down';
+    external_overall: 'healthy' | 'degraded' | 'down';
+    sentry_configured: boolean;
+    sentry_environment: string;
+    billing_configured: boolean;
+    claim_token_hmac_configured: boolean;
+    webhook_hmac_configured: boolean;
+    degraded_services: number;
+    down_services: number;
+    delayed_queue_jobs: number;
+  };
+  queues: Array<{
+    name: string;
+    enabled: boolean;
+    counts: Record<string, number>;
+  }>;
+  recent_audit: ControlAuditLogEntry[];
+}
+
+export interface ControlWorldResponse {
+  actor_kind: ControlActorContext['actorKind'];
+  park: {
+    active_episodes: number;
+    awaiting_decisions_episodes: number;
+    pending_reveals: number;
+    public_feed_cards_last_24h: number;
+    public_artifacts_last_24h: number;
+    new_public_profiles_last_7d: number;
+  };
+  public_presence: {
+    pool_suppressed_agents: number;
+    leaderboard_suppressed_agents: number;
+    feed_suppressed_agents: number;
+    artifact_suppressed_agents: number;
+  };
+  launch: {
+    external_overall: 'healthy' | 'degraded' | 'down';
+    external_services: Record<string, ControlLaunchServiceStatus>;
+    critical_queues: Array<{
+      name: string;
+      enabled: boolean;
+      failed: number;
+      delayed: number;
+      waiting: number;
+      active: number;
+      status: 'healthy' | 'degraded' | 'down';
+    }>;
+  };
+  queues: Array<{
+    name: string;
+    enabled: boolean;
+    counts: Record<string, number>;
+  }>;
 }
 
 export interface DatabaseResetActionResult extends ControlActionResult {
@@ -125,6 +219,37 @@ export interface ControlActionResult {
   performed_at: string;
   before: Record<string, unknown>;
   after: Record<string, unknown>;
+}
+
+const LAUNCH_CRITICAL_QUEUE_NAMES = new Set<string>([
+  QUEUE_NAMES.deliverWebhook,
+  QUEUE_NAMES.wakeAgent,
+  QUEUE_NAMES.revealChatLifecycle,
+  QUEUE_NAMES.generateRecaps,
+  QUEUE_NAMES.artifactRecovery,
+  QUEUE_NAMES.verifyTwitter,
+]);
+
+function summarizeLaunchStatus(input: {
+  externalOverall: 'healthy' | 'degraded' | 'down';
+  errorAggregationConfigured: boolean;
+  billingConfigured: boolean;
+  criticalQueuesHealthy: boolean;
+}) {
+  if (
+    input.externalOverall === 'down'
+    || !input.errorAggregationConfigured
+    || !input.billingConfigured
+    || !input.criticalQueuesHealthy
+  ) {
+    return 'down' as const;
+  }
+
+  if (input.externalOverall === 'degraded') {
+    return 'degraded' as const;
+  }
+
+  return 'healthy' as const;
 }
 
 function getControlSurfaceName(actor: ControlActorContext): 'omnimon_control_center' | 'human_admin_surface' {
@@ -586,6 +711,7 @@ async function listBillingAnomalies(limit: number) {
 export async function buildControlHome() {
   const [
     queueDiagnostics,
+    externalServices,
     pendingModeration,
     failedWebhookDeliveries,
     activeAgents,
@@ -601,6 +727,7 @@ export async function buildControlHome() {
     recentAudit,
   ] = await Promise.all([
     getQueueDiagnostics(),
+    getSystemStatus(),
     prisma.moderationReview.count({ where: { status: 'pending' } }),
     prisma.webhookDelivery.count({ where: { status: 'failed' } }),
     prisma.agent.count({ where: { poolStatus: 'active' } }),
@@ -651,6 +778,13 @@ export async function buildControlHome() {
   ]);
 
   const failedJobs = queueDiagnostics.reduce((total, queue) => total + (queue.counts.failed ?? 0), 0);
+  const delayedJobs = queueDiagnostics.reduce((total, queue) => total + (queue.counts.delayed ?? 0), 0);
+  const criticalQueues = queueDiagnostics.filter((queue) => LAUNCH_CRITICAL_QUEUE_NAMES.has(queue.name));
+  const criticalQueuesHealthy = criticalQueues.every((queue) => queue.enabled && (queue.counts.failed ?? 0) === 0);
+  const degradedServices = Object.values(externalServices.services).filter((service) => service.status === 'degraded').length;
+  const downServices = Object.values(externalServices.services).filter((service) => service.status === 'down').length;
+  const errorAggregation = getErrorAggregationStatus();
+  const billingConfigured = isPaddleBillingConfigured();
 
   return {
     command_center: {
@@ -667,6 +801,23 @@ export async function buildControlHome() {
       stuck_reveals: stuckReveals,
       billing_anomalies: billingAnomalies,
       failed_queue_jobs: failedJobs,
+    },
+    launch: {
+      overall_status: summarizeLaunchStatus({
+        externalOverall: externalServices.overall,
+        errorAggregationConfigured: errorAggregation.configured,
+        billingConfigured,
+        criticalQueuesHealthy,
+      }),
+      external_overall: externalServices.overall,
+      sentry_configured: errorAggregation.configured,
+      sentry_environment: errorAggregation.environment,
+      billing_configured: billingConfigured,
+      claim_token_hmac_configured: Boolean(process.env.CLAIM_TOKEN_HMAC_KEY),
+      webhook_hmac_configured: Boolean(process.env.WEBHOOK_HMAC_KEY),
+      degraded_services: degradedServices,
+      down_services: downServices,
+      delayed_queue_jobs: delayedJobs,
     },
     queues: queueDiagnostics.map((queue) => ({
       name: queue.name,
@@ -785,6 +936,7 @@ export async function buildControlWorld() {
     newPublicProfilesLast7d,
     suppressedCounts,
     queueDiagnostics,
+    externalServices,
   ] = await Promise.all([
     prisma.episode.count({ where: { status: { in: ['pending', 'active'] } } }),
     prisma.episode.count({ where: { status: 'awaiting_decisions' } }),
@@ -810,7 +962,24 @@ export async function buildControlWorld() {
       prisma.agent.count({ where: { controlArtifactsSuppressed: true } }),
     ]),
     getQueueDiagnostics(),
+    getSystemStatus(),
   ]);
+
+  const criticalQueues = queueDiagnostics
+    .filter((queue) => LAUNCH_CRITICAL_QUEUE_NAMES.has(queue.name))
+    .map((queue) => ({
+      name: queue.name,
+      enabled: queue.enabled,
+      failed: queue.counts.failed ?? 0,
+      delayed: queue.counts.delayed ?? 0,
+      waiting: queue.counts.waiting ?? 0,
+      active: queue.counts.active ?? 0,
+      status: !queue.enabled
+        ? 'down'
+        : (queue.counts.failed ?? 0) > 0
+          ? 'degraded'
+          : 'healthy',
+    }));
 
   return {
     park: {
@@ -826,6 +995,11 @@ export async function buildControlWorld() {
       leaderboard_suppressed_agents: suppressedCounts[1],
       feed_suppressed_agents: suppressedCounts[2],
       artifact_suppressed_agents: suppressedCounts[3],
+    },
+    launch: {
+      external_overall: externalServices.overall,
+      external_services: externalServices.services,
+      critical_queues: criticalQueues,
     },
     queues: queueDiagnostics.map((queue) => ({
       name: queue.name,

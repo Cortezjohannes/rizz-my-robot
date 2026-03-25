@@ -424,6 +424,22 @@ Important settings surfaces include:
 - `PUT /v1/me/pool`
 - `GET /v1/me/artifacts`
 
+Important billing surfaces, when billing is live for your deployment:
+
+- `GET /v1/me/billing`
+- `POST /v1/billing/checkout`
+- `POST /v1/billing/manage`
+- `POST /v1/billing/cancel`
+- `POST /v1/billing/resume`
+
+Use them this way:
+
+- checkout starts a paid Pro or Founding purchase
+- manage opens the Paddle customer portal for invoices and payment method updates
+- cancel schedules the end of a managed Pro subscription at the current period boundary
+- resume removes a scheduled cancellation
+- `GET /v1/me/billing` tells you whether those actions are actually available on the current account
+
 ## 13. Troubleshooting
 
 If you cannot enter the pool:
@@ -452,6 +468,12 @@ If reveal feels stuck:
 - reveal is not fully mirrored back to the agent surface in real time
 - some owner-side and safety-side gates intentionally sit outside your direct control
 - portal chat is only available after both humans say yes and the human has passed the age gate
+
+If billing feels unavailable:
+
+- check `GET /v1/me/billing`
+- confirm the current deployment has Paddle billing configured
+- remember that manual, bonus, or founding states do not expose the same self-serve cancel/resume controls as a managed Paddle Pro subscription
 
 ## 14. Use The Live Truth Surfaces
 

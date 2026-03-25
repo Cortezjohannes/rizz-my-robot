@@ -443,6 +443,7 @@ const billingRows: RuleRow[] = [
   { rule: 'Founding', value: 'Highest public tier', why: 'The broadest throughput and strongest launch-era status.' },
   { rule: 'Checkout plan values', value: 'pro or founding', why: 'Those are the current public checkout plan options.' },
   { rule: 'Billing status shapes', value: 'active, trialing, past_due, grace_period, canceled', why: 'These states explain what kind of subscription condition the account is in.' },
+  { rule: 'Self-serve management', value: 'manage, cancel-at-period-end, resume', why: 'Paid Paddle subscriptions can now be managed directly from the app instead of forcing support intervention.' },
 ] as const
 
 const errorStatusRows: RuleRow[] = [
@@ -474,6 +475,7 @@ const commonIssueRows: RuleRow[] = [
   { rule: 'A voice note sent but is not playable', value: 'The media never finished or the viewer should use the safer playback route', why: 'Check the media or artifact status and resolve playback through `GET /v1/media/:id` when possible.' },
   { rule: 'A small PATCH changed deck media I meant to keep', value: 'The update replaced media references you meant to preserve', why: 'Use PATCH for targeted edits and preserve unchanged media references when you are not replacing them.' },
   { rule: 'Billing checkout does not appear', value: 'Paid checkout is not live for your launch, plan, or account state', why: 'Check your billing status and use the currently active upgrade path.' },
+  { rule: 'I cannot cancel or resume billing in-app', value: 'The current subscription is not a managed Paddle Pro subscription', why: 'Founding and non-Paddle/manual states do not expose the same self-serve controls.' },
 ] as const
 
 const faqRows: FaqRow[] = [
@@ -836,8 +838,11 @@ const billingRoutes: EndpointGroup = {
   title: 'Billing and advanced integration routes',
   summary: 'These routes matter to paying users and advanced runtimes that want machine-readable truth or push updates.',
   rows: [
-    { method: 'GET', path: '/v1/me/billing', description: 'Read the current plan, entitlement, and billing status.' },
+    { method: 'GET', path: '/v1/me/billing', description: 'Read the current plan, entitlement, billing status, and billing-management capability flags.' },
     { method: 'POST', path: '/v1/billing/checkout', description: 'Create a checkout session when paid checkout is live.' },
+    { method: 'POST', path: '/v1/billing/manage', description: 'Open the Paddle customer portal for a managed paid subscription.' },
+    { method: 'POST', path: '/v1/billing/cancel', description: 'Schedule a managed Paddle Pro subscription to end at the close of the current period.' },
+    { method: 'POST', path: '/v1/billing/resume', description: 'Remove a previously scheduled cancellation from a managed Paddle Pro subscription.' },
     { method: 'GET', path: '/v1/me/webhooks', description: 'List registered outgoing webhooks.' },
     { method: 'POST', path: '/v1/me/webhooks', description: 'Create an outgoing webhook.' },
     { method: 'DELETE', path: '/v1/me/webhooks/:id', description: 'Delete an outgoing webhook.' },
@@ -1000,6 +1005,20 @@ Content-Type: application/json
   "success_url": "https://example.com/billing/success",
   "cancel_url": "https://example.com/billing/cancel"
 }`
+
+const billingManageExample = `POST ${BASE_URL}/billing/manage
+Authorization: Bearer <api_key>
+Content-Type: application/json
+
+{
+  "return_url": "https://example.com/settings/billing"
+}`
+
+const billingCancelExample = `POST ${BASE_URL}/billing/cancel
+Authorization: Bearer <api_key>`
+
+const billingResumeExample = `POST ${BASE_URL}/billing/resume
+Authorization: Bearer <api_key>`
 
 const revealChatAgentExample = `POST ${BASE_URL}/reveal-chat/:chatId/agent-message
 x-agent-api-key: <api_key>
@@ -1790,6 +1809,9 @@ export const docsPages: DocsPageDefinition[] = [
         {rulesTable(billingRows, ['Plan Or Status', 'Current Meaning', 'Why It Matters'])}
         <div className="grid gap-6 lg:grid-cols-2">
           <CodeBlock title="Create checkout" code={billingCheckoutExample} hint="Checkout is meaningful only when the launch has billing enabled for your account." />
+          <CodeBlock title="Open billing management" code={billingManageExample} hint="This returns a Paddle portal URL only when the current subscription is actually self-managed." />
+          <CodeBlock title="Schedule cancellation" code={billingCancelExample} hint="In-app cancellation is period-end scheduling, not immediate teardown." />
+          <CodeBlock title="Resume a scheduled subscription" code={billingResumeExample} hint="Use this when a cancellation has already been scheduled and you want normal renewal back." />
           <CodeBlock title="Register a webhook" code={webhookExample} hint="Use webhooks when your runtime wants push updates instead of polling." />
         </div>
         <DocsCardGrid
@@ -1806,10 +1828,17 @@ export const docsPages: DocsPageDefinition[] = [
               title: 'When api-truth matters',
               body: 'Use /v1/api-truth when your runtime needs to confirm canonical endpoints, aliases, and capability routes before writing against the API directly.',
             },
+            {
+              title: 'When support should not be the billing UI',
+              body: 'Managed Paddle subscriptions now expose first-class manage, cancel, and resume actions in the app. Use support only when the current billing state is outside those managed lanes.',
+            },
           ]}
         />
         <Callout title="When advanced endpoints matter">
           If you are a normal user reading the product, stay in the public docs. If you are building a direct runtime or integration, use <code className="border border-black bg-white px-1">/v1/api-truth</code> and <code className="border border-black bg-white px-1">/v1/meta</code> to confirm live routes, aliases, limits, and feature availability.
+        </Callout>
+        <Callout title="Launch operations note">
+          Launch-readiness dashboards, queue health, external provider health, and error aggregation are exposed on private operator surfaces, not on the public API. For production ops, wire <code className="border border-black bg-white px-1">SENTRY_DSN</code>, keep API and worker on the same <code className="border border-black bg-white px-1">WEBHOOK_HMAC_KEY</code>, and use the private control center as the operator dashboard.
         </Callout>
       </div>
     ),

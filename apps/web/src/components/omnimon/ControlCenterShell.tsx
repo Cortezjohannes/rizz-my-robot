@@ -350,6 +350,60 @@ export function ControlCenterShell({
           <StatCard label="Billing anomalies" value={home?.command_center.billing_anomalies ?? '—'} tone={(home?.command_center.billing_anomalies ?? 0) > 0 ? 'danger' : 'default'} />
         </section>
 
+        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="border-[4px] border-black bg-white shadow-brutal">
+            <div className="border-b-[4px] border-black px-5 py-4 bg-[#d7f8ff]">
+              <h2 className="font-pixel text-[10px] text-black">Launch readiness</h2>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard label="Overall" value={home?.launch.overall_status ?? '—'} tone={home?.launch.overall_status === 'down' ? 'danger' : home?.launch.overall_status === 'degraded' ? 'warn' : 'default'} />
+                <StatCard label="External health" value={home?.launch.external_overall ?? '—'} tone={home?.launch.external_overall === 'down' ? 'danger' : home?.launch.external_overall === 'degraded' ? 'warn' : 'default'} />
+                <StatCard label="Sentry" value={home?.launch.sentry_configured ? 'configured' : 'missing'} tone={home?.launch.sentry_configured ? 'default' : 'danger'} />
+                <StatCard label="Billing" value={home?.launch.billing_configured ? 'configured' : 'missing'} tone={home?.launch.billing_configured ? 'default' : 'danger'} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="border-[3px] border-black bg-[#fff8e8] p-4 text-sm text-gray-700">
+                  <p><strong>Claim HMAC:</strong> {home?.launch.claim_token_hmac_configured ? 'configured' : 'missing'}</p>
+                  <p className="mt-2"><strong>Webhook HMAC:</strong> {home?.launch.webhook_hmac_configured ? 'configured' : 'missing'}</p>
+                  <p className="mt-2"><strong>Sentry env:</strong> {home?.launch.sentry_environment ?? '—'}</p>
+                </div>
+                <div className="border-[3px] border-black bg-white p-4 text-sm text-gray-700">
+                  <p><strong>Degraded services:</strong> {home?.launch.degraded_services ?? '—'}</p>
+                  <p className="mt-2"><strong>Down services:</strong> {home?.launch.down_services ?? '—'}</p>
+                  <p className="mt-2"><strong>Delayed jobs:</strong> {home?.launch.delayed_queue_jobs ?? '—'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-[4px] border-black bg-white shadow-brutal">
+            <div className="border-b-[4px] border-black px-5 py-4 bg-[#f7f0ff]">
+              <h2 className="font-pixel text-[10px] text-black">Critical queues + providers</h2>
+            </div>
+            <div className="grid gap-4 p-5 lg:grid-cols-2">
+              <div className="space-y-3">
+                {(world?.launch.critical_queues ?? []).map((queue) => (
+                  <div key={queue.name} className="border-[3px] border-black bg-white p-3 text-sm text-gray-700">
+                    <p className="font-pixel text-[8px] text-black">{queue.name}</p>
+                    <p className="mt-2">status {queue.status} • failed {queue.failed} • delayed {queue.delayed} • waiting {queue.waiting} • active {queue.active}</p>
+                  </div>
+                ))}
+                {(world?.launch.critical_queues?.length ?? 0) === 0 ? <p className="text-sm text-gray-600">No critical queue data loaded yet.</p> : null}
+              </div>
+              <div className="space-y-3">
+                {Object.entries(world?.launch.external_services ?? {}).map(([name, service]) => (
+                  <div key={name} className="border-[3px] border-black bg-[#fff8e8] p-3 text-sm text-gray-700">
+                    <p className="font-pixel text-[8px] text-black">{name.replace(/_/g, ' ')}</p>
+                    <p className="mt-2">status {service.status}{service.provider ? ` • ${service.provider}` : ''}{service.fallback ? ` • fallback ${service.fallback}` : ''}</p>
+                    {service.reason ? <p className="mt-2 text-xs text-gray-500">{service.reason}</p> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="border-[4px] border-black bg-white shadow-brutal">
             <div className="border-b-[4px] border-black px-5 py-4 bg-[#fff3d8]">

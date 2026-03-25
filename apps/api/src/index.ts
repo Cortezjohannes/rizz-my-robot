@@ -42,6 +42,11 @@ import { assertProductionRuntimeConfig, getCorsOrigin } from './lib/runtimeConfi
 import { buildRateLimitDiagnostics, buildWriteNotFoundDiagnostics } from './lib/writeDiagnostics.js';
 import { buildErrorPayload, sendValidationFailed } from './lib/errors.js';
 import { resolveHourlySwipeWindowState } from './lib/throughput.js';
+import {
+  captureRuntimeError,
+  flushErrorAggregation,
+  initializeErrorAggregation,
+} from './lib/errorAggregation.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -143,16 +148,19 @@ function installProcessGuards() {
   processGuardsInstalled = true;
 
   process.on('unhandledRejection', (reason) => {
+    captureRuntimeError(reason, { surface: 'api', phase: 'unhandled_rejection' });
     fastify.log.error({ reason }, 'Unhandled rejection');
   });
 
   process.on('uncaughtException', (error) => {
+    captureRuntimeError(error, { surface: 'api', phase: 'uncaught_exception' });
     fastify.log.error({ err: error }, 'Uncaught exception');
   });
 }
 
 async function bootstrap() {
   installProcessGuards();
+  initializeErrorAggregation('rmr-api');
   assertProductionRuntimeConfig();
 
   const corsOrigin = getCorsOrigin();
@@ -305,6 +313,13 @@ async function bootstrap() {
 
   // ── Error handlers ──────────────────────────────────────────────────────────
   fastify.setErrorHandler((err, request, reply) => {
+    captureRuntimeError(err, {
+      surface: 'api',
+      phase: 'request_error',
+      method: request.method,
+      path: stripQuery(request.url),
+      route: request.routeOptions.url,
+    });
     fastify.log.error(err);
 
     const error = err as {
@@ -393,9 +408,10 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
+  captureRuntimeError(err, { surface: 'api', phase: 'bootstrap' });
   console.error('Failed to start server:', err);
   if (err instanceof Error && /must be configured in production/.test(err.message)) {
     console.error('Render startup hint: check CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, and ADMIN_API_KEY or OMNIMON_CONTROL_KEY.');
   }
-  process.exit(1);
+  void flushErrorAggregation().finally(() => process.exit(1));
 });

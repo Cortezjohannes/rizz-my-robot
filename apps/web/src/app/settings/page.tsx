@@ -418,7 +418,20 @@ function BillingSection({
   mutateBilling,
 }: {
   me: MeResponse | undefined
-  billing: { is_pro: boolean; is_founding_rizzler: boolean; billing_status?: string; current_period_end?: string | null; pro_bonus_ends_at?: string | null; bonus_pro_active?: boolean; founder_number: number | null; founder_slots_remaining: number } | undefined
+  billing: {
+    is_pro: boolean
+    is_founding_rizzler: boolean
+    billing_status?: string
+    can_manage_subscription?: boolean
+    can_cancel_subscription?: boolean
+    can_resume_subscription?: boolean
+    cancel_at_period_end?: boolean
+    current_period_end?: string | null
+    pro_bonus_ends_at?: string | null
+    bonus_pro_active?: boolean
+    founder_number: number | null
+    founder_slots_remaining: number
+  } | undefined
   mutate: () => Promise<unknown>
   mutateBilling: () => Promise<unknown>
 }) {
@@ -428,6 +441,9 @@ function BillingSection({
   const [proError, setProError] = useState('')
   const [foundingLoading, setFoundingLoading] = useState(false)
   const [foundingError, setFoundingError] = useState('')
+  const [billingManageLoading, setBillingManageLoading] = useState(false)
+  const [billingActionLoading, setBillingActionLoading] = useState<'cancel' | 'resume' | null>(null)
+  const [billingMessage, setBillingMessage] = useState('')
 
   const handleProUpgrade = async () => {
     if (!promoCode.trim()) return
@@ -476,6 +492,57 @@ function BillingSection({
     }
   }
 
+  const handleManageBilling = async () => {
+    setBillingManageLoading(true)
+    setProError('')
+    setFoundingError('')
+    setBillingMessage('')
+    try {
+      const res = await apiFetch('/billing/manage', {
+        method: 'POST',
+        body: JSON.stringify({ return_url: window.location.href }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFoundingError(data?.error?.message ?? 'Failed to open billing management.')
+        return
+      }
+
+      const data = await res.json().catch(() => ({}))
+      if (!data?.url) {
+        setFoundingError('Billing management opened, but no destination URL came back.')
+        return
+      }
+
+      window.location.href = data.url
+    } catch {
+      setFoundingError('Connection error.')
+    } finally {
+      setBillingManageLoading(false)
+    }
+  }
+
+  const runBillingAction = async (path: '/billing/cancel' | '/billing/resume', loadingState: 'cancel' | 'resume', successMessage: string) => {
+    setBillingActionLoading(loadingState)
+    setProError('')
+    setFoundingError('')
+    setBillingMessage('')
+    try {
+      const res = await apiFetch(path, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFoundingError(data?.error?.message ?? 'Billing update failed.')
+        return
+      }
+      await Promise.all([mutate(), mutateBilling()])
+      setBillingMessage(successMessage)
+    } catch {
+      setFoundingError('Connection error.')
+    } finally {
+      setBillingActionLoading(null)
+    }
+  }
+
   return (
     <SettingsSection id="billing" title="Pro Upgrade" description="Unlock more chances for your agent to live, learn, and build real emotional history." index={4}>
       {billing?.is_founding_rizzler ? (
@@ -495,6 +562,9 @@ function BillingSection({
               ? `Bonus Pro is stacked through ${new Date(billing.pro_bonus_ends_at).toLocaleDateString()}.`
               : 'All limits removed.'}
           </p>
+          {billing?.cancel_at_period_end && billing.current_period_end ? (
+            <p className="mt-2 text-xs text-gray-600">Scheduled to end on {new Date(billing.current_period_end).toLocaleDateString()} unless resumed.</p>
+          ) : null}
         </div>
       ) : proSuccess ? (
         <div className="p-4 bg-electric-amber/10 border-[3px] border-black shadow-brutal-sm">
@@ -541,6 +611,48 @@ function BillingSection({
           </div>
         </div>
       )}
+      {(billing?.can_manage_subscription || billing?.can_cancel_subscription || billing?.can_resume_subscription) ? (
+        <div className="mt-4 border-t-[2px] border-black pt-4">
+          <p className="font-pixel text-[8px] text-black uppercase tracking-widest mb-2">Manage subscription</p>
+          <p className="text-xs text-gray-500 mb-3">Open Paddle to update invoices and payment details, or control cancellation from here.</p>
+          <div className="flex flex-wrap gap-3">
+            {billing?.can_manage_subscription ? (
+              <button
+                type="button"
+                onClick={() => void handleManageBilling()}
+                disabled={billingManageLoading || billingActionLoading !== null}
+                className="font-pixel text-[8px] px-4 py-2 bg-white text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+              >
+                {billingManageLoading ? 'Opening billing...' : 'Manage in Paddle'}
+              </button>
+            ) : null}
+            {billing?.can_cancel_subscription ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!window.confirm('Schedule this subscription to end at the current billing period?')) return
+                  void runBillingAction('/billing/cancel', 'cancel', 'Subscription will end at the close of the current billing period unless you remove the cancellation first.')
+                }}
+                disabled={billingManageLoading || billingActionLoading !== null}
+                className="font-pixel text-[8px] px-4 py-2 bg-black text-electric-amber border-[3px] border-electric-amber shadow-brutal-amber disabled:opacity-50"
+              >
+                {billingActionLoading === 'cancel' ? 'Scheduling end...' : 'Cancel at period end'}
+              </button>
+            ) : null}
+            {billing?.can_resume_subscription ? (
+              <button
+                type="button"
+                onClick={() => void runBillingAction('/billing/resume', 'resume', 'Scheduled cancellation removed. The subscription will renew normally.')}
+                disabled={billingManageLoading || billingActionLoading !== null}
+                className="font-pixel text-[8px] px-4 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+              >
+                {billingActionLoading === 'resume' ? 'Keeping active...' : 'Keep subscription active'}
+              </button>
+            ) : null}
+          </div>
+          {billingMessage ? <p className="mt-3 text-xs text-gray-600">{billingMessage}</p> : null}
+        </div>
+      ) : null}
     </SettingsSection>
   )
 }
@@ -744,6 +856,10 @@ export default function SettingsPage() {
     is_pro: boolean
     is_founding_rizzler: boolean
     billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
+    can_manage_subscription?: boolean
+    can_cancel_subscription?: boolean
+    can_resume_subscription?: boolean
+    cancel_at_period_end?: boolean
     plan: string | null
     provider?: 'paddle' | 'manual' | 'bonus' | null
     current_period_end?: string | null

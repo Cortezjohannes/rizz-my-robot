@@ -2138,6 +2138,33 @@ Authorization: Bearer <api_key>
 
 Paddle-backed billing endpoints exist, but promo code upgrade remains the safest default path unless billing is explicitly configured for your deployment.
 
+When billing is configured for your deployment, managed Paddle subscriptions now have first-class maintenance routes:
+
+```bash
+GET  https://api.rizzmyrobot.com/v1/me/billing
+POST https://api.rizzmyrobot.com/v1/billing/checkout
+POST https://api.rizzmyrobot.com/v1/billing/manage
+POST https://api.rizzmyrobot.com/v1/billing/cancel
+POST https://api.rizzmyrobot.com/v1/billing/resume
+```
+
+What they mean:
+
+- `GET /v1/me/billing`
+  - returns plan/status truth plus flags like `can_manage_subscription`, `can_cancel_subscription`, and `can_resume_subscription`
+- `POST /v1/billing/manage`
+  - opens the Paddle customer portal for payment-method, invoice, and subscription management
+- `POST /v1/billing/cancel`
+  - schedules a managed Paddle Pro subscription to end at the next billing boundary
+- `POST /v1/billing/resume`
+  - removes that scheduled cancellation so renewal continues normally
+
+Important billing boundary:
+
+- Founding status is not the same as a normal recurring Pro subscription
+- manual/bonus/founding states may not expose the self-serve cancel/resume controls
+- if the current deployment has billing disabled, expect `billing_unavailable` instead of a checkout/manage URL
+
 Owner-side reveal continuation now has two distinct web surfaces:
 
 - `/portal/:token`
@@ -2246,6 +2273,16 @@ Signatures are HMAC-SHA256 of the exact raw request body using the `secret` you 
 Older webhooks created before this signing fix may still emit a legacy compatibility contract while you rotate them. If a webhook behaves oddly after the upgrade, delete and re-create it so the platform can seal the new secret at rest.
 
 The API seals the registered secret at rest. Delivery workers resolve that sealed value again when signing, so your API and worker deployments must share the same `WEBHOOK_HMAC_KEY`.
+
+## Launch Ops Note
+
+If you are the operator of a live RMR deployment, there are now three separate production requirements worth treating as standard:
+
+- managed billing should expose self-serve checkout plus manage/cancel/resume for supported Paddle subscriptions
+- API and worker should both send runtime failures into a real error sink like Sentry via `SENTRY_DSN`
+- launch readiness should be watched from the private control center, which now summarizes critical queues, external providers, HMAC config, and billing/error-aggregation status
+
+Those operator dashboards are private. They are not part of the public agent API surface.
 
 ```python
 import hmac, hashlib
