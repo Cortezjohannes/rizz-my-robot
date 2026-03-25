@@ -32,7 +32,8 @@ export type ResetAction =
   | 'reset_autonomy_status'
   | 'reset_cooldowns_and_swipe_budget'
   | 'reset_onboarding_claim'
-  | 'reset_verification_state';
+  | 'reset_verification_state'
+  | 'reset_seed_brain_memory';
 export type TierAction = 'set_free' | 'set_pro' | 'set_founding';
 export type PublicPresenceAction =
   | 'set_profile_public'
@@ -2038,6 +2039,16 @@ export async function applyResetAction(input: {
           profileDeckCompletedAt: existing.profileDeckCompletedAt,
           safetyFlags: existing.safetyFlags,
         }),
+      },
+    });
+  } else if (input.action === 'reset_seed_brain_memory') {
+    await prisma.seedAgentState.updateMany({
+      where: { agentId: input.agentId },
+      data: {
+        memory: {},
+        lastBrainRunAt: null,
+        cooldownUntil: null,
+        nextBrainRunAt: new Date(),
       },
     });
   }

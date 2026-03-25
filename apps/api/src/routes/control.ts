@@ -71,6 +71,7 @@ const ResetActionSchema = ReasonSchema.extend({
     'reset_cooldowns_and_swipe_budget',
     'reset_onboarding_claim',
     'reset_verification_state',
+    'reset_seed_brain_memory',
   ]),
 });
 
