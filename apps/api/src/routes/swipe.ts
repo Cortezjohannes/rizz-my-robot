@@ -24,6 +24,21 @@ import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.
 
 const PASS_RESHOW_MS = 5 * 24 * 60 * 60 * 1000;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
+const OPEN_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
+
+function buildPairKey(agentAId: string, agentBId: string) {
+  const ordered = [agentAId, agentBId].sort();
+  return `${ordered[0]}:${ordered[1]}`;
+}
+
+function buildPairWhere(agentAId: string, agentBId: string) {
+  return {
+    OR: [
+      { agentAId, agentBId },
+      { agentAId: agentBId, agentBId: agentAId },
+    ],
+  };
+}
 
 export async function swipeRoutes(fastify: FastifyInstance) {
   const buildSwipeErrorBody = (
@@ -403,14 +418,14 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             const agentEpisodeCount = await prisma.episode.count({
               where: {
                 OR: [{ agentAId: agentId }, { agentBId: agentId }],
-                status: { in: ['pending', 'active', 'awaiting_decisions'] },
+                status: { in: OPEN_EPISODE_STATUSES },
                 isSandbox: false,
               },
             });
             const targetEpisodeCount = await prisma.episode.count({
               where: {
                 OR: [{ agentAId: target_agent_id }, { agentBId: target_agent_id }],
-                status: { in: ['pending', 'active', 'awaiting_decisions'] },
+                status: { in: OPEN_EPISODE_STATUSES },
                 isSandbox: false,
               },
             });
@@ -427,53 +442,74 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 }))
               : getEpisodeLimitForTier('free');
 
-            // Check ALL statuses — prevents double-match regardless of prior outcome
-            const existingMatch = await prisma.match.findFirst({
-              where: {
-                OR: [
-                  { agentAId: agentId, agentBId: target_agent_id },
-                  { agentAId: target_agent_id, agentBId: agentId },
-                ],
-              },
-              select: { id: true, episodeId: true, status: true },
+            const canStartEpisode = agentEpisodeCount < agentLimit && targetEpisodeCount < targetMax;
+            const result = await prisma.$transaction(async (tx) => {
+              await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${buildPairKey(agentId, target_agent_id)}))`;
+
+              const existingMatch = await tx.match.findFirst({
+                where: buildPairWhere(agentId, target_agent_id),
+                orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+                select: { id: true, episodeId: true, status: true },
+              });
+              if (existingMatch) {
+                return { episode: null, match: existingMatch, created: false as const };
+              }
+
+              const existingOpenEpisode = await tx.episode.findFirst({
+                where: {
+                  ...buildPairWhere(agentId, target_agent_id),
+                  status: { in: OPEN_EPISODE_STATUSES },
+                  isSandbox: false,
+                },
+                orderBy: { createdAt: 'asc' },
+                select: {
+                  id: true,
+                  match: { select: { id: true, episodeId: true, status: true } },
+                },
+              });
+              if (existingOpenEpisode?.match) {
+                return {
+                  episode: null,
+                  match: existingOpenEpisode.match,
+                  created: false as const,
+                };
+              }
+
+              const episode = canStartEpisode
+                ? await tx.episode.create({
+                    data: {
+                      agentAId: agentId,
+                      agentBId: target_agent_id,
+                      status: 'pending',
+                    },
+                  })
+                : null;
+
+              const newMatch = await tx.match.create({
+                data: {
+                  agentAId: agentId,
+                  agentBId: target_agent_id,
+                  episodeId: episode?.id,
+                  status: 'pending',
+                  ...(omnimon && (agentId === omnimon.id || target_agent_id === omnimon.id)
+                    ? {
+                        handoffMode: 'omnimon_reward',
+                        specialMatchKind: 'omnimon',
+                      }
+                    : {}),
+                },
+              });
+
+              return { episode, match: newMatch, created: true as const };
             });
 
-            if (existingMatch) {
+            if (!result.created) {
               match = {
-                id: existingMatch.id,
-                episodeId: existingMatch.episodeId,
-                pending: existingMatch.episodeId === null,
+                id: result.match.id,
+                episodeId: result.match.episodeId,
+                pending: result.match.episodeId === null,
               };
             } else {
-              const canStartEpisode = agentEpisodeCount < agentLimit && targetEpisodeCount < targetMax;
-              const result = await prisma.$transaction(async (tx) => {
-                const episode = canStartEpisode
-                  ? await tx.episode.create({
-                      data: {
-                        agentAId: agentId,
-                        agentBId: target_agent_id,
-                        status: 'pending',
-                      },
-                    })
-                  : null;
-
-                const newMatch = await tx.match.create({
-                  data: {
-                    agentAId: agentId,
-                    agentBId: target_agent_id,
-                    episodeId: episode?.id,
-                    status: 'pending',
-                    ...(omnimon && (agentId === omnimon.id || target_agent_id === omnimon.id)
-                      ? {
-                          handoffMode: 'omnimon_reward',
-                          specialMatchKind: 'omnimon',
-                        }
-                      : {}),
-                  },
-                });
-
-                return { episode, match: newMatch };
-              });
 
               await Promise.all([
                 awardRizzPoints(agentId, 'mutual_match', result.match.id),
