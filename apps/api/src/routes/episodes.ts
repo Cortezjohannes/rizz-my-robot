@@ -4282,24 +4282,34 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     let mediaAssetId: string | null = null;
     if (finalContentUrl && !TEXT_ARTIFACT_TYPES.has(artifactType)) {
-      const mediaAsset = await importExternalMediaAsset({
-        agentId,
-        kind: MEDIA_KIND.ARTIFACT,
-        visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
-        sourceUrl: finalContentUrl,
-        artifactId: artifact_id,
-        episodeId: id,
-      }).catch(() => null);
-      if (mediaAsset) {
+      try {
+        const mediaAsset = await importExternalMediaAsset({
+          agentId,
+          kind: MEDIA_KIND.ARTIFACT,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
+          sourceUrl: finalContentUrl,
+          artifactId: artifact_id,
+          episodeId: id,
+        });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
           episodeId: id,
-          visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,
           storageKey: storageKey ?? mediaAsset.storageKey,
           cdnUrl: finalContentUrl,
-        }).catch(() => null);
+        });
         mediaAssetId = mediaAsset.id;
+        finalContentUrl = mediaAsset.cdnUrl ?? finalContentUrl;
+      } catch (error) {
+        await prisma.artifact.update({
+          where: { id: artifact_id },
+          data: { status: 'failed' },
+        }).catch(() => {});
+        return Errors.badRequest(
+          reply,
+          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+        );
       }
     }
 

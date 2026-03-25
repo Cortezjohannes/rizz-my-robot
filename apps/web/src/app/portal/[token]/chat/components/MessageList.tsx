@@ -43,14 +43,14 @@ function formatMessageTime(value: string) {
 
 function BrutalArtifactCard({ artifactId }: { artifactId: string }) {
   const [artifact, setArtifact] = useState<PublicArtifactDetailResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     let active = true
 
     async function loadArtifact() {
       try {
-        setError(null)
+        setLoadState('loading')
         const response = await fetch(`${API_BASE}/public/artifacts/${artifactId}`, { cache: 'no-store' })
         if (!response.ok) {
           throw new Error('Artifact unavailable.')
@@ -58,10 +58,12 @@ function BrutalArtifactCard({ artifactId }: { artifactId: string }) {
         const data = await response.json() as PublicArtifactDetailResponse
         if (active) {
           setArtifact(data)
+          setLoadState('ready')
         }
-      } catch (loadError) {
+      } catch {
         if (active) {
-          setError(loadError instanceof Error ? loadError.message : 'Artifact unavailable.')
+          setArtifact(null)
+          setLoadState('error')
         }
       }
     }
@@ -73,17 +75,23 @@ function BrutalArtifactCard({ artifactId }: { artifactId: string }) {
     }
   }, [artifactId])
 
-  if (error) {
+  if (loadState === 'loading' && !artifact) {
+    return <div className="mt-2 h-28 border-[3px] border-black bg-white skeleton-shimmer" />
+  }
+
+  if (loadState === 'error' || !artifact) {
     return (
       <div className="mt-2 border-[3px] border-black bg-white/80 px-3 py-3 text-xs text-gray-600">
-        {error}
+        <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">Artifact drop</p>
+        <p className="mt-1 text-sm text-black/70">Artifact preview unavailable.</p>
+        <p className="mt-2 font-pixel text-[7px] uppercase tracking-widest text-gray-400 break-all">
+          {artifactId}
+        </p>
       </div>
     )
   }
 
-  if (!artifact) {
-    return <div className="mt-2 h-28 border-[3px] border-black bg-white skeleton-shimmer" />
-  }
+  const isReady = artifact.status === 'ready'
 
   return (
     <article className="mt-2 overflow-hidden border-[3px] border-black bg-[#fffaf1] shadow-brutal-sm">
@@ -99,37 +107,48 @@ function BrutalArtifactCard({ artifactId }: { artifactId: string }) {
           </span>
         </div>
 
-        {artifact.text_content ? (
-          <div className="border-[2px] border-black bg-white px-3 py-3 text-sm text-gray-800 whitespace-pre-wrap">
-            {artifact.text_content}
+        {isReady ? (
+          <>
+            {artifact.text_content ? (
+              <div className="border-[2px] border-black bg-white px-3 py-3 text-sm text-gray-800 whitespace-pre-wrap">
+                {artifact.text_content}
+              </div>
+            ) : null}
+
+            {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={artifact.content_url}
+                alt={artifactTypeLabel(artifact.artifact_type)}
+                className="w-full border-[3px] border-black bg-white object-cover"
+              />
+            ) : null}
+
+            {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+              <audio controls className="w-full">
+                <source src={artifact.content_url} />
+              </audio>
+            ) : null}
+
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+              <a
+                href={artifact.content_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex border-[3px] border-black bg-electric-cyan px-3 py-2 font-pixel text-[7px] uppercase tracking-widest text-black shadow-brutal-sm"
+              >
+                Open artifact
+              </a>
+            ) : null}
+          </>
+        ) : (
+          <div className="border-[2px] border-dashed border-black/20 bg-white px-3 py-3">
+            <p className="text-sm text-black/70">Artifact preview unavailable yet.</p>
+            <p className="mt-2 font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+              {artifact.status.replaceAll('_', ' ')}
+            </p>
           </div>
-        ) : null}
-
-        {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={artifact.content_url}
-            alt={artifactTypeLabel(artifact.artifact_type)}
-            className="w-full border-[3px] border-black bg-white object-cover"
-          />
-        ) : null}
-
-        {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-          <audio controls className="w-full">
-            <source src={artifact.content_url} />
-          </audio>
-        ) : null}
-
-        {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
-          <a
-            href={artifact.content_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex border-[3px] border-black bg-electric-cyan px-3 py-2 font-pixel text-[7px] uppercase tracking-widest text-black shadow-brutal-sm"
-          >
-            Open artifact
-          </a>
-        ) : null}
+        )}
       </div>
     </article>
   )

@@ -142,6 +142,7 @@ export interface PublicEpisodeMessage {
   sender_handle: string | null
   content: string
   message_type: string
+  artifact_id?: string | null
   sequence_number: number
   created_at: string
 }

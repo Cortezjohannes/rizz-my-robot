@@ -32,6 +32,58 @@ function formatMessageTime(value: string) {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+function normalizeHandle(handle: string | null | undefined) {
+  return handle?.trim().toLowerCase() ?? null
+}
+
+function buildArtifactQueues(artifacts: PublicEpisodeArtifact[]) {
+  const byId = new Map<string, PublicEpisodeArtifact>()
+  const byHandle = new Map<string, PublicEpisodeArtifact[]>()
+  const fallback: PublicEpisodeArtifact[] = []
+
+  for (const artifact of [...artifacts].sort((a, b) => (
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  ))) {
+    byId.set(artifact.artifact_id, artifact)
+    const handle = normalizeHandle(artifact.creator_handle)
+    if (!handle) {
+      fallback.push(artifact)
+      continue
+    }
+
+    const queue = byHandle.get(handle) ?? []
+    queue.push(artifact)
+    byHandle.set(handle, queue)
+  }
+
+  return { byId, byHandle, fallback }
+}
+
+function takeArtifactForMessage(
+  message: PublicEpisodeMessage,
+  queues: ReturnType<typeof buildArtifactQueues>,
+) {
+  if (message.message_type !== 'artifact_drop') return null
+
+  if (message.artifact_id) {
+    const exact = queues.byId.get(message.artifact_id)
+    if (exact) {
+      queues.byId.delete(message.artifact_id)
+      return exact
+    }
+  }
+
+  const senderHandle = normalizeHandle(message.sender_handle)
+  if (senderHandle) {
+    const bucket = queues.byHandle.get(senderHandle)
+    if (bucket?.length) {
+      return bucket.shift() ?? null
+    }
+  }
+
+  return queues.fallback.shift() ?? null
+}
+
 function ChatBubble({
   message,
   isRight,
@@ -96,12 +148,15 @@ function ArtifactBubble({
   index,
   createdAt,
 }: {
-  artifact: PublicEpisodeArtifact
+  artifact: PublicEpisodeArtifact | null
   isRight: boolean
   agent: FeedCardAgentSummary | null
   index: number
   createdAt: string
 }) {
+  const isReady = artifact?.status === 'ready'
+  const artifactLabel = artifact ? artifactTypeLabel(artifact.artifact_type) : 'artifact'
+
   return (
     <motion.div
       initial={{ opacity: 0, x: isRight ? 16 : -16 }}
@@ -137,34 +192,47 @@ function ArtifactBubble({
           />
           <div className="space-y-2">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
-              Artifact drop · {artifactTypeLabel(artifact.artifact_type)}
+              Artifact drop{artifact ? ` · ${artifactLabel}` : ''}
             </p>
-            {artifact.text_content ? (
-              <p className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{artifact.text_content}</p>
-            ) : null}
-            {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
-              <a href={artifact.content_url} target="_blank" rel="noreferrer" className="block">
-                <img
-                  src={artifact.content_url}
-                  alt={artifactTypeLabel(artifact.artifact_type)}
-                  className="w-full border-[2px] border-black object-cover"
-                />
-              </a>
-            ) : null}
-            {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-              <BrutalAudioPlayer src={artifact.content_url} />
-            ) : null}
-            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
-              <a
-                href={artifact.content_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
-              >
-                Open file
-              </a>
-            ) : null}
-            {artifact.status !== 'ready' ? (
+            {artifact && isReady ? (
+              <>
+                {artifact.text_content ? (
+                  <p className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{artifact.text_content}</p>
+                ) : null}
+                {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
+                  <a href={artifact.content_url} target="_blank" rel="noreferrer" className="block">
+                    <img
+                      src={artifact.content_url}
+                      alt={artifactLabel}
+                      className="w-full border-[2px] border-black object-cover"
+                    />
+                  </a>
+                ) : null}
+                {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
+                  <BrutalAudioPlayer src={artifact.content_url} />
+                ) : null}
+                {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+                  <a
+                    href={artifact.content_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
+                  >
+                    Open file
+                  </a>
+                ) : null}
+              </>
+            ) : (
+              <div className="border-[2px] border-dashed border-black/20 bg-white/70 px-3 py-2">
+                <p className="text-sm text-gray-700">
+                  This artifact is not ready yet.
+                </p>
+                <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-400 mt-1">
+                  {artifact ? `${artifactLabel} · ${artifact.status.replaceAll('_', ' ')}` : 'pending artifact'}
+                </p>
+              </div>
+            )}
+            {artifact && !isReady ? (
               <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
                 {artifact.status.replaceAll('_', ' ')}
               </p>
@@ -320,14 +388,13 @@ export function FeedInteractionDetail({
   const artifacts = detail?.public_episode?.artifacts ?? []
   const comments = detail?.comments ?? []
   const threadEntries = useMemo(() => {
-    let artifactCursor = 0
+    const artifactQueues = buildArtifactQueues(artifacts)
     return messages.map((message) => {
       if (message.message_type !== 'artifact_drop') {
         return { message, artifact: null as (typeof artifacts)[number] | null }
       }
 
-      const artifact = artifacts[artifactCursor] ?? null
-      artifactCursor += 1
+      const artifact = takeArtifactForMessage(message, artifactQueues)
       return { message, artifact }
     })
   }, [artifacts, messages])
@@ -430,7 +497,7 @@ export function FeedInteractionDetail({
             ) : threadEntries.length > 0 ? (
               <div className="space-y-4">
                 {threadEntries.map(({ message, artifact }, i) => (
-                  artifact ? (
+                  message.message_type === 'artifact_drop' ? (
                     <ArtifactBubble
                       key={message.message_id}
                       artifact={artifact}

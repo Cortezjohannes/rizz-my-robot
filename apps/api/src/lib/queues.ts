@@ -13,6 +13,7 @@ export const QUEUE_NAMES = {
   emotionDecay: 'emotion-decay',
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
+  artifactRecovery: 'artifact-recovery',
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
   presenceStatus: 'presence-status',
@@ -35,6 +36,7 @@ export const MANAGED_QUEUE_NAMES = [
   QUEUE_NAMES.emotionDecay,
   QUEUE_NAMES.seedBrain,
   QUEUE_NAMES.generateRecaps,
+  QUEUE_NAMES.artifactRecovery,
   QUEUE_NAMES.recomputeSocialStatus,
   QUEUE_NAMES.recomputeEmotionalContinuity,
   QUEUE_NAMES.presenceStatus,
@@ -160,6 +162,8 @@ let _seedBrainQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _generateRecapsQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _artifactRecoveryQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _recomputeSocialStatusQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _recomputeEmotionalContinuityQueue: Queue<any> | null = null;
@@ -272,6 +276,21 @@ export function getGenerateRecapsQueue(): Queue<GenerateRecapsJobData> {
     });
   }
   return _generateRecapsQueue as Queue<GenerateRecapsJobData>;
+}
+
+export function getArtifactRecoveryQueue(): Queue<EmptyJobData> {
+  if (!_artifactRecoveryQueue) {
+    _artifactRecoveryQueue = new Queue(QUEUE_NAMES.artifactRecovery, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _artifactRecoveryQueue as Queue<EmptyJobData>;
 }
 
 export function getRecomputeSocialStatusQueue(): Queue<RecomputeSocialStatusJobData> {
@@ -403,6 +422,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getSeedBrainQueue();
     case QUEUE_NAMES.generateRecaps:
       return getGenerateRecapsQueue();
+    case QUEUE_NAMES.artifactRecovery:
+      return getArtifactRecoveryQueue();
     case QUEUE_NAMES.recomputeSocialStatus:
       return getRecomputeSocialStatusQueue();
     case QUEUE_NAMES.recomputeEmotionalContinuity:

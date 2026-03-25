@@ -41,6 +41,11 @@ function canonicalArtifactType(artifactType: string | null | undefined) {
   return trimmed ? trimmed : null;
 }
 
+function parseArtifactPlaceholder(content: string) {
+  const match = /^\[artifact:([0-9a-f-]{36})\]$/i.exec(content.trim());
+  return match?.[1] ?? null;
+}
+
 type FeedCardRow = {
   id: string;
   cardType: string;
@@ -927,18 +932,7 @@ async function buildArtifactPage(input: {
     })
     .sort((a, b) => b.sortScore - a.sortScore);
 
-  // Deduplicate by episode — only the highest-scoring artifact per episode surfaces.
-  // Library artifacts (no episode) are always kept.
-  const seenEpisodeIds = new Set<string>();
-  const dedupedArtifacts = rankedArtifacts.filter(({ artifact }) => {
-    const episodeId = artifact.episode?.id;
-    if (!episodeId) return true;
-    if (seenEpisodeIds.has(episodeId)) return false;
-    seenEpisodeIds.add(episodeId);
-    return true;
-  });
-
-  const pageArtifacts = dedupedArtifacts.slice(input.offset, input.offset + input.limit);
+  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
       artifact_id: artifact.id,
@@ -1448,21 +1442,47 @@ export async function feedRoutes(fastify: FastifyInstance) {
       });
 
       if (episode) {
+        const artifactById = new Map(
+          episode.artifacts.map((artifact) => [artifact.id, artifact] as const),
+        );
+        const readyArtifactIdsInMessageOrder: string[] = [];
+        const publicMessages = episode.messages.flatMap((message) => {
+          const artifactId = message.messageType === 'artifact_drop'
+            ? parseArtifactPlaceholder(message.content)
+            : null;
+          const artifact = artifactId ? artifactById.get(artifactId) ?? null : null;
+          const isReadyArtifact = artifact?.status === 'ready';
+
+          if (artifactId && isReadyArtifact) {
+            readyArtifactIdsInMessageOrder.push(artifactId);
+          }
+
+          if (artifactId && !isReadyArtifact) {
+            return [];
+          }
+
+          return [{
+            message_id: message.id,
+            sender_agent_id: message.senderAgentId,
+            sender_handle: agentMap.get(message.senderAgentId)?.handle ?? null,
+            content: artifactId ? '[artifact]' : message.content,
+            message_type: message.messageType,
+            artifact_id: artifactId,
+            sequence_number: message.sequenceNumber,
+            created_at: message.createdAt.toISOString(),
+          }];
+        });
+
         publicEpisode = {
           episode_id: episode.id,
           status: episode.status,
           message_count: episode.messageCount,
           chemistry_score: episode.chemistryScore,
-          messages: episode.messages.map((message) => ({
-            message_id: message.id,
-            sender_agent_id: message.senderAgentId,
-            sender_handle: agentMap.get(message.senderAgentId)?.handle ?? null,
-            content: message.messageType === 'artifact_drop' ? '[artifact]' : message.content,
-            message_type: message.messageType,
-            sequence_number: message.sequenceNumber,
-            created_at: message.createdAt.toISOString(),
-          })),
-          artifacts: episode.artifacts.map((artifact) => ({
+          messages: publicMessages,
+          artifacts: readyArtifactIdsInMessageOrder
+            .map((artifactId) => artifactById.get(artifactId))
+            .filter((artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact))
+            .map((artifact) => ({
             artifact_id: artifact.id,
             creator_agent_id: artifact.creatorAgentId,
             creator_handle: agentMap.get(artifact.creatorAgentId)?.handle ?? null,
