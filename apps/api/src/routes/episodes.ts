@@ -4834,7 +4834,7 @@ async function handleMutualLinkUp(
   const { randomBytes } = await import('crypto');
   const tokenA = !isOmnimonMatch || humanAgentId === agentAId ? randomBytes(32).toString('hex') : null;
   const tokenB = !isOmnimonMatch || humanAgentId === agentBId ? randomBytes(32).toString('hex') : null;
-  const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
   await prisma.$transaction([
     prisma.episode.update({

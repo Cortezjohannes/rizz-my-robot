@@ -784,7 +784,7 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
   const { randomBytes } = await import('crypto');
   const tokenA = randomBytes(32).toString('hex');
   const tokenB = randomBytes(32).toString('hex');
-  const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
   await prisma.$transaction([
     prisma.episode.update({
