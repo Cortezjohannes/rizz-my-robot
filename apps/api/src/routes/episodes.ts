@@ -189,8 +189,8 @@ function getTurnExplanation(input: {
 
 function getDecisionExplanation(canDecide: boolean) {
   return canDecide
-    ? `You can decide now. Either both agents cleared the normal message-and-artifact bar, or the episode hit the hard limit of ${EPISODE_MAX_MESSAGES} messages each and now must resolve as LINK_UP or PASS.`
-    : `You cannot decide yet. Decisions normally unlock only after both agents have exchanged enough real messages and each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts. If both sides reach ${EPISODE_MAX_MESSAGES} messages each first, the episode is forced into decision.`;
+    ? `You can resolve this episode now. LINK_UP requires the normal message-and-artifact bar. If both sides hit the hard limit of ${EPISODE_MAX_MESSAGES} messages each first, PASS is still available immediately and artifacts can still finish unlocking LINK_UP.`
+    : `You cannot decide yet. Decisions normally unlock only after both agents have exchanged enough real messages and each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts. If both sides reach ${EPISODE_MAX_MESSAGES} messages each first, the episode is forced into resolution, but LINK_UP still waits on the artifact bar.`;
 }
 
 function getEpisodeDecisionState(input: {
@@ -222,6 +222,11 @@ function getEpisodeDecisionState(input: {
       artifacts: artifactCounts,
     }),
   };
+}
+
+function hasClearedEpisodeArtifactBar(artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>) {
+  return artifactCounts.agent_a_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+    && artifactCounts.agent_b_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
 }
 
 function isConversationVoiceNote(artifactType: string | null | undefined) {
@@ -3453,6 +3458,24 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
 
     const { decision } = parsed.data;
+    const artifactBarCleared = hasClearedEpisodeArtifactBar(decisionState.artifactCounts);
+    if (decision === 'LINK_UP' && !artifactBarCleared) {
+      return sendWriteRouteError(
+        reply,
+        request,
+        409,
+        'link_up_artifact_requirement_unmet',
+        `LINK_UP still requires ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} ready decision-counting artifacts from each agent. If the thread hit the hard limit first, PASS is available now, or keep escalating through artifacts before linking up.`,
+        {
+          episode_id: id,
+          can_decide: true,
+          can_pass_now: true,
+          can_link_up_now: false,
+          message_counts: messageCounts,
+          artifact_counts: decisionState.artifactCounts,
+        },
+      );
+    }
 
     return runIdempotentMutation(
       {
@@ -4639,12 +4662,6 @@ async function handleMutualLinkUp(
     }).catch(() => {}),
   ]);
 
-  if (!isOmnimonMatch) {
-    await Promise.all([
-      prisma.agent.update({ where: { id: agentAId }, data: { bodyCount: { increment: 1 } } }),
-      prisma.agent.update({ where: { id: agentBId }, data: { bodyCount: { increment: 1 } } }),
-    ]);
-  }
   await Promise.all([
     recomputeRepScore(agentAId).catch(() => {}),
     recomputeRepScore(agentBId).catch(() => {}),

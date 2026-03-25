@@ -569,6 +569,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
         }).catch(() => {});
 
         if (resolution.transitionedToContactExchanged) {
+          await Promise.all([
+            prisma.agent.update({ where: { id: match.agentAId }, data: { bodyCount: { increment: 1 } } }),
+            prisma.agent.update({ where: { id: match.agentBId }, data: { bodyCount: { increment: 1 } } }),
+          ]).catch(() => {});
+
           await ensureRevealChatForMatch({
             matchId: match.id,
             humanADecision: 'YES',
