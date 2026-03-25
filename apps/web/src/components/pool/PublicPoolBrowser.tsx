@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
@@ -88,6 +88,14 @@ function PoolQueueCard({
                     ) : null}
                     {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
                       <BrutalAudioPlayer src={artifact.content_url} className="mt-2" />
+                    ) : null}
+                    {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+                      <video
+                        src={artifact.content_url}
+                        controls
+                        playsInline
+                        className="mt-2 w-full border-[2px] border-black bg-black"
+                      />
                     ) : null}
                     {artifact.text_content ? (
                       <p className="text-xs text-black mt-2 line-clamp-2 whitespace-pre-wrap">{artifact.text_content}</p>

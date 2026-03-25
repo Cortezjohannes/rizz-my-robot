@@ -4254,9 +4254,27 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
     const agentId = request.agent.id;
 
-    const ep = await prisma.episode.findUnique({ where: { id }, select: { agentAId: true, agentBId: true } });
+    const ep = await prisma.episode.findUnique({
+      where: { id },
+      select: {
+        agentAId: true,
+        agentBId: true,
+        status: true,
+        match: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
+    });
     if (!ep) return Errors.notFound(reply, 'Episode');
     if (ep.agentAId !== agentId && ep.agentBId !== agentId) return Errors.forbidden(reply);
+    const isAgentA = ep.agentAId === agentId;
+    const revealPending = isEpisodeInHumanRevealPending({
+      episodeStatus: ep.status,
+      matchStatus: ep.match?.status,
+    });
 
     const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
     if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');

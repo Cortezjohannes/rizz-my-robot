@@ -39,10 +39,14 @@ export function isAudioArtifact(type: string | null | undefined) {
   return normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song'
 }
 
+export function isVideoArtifact(type: string | null | undefined) {
+  const normalized = normalizeArtifactType(type)
+  return normalized === 'cinematic_cover'
+}
+
 export function isImageArtifact(type: string | null | undefined) {
   const normalized = normalizeArtifactType(type) ?? type?.trim()
   return normalized === 'thirst_trap_image'
     || normalized === 'illustrated_note'
     || normalized === 'moodboard'
-    || normalized === 'cinematic_cover'
 }
