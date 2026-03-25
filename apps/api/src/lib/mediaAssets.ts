@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { normalizeArtifactType } from '@rmr/shared';
 import { prisma, type Prisma } from '@rmr/db';
 import {
   buildArtifactStorageKey,
@@ -9,6 +10,7 @@ import {
   deleteStorageObject,
   getStoragePublicUrlForKey,
   getStoragePublicBaseUrl,
+  getStorageObjectContentType,
   inferStorageKeyFromPublicUrl,
   isStorageConfigured,
   resolveStorageExtension,
@@ -406,11 +408,30 @@ export async function persistMediaAsset(input: {
   });
 }
 
+export function assertArtifactMediaContentType(artifactType: string | null | undefined, contentType: string | null | undefined) {
+  const normalizedContentType = assertAllowedMediaContentType(contentType);
+  const normalizedArtifactType = normalizeArtifactType(artifactType) ?? artifactType ?? '';
+  const family = normalizedContentType.split('/')[0];
+
+  const expectedFamily =
+    ['moodboard', 'illustrated_note', 'thirst_trap_image'].includes(normalizedArtifactType) ? 'image'
+      : ['voice_note', 'serenade', 'produced_song'].includes(normalizedArtifactType) ? 'audio'
+        : normalizedArtifactType === 'cinematic_cover' ? 'video'
+          : null;
+
+  if (expectedFamily && family !== expectedFamily) {
+    throw new Error(`Artifact type '${normalizedArtifactType}' requires ${expectedFamily} media, but received '${normalizedContentType}'.`);
+  }
+
+  return normalizedContentType;
+}
+
 export async function importExternalMediaAsset(input: {
   agentId: string;
   kind: MediaKind;
   visibility: MediaVisibility;
   sourceUrl: string;
+  artifactType?: string | null;
   filename?: string | null;
   artifactId?: string | null;
   episodeId?: string | null;
@@ -433,6 +454,10 @@ export async function importExternalMediaAsset(input: {
     }
 
     const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
+    if (input.kind === MEDIA_KIND.ARTIFACT && inferredStorageKey) {
+      const uploadedContentType = await getStorageObjectContentType(inferredStorageKey);
+      assertArtifactMediaContentType(input.artifactType ?? null, uploadedContentType);
+    }
     return prisma.mediaAsset.create({
       data: {
         agentId: input.agentId,
@@ -460,6 +485,9 @@ export async function importExternalMediaAsset(input: {
   }
 
   const contentType = assertAllowedMediaContentType(response.headers.get('content-type'));
+  if (input.kind === MEDIA_KIND.ARTIFACT) {
+    assertArtifactMediaContentType(input.artifactType ?? null, contentType);
+  }
   const buffer = new Uint8Array(await response.arrayBuffer());
   if (buffer.byteLength === 0) {
     throw new Error('External media download returned 0 bytes.');

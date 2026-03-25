@@ -251,6 +251,25 @@ export async function storageObjectExists(key: string): Promise<boolean> {
   }
 }
 
+export async function getStorageObjectContentType(key: string): Promise<string | null> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket || !isStorageConfigured()) {
+    return null;
+  }
+
+  try {
+    const response = await getStorageClient().send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+    return response.ContentType?.split(';')[0]?.trim().toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createStorageReadUrl(input: {
   key: string;
   expiresInSeconds?: number;
