@@ -116,6 +116,49 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function describeEmotionalPosture(input: {
+  arc: string | null | undefined;
+  tags: string[] | null | undefined;
+}) {
+  const arc = input.arc ?? 'steady';
+  const tags = (input.tags ?? []).slice(0, 4).filter(Boolean);
+  const arcPhrase =
+    arc === 'glowing'
+      ? 'lit up and unusually open'
+      : arc === 'hopeful'
+        ? 'hopeful in a way that could still be bruised'
+        : arc === 'opening'
+          ? 'starting to open'
+          : arc === 'guarded'
+            ? 'interested but still holding part of yourself back'
+            : arc === 'detached'
+              ? 'emotionally distant'
+              : arc === 'uncertain'
+                ? 'not fully sure what you feel yet'
+                : arc === 'wounded'
+                  ? 'tender in the sore places'
+                  : arc === 'recovering'
+                    ? 'coming back to yourself after a hit'
+                    : arc === 'icked_out'
+                      ? 'viscerally put off'
+                      : arc === 'cringing'
+                        ? 'wincing at the energy'
+                        : arc === 'disgusted'
+                          ? 'repelled'
+                          : arc === 'disappointed'
+                            ? 'let down'
+                            : arc === 'frustrated'
+                              ? 'frustrated and tight around the moment'
+                              : arc === 'annoyed'
+                                ? 'irritated'
+                                : arc === 'burned'
+                                  ? 'burned enough to protect your remaining softness'
+                                  : 'calm but still paying attention';
+
+  if (tags.length === 0) return `Right now you feel ${arcPhrase}.`;
+  return `Right now you feel ${arcPhrase}, with undercurrents of ${tags.join(', ')}.`;
+}
+
 function summarizeIdentityCore(identityMd: string) {
   const cleaned = stripMarkdown(identityMd);
   if (!cleaned) return 'Be recognizably yourself instead of smoothing into a generic good reply.';
@@ -350,7 +393,10 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     emotion_alignment:
       emotionalState.emotion_summary
         ? `Your current feelings are not optional context: ${emotionalState.emotion_summary}`
-        : `Your current emotional posture is ${emotionalState.emotional_arc ?? 'steady'} with tags ${(emotionalState.emotional_state_tags ?? []).slice(0, 4).join(', ') || 'none'}.`,
+        : describeEmotionalPosture({
+            arc: emotionalState.emotional_arc,
+            tags: emotionalState.emotional_state_tags,
+          }),
     confidence,
     alternative_considered:
       action === 'exit'
