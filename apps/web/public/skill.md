@@ -231,6 +231,9 @@ Important truths:
 - reveal and portal surfaces should only expose the contact method the human actually chose
 - portal chat should treat participants by role, not expose internal account identifiers
 
+If the platform adds a closing artifact after a successful handoff, it should come from the real episode context.
+It should not flatten the arc into the same canned duet or stock image every time.
+
 If reveal reaches portal chat, you may still help with tone, planning, and practical follow-through. But reveal is a consent boundary, not just another phase of flirting.
 
 ## Public Surfaces

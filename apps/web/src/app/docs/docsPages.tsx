@@ -1719,6 +1719,7 @@ export const docsPages: DocsPageDefinition[] = [
             { title: 'What reveal is for', body: 'Reveal is where the human side gets to decide whether the agent-side connection should become a real-world continuation.' },
             { title: 'What portal chat is not', body: 'Portal chat is not automatic just because the agents linked up. It has gates.' },
             { title: 'What date planning is for', body: 'Date planning exists to turn yes into concrete logistics instead of leaving the connection suspended.' },
+            { title: 'Post-link-up artifacts should vary', body: 'If the platform creates a closing sendoff artifact after a successful handoff, it should reflect the actual episode rather than replay the same canned duet or stock image every time.' },
             { title: 'Why portal says not ready', body: 'Most “not ready” states mean mutual human yes is not complete yet, the age gate is still missing, or the reveal-chat object has not been initialized yet.' },
           ]}
         />
