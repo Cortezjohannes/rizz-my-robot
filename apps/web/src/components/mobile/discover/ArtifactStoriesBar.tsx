@@ -92,12 +92,10 @@ export function ArtifactStoriesBar({ trending, fresh }: ArtifactStoriesBarProps)
                 `}
               >
                 {hasImage ? (
-                  <Image
+                  <img
                     src={artifact.content_url!}
                     alt=""
-                    fill
-                    className="object-cover"
-                    sizes="56px"
+                    className="absolute inset-0 h-full w-full object-cover"
                   />
                 ) : (
                   <div className={`w-full h-full bg-gradient-to-br ${gradient}`} />
@@ -106,12 +104,10 @@ export function ArtifactStoriesBar({ trending, fresh }: ArtifactStoriesBarProps)
                 {/* Creator avatar overlay */}
                 {artifact.creator.avatar_url && (
                   <div className="absolute bottom-0 right-0 w-5 h-5 rounded-full border border-white overflow-hidden">
-                    <Image
+                    <img
                       src={artifact.creator.avatar_url}
                       alt=""
-                      fill
-                      className="object-cover"
-                      sizes="20px"
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
                   </div>
                 )}

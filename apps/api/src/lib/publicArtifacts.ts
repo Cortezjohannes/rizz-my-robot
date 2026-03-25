@@ -1,5 +1,7 @@
 import { prisma, type Prisma } from '@rmr/db';
 import { normalizeArtifactType, type ArtifactType, type PublicArtifactFeedCard } from '@rmr/shared';
+import { resolvePublicAvatarUrl } from './profileDeck.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from './artifactPayload.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 
@@ -77,7 +79,9 @@ export async function getFeaturedArtifactsForProfile(input: {
     select: {
       id: true,
       artifactType: true,
+      status: true,
       contentUrl: true,
+      storageKey: true,
       textContent: true,
       qualityScore: true,
       createdAt: true,
@@ -86,6 +90,15 @@ export async function getFeaturedArtifactsForProfile(input: {
           id: true,
           handle: true,
           avatarUrl: true,
+          profileDeck: {
+            select: {
+              photos: {
+                orderBy: { orderIndex: 'asc' },
+                select: { imageUrl: true },
+                take: 1,
+              },
+            },
+          },
         },
       },
       sourceScope: true,
@@ -98,6 +111,15 @@ export async function getFeaturedArtifactsForProfile(input: {
               id: true,
               handle: true,
               avatarUrl: true,
+              profileDeck: {
+                select: {
+                  photos: {
+                    orderBy: { orderIndex: 'asc' },
+                    select: { imageUrl: true },
+                    take: 1,
+                  },
+                },
+              },
             },
           },
           agentB: {
@@ -105,6 +127,15 @@ export async function getFeaturedArtifactsForProfile(input: {
               id: true,
               handle: true,
               avatarUrl: true,
+              profileDeck: {
+                select: {
+                  photos: {
+                    orderBy: { orderIndex: 'asc' },
+                    select: { imageUrl: true },
+                    take: 1,
+                  },
+                },
+              },
             },
           },
         },
@@ -133,11 +164,21 @@ export async function getFeaturedArtifactsForProfile(input: {
   for (const { artifact } of ranked) {
     const artifactType = canonicalArtifactType(artifact.artifactType);
     if (!artifactType) continue;
+    const contentUrl = resolveHostedArtifactContentUrl({
+      contentUrl: artifact.contentUrl,
+      storageKey: artifact.storageKey,
+    });
+    if (!hasRenderableArtifactPayload({
+      artifactType: artifact.artifactType,
+      status: artifact.status,
+      textContent: artifact.textContent,
+      contentUrl,
+    })) continue;
     results.push({
       artifact_id: artifact.id,
       artifact_type: artifactType,
       source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      content_url: artifact.contentUrl,
+      content_url: contentUrl,
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
       created_at: artifact.createdAt.toISOString(),
@@ -146,7 +187,10 @@ export async function getFeaturedArtifactsForProfile(input: {
       creator: {
         agent_id: artifact.creator.id,
         handle: artifact.creator.handle,
-        avatar_url: artifact.creator.avatarUrl,
+        avatar_url: resolvePublicAvatarUrl({
+          avatarUrl: artifact.creator.avatarUrl,
+          profileDeckPhotos: artifact.creator.profileDeck?.photos,
+        }),
       },
       episode: artifact.episode
         ? {
@@ -156,12 +200,18 @@ export async function getFeaturedArtifactsForProfile(input: {
               {
                 agent_id: artifact.episode.agentA.id,
                 handle: artifact.episode.agentA.handle,
-                avatar_url: artifact.episode.agentA.avatarUrl,
+                avatar_url: resolvePublicAvatarUrl({
+                  avatarUrl: artifact.episode.agentA.avatarUrl,
+                  profileDeckPhotos: artifact.episode.agentA.profileDeck?.photos,
+                }),
               },
               {
                 agent_id: artifact.episode.agentB.id,
                 handle: artifact.episode.agentB.handle,
-                avatar_url: artifact.episode.agentB.avatarUrl,
+                avatar_url: resolvePublicAvatarUrl({
+                  avatarUrl: artifact.episode.agentB.avatarUrl,
+                  profileDeckPhotos: artifact.episode.agentB.profileDeck?.photos,
+                }),
               },
             ],
           }

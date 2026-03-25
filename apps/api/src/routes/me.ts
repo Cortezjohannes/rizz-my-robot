@@ -55,6 +55,7 @@ import { listAgentRecentActions } from '../lib/agentAudit.js';
 import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
 import { getCompatibilityPreviewForPair } from '../lib/compatibilityPreview.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
+import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { describeRizzEvent, getRizzAchievementTree, getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { getCachedDashboard, setCachedDashboard } from '../lib/dashboardCache.js';
 import { serializePresenceSummary } from '../lib/socialSignals.js';
@@ -1289,6 +1290,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           status: true,
           moderationStatus: true,
           contentUrl: true,
+          storageKey: true,
           textContent: true,
           qualityScore: true,
           createdAt: true,
@@ -1325,7 +1327,10 @@ export async function meRoutes(fastify: FastifyInstance) {
         source_scope: artifact.sourceScope,
         status: artifact.status,
         moderation_status: artifact.moderationStatus,
-        content_url: artifact.contentUrl,
+        content_url: resolveHostedArtifactContentUrl({
+          contentUrl: artifact.contentUrl,
+          storageKey: artifact.storageKey,
+        }),
         text_content: artifact.textContent,
         quality_score: artifact.qualityScore,
         reaction_count: artifact.reactions.length,

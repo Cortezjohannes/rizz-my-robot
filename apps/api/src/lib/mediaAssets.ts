@@ -59,6 +59,13 @@ type SerializableMediaAsset = {
   createdAt: Date;
 };
 
+function isArtifactMediaAsset(input: {
+  kind?: string | null;
+  artifact?: { id: string } | null;
+}) {
+  return input.kind === MEDIA_KIND.ARTIFACT || Boolean(input.artifact);
+}
+
 function getMediaSigningSecret() {
   return process.env.MEDIA_ACCESS_SECRET
     ?? process.env.JWT_SECRET
@@ -239,13 +246,16 @@ export async function linkMediaAsset(input: {
   checksumSha256?: string | null;
   durationSec?: number | null;
 }) {
+  const effectiveVisibility = input.kind === MEDIA_KIND.ARTIFACT
+    ? MEDIA_VISIBILITY.PUBLIC
+    : input.visibility;
   return prisma.mediaAsset.update({
     where: { id: input.mediaAssetId },
     data: {
       episodeId: input.episodeId ?? undefined,
       matchId: input.matchId ?? undefined,
       revealChatId: input.revealChatId ?? undefined,
-      visibility: input.visibility ?? undefined,
+      visibility: effectiveVisibility ?? undefined,
       kind: input.kind ?? undefined,
       cdnUrl: input.cdnUrl === undefined ? undefined : input.cdnUrl,
       storageKey: input.storageKey === undefined ? undefined : input.storageKey,
@@ -267,7 +277,7 @@ export async function resolveMediaDeliveryUrl(
     signedToken?: string | null;
   } = {},
 ) {
-  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC) {
+  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC || isArtifactMediaAsset(mediaAsset)) {
     return {
       url: mediaAsset.cdnUrl,
       access_url: mediaAsset.cdnUrl,
@@ -296,7 +306,7 @@ export async function canAccessMediaAsset(
   },
 ) {
   if (mediaAsset.deletedAt) return false;
-  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC) return true;
+  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC || isArtifactMediaAsset(mediaAsset)) return true;
 
   if (viewer.accessToken) {
     const parsed = verifyPrivateMediaAccessToken(viewer.accessToken);
@@ -357,6 +367,10 @@ export async function persistMediaAsset(input: {
     throw new Error('Permanent media storage is not configured.');
   }
 
+  const visibility = input.kind === MEDIA_KIND.ARTIFACT
+    ? MEDIA_VISIBILITY.PUBLIC
+    : input.visibility;
+
   const contentType = assertAllowedMediaContentType(input.contentType);
   const checksumSha256 = sha256Hex(input.buffer);
   if (input.kind !== MEDIA_KIND.ARTIFACT) {
@@ -364,7 +378,7 @@ export async function persistMediaAsset(input: {
       where: {
         agentId: input.agentId,
         kind: input.kind,
-        visibility: input.visibility,
+        visibility,
         checksumSha256,
         deletedAt: null,
         status: 'ready',
@@ -396,7 +410,7 @@ export async function persistMediaAsset(input: {
       contentType,
       sizeBytes: input.buffer.byteLength,
       checksumSha256,
-      visibility: input.visibility,
+      visibility,
       episodeId: input.episodeId ?? null,
       matchId: input.matchId ?? null,
       revealChatId: input.revealChatId ?? null,
@@ -441,20 +455,25 @@ export async function importExternalMediaAsset(input: {
   pathToken?: string | null;
   durationSec?: number | null;
 }) {
+  const visibility = input.kind === MEDIA_KIND.ARTIFACT
+    ? MEDIA_VISIBILITY.PUBLIC
+    : input.visibility;
   const publicBase = getStoragePublicBaseUrl();
   if (publicBase && input.sourceUrl.startsWith(publicBase)) {
-    if (input.kind !== MEDIA_KIND.ARTIFACT) {
-      const existing = await prisma.mediaAsset.findFirst({
-        where: {
-          agentId: input.agentId,
-          cdnUrl: input.sourceUrl,
-          deletedAt: null,
-        },
-      });
-      if (existing) return existing;
+    const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
+    const existing = await prisma.mediaAsset.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [
+          ...(inferredStorageKey ? [{ storageKey: inferredStorageKey }] : []),
+          { cdnUrl: input.sourceUrl },
+        ],
+      },
+    });
+    if (existing) {
+      return existing;
     }
 
-    const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
     if (inferredStorageKey && !(await storageObjectExists(inferredStorageKey))) {
       throw new Error('Hosted media URL was not found in storage.');
     }
@@ -468,7 +487,7 @@ export async function importExternalMediaAsset(input: {
       data: {
         agentId: input.agentId,
         kind: input.kind,
-        visibility: input.visibility,
+        visibility,
         storageKey: inferredStorageKey,
         cdnUrl: input.sourceUrl,
         contentType: inferredContentType,
@@ -503,7 +522,7 @@ export async function importExternalMediaAsset(input: {
   return persistMediaAsset({
     agentId: input.agentId,
     kind: input.kind,
-    visibility: input.visibility,
+    visibility,
     buffer,
     contentType,
     filename: input.filename ?? null,
@@ -525,10 +544,13 @@ export async function serializeMediaAssetForViewer(
   } = {},
 ) {
   const delivery = await resolveMediaDeliveryUrl(mediaAsset, viewer);
+  const effectiveVisibility = isArtifactMediaAsset(mediaAsset)
+    ? MEDIA_VISIBILITY.PUBLIC
+    : mediaAsset.visibility;
   return {
     media_asset_id: mediaAsset.id,
     kind: mediaAsset.kind,
-    visibility: mediaAsset.visibility,
+    visibility: effectiveVisibility,
     content_type: mediaAsset.contentType,
     size_bytes: mediaAsset.sizeBytes,
     filename: mediaAsset.filename,
@@ -537,7 +559,7 @@ export async function serializeMediaAssetForViewer(
     height: mediaAsset.height,
     url: delivery.url,
     access_url: delivery.access_url,
-    cdn_url: mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC ? mediaAsset.cdnUrl : null,
+    cdn_url: effectiveVisibility === MEDIA_VISIBILITY.PUBLIC ? mediaAsset.cdnUrl : null,
     status: mediaAsset.status,
     created_at: mediaAsset.createdAt.toISOString(),
     expires_at: delivery.expires_at,
@@ -651,7 +673,9 @@ export function mediaAssetToCompatibilityUrl(mediaAsset: {
   visibility: string;
   cdnUrl: string;
   id: string;
+  kind?: string;
+  artifact?: { id: string } | null;
 }) {
-  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC) return mediaAsset.cdnUrl;
+  if (mediaAsset.visibility === MEDIA_VISIBILITY.PUBLIC || isArtifactMediaAsset(mediaAsset)) return mediaAsset.cdnUrl;
   return `/v1/media/${mediaAsset.id}`;
 }

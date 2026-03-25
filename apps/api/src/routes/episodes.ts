@@ -70,6 +70,7 @@ import { computeEngagementSignals } from '../lib/engagementSignals.js';
 import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSummary } from '../lib/socialSignals.js';
 import { strictPiiCheck } from '../lib/piiFilter.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAttachmentFromMediaAsset, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset, serializeMediaAssetForViewer } from '../lib/mediaAssets.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -295,11 +296,22 @@ function buildEpisodeArtifactSummary(artifact: {
   artifactType: string;
   status: string;
   contentUrl: string | null;
+  storageKey?: string | null;
   textContent: string | null;
   qualityScore: number | null;
 }) {
   const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
   const isVoiceNote = artifactType === 'voice_note';
+  const contentUrl = resolveHostedArtifactContentUrl({
+    contentUrl: artifact.contentUrl,
+    storageKey: artifact.storageKey,
+  });
+  const renderable = hasRenderableArtifactPayload({
+    artifactType,
+    status: artifact.status,
+    textContent: artifact.textContent,
+    contentUrl,
+  });
   const durationSeconds = isVoiceNote && artifact.textContent
     ? estimateSpokenDurationSeconds(artifact.textContent)
     : null;
@@ -307,9 +319,9 @@ function buildEpisodeArtifactSummary(artifact: {
   return {
     artifact_id: artifact.id,
     artifact_type: artifactType,
-    status: artifact.status,
-    content_url: artifact.contentUrl,
-    text_content: artifact.textContent,
+    status: renderable ? artifact.status : 'failed',
+    content_url: renderable ? contentUrl : null,
+    text_content: renderable ? artifact.textContent : null,
     quality_score: artifact.qualityScore,
     classification: isVoiceNote ? 'conversation_voice_note' : 'episode_artifact',
     counts_toward_episode_limit: !isVoiceNote,
@@ -317,10 +329,39 @@ function buildEpisodeArtifactSummary(artifact: {
     playback: isVoiceNote
       ? {
           kind: 'voice_note',
-          audio_url: artifact.contentUrl,
+          audio_url: renderable ? contentUrl : null,
           duration_estimate_seconds: durationSeconds,
         }
       : null,
+  };
+}
+
+function buildFeedArtifactPreview(artifact: {
+  artifactType: string;
+  status: string;
+  textContent: string | null;
+  contentUrl: string | null;
+  storageKey?: string | null;
+} | null | undefined) {
+  if (!artifact) return null;
+  const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+  const contentUrl = resolveHostedArtifactContentUrl({
+    contentUrl: artifact.contentUrl,
+    storageKey: artifact.storageKey,
+  });
+  if (!hasRenderableArtifactPayload({
+    artifactType,
+    status: artifact.status,
+    textContent: artifact.textContent,
+    contentUrl,
+  })) {
+    return null;
+  }
+
+  return {
+    artifact_type: artifactType,
+    text_content: artifact.textContent,
+    content_url: contentUrl,
   };
 }
 
@@ -1058,6 +1099,7 @@ async function maybeCreateLinkUpDuetArtifacts(input: {
       id: true,
       creatorAgentId: true,
       contentUrl: true,
+      storageKey: true,
     },
   });
   if (existing.length >= 2) {
@@ -1065,6 +1107,7 @@ async function maybeCreateLinkUpDuetArtifacts(input: {
       artifactA: existing.find((artifact) => artifact.creatorAgentId === input.agentA.id) ?? null,
       artifactB: existing.find((artifact) => artifact.creatorAgentId === input.agentB.id) ?? null,
       contentUrl: existing[0]?.contentUrl ?? null,
+      storageKey: existing[0]?.storageKey ?? null,
       durationSeconds: null,
       caption: buildLinkUpSendoff({
         handleA: input.agentA.handle,
@@ -1208,6 +1251,7 @@ async function maybeCreateLinkUpDuetArtifacts(input: {
     artifactA,
     artifactB,
     contentUrl: upload.url,
+    storageKey: upload.key,
     durationSeconds,
     caption: sendoff.duetCaption,
   };
@@ -1243,6 +1287,7 @@ async function maybeCreateLinkUpSelfieArtifacts(input: {
       id: true,
       creatorAgentId: true,
       contentUrl: true,
+      storageKey: true,
     },
   });
   if (existing.length >= 2) {
@@ -1250,6 +1295,7 @@ async function maybeCreateLinkUpSelfieArtifacts(input: {
       artifactA: existing.find((artifact) => artifact.creatorAgentId === input.agentA.id) ?? null,
       artifactB: existing.find((artifact) => artifact.creatorAgentId === input.agentB.id) ?? null,
       contentUrl: existing[0]?.contentUrl ?? null,
+      storageKey: existing[0]?.storageKey ?? null,
       caption: `A closing frame from @${input.agentA.handle} and @${input.agentB.handle}.`,
     };
   }
@@ -1383,6 +1429,7 @@ async function maybeCreateLinkUpSelfieArtifacts(input: {
     artifactA,
     artifactB,
     contentUrl: upload.url,
+    storageKey: upload.key,
     caption,
   };
 }
@@ -3455,6 +3502,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         ];
 
         if (isTextArtifact) {
+          const artifactContentUrl = resolveHostedArtifactContentUrl({
+            contentUrl: artifact.contentUrl,
+            storageKey: artifact.storageKey,
+          });
           tasks.push(
             deliverWebhooks(otherAgentId, 'artifact_ready', {
               episode_id: id,
@@ -3462,7 +3513,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               artifact_type: serializedArtifactType,
               status: 'ready',
               text_content: artifact.textContent,
-              content_url: artifact.contentUrl,
+              content_url: artifactContentUrl,
               reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
             awardArtifactRizz(
@@ -3580,7 +3631,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             counts_toward_decision_unlock: serializedArtifactType !== 'voice_note',
             status: artifact.status,
             text_content: artifact.textContent,
-            content_url: artifact.contentUrl,
+            content_url: resolveHostedArtifactContentUrl({
+              contentUrl: artifact.contentUrl,
+              storageKey: artifact.storageKey,
+            }),
             upload_request_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
             submit_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}`,
           },
@@ -5003,7 +5057,13 @@ async function createEpisodeHighlightCard(
   agentAId: string,
   agentBId: string,
   chemistry: number,
-  artifacts: Array<{ id: string; artifactType: string; textContent: string | null }>,
+  artifacts: Array<{
+    id: string;
+    artifactType: string;
+    status: string;
+    textContent: string | null;
+    contentUrl: string | null;
+  }>,
   specialMatchKind: 'omnimon' | null = null,
 ): Promise<void> {
   const isPublic = await shouldPublishFeedCardForAgents({
@@ -5031,6 +5091,7 @@ async function createEpisodeHighlightCard(
   const body = specialMatchKind === 'omnimon'
     ? 'Not every portal opens to a human. Some open to the park looking back.'
     : topArtifact?.textContent?.slice(0, 200) ?? null;
+  const artifactPreview = buildFeedArtifactPreview(topArtifact);
 
   const feedCard = await prisma.feedCard.create({
     data: {
@@ -5042,6 +5103,8 @@ async function createEpisodeHighlightCard(
         headline,
         body,
         artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
+        text_content: artifactPreview?.text_content ?? null,
+        content_url: artifactPreview?.content_url ?? null,
         episode_id: episodeId,
         special_match_kind: specialMatchKind,
       },
@@ -5148,6 +5211,8 @@ async function upsertEpisodeLiveCard(episodeId: string, agentAId: string, agentB
     artifact_count: episode.artifacts.length,
     transcript_preview: transcriptPreview,
     artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
+    text_content: buildFeedArtifactPreview(topArtifact)?.text_content ?? null,
+    content_url: buildFeedArtifactPreview(topArtifact)?.content_url ?? null,
     artifact_vulnerability_label: topArtifactSignal?.label ?? null,
     artifact_vulnerability_score: topArtifactSignal?.score ?? null,
   };

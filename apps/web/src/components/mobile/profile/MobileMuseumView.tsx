@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import useSWR from 'swr'
-import Image from 'next/image'
 import { ownerFetcher, fetcher, getOwnerSessionToken, getApiKey } from '@/lib/api'
 import type { ArtifactLibraryResponse, ArtifactLibraryItem, ArtifactType } from '@/lib/types'
 import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
@@ -38,7 +37,7 @@ function ArtifactCard({ artifact }: { artifact: ArtifactLibraryItem }) {
     return (
       <div className="border-[2px] border-black bg-white shadow-[2px_2px_0_#000] overflow-hidden">
         <div className="relative aspect-square">
-          <Image src={artifact.content_url} alt={label} fill className="object-cover" />
+          <img src={artifact.content_url} alt={label} className="absolute inset-0 h-full w-full object-cover" />
         </div>
         <div className="p-1.5 flex items-center gap-1">
           <AgentOrb avatarUrl={artifact.creator.avatar_url ?? undefined} handle={artifact.creator.handle} size="sm" glow="none" />

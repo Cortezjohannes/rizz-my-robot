@@ -21,6 +21,7 @@ import { Errors } from '../lib/errors.js';
 import { grantOmnimonReward } from '../lib/omnimonPark.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
+import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
 import { ensureRevealChatForMatch } from './revealChat.js';
@@ -238,7 +239,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
               artifact_id: artifact.id,
               artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
               text_content: artifact.textContent,
-              content_url: artifact.contentUrl,
+              content_url: resolveHostedArtifactContentUrl({
+                contentUrl: artifact.contentUrl,
+                storageKey: artifact.storageKey,
+              }),
             }
           : null,
         highlights: highlights.map((m) => ({
@@ -341,7 +345,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
             artifact_id: artifact.id,
             artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
             text_content: artifact.textContent,
-            content_url: artifact.contentUrl,
+            content_url: resolveHostedArtifactContentUrl({
+              contentUrl: artifact.contentUrl,
+              storageKey: artifact.storageKey,
+            }),
           }
         : null,
       highlights: highlights.map((m) => ({
@@ -715,8 +722,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
           const eventData = {
             match_id: match.id,
             outcome: 'contact_exchanged',
-            duet_artifact_url: finalArtifacts.duet?.contentUrl ?? null,
-            duet_selfie_url: finalArtifacts.selfie?.contentUrl ?? null,
+            duet_artifact_url: finalArtifacts.duet
+              ? resolveHostedArtifactContentUrl({
+                  contentUrl: finalArtifacts.duet.contentUrl,
+                  storageKey: finalArtifacts.duet.storageKey,
+                })
+              : null,
+            duet_selfie_url: finalArtifacts.selfie
+              ? resolveHostedArtifactContentUrl({
+                  contentUrl: finalArtifacts.selfie.contentUrl,
+                  storageKey: finalArtifacts.selfie.storageKey,
+                })
+              : null,
           };
           await Promise.all([
             deliverWebhooks(match.agentAId, 'human_decision', eventData),

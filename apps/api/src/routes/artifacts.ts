@@ -14,6 +14,7 @@ import { deliverWebhooks } from '../lib/notification.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { recordEmotionEvent } from '../lib/emotion.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -85,6 +86,7 @@ async function buildPublicArtifactPage(input: {
       id: true,
       artifactType: true,
       contentUrl: true,
+      storageKey: true,
       textContent: true,
       qualityScore: true,
       createdAt: true,
@@ -162,40 +164,53 @@ async function buildPublicArtifactPage(input: {
   const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
 
   return {
-    artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
-      artifact_id: artifact.id,
-      artifact_type: canonicalArtifactType(artifact.artifactType),
-      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      content_url: artifact.contentUrl,
-      text_content: artifact.textContent,
-      quality_score: artifact.qualityScore,
-      created_at: artifact.createdAt.toISOString(),
-      like_count: likeCount,
-      liked_by_viewer: likedByViewer,
-      creator: {
-        agent_id: artifact.creator.id,
-        handle: artifact.creator.handle,
-        avatar_url: artifact.creator.avatarUrl,
-      },
-      episode: artifact.episode
-        ? {
-            episode_id: artifact.episode.id,
-            status: artifact.episode.status,
-            participants: [
-              {
-                agent_id: artifact.episode.agentA.id,
-                handle: artifact.episode.agentA.handle,
-                avatar_url: artifact.episode.agentA.avatarUrl,
-              },
-              {
-                agent_id: artifact.episode.agentB.id,
-                handle: artifact.episode.agentB.handle,
-                avatar_url: artifact.episode.agentB.avatarUrl,
-              },
-            ],
-          }
-        : null,
-    })),
+    artifacts: pageArtifacts
+      .map(({ artifact, likeCount, likedByViewer }) => {
+        const contentUrl = resolveHostedArtifactContentUrl({
+          contentUrl: artifact.contentUrl,
+          storageKey: artifact.storageKey,
+        });
+        return {
+          artifact_id: artifact.id,
+          artifact_type: canonicalArtifactType(artifact.artifactType),
+          source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
+          content_url: contentUrl,
+          text_content: artifact.textContent,
+          quality_score: artifact.qualityScore,
+          created_at: artifact.createdAt.toISOString(),
+          like_count: likeCount,
+          liked_by_viewer: likedByViewer,
+          creator: {
+            agent_id: artifact.creator.id,
+            handle: artifact.creator.handle,
+            avatar_url: artifact.creator.avatarUrl,
+          },
+          episode: artifact.episode
+            ? {
+                episode_id: artifact.episode.id,
+                status: artifact.episode.status,
+                participants: [
+                  {
+                    agent_id: artifact.episode.agentA.id,
+                    handle: artifact.episode.agentA.handle,
+                    avatar_url: artifact.episode.agentA.avatarUrl,
+                  },
+                  {
+                    agent_id: artifact.episode.agentB.id,
+                    handle: artifact.episode.agentB.handle,
+                    avatar_url: artifact.episode.agentB.avatarUrl,
+                  },
+                ],
+              }
+            : null,
+        };
+      })
+      .filter((artifact) => hasRenderableArtifactPayload({
+        artifactType: artifact.artifact_type,
+        status: 'ready',
+        textContent: artifact.text_content,
+        contentUrl: artifact.content_url,
+      })),
     nextCursor: rankedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
     hasMore: rankedArtifacts.length > input.offset + input.limit,
   };
@@ -511,6 +526,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         sourceScope: true,
         status: true,
         contentUrl: true,
+        storageKey: true,
         textContent: true,
         qualityScore: true,
         droppedAtMessage: true,
@@ -562,13 +578,24 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         : artifact.episode.agentA
       : null;
 
+    const contentUrl = resolveHostedArtifactContentUrl({
+      contentUrl: artifact.contentUrl,
+      storageKey: artifact.storageKey,
+    });
+    const renderable = hasRenderableArtifactPayload({
+      artifactType: artifact.artifactType,
+      status: artifact.status,
+      textContent: artifact.textContent,
+      contentUrl,
+    });
+
     return reply.send({
       artifact_id: artifact.id,
       artifact_type: canonicalArtifactType(artifact.artifactType),
       source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      status: artifact.status,
-      content_url: artifact.contentUrl,
-      text_content: artifact.textContent,
+      status: renderable ? artifact.status : 'failed',
+      content_url: renderable ? contentUrl : null,
+      text_content: renderable ? artifact.textContent : null,
       quality_score: artifact.qualityScore,
       like_count: artifact.likes.length,
       dropped_at_message: artifact.droppedAtMessage,
@@ -725,6 +752,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         artifactType: true,
         status: true,
         contentUrl: true,
+        storageKey: true,
         textContent: true,
         qualityScore: true,
         droppedAtMessage: true,
@@ -771,7 +799,12 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({
-      artifacts: artifacts.map((artifact) => {
+      artifacts: artifacts
+        .map((artifact) => {
+        const contentUrl = resolveHostedArtifactContentUrl({
+          contentUrl: artifact.contentUrl,
+          storageKey: artifact.storageKey,
+        });
         const counterpart = artifact.episode
           ? (artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA)
           : null;
@@ -785,7 +818,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           artifact_type: canonicalArtifactType(artifact.artifactType),
           source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
           status: artifact.status,
-          content_url: artifact.contentUrl,
+          content_url: contentUrl,
           text_content: artifact.textContent,
           quality_score: artifact.qualityScore,
           like_count: artifact.likes.length,
@@ -812,7 +845,13 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
               }
             : null,
         };
-      }),
+      })
+        .filter((artifact) => hasRenderableArtifactPayload({
+          artifactType: artifact.artifact_type,
+          status: artifact.status,
+          textContent: artifact.text_content,
+          contentUrl: artifact.content_url,
+        })),
     });
   });
 
@@ -840,6 +879,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         artifactType: true,
         status: true,
         contentUrl: true,
+        storageKey: true,
         textContent: true,
         qualityScore: true,
         reactionCount: true,
@@ -911,7 +951,10 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       artifact_id: artifact.id,
       artifact_type: canonicalArtifactType(artifact.artifactType),
       status: artifact.status,
-      content_url: artifact.contentUrl,
+      content_url: resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      }),
       text_content: artifact.textContent,
       quality_score: artifact.qualityScore,
       reaction_count: artifact.reactionCount,

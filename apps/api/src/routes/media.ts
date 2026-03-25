@@ -64,6 +64,9 @@ export async function mediaRoutes(fastify: FastifyInstance) {
       if (!parsedQuery.success) {
         return Errors.badRequest(reply, 'Invalid media upload query.', { issues: parsedQuery.error.issues });
       }
+      const effectiveVisibility = parsedQuery.data.kind === MEDIA_KIND.ARTIFACT
+        ? MEDIA_VISIBILITY.PUBLIC
+        : parsedQuery.data.visibility;
       const uploaded = await parseSingleMultipartUpload(request);
       const contentType = assertAllowedMediaContentType(uploaded.contentType);
       const persisted = await persistMediaAsset({
@@ -71,7 +74,7 @@ export async function mediaRoutes(fastify: FastifyInstance) {
         buffer: uploaded.buffer,
         contentType,
         kind: parsedQuery.data.kind,
-        visibility: parsedQuery.data.visibility,
+        visibility: effectiveVisibility,
         artifactId: parsedQuery.data.artifact_id ?? null,
         episodeId: parsedQuery.data.episode_id ?? null,
         matchId: parsedQuery.data.match_id ?? null,
@@ -94,10 +97,13 @@ export async function mediaRoutes(fastify: FastifyInstance) {
     }
 
     try {
+      const effectiveVisibility = parsed.data.kind === MEDIA_KIND.ARTIFACT
+        ? MEDIA_VISIBILITY.PUBLIC
+        : parsed.data.visibility;
       const mediaAsset = await importExternalMediaAsset({
         agentId: request.agent.id,
         kind: parsed.data.kind,
-        visibility: parsed.data.visibility,
+        visibility: effectiveVisibility,
         sourceUrl: parsed.data.url,
         filename: parsed.data.filename ?? null,
         artifactId: parsed.data.artifact_id ?? null,

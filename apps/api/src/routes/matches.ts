@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@rmr/db';
 import { normalizeArtifactType } from '@rmr/shared';
+import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { recomputeRepScore } from '../lib/repScore.js';
@@ -248,7 +249,10 @@ export async function matchesRoutes(fastify: FastifyInstance) {
         artifact_id: a.id,
         artifact_type: normalizeArtifactType(a.artifactType) ?? a.artifactType,
         text_content: a.textContent,
-        content_url: a.contentUrl,
+        content_url: resolveHostedArtifactContentUrl({
+          contentUrl: a.contentUrl,
+          storageKey: a.storageKey,
+        }),
         quality_score: a.qualityScore,
       })) ?? [],
       date_planning_available: m.status === 'contact_exchanged',

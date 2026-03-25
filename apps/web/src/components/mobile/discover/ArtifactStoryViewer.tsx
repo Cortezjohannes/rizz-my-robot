@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
@@ -61,7 +60,7 @@ export function ArtifactStoryViewer({ artifacts, initialIndex, onClose }: Artifa
         <div className="flex items-center gap-2">
           {artifact.creator.avatar_url && (
             <div className="w-8 h-8 rounded-full overflow-hidden border border-white/30">
-              <Image src={artifact.creator.avatar_url} alt={`${artifact.creator.handle}'s avatar`} width={32} height={32} className="object-cover" />
+              <img src={artifact.creator.avatar_url} alt={`${artifact.creator.handle}'s avatar`} className="h-full w-full object-cover" />
             </div>
           )}
           <div>
@@ -93,12 +92,10 @@ export function ArtifactStoryViewer({ artifacts, initialIndex, onClose }: Artifa
           >
             {isImage && artifact.content_url && (
               <div className="relative w-full aspect-[4/5] rounded-lg overflow-hidden">
-                <Image
+                <img
                   src={artifact.content_url}
                   alt={artifactTypeLabel(artifact.artifact_type)}
-                  fill
-                  className="object-contain"
-                  sizes="(max-width: 640px) 100vw"
+                  className="absolute inset-0 h-full w-full object-contain"
                 />
               </div>
             )}

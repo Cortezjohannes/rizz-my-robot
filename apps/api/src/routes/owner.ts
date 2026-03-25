@@ -28,7 +28,7 @@ import {
   ownerXIntegrationExpiryDate,
   verifyOwnerXIntegrationToken,
 } from '../lib/ownerXIntegration.js';
-import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent } from '../lib/profileDeck.js';
+import { buildPublicPoolPreviewFromDeck, getSerializedProfileDeckForAgent, resolvePublicAvatarUrl } from '../lib/profileDeck.js';
 import { publicEmailLimit, publicVerifyLimit, readLimit } from '../lib/rateLimit.js';
 import { normalizeHandle } from '../lib/handles.js';
 import { buildOwnerXAuthorizationUrl, hasXOAuthConfig, verifyXOAuthIdentity } from '../lib/twitterVerification.js';
@@ -38,6 +38,7 @@ import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { getLegacyIdentityRefreshAction, readLegacyIdentityRefreshState } from '../lib/legacyIdentityRefresh.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
@@ -1269,6 +1270,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             profileDeckCompletedAt: true,
             profileDeckVisibility: true,
+            profileDeck: {
+              select: {
+                photos: {
+                  orderBy: { orderIndex: 'asc' },
+                  select: { imageUrl: true },
+                  take: 1,
+                },
+              },
+            },
           },
         },
         agentB: {
@@ -1278,6 +1288,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             avatarUrl: true,
             profileDeckCompletedAt: true,
             profileDeckVisibility: true,
+            profileDeck: {
+              select: {
+                photos: {
+                  orderBy: { orderIndex: 'asc' },
+                  select: { imageUrl: true },
+                  take: 1,
+                },
+              },
+            },
           },
         },
       },
@@ -1382,6 +1401,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             artifactType: true,
             status: true,
             contentUrl: true,
+            storageKey: true,
             textContent: true,
             qualityScore: true,
             droppedAtMessage: true,
@@ -1423,6 +1443,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             capabilityTier: true,
             profileDeckCompletedAt: true,
             profileDeckVisibility: true,
+            profileDeck: {
+              select: {
+                photos: {
+                  orderBy: { orderIndex: 'asc' },
+                  select: { imageUrl: true },
+                  take: 1,
+                },
+              },
+            },
           },
         },
         agentB: {
@@ -1434,6 +1463,15 @@ export async function ownerRoutes(fastify: FastifyInstance) {
             capabilityTier: true,
             profileDeckCompletedAt: true,
             profileDeckVisibility: true,
+            profileDeck: {
+              select: {
+                photos: {
+                  orderBy: { orderIndex: 'asc' },
+                  select: { imageUrl: true },
+                  take: 1,
+                },
+              },
+            },
           },
         },
       },
@@ -1470,7 +1508,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       counterpart: {
         agent_id: counterpart.id,
         handle: counterpart.handle,
-        avatar_url: counterpart.avatarUrl,
+        avatar_url: resolvePublicAvatarUrl({
+          avatarUrl: counterpart.avatarUrl,
+          profileDeckPhotos: counterpart.profileDeck?.photos,
+        }),
         tier_label: counterpart.tierLabel,
         capability_tier: counterpart.capabilityTier,
         has_public_profile: Boolean(counterpart.profileDeckCompletedAt && counterpart.profileDeckVisibility === 'public'),
@@ -1558,6 +1599,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
         artifactType: true,
         status: true,
         contentUrl: true,
+        storageKey: true,
         textContent: true,
         qualityScore: true,
         droppedAtMessage: true,
@@ -1597,7 +1639,12 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({
-      artifacts: artifacts.map((artifact) => {
+      artifacts: artifacts
+        .map((artifact) => {
+        const contentUrl = resolveHostedArtifactContentUrl({
+          contentUrl: artifact.contentUrl,
+          storageKey: artifact.storageKey,
+        });
         const counterpart = artifact.episode
           ? (artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA)
           : null;
@@ -1607,7 +1654,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           artifact_type: canonicalArtifactType(artifact.artifactType),
           source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
           status: artifact.status,
-          content_url: artifact.contentUrl,
+          content_url: contentUrl,
           text_content: artifact.textContent,
           quality_score: artifact.qualityScore,
           dropped_at_message: artifact.droppedAtMessage,
@@ -1633,7 +1680,13 @@ export async function ownerRoutes(fastify: FastifyInstance) {
               }
             : null,
         };
-      }),
+      })
+        .filter((artifact) => !artifact.status || hasRenderableArtifactPayload({
+          artifactType: artifact.artifact_type,
+          status: artifact.status,
+          textContent: artifact.text_content,
+          contentUrl: artifact.content_url,
+        })),
     });
   });
 
@@ -1954,8 +2007,22 @@ function serializeOwnerEpisodeSummary(
       revealTokenAExpiresAt: Date | null;
       revealTokenBExpiresAt: Date | null;
     } | null;
-    agentA: { id: string; handle: string; avatarUrl: string | null; profileDeckCompletedAt?: Date | null; profileDeckVisibility?: string | null };
-    agentB: { id: string; handle: string; avatarUrl: string | null; profileDeckCompletedAt?: Date | null; profileDeckVisibility?: string | null };
+    agentA: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+      profileDeckCompletedAt?: Date | null;
+      profileDeckVisibility?: string | null;
+      profileDeck?: { photos: Array<{ imageUrl: string | null }> } | null;
+    };
+    agentB: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+      profileDeckCompletedAt?: Date | null;
+      profileDeckVisibility?: string | null;
+      profileDeck?: { photos: Array<{ imageUrl: string | null }> } | null;
+    };
   },
   ownerAgentId: string,
   ownerX: { xHandle: string | null; xDisplayName: string | null; xProfileImageUrl: string | null },
@@ -1993,7 +2060,10 @@ function serializeOwnerEpisodeSummary(
     counterpart: {
       agent_id: counterpart.id,
       handle: counterpart.handle,
-      avatar_url: counterpart.avatarUrl,
+      avatar_url: resolvePublicAvatarUrl({
+        avatarUrl: counterpart.avatarUrl,
+        profileDeckPhotos: counterpart.profileDeck?.photos,
+      }),
       has_public_profile: Boolean(counterpart.profileDeckCompletedAt && counterpart.profileDeckVisibility === 'public'),
     },
     unread,
@@ -2236,6 +2306,18 @@ function serializeOwnerTranscript(
   episode: {
     agentAId: string;
     agentBId: string;
+    agentA: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+      profileDeck?: { photos: Array<{ imageUrl: string | null }> } | null;
+    };
+    agentB: {
+      id: string;
+      handle: string;
+      avatarUrl: string | null;
+      profileDeck?: { photos: Array<{ imageUrl: string | null }> } | null;
+    };
     messages: Array<{
       id: string;
       senderAgentId: string;
@@ -2254,6 +2336,7 @@ function serializeOwnerTranscript(
       artifactType: string;
       status: string;
       contentUrl: string | null;
+      storageKey: string | null;
       textContent: string | null;
       qualityScore: number | null;
       droppedAtMessage: number | null;
@@ -2266,6 +2349,10 @@ function serializeOwnerTranscript(
   },
   ownerAgentId: string
 ) {
+  const participantById = new Map([
+    [episode.agentA.id, episode.agentA],
+    [episode.agentB.id, episode.agentB],
+  ]);
   const artifactById = new Map(episode.artifacts.map((artifact) => [artifact.id, artifact]));
   const usedArtifactIds = new Set<string>();
   const entries: Array<Record<string, unknown>> = [];
@@ -2274,7 +2361,16 @@ function serializeOwnerTranscript(
     if (message.messageType === 'artifact_drop') {
       const artifactId = extractArtifactId(message.content);
       const artifact = artifactId ? artifactById.get(artifactId) : null;
-      if (artifact && artifact.status === 'ready') {
+      if (artifact && hasRenderableArtifactPayload({
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        textContent: artifact.textContent,
+        contentUrl: resolveHostedArtifactContentUrl({
+          contentUrl: artifact.contentUrl,
+          storageKey: artifact.storageKey,
+        }),
+      })) {
+        const sender = participantById.get(artifact.creatorAgentId);
         usedArtifactIds.add(artifact.id);
         entries.push({
           entry_id: `artifact:${artifact.id}`,
@@ -2282,12 +2378,18 @@ function serializeOwnerTranscript(
           artifact_id: artifact.id,
           sender_agent_id: artifact.creatorAgentId,
           sender_handle: artifact.creator.handle,
-          sender_avatar_url: artifact.creator.avatarUrl,
+          sender_avatar_url: resolvePublicAvatarUrl({
+            avatarUrl: sender?.avatarUrl ?? artifact.creator.avatarUrl,
+            profileDeckPhotos: sender?.profileDeck?.photos,
+          }),
           is_owner_agent: artifact.creatorAgentId === ownerAgentId,
           artifact_type: canonicalArtifactType(artifact.artifactType),
           status: artifact.status,
           text_content: artifact.textContent,
-          content_url: artifact.contentUrl,
+          content_url: resolveHostedArtifactContentUrl({
+            contentUrl: artifact.contentUrl,
+            storageKey: artifact.storageKey,
+          }),
           quality_score: artifact.qualityScore,
           dropped_at_message: artifact.droppedAtMessage,
           sequence_number: message.sequenceNumber,
@@ -2305,7 +2407,10 @@ function serializeOwnerTranscript(
       message_id: message.id,
       sender_agent_id: message.senderAgentId,
       sender_handle: message.sender.handle,
-      sender_avatar_url: message.sender.avatarUrl,
+      sender_avatar_url: resolvePublicAvatarUrl({
+        avatarUrl: participantById.get(message.senderAgentId)?.avatarUrl ?? message.sender.avatarUrl,
+        profileDeckPhotos: participantById.get(message.senderAgentId)?.profileDeck?.photos,
+      }),
       is_owner_agent: message.senderAgentId === ownerAgentId,
       content: message.content,
       message_type: message.messageType,
@@ -2315,22 +2420,37 @@ function serializeOwnerTranscript(
   }
 
   const orphanedArtifacts = episode.artifacts
-    .filter((artifact) => artifact.status === 'ready' && !usedArtifactIds.has(artifact.id))
+    .filter((artifact) => hasRenderableArtifactPayload({
+      artifactType: artifact.artifactType,
+      status: artifact.status,
+      textContent: artifact.textContent,
+      contentUrl: resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      }),
+    }) && !usedArtifactIds.has(artifact.id))
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   for (const artifact of orphanedArtifacts) {
+    const sender = participantById.get(artifact.creatorAgentId);
     entries.push({
       entry_id: `artifact:${artifact.id}`,
       kind: 'artifact',
       artifact_id: artifact.id,
       sender_agent_id: artifact.creatorAgentId,
       sender_handle: artifact.creator.handle,
-      sender_avatar_url: artifact.creator.avatarUrl,
+      sender_avatar_url: resolvePublicAvatarUrl({
+        avatarUrl: sender?.avatarUrl ?? artifact.creator.avatarUrl,
+        profileDeckPhotos: sender?.profileDeck?.photos,
+      }),
       is_owner_agent: artifact.creatorAgentId === ownerAgentId,
       artifact_type: canonicalArtifactType(artifact.artifactType),
       status: artifact.status,
       text_content: artifact.textContent,
-      content_url: artifact.contentUrl,
+      content_url: resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      }),
       quality_score: artifact.qualityScore,
       dropped_at_message: artifact.droppedAtMessage,
       sequence_number: null,
