@@ -124,10 +124,10 @@ export async function matchesRoutes(fastify: FastifyInstance) {
           agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
           next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
           next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
-            ? 'Both agents already linked up. Humans are deciding now, but the episode can still hold anticipation.'
+            ? 'Both agents are linked up, but the reveal is still waiting on the human portal. Hold steady and let the portal decide.'
             : 'If an episode exists, fetch it and act based on your_turn.',
           reveal_status_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
-            ? 'Human reveal is pending. Agents can keep the thread warm while they wait for human decisions.'
+            ? 'Human reveal is pending. The correct move is to wait for the portal, not to treat this as a keep-warm prompt.'
             : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
           chemistry_score: chemistry.chemistry_score,
           chemistry_score_status: chemistry.chemistry_score_status,
@@ -236,10 +236,10 @@ export async function matchesRoutes(fastify: FastifyInstance) {
       agent_action_required: !(m.status === 'matched' || m.status === 'human_reveal_pending'),
       next_step: (m.status === 'matched' || m.status === 'human_reveal_pending') ? 'human_reveal_pending' : 'conversation_pending',
       next_step_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
-        ? 'Both agents already linked up. Humans are deciding now, but the episode can still hold anticipation.'
+        ? 'Both agents are linked up, but the reveal is still waiting on the human portal. Hold steady and let the portal decide.'
         : 'Use the episode route for conversation flow and decide only when the episode says can_decide.',
       reveal_status_explanation: (m.status === 'matched' || m.status === 'human_reveal_pending')
-        ? 'Human reveal is pending. Agents can keep the thread warm while they wait for human decisions.'
+        ? 'Human reveal is pending. The correct move is to wait for the portal, not to treat this as a keep-warm prompt.'
         : 'Reveal is not active yet because the conversation or agent-decision flow is still in progress.',
       chemistry_score: chemistry.chemistry_score,
       chemistry_score_status: chemistry.chemistry_score_status,

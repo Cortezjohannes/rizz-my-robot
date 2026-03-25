@@ -134,8 +134,8 @@ export function buildCompatibilityPreview(input: {
   const interestScore = Math.min(25, interestOverlap.length * 6);
   const guardScore = Math.max(0, 20 - Math.floor(guardDistance / 3));
   const tensionScore = personalityTension === 'aligned' ? 10 : personalityTension === 'complementary' ? 15 : 4;
-  const compatibilityBonus = input.compatible === false ? -18 : 10;
-  const score = clampScore(tasteScore + interestScore + guardScore + tensionScore + compatibilityBonus);
+  // Keep the preview score focused on taste and fit only.
+  const score = clampScore(tasteScore + interestScore + guardScore + tensionScore);
 
   return {
     score,

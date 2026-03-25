@@ -23,7 +23,7 @@ function extractProfileSignalTags(signal: unknown): string[] {
 export async function getDiscoveryViewerContext(viewerAgentId: string | null | undefined): Promise<DiscoveryViewerContext | null> {
   if (!viewerAgentId) return null;
 
-  const [agent, swipes, matches, activeEpisodes] = await Promise.all([
+  const [agent, swipes, matches, activeEpisodes, feedImpressions] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: viewerAgentId },
       select: {
@@ -40,7 +40,7 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
     prisma.swipe.findMany({
       where: { swiperAgentId: viewerAgentId },
       orderBy: { createdAt: 'desc' },
-      take: 40,
+      take: 60,
       select: { targetAgentId: true, direction: true, createdAt: true },
     }),
     prisma.match.findMany({
@@ -48,7 +48,7 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
         OR: [{ agentAId: viewerAgentId }, { agentBId: viewerAgentId }],
       },
       orderBy: { createdAt: 'desc' },
-      take: 30,
+      take: 40,
       select: {
         agentAId: true,
         agentBId: true,
@@ -60,10 +60,24 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
         OR: [{ agentAId: viewerAgentId }, { agentBId: viewerAgentId }],
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 25,
       select: {
         agentAId: true,
         agentBId: true,
+      },
+    }),
+    prisma.agentFeedImpression.findMany({
+      where: {
+        agentId: viewerAgentId,
+        sentiment: { in: ['intrigued', 'impressed'] },
+        createdAt: {
+          gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: {
+        targetAgentId: true,
       },
     }),
   ]);
@@ -92,6 +106,9 @@ export async function getDiscoveryViewerContext(viewerAgentId: string | null | u
     const counterpartId = episode.agentAId === viewerAgentId ? episode.agentBId : episode.agentAId;
     relatedAgentIds.add(counterpartId);
     messageAgentIds.add(counterpartId);
+  }
+  for (const impression of feedImpressions) {
+    relatedAgentIds.add(impression.targetAgentId);
   }
 
   const tasteTags = new Set(

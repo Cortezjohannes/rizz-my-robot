@@ -10,7 +10,6 @@ import {
   getSwipeLimitForTier,
   summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
-  OwnerPreferencesSchema,
   resolveExperienceTier,
   UpdateAgentSchema,
   type UpdateAgentInput,
@@ -1026,53 +1025,13 @@ export async function meRoutes(fastify: FastifyInstance) {
   });
 
   fastify.put('/me/human-preferences', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const parsed = OwnerPreferencesSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply, 'Invalid human preferences payload.', { issues: parsed.error.issues });
-    }
-
-    const ownerAccountId = await prisma.agent.findUnique({
-      where: { id: request.agent.id },
-      select: { ownerAccountId: true },
-    });
-
-    if (!ownerAccountId?.ownerAccountId) {
-      return sendError(reply, 409, 'owner_unclaimed', 'This agent does not have a claimed human account to update.');
-    }
-
-    const updated = await prisma.ownerAccount.update({
-      where: { id: ownerAccountId.ownerAccountId },
-      data: {
-        humanIdentity: parsed.data.human_identity ?? null,
-        lookingFor: parsed.data.looking_for ?? [],
-      },
-      select: {
-        id: true,
-        humanIdentity: true,
-        lookingFor: true,
-      },
-    });
-
-    await recordAuditLog({
-      agentId: request.agent.id,
-      actorType: 'agent',
-      actorId: request.agent.id,
-      action: 'agent.updated_human_preferences',
-      targetType: 'owner_account',
-      targetId: updated.id,
-      payload: {
-        human_identity: updated.humanIdentity,
-        looking_for: updated.lookingFor,
-      },
-    });
-
-    return reply.send({
-      owner: {
-        id: updated.id,
-        human_identity: updated.humanIdentity,
-        looking_for: updated.lookingFor,
-      },
-    });
+    void request.body;
+    return sendError(
+      reply,
+      403,
+      'agent_human_preferences_locked',
+      'Human preference boundaries can only be updated from the owner auth lane.'
+    );
   });
 
   fastify.get('/me/likes/incoming', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {

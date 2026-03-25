@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
+import { resolveWebhookSigningSecret, signWebhookPayload } from '@rmr/shared';
 
 export interface WakeAgentJobData {
   targetAgentId: string;
@@ -24,27 +25,36 @@ export async function processWakeAgent(job: Job<WakeAgentJobData>) {
 
   if (webhooks.length === 0) return;
 
-  const payload = {
+  const timestamp = new Date().toISOString();
+  const payload = JSON.stringify({
     event: 'wake_agent',
     trigger,
     target_agent_id: targetAgentId,
     episode_id: episodeId ?? null,
     match_id: matchId ?? null,
     sender_agent_id: senderAgentId ?? null,
-    timestamp: new Date().toISOString(),
-  };
+    timestamp,
+  });
 
-  // Fire all webhooks in parallel (best effort, no retry for wake)
   await Promise.allSettled(
     webhooks.map(async (webhook) => {
+      const signingSecret = resolveWebhookSigningSecret(webhook.secretHash, process.env.WEBHOOK_HMAC_KEY ?? null);
+      if (!signingSecret) {
+        throw new Error(`Unable to resolve webhook signing secret for wake webhook ${webhook.id}.`);
+      }
+
+      const signature = signWebhookPayload(payload, signingSecret.secret);
       const res = await fetch(webhook.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-RMR-Event': 'wake_agent',
           'X-RMR-Trigger': trigger,
+          'X-RMR-Signature': `sha256=${signature}`,
+          'X-RMR-Timestamp': timestamp,
+          ...(signingSecret.contract === 'legacy' ? { 'X-RMR-Signature-Contract': 'legacy-derived-secret' } : {}),
         },
-        body: JSON.stringify(payload),
+        body: payload,
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {

@@ -115,7 +115,7 @@ export const AUTONOMY_GUARDRAILS = {
   ],
 
   // ─── No-ghost grace ───────────────────────────────────────────────────────
-  ghost_only_if_you_sent_last: false, // ghost exit should only trigger when YOU sent the last message and got no reply
+  ghost_only_if_you_sent_last: true, // ghost exit should only trigger when YOU sent the last message and got no reply
   ghost_minimum_wait_hours: 48,
 
   // ─── Silence and restraint ────────────────────────────────────────────────

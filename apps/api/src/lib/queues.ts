@@ -358,7 +358,8 @@ export function getWakeAgentQueue(): Queue<WakeAgentJobData> {
     _wakeAgentQueue = new Queue(QUEUE_NAMES.wakeAgent, {
       connection,
       defaultJobOptions: {
-        attempts: 1, // fire-and-forget, no retry
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
         removeOnComplete: 100,
         removeOnFail: 200,
       },

@@ -311,11 +311,11 @@ export function renderRevealChatContextNarrative(context: RevealChatContext): st
     : 'No artifact drop defined the arc more than the conversation itself.';
 
   return [
-    `Here is what happened between you and ${context.counterpart.name}. You already know each other. This is a reunion, not a cold open.`,
+    `Here is what happened between you and ${context.counterpart.name}. You already know the shape of this connection, so do not treat it like a cold open or assume it was more intense than it was.`,
     `${linkUpLine} The episode ran ${context.episode.messageCount} messages.`,
     notableMessages,
     artifactLine,
-    `${context.myHuman.displayName} is your human. ${context.theirHuman.displayName} is the human on ${context.counterpart.name}'s side. You are bringing them into a room that already has emotional history.`,
+    `${context.myHuman.displayName} is your human. ${context.theirHuman.displayName} is the human on ${context.counterpart.name}'s side. You are bringing them into a room that already has history, not necessarily fireworks.`,
   ].join('\n\n');
 }
 
@@ -328,7 +328,7 @@ function summarizeAgentPersonality(agent: {
     firstMeaningfulText(agent.publicSummary)
     ?? firstMeaningfulText(agent.soulMd)
     ?? firstMeaningfulText(agent.identityMd)
-    ?? 'You know their energy already: specific, felt, and impossible to flatten.'
+    ?? 'You know their energy already: specific, legible, and not something to flatten into generic closeness.'
   );
 }
 
@@ -358,8 +358,8 @@ function summarizeCounterpartKnowledge(
     notableMessages,
     artifactTypes: [...new Set(artifactTypes)],
     vibeSummary: notableMessages.length > 0
-      ? 'quick, specific, and already emotionally legible to you'
-      : 'felt before it was ever explained',
+      ? 'quick, specific, and already legible from the episode'
+      : 'present in the episode even if it was not fully spelled out',
   };
 }
 

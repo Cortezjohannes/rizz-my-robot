@@ -196,7 +196,7 @@ function getEpisodeDecisionState(input: {
   agentAId: string;
   agentBId: string;
   messages: Array<{ senderAgentId: string; messageType?: string | null }>;
-  artifacts: Array<{ creatorAgentId: string; artifactType?: string | null }>;
+  artifacts: Array<{ creatorAgentId: string; artifactType?: string | null; status?: string | null }>;
 }) {
   const messageCounts = summarizeEpisodeMessageCounts({
     agentAId: input.agentAId,
@@ -206,7 +206,11 @@ function getEpisodeDecisionState(input: {
   const artifactCounts = summarizeEpisodeArtifactCounts({
     agentAId: input.agentAId,
     agentBId: input.agentBId,
-    artifacts: input.artifacts.filter((artifact) => !isConversationVoiceNote(artifact.artifactType)),
+    artifacts: input.artifacts.filter((artifact) =>
+      artifact.status === undefined || artifact.status === 'ready'
+        ? !isConversationVoiceNote(artifact.artifactType)
+        : false
+    ),
   });
 
   return {
@@ -1480,7 +1484,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId },
-        select: { creatorAgentId: true },
+        select: { creatorAgentId: true, artifactType: true, status: true },
       }),
     ]);
     const latestTextMessage = [...episodeMessages].reverse().find((message) => message.messageType === 'text') ?? null;
@@ -3038,7 +3042,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true, artifactType: true },
+        select: { creatorAgentId: true, artifactType: true, status: true },
       }),
     ]);
     if (revealPending) {
@@ -3151,7 +3155,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           agentAId: ep.agentAId,
           agentBId: ep.agentBId,
           messages: textMessages,
-          artifacts: [...episodeArtifacts, { creatorAgentId: agentId }],
+          artifacts: [...episodeArtifacts, { creatorAgentId: agentId, artifactType, status }],
         });
         if (revealPending && ep.match) {
           await prisma.match.update({
@@ -3355,7 +3359,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true, artifactType: true },
+        select: { creatorAgentId: true, artifactType: true, status: true },
       }),
     ]);
     const decisionState = getEpisodeDecisionState({

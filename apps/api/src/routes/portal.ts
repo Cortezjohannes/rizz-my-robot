@@ -777,97 +777,13 @@ export async function portalRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/portal/batch-reveal', { preHandler: requireOwnerAuth }, async (request, reply) => {
-    const body = request.body as { tokens?: Array<{ token?: string; decision?: string }> };
-    const items = Array.isArray(body.tokens) ? body.tokens : [];
-    if (items.length === 0) {
-      return Errors.badRequest(reply, 'tokens must be a non-empty array.');
-    }
-
-    const results = await Promise.all(items.map(async (item) => {
-      const token = item.token?.trim() ?? '';
-      const decision = item.decision;
-      if (!token || (decision !== 'YES' && decision !== 'NO')) {
-        return { token, outcome: 'invalid_request', stage2_unlocked: false };
-      }
-
-      const match = await prisma.match.findFirst({
-        where: {
-          OR: [{ revealTokenA: token }, { revealTokenB: token }],
-        },
-        include: {
-          agentA: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
-          agentB: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
-        },
-      });
-      if (!match) {
-        return { token, outcome: 'not_found', stage2_unlocked: false };
-      }
-
-      const isA = match.revealTokenA === token;
-      const ownerOwnsToken = (isA ? match.agentA.ownerAccountId : match.agentB.ownerAccountId) === request.ownerAccount.id;
-      if (!ownerOwnsToken) {
-        return { token, outcome: 'forbidden', stage2_unlocked: false };
-      }
-
-      const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
-      if (expiry && expiry < new Date()) {
-        return { token, outcome: 'expired', stage2_unlocked: false };
-      }
-
-      const viewerHuman = isA ? match.agentA.human : match.agentB.human;
-      if (!viewerHuman?.ageVerified) {
-        return { token, outcome: 'age_verification_required', stage2_unlocked: false };
-      }
-
-      const existingDecision = isA ? match.humanADecision : match.humanBDecision;
-      if (existingDecision) {
-        return { token, outcome: 'already_decided', stage2_unlocked: false };
-      }
-
-      const updated = await prisma.match.update({
-        where: { id: match.id },
-        data: isA ? { humanADecision: decision } : { humanBDecision: decision },
-      });
-
-      const bothYes = updated.humanADecision === 'YES' && updated.humanBDecision === 'YES';
-      const bothDecided = updated.humanADecision !== null && updated.humanBDecision !== null;
-
-      if (decision === 'NO') {
-        await prisma.match.update({
-          where: { id: match.id },
-          data: { status: 'passed_human' },
-        }).catch(() => null);
-      } else if (bothYes) {
-        await prisma.match.update({
-          where: { id: match.id },
-          data: { status: 'contact_exchanged', revealStage: 2 },
-        }).catch(() => null);
-        await ensureRevealChatForMatch({
-          matchId: match.id,
-          humanADecision: 'YES',
-          humanBDecision: 'YES',
-          agentAOwnerAccountId: match.agentA.ownerAccountId,
-          agentBOwnerAccountId: match.agentB.ownerAccountId,
-        }).catch(() => null);
-        await maybeCreateApprovedLinkUpArtifacts({
-          matchId: match.id,
-          episodeId: match.episodeId ?? '',
-        }).catch(() => null);
-        await prisma.datePlan.upsert({
-          where: { matchId: match.id },
-          update: {},
-          create: { matchId: match.id },
-        }).catch(() => null);
-      }
-
-      return {
-        token,
-        outcome: bothYes ? 'contact_exchanged' : bothDecided ? 'passed' : decision === 'NO' ? 'passed' : 'pending',
-        stage2_unlocked: bothYes,
-      };
-    }));
-
-    return reply.send({ results });
+    void request.body;
+    return reply.status(403).send({
+      error: {
+        code: 'owner_batch_reveal_disabled',
+        message: 'Batch reveal decisions are disabled. Use each reveal token through the normal portal flow so safety gates and continuity side effects run correctly.',
+      },
+    });
   });
 
   // PUT /portal/preferences — update human notification/contact preferences via reveal token

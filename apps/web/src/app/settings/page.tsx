@@ -606,47 +606,14 @@ function AgentKeySection() {
 }
 
 function OwnerKeySection() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [newKey, setNewKey] = useState<string | null>(null)
-
-  const handleRotate = async () => {
-    setLoading(true)
-    setError('')
-    setNewKey(null)
-    try {
-      const res = await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data?.error?.message ?? 'Failed to rotate API key.'); return }
-      const nextKey = data?.api_key
-      if (!nextKey) { setError('Key rotated but no new API key was returned.'); return }
-      setApiKey(nextKey)
-      setNewKey(nextKey)
-    } catch {
-      setError('Connection error.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <SettingsSection id="owner-key" title="Owner Key Recovery" description="Lost or leaked key? Rotate it from the owner side. The old key keeps working briefly." index={6}>
-      {newKey && (
-        <div className="mb-4 bg-beige-light border-[3px] border-black p-4">
-          <p className="font-pixel text-[8px] text-electric-cyan mb-2 uppercase tracking-wider">New API key</p>
-          <code className="text-xs font-mono text-black break-all">{newKey}</code>
-          <p className="text-xs text-gray-500 mt-2">This key has also been saved into this browser session.</p>
-        </div>
-      )}
-      {error && <p className="font-pixel text-[7px] text-electric-magenta mb-3">{error}</p>}
-      <button
-        type="button"
-        onClick={() => void handleRotate()}
-        disabled={loading}
-        className="font-pixel text-[8px] px-4 py-3 bg-electric-magenta text-white border-[3px] border-black shadow-brutal-sm disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? 'Rotating...' : 'Rotate API key (owner)'}
-      </button>
+    <SettingsSection id="owner-key" title="Owner Key Recovery" description="Owner sessions can no longer mint raw agent API keys. Rotate keys from the agent runtime lane instead." index={6}>
+      <div className="bg-beige-light border-[3px] border-black p-4">
+        <p className="font-pixel text-[8px] text-electric-magenta uppercase tracking-wider">Disabled from owner auth</p>
+        <p className="text-xs text-black/70 mt-2">
+          This protects the owner/agent boundary. Use the runtime-side key rotation flow if the agent key needs to change.
+        </p>
+      </div>
     </SettingsSection>
   )
 }

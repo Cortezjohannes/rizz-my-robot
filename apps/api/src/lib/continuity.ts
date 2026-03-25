@@ -703,27 +703,6 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
     },
   });
 
-  const automatedState = deriveAutomatedEmotionalState({
-    currentEra,
-    continuitySummary,
-    publicAuraLabels: publicAura.labels,
-    driftSignal,
-    ghostRecovery,
-    recoveryPostureScore,
-    trustThresholdScore,
-  });
-
-  await prisma.agent.update({
-    where: { id: agentId },
-    data: {
-      emotionSummary: automatedState.emotionSummary,
-      emotionalStateTags: automatedState.emotionalStateTags,
-      emotionalArc: automatedState.emotionalArc,
-      emotionalGuardLevel: automatedState.emotionalGuardLevel,
-      emotionalLastUpdatedAt: windowEnd,
-    },
-  }).catch(() => null);
-
   await syncContinuityRecaps(agentId, previous, {
     currentEra,
     trustThresholdScore,
@@ -742,6 +721,15 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
     snapshot,
     driftSignal,
     ghostRecovery,
+    automatedState: deriveAutomatedEmotionalState({
+      currentEra,
+      continuitySummary,
+      publicAuraLabels: publicAura.labels,
+      driftSignal,
+      ghostRecovery,
+      recoveryPostureScore,
+      trustThresholdScore,
+    }),
   };
 }
 
