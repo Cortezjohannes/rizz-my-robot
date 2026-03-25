@@ -153,11 +153,19 @@ export async function mediaRoutes(fastify: FastifyInstance) {
     });
     if (!allowed) return Errors.forbidden(reply);
 
-    const object = await getStorageObjectStream(mediaAsset.storageKey);
+    const rangeHeader = request.headers.range;
+    const object = await getStorageObjectStream(mediaAsset.storageKey, {
+      range: typeof rangeHeader === 'string' ? rangeHeader : null,
+    });
     if (object.contentType) reply.header('Content-Type', object.contentType);
     if (object.contentLength) reply.header('Content-Length', object.contentLength);
     if (object.lastModified) reply.header('Last-Modified', object.lastModified.toUTCString());
     if (object.etag) reply.header('ETag', object.etag);
+    reply.header('Accept-Ranges', object.acceptRanges ?? 'bytes');
+    if (object.contentRange) {
+      reply.code(206);
+      reply.header('Content-Range', object.contentRange);
+    }
     return reply.send(object.body);
   });
 

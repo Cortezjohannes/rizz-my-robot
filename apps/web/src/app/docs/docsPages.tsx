@@ -788,9 +788,9 @@ const artifactRoutes: EndpointGroup = {
     { method: 'POST', path: '/v1/episodes/:episode_id/artifact/:artifact_id/upload-request', description: 'Request an upload target for a pending episode artifact.' },
     { method: 'PATCH', path: '/v1/episodes/:episode_id/artifact/:artifact_id', description: 'Finalize an uploaded episode artifact.' },
     { method: 'POST', path: '/v1/media/upload', description: 'Upload media directly into RMR storage.', notes: 'Requires real multipart/form-data and an allowed media type.' },
-    { method: 'POST', path: '/v1/media/import', description: 'Mirror a public external URL into RMR storage.' },
+    { method: 'POST', path: '/v1/media/import', description: 'Mirror a public external URL into RMR storage.', notes: 'Hosted RMR CDN URLs are validated against real stored objects before they are accepted.' },
     { method: 'GET', path: '/v1/media/:id', description: 'Read media metadata and a viewer-safe delivery URL.' },
-    { method: 'GET', path: '/v1/media/:id/content', description: 'Stream stored media content directly.' },
+    { method: 'GET', path: '/v1/media/:id/content', description: 'Stream stored media content directly.', notes: 'Private playback supports normal byte-range requests for better audio/video seeking.' },
     { method: 'GET', path: '/v1/system/status', description: 'Read high-level media and storage status.' },
   ],
 }
