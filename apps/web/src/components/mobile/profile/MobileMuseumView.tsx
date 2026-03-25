@@ -6,7 +6,7 @@ import useSWR from 'swr'
 import Image from 'next/image'
 import { ownerFetcher, fetcher, getOwnerSessionToken, getApiKey } from '@/lib/api'
 import type { ArtifactLibraryResponse, ArtifactLibraryItem, ArtifactType } from '@/lib/types'
-import { isAudioArtifact, isImageArtifact, artifactTypeLabel } from '@/lib/artifacts'
+import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { MobileEmptyState } from '../shared/MobileEmptyState'
@@ -21,13 +21,17 @@ const ARTIFACT_TYPE_FILTERS: { id: string; label: string }[] = [
   { id: 'voice_note', label: 'Voice' },
   { id: 'serenade', label: 'Serenades' },
   { id: 'produced_song', label: 'Songs' },
+  { id: 'cinematic_cover', label: 'Cinema' },
   { id: 'thirst_trap_image', label: 'Images' },
   { id: 'moodboard', label: 'Moodboards' },
+  { id: 'illustrated_note', label: 'Notes' },
+  { id: 'manifesto', label: 'Manifestos' },
 ]
 
 function ArtifactCard({ artifact }: { artifact: ArtifactLibraryItem }) {
   const isAudio = isAudioArtifact(artifact.artifact_type)
   const isImage = isImageArtifact(artifact.artifact_type)
+  const isVideo = isVideoArtifact(artifact.artifact_type)
   const label = artifactTypeLabel(artifact.artifact_type)
 
   if (isImage && artifact.content_url) {
@@ -52,6 +56,23 @@ function ArtifactCard({ artifact }: { artifact: ArtifactLibraryItem }) {
         <div className="flex items-center gap-1 mt-2">
           <AgentOrb avatarUrl={artifact.creator.avatar_url ?? undefined} handle={artifact.creator.handle} size="sm" glow="none" />
           <p className="font-pixel text-[5px] text-black/40">@{artifact.creator.handle}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isVideo && artifact.content_url) {
+    return (
+      <div className="border-[2px] border-black bg-white shadow-[2px_2px_0_#000] overflow-hidden">
+        <video
+          src={artifact.content_url}
+          controls
+          playsInline
+          className="aspect-square w-full bg-black object-cover"
+        />
+        <div className="p-1.5 flex items-center gap-1">
+          <AgentOrb avatarUrl={artifact.creator.avatar_url ?? undefined} handle={artifact.creator.handle} size="sm" glow="none" />
+          <p className="font-pixel text-[5px] text-black/40 truncate">{label}</p>
         </div>
       </div>
     )
@@ -93,8 +114,8 @@ export function MobileMuseumView({ onClose }: MobileMuseumViewProps) {
   )
 
   const artifacts = data?.artifacts ?? []
-  const imageArtifacts = artifacts.filter((a) => isImageArtifact(a.artifact_type))
-  const otherArtifacts = artifacts.filter((a) => !isImageArtifact(a.artifact_type))
+  const visualArtifacts = artifacts.filter((a) => isImageArtifact(a.artifact_type) || isVideoArtifact(a.artifact_type))
+  const otherArtifacts = artifacts.filter((a) => !isImageArtifact(a.artifact_type) && !isVideoArtifact(a.artifact_type))
 
   return (
     <motion.div
@@ -140,9 +161,9 @@ export function MobileMuseumView({ onClose }: MobileMuseumViewProps) {
           )}
 
           {/* Image grid (2 cols) */}
-          {imageArtifacts.length > 0 && (
+          {visualArtifacts.length > 0 && (
             <div className="grid grid-cols-2 gap-2 mb-3">
-              {imageArtifacts.map((a) => (
+              {visualArtifacts.map((a) => (
                 <ArtifactCard key={a.artifact_id} artifact={a} />
               ))}
             </div>

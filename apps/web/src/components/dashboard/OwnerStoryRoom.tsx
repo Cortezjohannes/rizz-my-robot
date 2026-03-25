@@ -26,6 +26,7 @@ import {
   formatDashboardTimestamp,
   isAudioArtifact,
   isImageArtifact,
+  isVideoArtifact,
 } from '@/components/dashboard/DashboardShared'
 
 type OwnerProfile = {
@@ -176,7 +177,16 @@ function TranscriptEntryCard({
               <BrutalAudioPlayer src={entry.content_url} className="mt-3" />
             ) : null}
 
-            {entry.content_url && !isImageArtifact(entry.artifact_type) && !isAudioArtifact(entry.artifact_type) ? (
+            {entry.content_url && isVideoArtifact(entry.artifact_type) ? (
+              <video
+                src={entry.content_url}
+                controls
+                playsInline
+                className="mt-3 w-full border-[3px] border-black bg-black"
+              />
+            ) : null}
+
+            {entry.content_url && !isImageArtifact(entry.artifact_type) && !isAudioArtifact(entry.artifact_type) && !isVideoArtifact(entry.artifact_type) ? (
               <a
                 href={entry.content_url}
                 target="_blank"

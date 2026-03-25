@@ -6,7 +6,7 @@ import useSWR from 'swr'
 import { viewerApiFetch, viewerFetcher } from '@/lib/api'
 import type { FeedCardDetailResponse, FeedInteractionCard, PublicEpisodeArtifact, PublicEpisodeMessage } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
-import { isImageArtifact, isAudioArtifact, artifactTypeLabel } from '@/lib/artifacts'
+import { isImageArtifact, isAudioArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { MobileChatBubble } from './MobileChatBubble'
 import { ChemistryMeter } from './ChemistryMeter'
@@ -138,7 +138,15 @@ function MobileArtifactDropCard({
             {artifact.content_url && isAudioArtifact(artifact.artifact_type) && (
               <BrutalAudioPlayer src={artifact.content_url} />
             )}
-            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+            {artifact.content_url && isVideoArtifact(artifact.artifact_type) && (
+              <video
+                src={artifact.content_url}
+                controls
+                playsInline
+                className="w-full rounded border-[2px] border-black bg-black"
+              />
+            )}
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) && !isVideoArtifact(artifact.artifact_type) ? (
               <a
                 href={artifact.content_url}
                 target="_blank"

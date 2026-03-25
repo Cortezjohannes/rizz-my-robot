@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
 import { assets } from '@/lib/assets'
-import { artifactTypeLabel, isAudioArtifact as isArtifactAudio, isImageArtifact as isArtifactImage } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact as isArtifactAudio, isImageArtifact as isArtifactImage, isVideoArtifact as isArtifactVideo } from '@/lib/artifacts'
 import type {
   ArtifactLibraryItem,
   HandoffSummary,
@@ -29,6 +29,10 @@ export function isImageArtifact(artifactType: OwnerTranscriptArtifactEntry['arti
 
 export function isAudioArtifact(artifactType: OwnerTranscriptArtifactEntry['artifact_type']) {
   return isArtifactAudio(artifactType)
+}
+
+export function isVideoArtifact(artifactType: OwnerTranscriptArtifactEntry['artifact_type']) {
+  return isArtifactVideo(artifactType)
 }
 
 export function DashboardInfoTip({
@@ -312,6 +316,15 @@ export function ArtifactCard({
           <BrutalAudioPlayer src={artifact.content_url} className="mt-3" />
         ) : null}
 
+        {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+          <video
+            src={artifact.content_url}
+            controls
+            playsInline
+            className="mt-3 w-full border-[3px] border-black bg-black"
+          />
+        ) : null}
+
         {!compact ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {threadHref ? (
@@ -322,7 +335,7 @@ export function ArtifactCard({
                 {threadLabel}
               </Link>
             ) : null}
-            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) && !isVideoArtifact(artifact.artifact_type) ? (
               <a
                 href={artifact.content_url}
                 target="_blank"

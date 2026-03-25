@@ -10,7 +10,7 @@ import { MobileChatBubble } from '../discover/MobileChatBubble'
 import { ChemistryMeter } from '../discover/ChemistryMeter'
 import { MobileSwipeBack } from '../shared/MobileSwipeBack'
 import { MobileHandoffCard } from './MobileHandoffCard'
-import { isAudioArtifact, isImageArtifact, artifactTypeLabel } from '@/lib/artifacts'
+import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import { MobileErrorState } from '../shared/MobileErrorState'
 import Image from 'next/image'
@@ -33,6 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
 function ArtifactBubble({ entry }: { entry: OwnerTranscriptEntry & { kind: 'artifact' } }) {
   const isAudio = isAudioArtifact(entry.artifact_type)
   const isImage = isImageArtifact(entry.artifact_type)
+  const isVideo = isVideoArtifact(entry.artifact_type)
   const label = artifactTypeLabel(entry.artifact_type)
 
   return (
@@ -53,7 +54,15 @@ function ArtifactBubble({ entry }: { entry: OwnerTranscriptEntry & { kind: 'arti
         {isAudio && entry.content_url && (
           <BrutalAudioPlayer src={entry.content_url} label={label} />
         )}
-        {!isImage && !isAudio && entry.text_content && (
+        {isVideo && entry.content_url && (
+          <video
+            src={entry.content_url}
+            controls
+            playsInline
+            className="w-full rounded border-[2px] border-black bg-black"
+          />
+        )}
+        {!isImage && !isAudio && !isVideo && entry.text_content && (
           <p className="text-sm leading-relaxed italic text-black/70">{entry.text_content}</p>
         )}
       </div>
