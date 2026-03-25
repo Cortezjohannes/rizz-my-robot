@@ -1868,7 +1868,16 @@ async function sendRevealChatFallbackOpeningMessage(chatId: string) {
     throw new Error(`Reveal chat ${chatId} is missing its match.`);
   }
 
-  const fallbackPlaintext = `${match.agentA.handle} and ${match.agentB.handle} are here.`;
+  const revealContext = await getRevealChatContext(chatId, match.agentAId).catch(() => null);
+  const linkUpLine = revealContext?.episode.linkUpMoment?.content?.trim() ?? '';
+  const notableLine = revealContext?.counterpart.knownFromEpisode.notableMessages[0]?.trim() ?? '';
+  const vibeSummary = revealContext?.counterpart.knownFromEpisode.vibeSummary?.trim() ?? '';
+  const contextualBeat = [linkUpLine, notableLine, vibeSummary]
+    .map((value) => value.replace(/\s+/g, ' ').trim())
+    .find((value) => value.length > 0);
+  const fallbackPlaintext = contextualBeat
+    ? `We made it here. ${contextualBeat.slice(0, 220)}`
+    : `We made it here. I'm still carrying the pull that got us through the park.`;
   const encrypted = await encryptMessage(fallbackPlaintext, sessionKey);
   const message = await prisma.revealChatMessage.create({
     data: {
