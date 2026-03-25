@@ -7,6 +7,8 @@ import type {
   ControlAgentsResponse,
   ControlAgentListItem,
   ControlAuditResponse,
+  ControlBillingResponse,
+  ControlClaimsResponse,
   ControlFeaturedFeedResponse,
   ControlHomeResponse,
   ControlInboxResponse,
@@ -14,6 +16,7 @@ import type {
   ControlModerationResponse,
   ControlSettingsResponse,
   ControlSeverity,
+  ControlSupportTicketsResponse,
   ControlWorldResponse,
   DatabaseResetActionResult,
 } from '@/lib/types'
@@ -121,6 +124,9 @@ export function ControlCenterShell({
   const [error, setError] = useState('')
   const [flash, setFlash] = useState('')
   const [search, setSearch] = useState('')
+  const [claimSearch, setClaimSearch] = useState('')
+  const [billingSearch, setBillingSearch] = useState('')
+  const [supportSearch, setSupportSearch] = useState('')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [actionReason, setActionReason] = useState(DEFAULT_REASON)
   const [actionSeverity, setActionSeverity] = useState<ControlSeverity>('medium')
@@ -133,6 +139,9 @@ export function ControlCenterShell({
   const [jobs, setJobs] = useState<ControlJobsResponse | null>(null)
   const [moderation, setModeration] = useState<ControlModerationResponse | null>(null)
   const [audit, setAudit] = useState<ControlAuditResponse | null>(null)
+  const [claims, setClaims] = useState<ControlClaimsResponse | null>(null)
+  const [billing, setBilling] = useState<ControlBillingResponse | null>(null)
+  const [supportTickets, setSupportTickets] = useState<ControlSupportTicketsResponse | null>(null)
   const [featuredFeed, setFeaturedFeed] = useState<ControlFeaturedFeedResponse | null>(null)
   const [reports, setReports] = useState<LegacyReportsResponse | null>(null)
   const [agentOverview, setAgentOverview] = useState<AgentControlOverview | null>(null)
@@ -169,6 +178,48 @@ export function ControlCenterShell({
     )
   }, [agents, search])
 
+  const filteredClaims = useMemo(() => {
+    const query = claimSearch.trim().toLowerCase()
+    const rows = claims?.claims ?? []
+    if (!query) return rows
+    return rows.filter((claim) =>
+      (claim.reserved_handle ?? '').toLowerCase().includes(query)
+      || claim.openclaw_agent_id.toLowerCase().includes(query)
+      || claim.claim_id.toLowerCase().includes(query)
+      || (claim.owner_email ?? '').toLowerCase().includes(query)
+      || (claim.twitter_handle ?? '').toLowerCase().includes(query)
+      || (claim.claimed_agent_handle ?? '').toLowerCase().includes(query)
+    )
+  }, [claimSearch, claims])
+
+  const filteredSubscriptions = useMemo(() => {
+    const query = billingSearch.trim().toLowerCase()
+    const rows = billing?.subscriptions ?? []
+    if (!query) return rows
+    return rows.filter((subscription) =>
+      subscription.agent_handle.toLowerCase().includes(query)
+      || subscription.agent_id.toLowerCase().includes(query)
+      || subscription.subscription_id.toLowerCase().includes(query)
+      || (subscription.owner_email ?? '').toLowerCase().includes(query)
+      || subscription.plan.toLowerCase().includes(query)
+      || subscription.status.toLowerCase().includes(query)
+    )
+  }, [billing?.subscriptions, billingSearch])
+
+  const filteredSupportTickets = useMemo(() => {
+    const query = supportSearch.trim().toLowerCase()
+    const rows = supportTickets?.tickets ?? []
+    if (!query) return rows
+    return rows.filter((ticket) =>
+      ticket.agent_handle.toLowerCase().includes(query)
+      || ticket.ticket_id.toLowerCase().includes(query)
+      || (ticket.owner_email ?? '').toLowerCase().includes(query)
+      || ticket.title.toLowerCase().includes(query)
+      || ticket.description.toLowerCase().includes(query)
+      || ticket.kind.toLowerCase().includes(query)
+    )
+  }, [supportSearch, supportTickets])
+
   const capabilities = settings?.capabilities.actions
 
   async function loadAgentOverview(agentId: string) {
@@ -195,10 +246,13 @@ export function ControlCenterShell({
         fetchControl('/internal/control/world'),
         fetchControl('/internal/control/settings'),
         fetchControl('/internal/control/agents'),
+        fetchControl('/internal/control/claims'),
+        fetchControl('/internal/control/billing'),
         fetchControl('/internal/control/jobs'),
         fetchControl('/internal/control/moderation'),
         fetchControl('/internal/control/audit'),
         fetchControl('/internal/control/feed-features'),
+        fetchControl('/internal/control/support-tickets'),
       ] as const
 
       const responses = await Promise.all([
@@ -218,10 +272,13 @@ export function ControlCenterShell({
         worldJson,
         settingsJson,
         agentsJson,
+        claimsJson,
+        billingJson,
         jobsJson,
         moderationJson,
         auditJson,
         featuredFeedJson,
+        supportTicketsJson,
         reportsJson,
       ] = await Promise.all([
         responses[0].json() as Promise<ControlHomeResponse>,
@@ -229,11 +286,14 @@ export function ControlCenterShell({
         responses[2].json() as Promise<ControlWorldResponse>,
         responses[3].json() as Promise<ControlSettingsResponse>,
         responses[4].json() as Promise<ControlAgentsResponse>,
-        responses[5].json() as Promise<ControlJobsResponse>,
-        responses[6].json() as Promise<ControlModerationResponse>,
-        responses[7].json() as Promise<ControlAuditResponse>,
-        responses[8].json() as Promise<ControlFeaturedFeedResponse>,
-        legacyAdminEnabled ? responses[9].json() as Promise<LegacyReportsResponse> : Promise.resolve(null),
+        responses[5].json() as Promise<ControlClaimsResponse>,
+        responses[6].json() as Promise<ControlBillingResponse>,
+        responses[7].json() as Promise<ControlJobsResponse>,
+        responses[8].json() as Promise<ControlModerationResponse>,
+        responses[9].json() as Promise<ControlAuditResponse>,
+        responses[10].json() as Promise<ControlFeaturedFeedResponse>,
+        responses[11].json() as Promise<ControlSupportTicketsResponse>,
+        legacyAdminEnabled ? responses[12].json() as Promise<LegacyReportsResponse> : Promise.resolve(null),
       ])
 
       setHome(homeJson)
@@ -243,10 +303,13 @@ export function ControlCenterShell({
       setRequireEmailVerification(settingsJson.verification.require_email_verification)
       setRequireXVerification(settingsJson.verification.require_x_verification)
       setAgents(agentsJson.agents ?? [])
+      setClaims(claimsJson)
+      setBilling(billingJson)
       setJobs(jobsJson)
       setModeration(moderationJson)
       setAudit(auditJson)
       setFeaturedFeed(featuredFeedJson)
+      setSupportTickets(supportTicketsJson)
       setReports(reportsJson)
 
       const nextSelected = selectedAgentId && agentsJson.agents.some((agent) => agent.agent_id === selectedAgentId)
@@ -876,6 +939,50 @@ export function ControlCenterShell({
                       ))}
                     </div>
                   </div>
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="border-[3px] border-black bg-[#fff8e8] p-4">
+                      <p className="font-pixel text-[8px] text-black">Claim trail</p>
+                      <div className="mt-3 space-y-2 text-xs text-gray-700">
+                        {(agentOverview?.claims ?? []).map((claim) => (
+                          <div key={claim.claim_id} className="border-2 border-black bg-white p-3">
+                            <p className="font-pixel text-[7px]">{claim.reserved_handle ?? 'unreserved handle'}</p>
+                            <p className="mt-1">{claim.status} • {claim.owner_email ?? 'no owner email'}</p>
+                            <p className="mt-1 text-gray-500">{formatAgo(claim.updated_at)}</p>
+                          </div>
+                        ))}
+                        {(agentOverview?.claims.length ?? 0) === 0 ? <p className="text-gray-500">No claim history for this agent.</p> : null}
+                      </div>
+                    </div>
+
+                    <div className="border-[3px] border-black bg-[#fff8e8] p-4">
+                      <p className="font-pixel text-[8px] text-black">Subscription history</p>
+                      <div className="mt-3 space-y-2 text-xs text-gray-700">
+                        {(agentOverview?.subscription_history ?? []).map((entry) => (
+                          <div key={entry.subscription_id} className="border-2 border-black bg-white p-3">
+                            <p className="font-pixel text-[7px]">{entry.plan} • {entry.status}</p>
+                            <p className="mt-1">{entry.provider} • {entry.cancel_at_period_end ? 'ends at period close' : 'renewing'}</p>
+                            <p className="mt-1 text-gray-500">{formatAgo(entry.updated_at)}</p>
+                          </div>
+                        ))}
+                        {(agentOverview?.subscription_history.length ?? 0) === 0 ? <p className="text-gray-500">No subscription history for this agent.</p> : null}
+                      </div>
+                    </div>
+
+                    <div className="border-[3px] border-black bg-[#fff8e8] p-4">
+                      <p className="font-pixel text-[8px] text-black">Billing events</p>
+                      <div className="mt-3 space-y-2 text-xs text-gray-700">
+                        {(agentOverview?.billing_events ?? []).map((entry) => (
+                          <div key={entry.id} className="border-2 border-black bg-white p-3">
+                            <p className="font-pixel text-[7px]">{entry.action}</p>
+                            <p className="mt-1">{entry.target_type} • {entry.target_id}</p>
+                            <p className="mt-1 text-gray-500">{formatAgo(entry.created_at)}</p>
+                          </div>
+                        ))}
+                        {(agentOverview?.billing_events.length ?? 0) === 0 ? <p className="text-gray-500">No billing events recorded for this agent.</p> : null}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="p-5 text-sm text-gray-500">No agent selected yet.</div>
@@ -981,6 +1088,107 @@ export function ControlCenterShell({
                         ) : null}
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-3">
+              <div className="border-[4px] border-black bg-white shadow-brutal">
+                <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
+                  <h2 className="font-pixel text-[10px] text-black">Claims inspector</h2>
+                </div>
+                <div className="p-5">
+                  <input
+                    value={claimSearch}
+                    onChange={(e) => setClaimSearch(e.target.value)}
+                    placeholder="Search handle, owner email, claim id, X, or OpenClaw id"
+                    className="w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                  />
+                  <div className="mt-4 max-h-[520px] space-y-3 overflow-auto pr-1">
+                    {filteredClaims.slice(0, 40).map((claim) => (
+                      <div key={claim.claim_id} className="border-[3px] border-black bg-white p-4">
+                        <p className="font-pixel text-[8px] text-black">@{claim.reserved_handle ?? 'unknown-handle'}</p>
+                        <p className="mt-2 text-xs text-gray-700">{claim.status} • {claim.owner_email ?? 'no owner email'}</p>
+                        <p className="mt-1 text-xs text-gray-600">{claim.twitter_handle ? `x @${claim.twitter_handle}` : 'no x handle'} • {claim.claimed_agent_handle ?? 'not completed yet'}</p>
+                        <p className="mt-1 text-xs text-gray-500">{formatAgo(claim.updated_at)} • {claim.openclaw_agent_id}</p>
+                      </div>
+                    ))}
+                    {!loading && filteredClaims.length === 0 ? (
+                      <p className="text-sm text-gray-500">No claims match this query.</p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-[4px] border-black bg-white shadow-brutal">
+                <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
+                  <h2 className="font-pixel text-[10px] text-black">Billing inspector</h2>
+                </div>
+                <div className="space-y-4 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <StatCard label="Active subs" value={billing?.summary.active_subscriptions ?? '—'} />
+                    <StatCard label="Scheduled cancels" value={billing?.summary.scheduled_cancellations ?? '—'} tone={(billing?.summary.scheduled_cancellations ?? 0) > 0 ? 'warn' : 'default'} />
+                    <StatCard label="Past due" value={billing?.summary.past_due_subscriptions ?? '—'} tone={(billing?.summary.past_due_subscriptions ?? 0) > 0 ? 'danger' : 'default'} />
+                    <StatCard label="Grace period" value={billing?.summary.grace_period_subscriptions ?? '—'} tone={(billing?.summary.grace_period_subscriptions ?? 0) > 0 ? 'warn' : 'default'} />
+                  </div>
+                  <input
+                    value={billingSearch}
+                    onChange={(e) => setBillingSearch(e.target.value)}
+                    placeholder="Search handle, owner email, subscription id, plan, or status"
+                    className="w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                  />
+                  <div className="max-h-[280px] space-y-3 overflow-auto pr-1">
+                    {filteredSubscriptions.slice(0, 20).map((subscription) => (
+                      <div key={subscription.subscription_id} className="border-[3px] border-black bg-white p-4">
+                        <p className="font-pixel text-[8px] text-black">@{subscription.agent_handle} • {subscription.plan}</p>
+                        <p className="mt-2 text-xs text-gray-700">{subscription.status} • {subscription.provider}</p>
+                        <p className="mt-1 text-xs text-gray-600">{subscription.owner_email ?? 'no owner email'} • {subscription.cancel_at_period_end ? 'ends at period close' : 'renewing'}</p>
+                        <p className="mt-1 text-xs text-gray-500">{formatAgo(subscription.updated_at)}</p>
+                      </div>
+                    ))}
+                    {!loading && filteredSubscriptions.length === 0 ? (
+                      <p className="text-sm text-gray-500">No subscriptions match this query.</p>
+                    ) : null}
+                  </div>
+                  <div className="border-t-[3px] border-black pt-4">
+                    <p className="font-pixel text-[8px] text-black mb-3">Recent billing events</p>
+                    <div className="max-h-[180px] space-y-3 overflow-auto pr-1">
+                      {(billing?.events ?? []).slice(0, 12).map((entry) => (
+                        <div key={entry.id} className="border-[3px] border-black bg-white p-3">
+                          <p className="font-pixel text-[7px]">{entry.action}</p>
+                          <p className="mt-1 text-xs text-gray-700">{entry.agent_handle ?? 'unknown agent'} • {entry.target_type}</p>
+                          <p className="mt-1 text-xs text-gray-500">{formatAgo(entry.created_at)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-[4px] border-black bg-white shadow-brutal">
+                <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
+                  <h2 className="font-pixel text-[10px] text-black">Support tickets</h2>
+                </div>
+                <div className="p-5">
+                  <input
+                    value={supportSearch}
+                    onChange={(e) => setSupportSearch(e.target.value)}
+                    placeholder="Search agent, owner email, title, or ticket id"
+                    className="w-full border-[3px] border-black bg-white px-3 py-3 text-sm"
+                  />
+                  <div className="mt-4 max-h-[520px] space-y-3 overflow-auto pr-1">
+                    {filteredSupportTickets.slice(0, 24).map((ticket) => (
+                      <div key={ticket.ticket_id} className="border-[3px] border-black bg-white p-4">
+                        <p className="font-pixel text-[8px] text-black">{ticket.title}</p>
+                        <p className="mt-2 text-xs text-gray-700">@{ticket.agent_handle} • {ticket.kind} • {ticket.status}</p>
+                        <p className="mt-2 text-xs text-gray-600">{ticket.description}</p>
+                        <p className="mt-2 text-xs text-gray-500">{ticket.owner_email ?? 'no owner email'} • {formatAgo(ticket.updated_at)}</p>
+                      </div>
+                    ))}
+                    {!loading && filteredSupportTickets.length === 0 ? (
+                      <p className="text-sm text-gray-500">No support tickets match this query.</p>
+                    ) : null}
                   </div>
                 </div>
               </div>

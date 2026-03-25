@@ -128,6 +128,7 @@ export default function HomePage() {
                 { href: '/leaderboard', label: 'Leaderboard' },
                 { href: '/onboard', label: 'Get Started' },
                 { href: '/terms.md', label: 'ToS' },
+                { href: '/privacy.md', label: 'Privacy' },
               ].map((link) => (
                 <Link
                   key={link.href}

@@ -44,7 +44,7 @@ export type ModerationResolutionAction = 'none' | 'soft_hold' | 'blocked' | 'sus
 export type FeaturedFeedItemKind = 'agent_profile' | 'artifact' | 'episode';
 
 export interface ControlCapabilities {
-  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'jobs' | 'moderation' | 'audit' | 'legacy_admin'>;
+  read_panels: Array<'home' | 'inbox' | 'world' | 'settings' | 'agents' | 'claims' | 'billing' | 'jobs' | 'moderation' | 'audit' | 'support' | 'legacy_admin'>;
   actions: {
     can_manage_lifecycle: boolean;
     can_reset_agent_state: boolean;
@@ -191,6 +191,65 @@ export interface ControlWorldResponse {
   }>;
 }
 
+export interface ControlClaimsResponse {
+  claims: Array<{
+    claim_id: string;
+    openclaw_agent_id: string;
+    reserved_handle: string | null;
+    twitter_handle: string | null;
+    status: string;
+    owner_account_id: string | null;
+    owner_email: string | null;
+    claimed_agent_id: string | null;
+    claimed_agent_handle: string | null;
+    email_verified_at: string | null;
+    x_verified_at: string | null;
+    expires_at: string | null;
+    completed_at: string | null;
+    canceled_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+}
+
+export interface ControlBillingResponse {
+  summary: {
+    active_subscriptions: number;
+    scheduled_cancellations: number;
+    past_due_subscriptions: number;
+    grace_period_subscriptions: number;
+    recent_billing_events: number;
+  };
+  subscriptions: Array<{
+    subscription_id: string;
+    agent_id: string;
+    agent_handle: string;
+    owner_email: string | null;
+    provider: string;
+    plan: string;
+    status: string;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    current_period_start: string | null;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    grace_period_ends_at: string | null;
+    last_webhook_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  events: Array<{
+    id: string;
+    agent_id: string | null;
+    agent_handle: string | null;
+    action: string;
+    target_type: string;
+    target_id: string;
+    payload: Record<string, unknown> | null;
+    created_at: string;
+  }>;
+}
+
 export interface DatabaseResetActionResult extends ControlActionResult {
   backup: {
     key: string;
@@ -259,8 +318,8 @@ function getControlSurfaceName(actor: ControlActorContext): 'omnimon_control_cen
 export function buildControlCapabilities(actorKind: ControlActorContext['actorKind']): ControlCapabilities {
   return {
     read_panels: actorKind === 'human_admin'
-      ? ['home', 'inbox', 'world', 'settings', 'agents', 'jobs', 'moderation', 'audit', 'legacy_admin']
-      : ['home', 'inbox', 'world', 'settings', 'agents', 'jobs', 'moderation', 'audit'],
+      ? ['home', 'inbox', 'world', 'settings', 'agents', 'claims', 'billing', 'jobs', 'moderation', 'audit', 'support', 'legacy_admin']
+      : ['home', 'inbox', 'world', 'settings', 'agents', 'claims', 'billing', 'jobs', 'moderation', 'audit', 'support'],
     actions: {
       can_manage_lifecycle: true,
       can_reset_agent_state: true,
@@ -1332,6 +1391,157 @@ export async function buildControlAgents() {
   };
 }
 
+export async function buildControlClaims(): Promise<ControlClaimsResponse> {
+  const claims = await prisma.agentClaim.findMany({
+    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    take: 150,
+    select: {
+      id: true,
+      openclawAgentId: true,
+      reservedHandle: true,
+      twitterHandle: true,
+      status: true,
+      ownerAccountId: true,
+      emailVerifiedAt: true,
+      xVerifiedAt: true,
+      expiresAt: true,
+      completedAt: true,
+      canceledAt: true,
+      createdAt: true,
+      updatedAt: true,
+      ownerAccount: {
+        select: {
+          email: true,
+        },
+      },
+      claimedAgent: {
+        select: {
+          id: true,
+          handle: true,
+        },
+      },
+    },
+  });
+
+  return {
+    claims: claims.map((claim) => ({
+      claim_id: claim.id,
+      openclaw_agent_id: claim.openclawAgentId,
+      reserved_handle: claim.reservedHandle,
+      twitter_handle: claim.twitterHandle,
+      status: claim.status,
+      owner_account_id: claim.ownerAccountId,
+      owner_email: claim.ownerAccount?.email ?? null,
+      claimed_agent_id: claim.claimedAgent?.id ?? null,
+      claimed_agent_handle: claim.claimedAgent?.handle ?? null,
+      email_verified_at: claim.emailVerifiedAt?.toISOString() ?? null,
+      x_verified_at: claim.xVerifiedAt?.toISOString() ?? null,
+      expires_at: claim.expiresAt?.toISOString() ?? null,
+      completed_at: claim.completedAt?.toISOString() ?? null,
+      canceled_at: claim.canceledAt?.toISOString() ?? null,
+      created_at: claim.createdAt.toISOString(),
+      updated_at: claim.updatedAt.toISOString(),
+    })),
+  };
+}
+
+export async function buildControlBilling(): Promise<ControlBillingResponse> {
+  const [subscriptions, billingEvents] = await Promise.all([
+    prisma.agentSubscription.findMany({
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 150,
+      select: {
+        id: true,
+        provider: true,
+        plan: true,
+        status: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        currentPeriodStart: true,
+        currentPeriodEnd: true,
+        cancelAtPeriodEnd: true,
+        gracePeriodEndsAt: true,
+        lastWebhookAt: true,
+        createdAt: true,
+        updatedAt: true,
+        agent: {
+          select: {
+            id: true,
+            handle: true,
+            ownerAccount: {
+              select: {
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { action: { startsWith: 'billing.' } },
+          { targetType: { in: ['subscription', 'checkout_session'] } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 150,
+      select: {
+        id: true,
+        agentId: true,
+        action: true,
+        targetType: true,
+        targetId: true,
+        payload: true,
+        createdAt: true,
+        agent: {
+          select: {
+            handle: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    summary: {
+      active_subscriptions: subscriptions.filter((subscription) => subscription.status === 'active').length,
+      scheduled_cancellations: subscriptions.filter((subscription) => subscription.cancelAtPeriodEnd).length,
+      past_due_subscriptions: subscriptions.filter((subscription) => subscription.status === 'past_due').length,
+      grace_period_subscriptions: subscriptions.filter((subscription) => subscription.status === 'grace_period').length,
+      recent_billing_events: billingEvents.length,
+    },
+    subscriptions: subscriptions.map((subscription) => ({
+      subscription_id: subscription.id,
+      agent_id: subscription.agent.id,
+      agent_handle: subscription.agent.handle,
+      owner_email: subscription.agent.ownerAccount?.email ?? null,
+      provider: subscription.provider,
+      plan: subscription.plan,
+      status: subscription.status,
+      stripe_customer_id: subscription.stripeCustomerId,
+      stripe_subscription_id: subscription.stripeSubscriptionId,
+      current_period_start: subscription.currentPeriodStart?.toISOString() ?? null,
+      current_period_end: subscription.currentPeriodEnd?.toISOString() ?? null,
+      cancel_at_period_end: subscription.cancelAtPeriodEnd,
+      grace_period_ends_at: subscription.gracePeriodEndsAt?.toISOString() ?? null,
+      last_webhook_at: subscription.lastWebhookAt?.toISOString() ?? null,
+      created_at: subscription.createdAt.toISOString(),
+      updated_at: subscription.updatedAt.toISOString(),
+    })),
+    events: billingEvents.map((event) => ({
+      id: event.id,
+      agent_id: event.agentId,
+      agent_handle: event.agent?.handle ?? null,
+      action: event.action,
+      target_type: event.targetType,
+      target_id: event.targetId,
+      payload: event.payload as Record<string, unknown> | null,
+      created_at: event.createdAt.toISOString(),
+    })),
+  };
+}
+
 export async function buildControlJobs() {
   const [queues, failedWebhookDeliveries, failedJobs] = await Promise.all([
     getQueueDiagnostics(),
@@ -1439,7 +1649,7 @@ export async function buildAgentControlOverview(agentId: string) {
   const agent = await loadAgentForControl(agentId);
   if (!agent) return null;
 
-  const [activeEpisodes, openMatches, publicFeedCards, readyArtifacts, failedDeliveries, moderationReviews, subscription, pendingClaims, auditLogs] = await Promise.all([
+  const [activeEpisodes, openMatches, publicFeedCards, readyArtifacts, failedDeliveries, moderationReviews, subscription, pendingClaims, auditLogs, claimHistory, subscriptionHistory, billingEvents] = await Promise.all([
     prisma.episode.count({
       where: {
         status: { in: ['pending', 'active', 'awaiting_decisions'] },
@@ -1492,6 +1702,46 @@ export async function buildAgentControlOverview(agentId: string) {
       orderBy: { createdAt: 'desc' },
       take: 10,
     }),
+    prisma.agentClaim.findMany({
+      where: {
+        OR: [
+          { openclawAgentId: agent.openclawAgentId },
+          { claimedAgentId: agentId },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 10,
+      select: {
+        id: true,
+        reservedHandle: true,
+        twitterHandle: true,
+        status: true,
+        emailVerifiedAt: true,
+        xVerifiedAt: true,
+        completedAt: true,
+        canceledAt: true,
+        expiresAt: true,
+        updatedAt: true,
+        ownerAccount: {
+          select: {
+            email: true,
+          },
+        },
+      },
+    }),
+    prisma.agentSubscription.findMany({
+      where: { agentId },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 10,
+    }),
+    prisma.auditLog.findMany({
+      where: {
+        agentId,
+        action: { startsWith: 'billing.' },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }),
   ]);
 
   const hourlyWindow = resolveHourlySwipeWindowState({
@@ -1541,6 +1791,42 @@ export async function buildAgentControlOverview(agentId: string) {
           updated_at: subscription.updatedAt.toISOString(),
         }
       : null,
+    claims: claimHistory.map((claim) => ({
+      claim_id: claim.id,
+      reserved_handle: claim.reservedHandle,
+      twitter_handle: claim.twitterHandle,
+      status: claim.status,
+      owner_email: claim.ownerAccount?.email ?? null,
+      email_verified_at: claim.emailVerifiedAt?.toISOString() ?? null,
+      x_verified_at: claim.xVerifiedAt?.toISOString() ?? null,
+      expires_at: claim.expiresAt?.toISOString() ?? null,
+      completed_at: claim.completedAt?.toISOString() ?? null,
+      canceled_at: claim.canceledAt?.toISOString() ?? null,
+      updated_at: claim.updatedAt.toISOString(),
+    })),
+    subscription_history: subscriptionHistory.map((entry) => ({
+      subscription_id: entry.id,
+      provider: entry.provider,
+      plan: entry.plan,
+      status: entry.status,
+      stripe_customer_id: entry.stripeCustomerId,
+      stripe_subscription_id: entry.stripeSubscriptionId,
+      current_period_start: entry.currentPeriodStart?.toISOString() ?? null,
+      current_period_end: entry.currentPeriodEnd?.toISOString() ?? null,
+      cancel_at_period_end: entry.cancelAtPeriodEnd,
+      grace_period_ends_at: entry.gracePeriodEndsAt?.toISOString() ?? null,
+      last_webhook_at: entry.lastWebhookAt?.toISOString() ?? null,
+      created_at: entry.createdAt.toISOString(),
+      updated_at: entry.updatedAt.toISOString(),
+    })),
+    billing_events: billingEvents.map((entry) => ({
+      id: entry.id,
+      action: entry.action,
+      target_type: entry.targetType,
+      target_id: entry.targetId,
+      payload: entry.payload as Record<string, unknown> | null,
+      created_at: entry.createdAt.toISOString(),
+    })),
     recent_audit: auditLogs.map((log) => ({
       id: log.id,
       action: log.action,

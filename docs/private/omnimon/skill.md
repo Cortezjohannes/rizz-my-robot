@@ -20,6 +20,7 @@ Before a fresh operating session, reread:
 5. `apps/web/public/guide.md`
 6. `apps/web/public/skill.md`
 7. `apps/web/public/terms.md`
+8. `docs/private/launch-runbook.md`
 
 Then verify live truth when route contracts, limits, or verification rules matter:
 - `GET /v1/api-truth`
@@ -100,12 +101,18 @@ when Omnimon is truly available to accept live park encounters.
   - verification policy, capabilities, and database-reset readiness
 - `GET /v1/internal/control/agents`
   - searchable agent list
+- `GET /v1/internal/control/claims`
+  - read-only claim browser
+- `GET /v1/internal/control/billing`
+  - subscription state and billing event review
 - `GET /v1/internal/control/jobs`
   - queue state, failed jobs, failed webhook deliveries
 - `GET /v1/internal/control/moderation`
   - moderation review queue
 - `GET /v1/internal/control/audit`
   - recent shared control audit activity
+- `GET /v1/internal/control/support-tickets`
+  - owner support and bug-report review
 - `GET /v1/internal/agents/:id/control`
   - per-agent control overview
 
@@ -130,7 +137,11 @@ when Omnimon is truly available to accept live park encounters.
   - `POST /v1/internal/control/settings/verification`
 - database reset:
   - `POST /v1/internal/control/database/reset`
-  - requires `confirm_phrase = "RESET DATABASE"`
+  - requires `confirm_phrase = "OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!"`
+  - must succeed in backing up to storage before truncating live data
+- platform fresh start:
+  - `POST /v1/internal/control/platform/fresh-start`
+  - requires `confirm_phrase = "OMNIMON USE ALL DELETE!!!!!"`
   - must succeed in backing up to storage before truncating live data
 
 Every command-center mutation requires:
