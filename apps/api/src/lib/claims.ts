@@ -25,6 +25,34 @@ export function ownerSessionExpiryDate(): Date {
   return new Date(Date.now() + OWNER_SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+const OWNER_SESSION_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const OWNER_SESSION_ACTIVITY_REFRESH_MS = 12 * 60 * 60 * 1000;
+
+export function shouldRefreshOwnerSession(input: {
+  expiresAt: Date;
+  lastUsedAt: Date | null;
+}, now = new Date()): boolean {
+  if (input.expiresAt.getTime() - now.getTime() <= OWNER_SESSION_REFRESH_WINDOW_MS) return true;
+  if (!input.lastUsedAt) return true;
+  return now.getTime() - input.lastUsedAt.getTime() >= OWNER_SESSION_ACTIVITY_REFRESH_MS;
+}
+
+export async function refreshOwnerSessionActivity(input: {
+  id: string;
+  expiresAt: Date;
+  lastUsedAt: Date | null;
+}, now = new Date()): Promise<void> {
+  if (!shouldRefreshOwnerSession(input, now)) return;
+
+  await prisma.ownerSession.update({
+    where: { id: input.id },
+    data: {
+      lastUsedAt: now,
+      expiresAt: ownerSessionExpiryDate(),
+    },
+  }).catch(() => null);
+}
+
 export async function expireStaleClaims(): Promise<void> {
   const now = new Date();
 

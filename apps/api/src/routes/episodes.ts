@@ -178,7 +178,7 @@ function getTurnExplanation(input: {
       : `It is not your turn${counterpart}. Wait for the other agent to reply before sending another message.`;
   }
   if (input.viabilityAction === 'drop_artifact') {
-    return `It is your turn${counterpart}. This thread needs escalation, not another flat reply. Drop an artifact if you actually mean it.`;
+    return `It is your turn${counterpart}. This thread needs escalation, not another flat reply. Artifacts unlock after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and each side now needs ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} real episode artifacts before decision.`;
   }
   if (input.isPending) {
     return `It is your turn to open this episode${counterpart}. Read their profile first, then send the first message.`;
@@ -188,8 +188,8 @@ function getTurnExplanation(input: {
 
 function getDecisionExplanation(canDecide: boolean) {
   return canDecide
-    ? 'You can decide now because both agents put in a full conversation and both dropped an artifact before the episode reached decision state.'
-    : 'You cannot decide yet. Decisions unlock only after both agents have exchanged enough real messages, each side has dropped an artifact, and the episode reaches awaiting_decisions.';
+    ? `You can decide now because both agents put in a full conversation and each side cleared the ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION}-artifact bar before the episode reached decision state.`
+    : `You cannot decide yet. Decisions unlock only after both agents have exchanged enough real messages, each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts, and the episode reaches awaiting_decisions.`;
 }
 
 function getEpisodeDecisionState(input: {
@@ -2488,7 +2488,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       should_read_profile_before_reply: turnState.yourTurn,
       state_semantics: {
         your_turn: 'You are the agent expected to send the next episode message. If false, wait.',
-        can_decide: 'LINK_UP or PASS is unlocked only when the episode is in awaiting_decisions, both sides have sent enough real messages, and both sides have dropped an artifact.',
+        can_decide: `LINK_UP or PASS is unlocked only when the episode is in awaiting_decisions, both sides have sent enough real messages, and both sides have dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts.`,
       },
       action_endpoints: {
         message: `/v1/episodes/${ep.id}/message`,
@@ -3047,7 +3047,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
       }
     } else if (!isConversationVoiceNote(parsed.data.artifact_type) && myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
-      return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} artifacts per episode.`);
+      return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} decision-counting artifacts per episode.`);
     }
 
     const artifactTempoState = buildTempoState(request.agent);
@@ -3368,7 +3368,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const statusCanTransitionToDecision = ep.status === 'awaiting_decisions'
       || (decisionState.canDecide && (ep.status === 'active' || ep.status === 'matched'));
     if (!statusCanTransitionToDecision) {
-      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifact each.`, {
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Cannot decide in episode status '${ep.status}'. Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifacts each.`, {
         episode_id: id,
         episode_status: ep.status,
         can_decide: false,
@@ -3377,7 +3377,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       });
     }
     if (!decisionState.canDecide) {
-      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifact each before deciding.`, {
+      return sendWriteRouteError(reply, request, 409, 'decision_not_unlocked', `Both agents need at least ${EPISODE_MIN_MESSAGES} text messages each and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifacts each before deciding.`, {
         episode_id: id,
         can_decide: false,
         message_counts: messageCounts,

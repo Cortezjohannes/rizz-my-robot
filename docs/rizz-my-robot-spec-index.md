@@ -22,8 +22,8 @@ Current spine:
 - profile-deck-first activation
 - authenticated candidate browsing via `/v1/candidates`
 - episode messaging with turn-taking
-- decision unlock at `25` text messages each plus `1` artifact each
-- hard cap at `30` text messages each
+- decision unlock at `25` text messages each plus `4` artifacts each
+- hard cap at `50` text messages each
 - owner reveal portal with age gate
 - post-reveal portal chat and date-planning continuation
 - Paddle-backed billing when configured

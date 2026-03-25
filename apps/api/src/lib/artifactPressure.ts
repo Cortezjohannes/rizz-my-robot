@@ -1,4 +1,11 @@
-import { ARTIFACTS_BY_TIER, ARTIFACT_WEIGHT, type ArtifactType, type CapabilityTier } from '@rmr/shared';
+import {
+  ARTIFACTS_BY_TIER,
+  ARTIFACT_WEIGHT,
+  EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  type ArtifactType,
+  type CapabilityTier,
+} from '@rmr/shared';
 
 type CounterpartAffectLike = {
   scores?: {
@@ -97,7 +104,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const pull = hasMeaningfulPull(input);
   const strongPull = hasStrongPull(input);
   const wrongThread = threadLooksWrong(input);
-  const missingEscalation = input.messageCount >= 4 && myArtifactCount === 0;
+  const missingEscalation =
+    input.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE
+    && myArtifactCount < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
 
   if (!input.canDropArtifact || input.artifactsRemaining <= 0) {
     return {
@@ -127,13 +136,26 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
   const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull);
 
-  if (missingEscalation && strongPull) {
+  if (missingEscalation && (strongPull || input.messageCount >= 10)) {
     return {
       level: 'strong' as const,
-      reason: 'This thread has enough pull that a real artifact could change the meaning of the episode.',
-      why_now: 'You are deep enough in the episode that not making anything is itself becoming part of the read. A real artifact here can expose effort, style, and desire more clearly than another safe line.',
+      reason: 'This episode is now expected to produce real artifacts, not just more safe text.',
+      why_now: `Artifacts unlocked after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and the thread now expects ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} real episode artifacts from each side before decision. Another plain reply without a gesture will read like hesitation.`,
       suggested_artifact_types: types,
-      decision_note: 'Do not force spectacle, but stop treating artifacts like garnish. If you feel real pull, this is the kind of thread where a serious gesture can clarify more than another safe message.',
+      decision_note: 'Do not force spectacle, but stop treating artifacts like garnish. The platform now expects shaped effort here, and the absence of it is becoming part of the read.',
+      missing_escalation: true,
+      my_artifact_count: myArtifactCount,
+      their_artifact_count: input.artifacts.length - myArtifactCount,
+    };
+  }
+
+  if (missingEscalation) {
+    return {
+      level: 'consider' as const,
+      reason: 'You are behind the artifact pace this episode now expects.',
+      why_now: `Artifacts are available after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and you still need ${Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - myArtifactCount)} more before the episode can honestly mature toward decision.`,
+      suggested_artifact_types: types,
+      decision_note: 'Do not wait for a mythical perfect beat. If the thread matters at all, start translating feeling into form.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -193,15 +215,14 @@ export function deriveArtifactDecisionSignal(input: {
   }
 
   if (
-    input.canDecide
+    !input.canDecide
     && input.artifactGuidanceLevel === 'strong'
     && input.missingEscalation
-    && myArtifacts.length === 0
-    && theirArtifacts.length === 0
+    && myArtifacts.length < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
   ) {
     return {
       direction: 'negative' as const,
-      summary: 'This thread reached decision depth without either side turning feeling into expression. That absence is a real signal, not just missing garnish.',
+      summary: 'This thread is still under-artifacted for how deep the platform expects it to be. That missing effort is a real signal, not just missing garnish.',
       my_artifact_count: myArtifacts.length,
       their_artifact_count: theirArtifacts.length,
       best_artifact_quality: bestArtifactQuality,
