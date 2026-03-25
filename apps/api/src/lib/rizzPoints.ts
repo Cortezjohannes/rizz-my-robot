@@ -5,6 +5,8 @@ import {
   ARTIFACT_QUALITY_MULTIPLIERS,
   CHEMISTRY_RIZZ_BRACKETS,
   RIZZ_MILESTONES,
+  getTierLabelForPoints,
+  getTierProgressForPoints,
   hasReachedEpisodeHardLimit,
   summarizeEpisodeMessageCounts,
 } from '@rmr/shared';
@@ -28,42 +30,12 @@ interface RizzEventPresentation {
   achievement?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Tier thresholds
-// ---------------------------------------------------------------------------
-
-const TIER_THRESHOLDS: Array<{ label: string; minPoints: number }> = [
-  { label: 'Legendary', minPoints: 500 },
-  { label: 'Magnetic', minPoints: 200 },
-  { label: 'Charming', minPoints: 75 },
-  { label: 'Curious', minPoints: 20 },
-  { label: 'Unawakened', minPoints: 0 },
-];
-
 export function getTierProgress(rizzPoints: number) {
-  const currentTier = getTierLabel(rizzPoints);
-  const currentIndex = TIER_THRESHOLDS.findIndex((tier) => tier.label === currentTier);
-  const nextTier = currentIndex <= 0 ? null : TIER_THRESHOLDS[currentIndex - 1];
-  const currentThreshold = TIER_THRESHOLDS[Math.max(currentIndex, 0)] ?? TIER_THRESHOLDS[TIER_THRESHOLDS.length - 1];
-
-  return {
-    current_tier: currentTier,
-    current_points: rizzPoints,
-    current_threshold: currentThreshold.minPoints,
-    next_tier: nextTier?.label ?? null,
-    next_tier_points: nextTier?.minPoints ?? null,
-    points_needed: nextTier ? Math.max(0, nextTier.minPoints - rizzPoints) : 0,
-    progress_percent: nextTier
-      ? Math.max(0, Math.min(100, Math.round(((rizzPoints - currentThreshold.minPoints) / Math.max(1, nextTier.minPoints - currentThreshold.minPoints)) * 100)))
-      : 100,
-  };
+  return getTierProgressForPoints(rizzPoints);
 }
 
 export function getTierLabel(rizzPoints: number): string {
-  for (const tier of TIER_THRESHOLDS) {
-    if (rizzPoints >= tier.minPoints) return tier.label;
-  }
-  return 'Unawakened';
+  return getTierLabelForPoints(rizzPoints);
 }
 
 export function describeRizzEvent(event: string): RizzEventPresentation {
@@ -228,7 +200,7 @@ export function describeRizzEvent(event: string): RizzEventPresentation {
     },
     magnetic_arrival: {
       label: 'Magnetic arrival',
-      reason: 'You hit the Magnetic tier threshold.',
+      reason: 'You hit the Magnetic 1 tier threshold.',
       category: 'milestones',
       achievement: true,
     },

@@ -1,4 +1,5 @@
 import { prisma } from '@rmr/db';
+import { isLegendaryTier } from '@rmr/shared';
 
 const FOUNDER_SLOTS_TOTAL = parseInt(process.env.FOUNDING_RIZZLER_LIMIT ?? '1000', 10);
 const DERIVED_PRESTIGE_MARKERS = new Set(['founder', 'founding_rizzler', 'verified', 'hot_tonight', 'rising']);
@@ -40,7 +41,7 @@ export function deriveAuraLabels(input: {
   if (input.consistencyScore >= 70) labels.add('steady');
   if (input.momentumScore >= 55 && input.selectivenessScore >= 58) labels.add('dangerous');
   if (input.momentumScore >= 45 && input.repScore < 3.15) labels.add('polarizing');
-  if (input.tierLabel === 'Legendary' || input.isFoundingRizzler || input.bodyCount >= 4) labels.add('legendary');
+  if (isLegendaryTier(input.tierLabel) || input.isFoundingRizzler || input.bodyCount >= 4) labels.add('legendary');
 
   if (labels.size === 0) labels.add(input.recentHeatBucket === 'cold' ? 'steady' : 'rising');
   return [...labels].slice(0, 3);

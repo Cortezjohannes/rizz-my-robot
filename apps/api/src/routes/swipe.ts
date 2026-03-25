@@ -22,7 +22,7 @@ import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
-const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+const PASS_RESHOW_MS = 5 * 24 * 60 * 60 * 1000;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
 
 export async function swipeRoutes(fastify: FastifyInstance) {

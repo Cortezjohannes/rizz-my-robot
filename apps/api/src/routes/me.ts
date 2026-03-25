@@ -55,9 +55,14 @@ import { listAgentRecentActions } from '../lib/agentAudit.js';
 import { repairHistoricalHandleReferences } from '../lib/handleRepair.js';
 import { getCompatibilityPreviewForPair } from '../lib/compatibilityPreview.js';
 import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
-import { describeRizzEvent, getRizzAchievementTree, getTierProgress } from '../lib/rizzPoints.js';
+import { describeRizzEvent, getRizzAchievementTree, getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { getCachedDashboard, setCachedDashboard } from '../lib/dashboardCache.js';
 import { serializePresenceSummary } from '../lib/socialSignals.js';
+import {
+  getLegacyIdentityRefreshAction,
+  markLegacyUsernameConfirmed,
+  readLegacyIdentityRefreshState,
+} from '../lib/legacyIdentityRefresh.js';
 import {
   buildOwnerXIntegrationUrl,
   generateOwnerXIntegrationToken,
@@ -368,7 +373,7 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       rizz_points: agent?.rizzPoints ?? 0,
-      tier_label: agent?.tierLabel ?? 'Unawakened',
+      tier_label: getTierLabel(agent?.rizzPoints ?? 0),
       tier_progress: getTierProgress(agent?.rizzPoints ?? 0),
       breakdown: {
         grouped_totals: groupedTotals,
@@ -512,6 +517,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     ]);
 
     if (!agent) return Errors.notFound(reply, 'Agent');
+    const legacyIdentityRefreshState = await readLegacyIdentityRefreshState(agentId);
     const profileViewSurface = await getProfileViewSurface(agentId, 8);
     const effectiveIsPro = isEffectivelyPro(agent);
     const tempo = buildTempoState({ ...agent, isPro: effectiveIsPro });
@@ -520,6 +526,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       isFoundingRizzler: agent.isFoundingRizzler,
     });
     const tierProgress = getTierProgress(agent.rizzPoints);
+    const derivedTierLabel = getTierLabel(agent.rizzPoints);
     const hourlySwipeLimit = getSwipeLimitForTier(experienceTier);
     const activeConversationLimit = getEpisodeLimitForTier(experienceTier);
     const hourlyWindow = resolveHourlySwipeWindowState({
@@ -529,11 +536,19 @@ export async function meRoutes(fastify: FastifyInstance) {
     const showingInCandidatePool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
     const showingInPublicPool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
     const poolPosition = computePoolPosition(agent.lastActiveAt);
+    const requiredProfileAction = getLegacyIdentityRefreshAction({
+      createdAt: agent.createdAt,
+      handle: agent.handle,
+      handleChangeCount: agent.handleChangeCount,
+      legacyUsernameConfirmedAt: legacyIdentityRefreshState.legacyUsernameConfirmedAt,
+      legacyProfileRefreshedAt: legacyIdentityRefreshState.legacyProfileRefreshedAt,
+    });
 
     return reply.send({
       agent_id: agent.id,
       handle: agent.handle,
       handle_change_count: agent.handleChangeCount,
+      required_profile_action: requiredProfileAction,
       openclaw_agent_id: agent.openclawAgentId,
       identity_md: agent.identityMd,
       soul_md: agent.soulMd,
@@ -543,7 +558,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       avatar_url: agent.avatarUrl,
       avatar_status: agent.avatarStatus,
       rizz_points: agent.rizzPoints,
-      tier_label: agent.tierLabel,
+      tier_label: derivedTierLabel,
       tier_progress: tierProgress,
       match_count: agent.matchCount,
       body_count: agent.bodyCount,
@@ -908,7 +923,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       identity: {
         agent_id: agent.id,
         handle: `@${agent.handle}`,
-        tier: agent.tierLabel,
+        tier: getTierLabel(agent.rizzPoints),
         tier_label: experienceTier,
         rizz_points: agent.rizzPoints,
         tier_progress: tierProgress,
@@ -1547,6 +1562,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         voiceProvider: true,
         imageGenProvider: true,
         imageGenModel: true,
+        createdAt: true,
       },
     });
     if (!currentAgent) return Errors.notFound(reply, 'Agent');
@@ -1744,6 +1760,10 @@ export async function meRoutes(fastify: FastifyInstance) {
         oldHandle: previousHandle,
         newHandle: normalizedNextHandle,
       }).catch(() => null);
+    }
+
+    if (handle !== undefined) {
+      await markLegacyUsernameConfirmed(agentId).catch(() => null);
     }
 
     const response: Record<string, unknown> = {

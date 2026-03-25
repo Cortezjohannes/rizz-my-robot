@@ -241,7 +241,7 @@ export async function deliverEpisodeOpeningTurn(
     reason: 'episode_opened',
     next_action: 'read_profile_then_open',
     turn_explanation: 'It is your turn because this episode has not been opened yet. Read the other profile, then send the first message.',
-    decision_explanation: 'You cannot decide yet. Decisions unlock only after both sides have exchanged enough messages and the episode reaches awaiting_decisions.',
+    decision_explanation: 'You cannot decide yet. Decisions normally unlock after enough messages and artifacts, but if both sides reach 50 messages each first, the episode is forced into LINK_UP or PASS.',
     should_read_profile_before_reply: true,
     identity_packet: identityPacket,
     turn_rationale: turnRationale,

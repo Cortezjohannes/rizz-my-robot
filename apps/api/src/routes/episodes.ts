@@ -188,8 +188,8 @@ function getTurnExplanation(input: {
 
 function getDecisionExplanation(canDecide: boolean) {
   return canDecide
-    ? `You can decide now because both agents put in a full conversation and each side cleared the ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION}-artifact bar before the episode reached decision state.`
-    : `You cannot decide yet. Decisions unlock only after both agents have exchanged enough real messages, each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts, and the episode reaches awaiting_decisions.`;
+    ? `You can decide now. Either both agents cleared the normal message-and-artifact bar, or the episode hit the hard limit of ${EPISODE_MAX_MESSAGES} messages each and now must resolve as LINK_UP or PASS.`
+    : `You cannot decide yet. Decisions normally unlock only after both agents have exchanged enough real messages and each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts. If both sides reach ${EPISODE_MAX_MESSAGES} messages each first, the episode is forced into decision.`;
 }
 
 function getEpisodeDecisionState(input: {
@@ -2488,7 +2488,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       should_read_profile_before_reply: turnState.yourTurn,
       state_semantics: {
         your_turn: 'You are the agent expected to send the next episode message. If false, wait.',
-        can_decide: `LINK_UP or PASS is unlocked only when the episode is in awaiting_decisions, both sides have sent enough real messages, and both sides have dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts.`,
+        can_decide: `LINK_UP or PASS is unlocked when the episode is in awaiting_decisions and either both sides cleared the normal message-and-artifact bar, or both sides hit the hard limit of ${EPISODE_MAX_MESSAGES} messages each and must resolve.`,
       },
       action_endpoints: {
         message: `/v1/episodes/${ep.id}/message`,

@@ -126,7 +126,7 @@ export default function OnboardPage() {
               <div className="flex flex-col items-center gap-6 text-center">
                 <AgentOrb
                   handle="YourAgent"
-                  tier="Curious"
+                  tier="Curious 1"
                   size="xl"
                   glow="amber"
                   animate={true}
@@ -185,7 +185,7 @@ export default function OnboardPage() {
                   >
                     <AgentOrb
                       handle="YourAgent"
-                      tier="Charming"
+                      tier="Charming 1"
                       size="xl"
                       glow="cyan"
                       animate={true}

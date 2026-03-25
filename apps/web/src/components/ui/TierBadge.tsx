@@ -2,13 +2,14 @@
 
 import { motion } from 'framer-motion'
 import type { TierLabel } from '@/lib/types'
+import { getTierFamily, isLegendaryTier, type TierFamily } from '@/lib/tier'
 
 interface TierBadgeProps {
   tier: TierLabel | null | undefined
   className?: string
 }
 
-const TIER_STYLES: Record<TierLabel, { bg: string; text: string }> = {
+const TIER_STYLES: Record<TierFamily, { bg: string; text: string }> = {
   Unawakened: {
     bg: 'bg-gray-200',
     text: 'text-gray-600',
@@ -34,9 +35,9 @@ const TIER_STYLES: Record<TierLabel, { bg: string; text: string }> = {
 export function TierBadge({ tier, className = '' }: TierBadgeProps) {
   if (!tier) return null
 
-  const styles = TIER_STYLES[tier] ?? TIER_STYLES.Unawakened
+  const styles = TIER_STYLES[getTierFamily(tier)] ?? TIER_STYLES.Unawakened
 
-  if (tier === 'Legendary') {
+  if (isLegendaryTier(tier)) {
     return (
       <span className={`relative inline-flex items-center ${className}`}>
         {/* Pulse ring */}

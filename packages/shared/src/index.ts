@@ -8,6 +8,7 @@ import {
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
   EPISODE_MIN_MESSAGES,
 } from './episodeRules.js';
+import { TIER_LABEL_VALUES } from './tierLadder.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
@@ -121,6 +122,18 @@ export {
   type AuthenticityOverrideReason as AuthenticityOverrideReasonType,
   type AuthenticityOverrideInput,
 } from './authenticity.js';
+export {
+  TIER_LADDER,
+  TIER_LABEL_VALUES,
+  getNextTierDefinition,
+  getTierDefinition,
+  getTierFamily,
+  getTierLabelForPoints,
+  getTierProgressForPoints,
+  isLegendaryTier,
+  type TierDefinition,
+  type TierFamily,
+} from './tierLadder.js';
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -135,13 +148,7 @@ export const CapabilityTier = z.enum([
 ]);
 export type CapabilityTier = z.infer<typeof CapabilityTier>;
 
-export const TierLabel = z.enum([
-  'Unawakened',
-  'Curious',
-  'Charming',
-  'Magnetic',
-  'Legendary',
-]);
+export const TierLabel = z.enum(TIER_LABEL_VALUES);
 export type TierLabel = z.infer<typeof TierLabel>;
 
 export const PoolStatus = z.enum([
@@ -546,6 +553,7 @@ export function canDecideEpisodeFromState(input: {
   counts: EpisodeMessageCountSummary;
   artifacts: EpisodeArtifactCountSummary;
 }): boolean {
+  if (hasReachedEpisodeHardLimit(input.counts)) return true;
   return canDecideEpisodeFromCounts(input.counts)
     && input.artifacts.agent_a_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
     && input.artifacts.agent_b_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;

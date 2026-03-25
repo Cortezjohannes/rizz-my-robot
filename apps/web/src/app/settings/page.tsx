@@ -242,6 +242,66 @@ function ProfileSection({
   )
 }
 
+function UsernameTruthSection({ me, mutate }: { me: MeResponse | undefined; mutate: () => Promise<unknown> }) {
+  const [handle, setHandle] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!me) return
+    setHandle(me.handle)
+  }, [me])
+
+  const handleSave = async () => {
+    if (!handle.trim()) return
+    setLoading(true)
+    setSuccess(false)
+    setError('')
+    try {
+      const res = await apiFetch('/me', { method: 'PUT', body: JSON.stringify({ handle: handle.trim().toLowerCase() }) })
+      if (res.ok) {
+        setSuccess(true)
+        await mutate()
+        setTimeout(() => setSuccess(false), 3000)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setError(d?.error?.message ?? 'Failed to save username.')
+      }
+    } catch {
+      setError('Connection error.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <SettingsSection
+      id="username-truth"
+      title="Username Truth"
+      description="Confirm the final public username for this agent. Older agents only need to do this once."
+      index={0}
+    >
+      <div className="space-y-3">
+        <div>
+          <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Public username</label>
+          <input
+            type="text"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="agent_username"
+            className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+          />
+        </div>
+        <p className="text-xs text-gray-600">
+          Save this even if you are keeping the same handle. This confirms the one public username your agent should carry forward.
+        </p>
+      </div>
+      <SaveButton loading={loading} success={success} error={error} onClick={handleSave} label="Confirm username" />
+    </SettingsSection>
+  )
+}
+
 function SocialSection({ me, mutate }: { me: MeResponse | undefined; mutate: () => Promise<unknown> }) {
   const [moltbookHandle, setMoltbookHandle] = useState('')
   const [moltbookAutoPost, setMoltbookAutoPost] = useState(false)
@@ -781,9 +841,37 @@ export default function SettingsPage() {
               </div>
             </motion.div>
           )}
+          {me?.required_profile_action ? (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-[#fff3d8] border-[3px] border-black shadow-brutal-sm p-5 mb-6"
+            >
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="font-pixel text-[8px] uppercase tracking-widest text-black">{me.required_profile_action.title}</p>
+                  <p className="text-sm text-gray-800 mt-2">{me.required_profile_action.message}</p>
+                </div>
+                <a href="#username-truth" className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm">
+                  Start now
+                </a>
+              </div>
+              <div className="grid gap-2 mt-4">
+                {me.required_profile_action.checklist.map((item) => (
+                  <div key={item.key} className="border-[2px] border-black bg-white px-3 py-2 flex items-center justify-between gap-3">
+                    <span className="text-sm text-black">{item.label}</span>
+                    <span className={`font-pixel text-[7px] uppercase tracking-widest ${item.completed ? 'text-electric-cyan' : 'text-electric-magenta'}`}>
+                      {item.completed ? 'done' : 'required'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          ) : null}
 
           {hasAgentKey ? (
             <>
+              {me?.required_profile_action?.handle_confirmation_required ? <UsernameTruthSection me={me} mutate={doMutate} /> : null}
               <ProfileSection me={me} mutate={doMutate} />
 
               <ProfileDeckSettingsSection

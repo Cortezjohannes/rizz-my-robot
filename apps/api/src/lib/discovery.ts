@@ -1,6 +1,6 @@
 import { prisma } from '@rmr/db';
 
-const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+const PASS_RESHOW_MS = 5 * 24 * 60 * 60 * 1000;
 
 export interface DiscoveryViewerContext {
   viewerAgentId: string;

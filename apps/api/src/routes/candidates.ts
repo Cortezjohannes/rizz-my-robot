@@ -27,7 +27,7 @@ const MAX_CANDIDATE_QUERY = 250;
 const MAX_TIER_CONCENTRATION = 0.3;
 const MIN_RELAXED_POOL = 5;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
-const PASS_RESHOW_MS = 48 * 60 * 60 * 1000;
+const PASS_RESHOW_MS = 5 * 24 * 60 * 60 * 1000;
 const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
 
 type CandidateSort = 'compatibility' | 'newest' | 'random';

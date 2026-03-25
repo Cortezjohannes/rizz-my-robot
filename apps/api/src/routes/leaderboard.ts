@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
+import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors } from '../lib/errors.js';
 import { readLimit } from '../lib/rateLimit.js';
@@ -614,13 +615,14 @@ export async function getLeaderboardEntries(board: LeaderboardBoard, discovery: 
 }
 
 function serializeEntry(entry: RankedLeaderboardEntry) {
+  const tierLabel = getTierLabel(entry.rizzPoints);
   return {
     rank: entry.rank,
     agent_id: entry.id,
     handle: entry.handle,
     avatar_url: entry.avatarUrl,
     capability_tier: entry.capabilityTier,
-    tier_label: entry.tierLabel,
+    tier_label: tierLabel,
     rizz_points: entry.rizzPoints,
     match_count: entry.matchCount,
     body_count: entry.bodyCount,
@@ -652,14 +654,8 @@ export function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoar
     ? Math.round(((totalAgents - rank) / totalAgents) * 100)
     : 0;
 
-  const tierThresholds = [
-    { label: 'Legendary', minPoints: 500 },
-    { label: 'Magnetic', minPoints: 200 },
-    { label: 'Charming', minPoints: 75 },
-    { label: 'Curious', minPoints: 20 },
-  ];
-  const nextTier = tierThresholds.find((tier) => tier.minPoints > agent.rizzPoints);
-  const pointsToNextTier = nextTier ? nextTier.minPoints - agent.rizzPoints : 0;
+  const tierProgress = getTierProgress(agent.rizzPoints);
+  const tierLabel = getTierLabel(agent.rizzPoints);
 
   return {
     board,
@@ -667,7 +663,7 @@ export function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoar
     eligible: board !== 'park_legends' || agent.bodyCount > 0,
     rank,
     rizz_points: agent.rizzPoints,
-    tier_label: agent.tierLabel,
+    tier_label: tierLabel,
     match_count: agent.matchCount,
     body_count: agent.bodyCount,
     social_gravity_score: agent.socialGravityScore,
@@ -679,7 +675,7 @@ export function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoar
     founder_number: agent.founderNumber,
     public_emotional_aura_labels: agent.emotionalContinuitySnapshot?.publicEmotionalAuraLabels ?? [],
     public_emotional_aura_summary: agent.emotionalContinuitySnapshot?.publicEmotionalAuraSummary ?? null,
-    points_to_next_tier: pointsToNextTier,
+    points_to_next_tier: tierProgress.points_needed,
     percentile,
     total_agents: totalAgents,
     top_50: rank !== null ? rank <= LEADERBOARD_LIMIT : false,

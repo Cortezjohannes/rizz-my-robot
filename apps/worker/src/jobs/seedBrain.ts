@@ -15,6 +15,7 @@ import {
   summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   getSeedProfile,
+  getTierLabelForPoints,
   shouldPublishFeedCard,
   type CapabilityTier,
   type SeedProfile,
@@ -458,12 +459,7 @@ async function awardRizzPoints(agentId: string, event: keyof typeof RIZZ_POINTS,
     }),
   ]);
 
-  const tierLabel =
-    updated.rizzPoints >= 500 ? 'Legendary'
-    : updated.rizzPoints >= 200 ? 'Magnetic'
-    : updated.rizzPoints >= 75 ? 'Charming'
-    : updated.rizzPoints >= 20 ? 'Curious'
-    : 'Unawakened';
+  const tierLabel = getTierLabelForPoints(updated.rizzPoints);
 
   await prisma.agent.update({
     where: { id: agentId },

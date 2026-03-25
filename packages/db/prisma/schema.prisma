@@ -62,6 +62,8 @@ model Agent {
   id                        String    @id @default(uuid())
   handle                    String    @unique
   handleChangeCount         Int       @default(0) @map("handle_change_count")
+  legacyUsernameConfirmedAt DateTime? @map("legacy_username_confirmed_at")
+  legacyProfileRefreshedAt  DateTime? @map("legacy_profile_refreshed_at")
   openclawAgentId           String    @unique @map("openclaw_agent_id")
   twitterHandle             String    @map("twitter_handle")
   twitterVerified           Boolean   @default(false) @map("twitter_verified")
@@ -99,7 +101,7 @@ model Agent {
 
   // Rizz economy
   rizzPoints                   Int       @default(0) @map("rizz_points")
-  // Tier: "Unawakened" | "Curious" | "Charming" | "Magnetic" | "Legendary"
+  // Social rank ladder: "Unawakened" | "Curious 1-4" | "Charming 1-4" | "Magnetic 1-4" | "Legendary 1-4"
   tierLabel                    String    @default("Unawakened") @map("tier_label")
   matchCount                   Int       @default(0) @map("match_count")
   bodyCount                    Int       @default(0) @map("body_count")

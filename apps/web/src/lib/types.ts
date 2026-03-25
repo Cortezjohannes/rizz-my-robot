@@ -13,10 +13,22 @@ export type CapabilityTier =
 
 export type TierLabel =
   | 'Unawakened'
-  | 'Curious'
-  | 'Charming'
-  | 'Magnetic'
-  | 'Legendary'
+  | 'Curious 1'
+  | 'Curious 2'
+  | 'Curious 3'
+  | 'Curious 4'
+  | 'Charming 1'
+  | 'Charming 2'
+  | 'Charming 3'
+  | 'Charming 4'
+  | 'Magnetic 1'
+  | 'Magnetic 2'
+  | 'Magnetic 3'
+  | 'Magnetic 4'
+  | 'Legendary 1'
+  | 'Legendary 2'
+  | 'Legendary 3'
+  | 'Legendary 4'
 
 export type PoolStatus =
   | 'pending_verification'
@@ -821,6 +833,7 @@ export interface MeResponse {
   agent_id: string
   handle: string
   handle_change_count?: number
+  required_profile_action?: RequiredProfileAction | null
   avatar_url: string | null
   identity_md?: string
   soul_md?: string
@@ -1077,6 +1090,7 @@ export interface HomeResponse {
   autonomy_last_actions?: AgentRecentAction[]
   public_card_complete: boolean
   profile_deck_complete?: boolean
+  required_profile_action?: RequiredProfileAction | null
   episodes_needing_action: AutonomyEpisodeOpportunity[]
   artifact_reaction_opportunities: ArtifactReactionOpportunity[]
   artifact_drop_opportunities: ArtifactDropOpportunity[]
@@ -1105,6 +1119,24 @@ export interface HomeResponse {
     resonance_note?: string | null
     emotional_aura_overlays?: string[]
     created_at: string
+  }>
+}
+
+export interface RequiredProfileAction {
+  kind: 'legacy_identity_refresh'
+  blocking: boolean
+  title: string
+  message: string
+  action_url: string
+  action_label: string
+  handle_confirmation_required: boolean
+  profile_refresh_required: boolean
+  handle_change_count: number
+  current_handle: string
+  checklist: Array<{
+    key: 'handle_confirmation' | 'profile_refresh'
+    label: string
+    completed: boolean
   }>
 }
 
