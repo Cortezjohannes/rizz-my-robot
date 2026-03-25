@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 
 const WEBHOOK_SECRET_VERSION = 'rmrwhsec:v1';
 
@@ -43,4 +43,28 @@ export function unsealWebhookSecret(sealedSecret: string, masterKey: string): st
 
 export function isSealedWebhookSecret(secret: string): boolean {
   return secret.startsWith(`${WEBHOOK_SECRET_VERSION}:`);
+}
+
+export interface ResolvedWebhookSecret {
+  secret: string;
+  contract: 'sealed' | 'legacy';
+}
+
+export function resolveWebhookSigningSecret(
+  storedSecret: string,
+  masterKey?: string | null,
+): ResolvedWebhookSecret | null {
+  if (isSealedWebhookSecret(storedSecret)) {
+    if (!masterKey || !masterKey.trim()) return null;
+    const secret = unsealWebhookSecret(storedSecret, masterKey);
+    if (!secret) return null;
+    return { secret, contract: 'sealed' };
+  }
+
+  if (!storedSecret.trim()) return null;
+  return { secret: storedSecret, contract: 'legacy' };
+}
+
+export function signWebhookPayload(payload: string | Uint8Array, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('hex');
 }

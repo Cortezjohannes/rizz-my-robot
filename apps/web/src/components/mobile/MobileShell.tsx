@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { MobileAppProvider } from './context/MobileAppContext'
 import type { MobileTab } from './context/MobileAppContext'
 import { MobileNavDrawer } from './MobileNavDrawer'
@@ -10,9 +11,10 @@ import { MobileToastProvider } from './shared/MobileToast'
 
 interface MobileShellProps {
   initialTab?: MobileTab
+  content?: ReactNode
 }
 
-export function MobileShell({ initialTab = 'discover' }: MobileShellProps) {
+export function MobileShell({ initialTab = 'discover', content }: MobileShellProps) {
   return (
     <MobileToastProvider>
       <MobileAppProvider initialTab={initialTab}>
@@ -27,7 +29,7 @@ export function MobileShell({ initialTab = 'discover' }: MobileShellProps) {
 
           <MobileStatusBar />
           <main className="relative z-[2] flex-1 pt-[calc(44px+env(safe-area-inset-top,0px))] overflow-hidden">
-            <MobileTabContent />
+            {content ?? <MobileTabContent />}
           </main>
           <MobileNavDrawer />
           <MatchRevealOverlay />

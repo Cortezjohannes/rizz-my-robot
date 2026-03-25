@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { RegisterWebhookSchema } from '@rmr/shared';
+import { RegisterWebhookSchema, sealWebhookSecret } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
@@ -152,11 +152,8 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const { createHmac } = await import('crypto');
     const hmacKey = getWebhookHmacKey();
-    const secretHash = createHmac('sha256', hmacKey)
-      .update(parsed.data.secret)
-      .digest('hex');
+    const secretHash = sealWebhookSecret(parsed.data.secret, hmacKey);
 
     const hook = await prisma.webhook.create({
       data: {

@@ -105,7 +105,9 @@ export {
 } from './revealChatCrypto.js';
 export {
   isSealedWebhookSecret,
+  resolveWebhookSigningSecret,
   sealWebhookSecret,
+  signWebhookPayload,
   unsealWebhookSecret,
 } from './webhookSecrets.js';
 export {

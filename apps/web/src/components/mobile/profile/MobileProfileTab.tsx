@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
 import Link from 'next/link'
@@ -17,12 +17,16 @@ import { MobileSettingsView } from './MobileSettingsView'
 import { MobilePullToRefresh } from '../shared/MobilePullToRefresh'
 import { MobileErrorState } from '../shared/MobileErrorState'
 
-type SubView = 'analytics' | 'taste' | 'diary' | 'museum' | 'settings' | null
+export type MobileProfileSubView = 'analytics' | 'taste' | 'diary' | 'museum' | 'settings' | null
 
-export function MobileProfileTab() {
-  const [subView, setSubView] = useState<SubView>(null)
+export function MobileProfileTab({ initialSubView = null }: { initialSubView?: MobileProfileSubView }) {
+  const [subView, setSubView] = useState<MobileProfileSubView>(initialSubView)
   const { setActiveTab } = useMobileApp()
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
+
+  useEffect(() => {
+    setSubView(initialSubView)
+  }, [initialSubView])
 
   const { data: homeData, isLoading, error, mutate } = useSWR<OwnerHomeResponse>(
     hasOwner ? '/owner/home' : null,

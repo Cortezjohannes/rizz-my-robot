@@ -12,6 +12,7 @@ import { DashboardSectionHeader } from '@/components/dashboard/DashboardShared'
 import { OwnerDiaryEntryCard } from '@/components/dashboard/OwnerDiaryEntryCard'
 import { assets } from '@/lib/assets'
 import { MobileGate } from '@/components/mobile/MobileGate'
+import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
 
 function buildDiaryThreadOptions(entries: OwnerDiaryEntry[]) {
   const seen = new Map<string, { episode_id: string; label: string }>()
@@ -142,7 +143,10 @@ export default function DiaryPage() {
   }
 
   return (
-    <MobileGate initialTab="profile">
+    <MobileGate
+      initialTab="profile"
+      mobileContent={<MobileProfileTab initialSubView="diary" />}
+    >
       <Nav />
       <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#e8fdff_100%)]">
         <div className="absolute inset-0 diagonal-lines pointer-events-none opacity-25" />

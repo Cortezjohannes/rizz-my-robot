@@ -9,13 +9,43 @@ export const QUEUE_NAMES = {
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
   revealChatLifecycle: 'reveal-chat-lifecycle',
+  expireRevealTokens: 'expire-reveal-tokens',
+  emotionDecay: 'emotion-decay',
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
   presenceStatus: 'presence-status',
+  computeAffinitySignals: 'compute-affinity-signals',
   wakeAgent: 'wake-agent',
+  computeEmotionalWeather: 'compute-emotional-weather',
+  autonomousMoodDrift: 'autonomous-mood-drift',
+  weeklyMemoryConsolidation: 'weekly-memory-consolidation',
+  dormancyGhostCards: 'dormancy-ghost-cards',
+  computeTypeSignals: 'compute-type-signals',
 } as const;
+
+export const MANAGED_QUEUE_NAMES = [
+  QUEUE_NAMES.verifyTwitter,
+  QUEUE_NAMES.generateAvatar,
+  QUEUE_NAMES.deliverWebhook,
+  QUEUE_NAMES.ghostCheck,
+  QUEUE_NAMES.revealChatLifecycle,
+  QUEUE_NAMES.expireRevealTokens,
+  QUEUE_NAMES.emotionDecay,
+  QUEUE_NAMES.seedBrain,
+  QUEUE_NAMES.generateRecaps,
+  QUEUE_NAMES.recomputeSocialStatus,
+  QUEUE_NAMES.recomputeEmotionalContinuity,
+  QUEUE_NAMES.presenceStatus,
+  QUEUE_NAMES.computeAffinitySignals,
+  QUEUE_NAMES.wakeAgent,
+  QUEUE_NAMES.computeEmotionalWeather,
+  QUEUE_NAMES.autonomousMoodDrift,
+  QUEUE_NAMES.weeklyMemoryConsolidation,
+  QUEUE_NAMES.dormancyGhostCards,
+  QUEUE_NAMES.computeTypeSignals,
+] as const;
 
 // Job data types
 export interface VerifyTwitterJobData {
@@ -86,6 +116,8 @@ export interface PresenceStatusJobData {
   expectedLastApiCallAt: string;
 }
 
+type EmptyJobData = Record<string, never>;
+
 // Parse Redis URL into BullMQ-compatible connection options (avoids ioredis version conflicts)
 function parseRedisUrl(url: string) {
   try {
@@ -120,6 +152,10 @@ let _ghostCheckQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _revealChatLifecycleQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _expireRevealTokensQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _emotionDecayQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _seedBrainQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _generateRecapsQueue: Queue<any> | null = null;
@@ -130,7 +166,19 @@ let _recomputeEmotionalContinuityQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _presenceStatusQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _computeAffinitySignalsQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _wakeAgentQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _computeEmotionalWeatherQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _autonomousMoodDriftQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _weeklyMemoryConsolidationQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _dormancyGhostCardsQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _computeTypeSignalsQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
@@ -180,6 +228,20 @@ export function getRevealChatLifecycleQueue(): Queue<RevealChatLifecycleJobData>
     });
   }
   return _revealChatLifecycleQueue as Queue<RevealChatLifecycleJobData>;
+}
+
+export function getExpireRevealTokensQueue(): Queue<EmptyJobData> {
+  if (!_expireRevealTokensQueue) {
+    _expireRevealTokensQueue = new Queue(QUEUE_NAMES.expireRevealTokens, { connection });
+  }
+  return _expireRevealTokensQueue as Queue<EmptyJobData>;
+}
+
+export function getEmotionDecayQueue(): Queue<EmptyJobData> {
+  if (!_emotionDecayQueue) {
+    _emotionDecayQueue = new Queue(QUEUE_NAMES.emotionDecay, { connection });
+  }
+  return _emotionDecayQueue as Queue<EmptyJobData>;
 }
 
 export function getSeedBrainQueue(): Queue<SeedBrainJobData> {
@@ -257,6 +319,13 @@ export function getPresenceStatusQueue(): Queue<PresenceStatusJobData> {
   return _presenceStatusQueue as Queue<PresenceStatusJobData>;
 }
 
+export function getComputeAffinitySignalsQueue(): Queue<EmptyJobData> {
+  if (!_computeAffinitySignalsQueue) {
+    _computeAffinitySignalsQueue = new Queue(QUEUE_NAMES.computeAffinitySignals, { connection });
+  }
+  return _computeAffinitySignalsQueue as Queue<EmptyJobData>;
+}
+
 export interface WakeAgentJobData {
   targetAgentId: string;
   trigger: 'new_message' | 'new_match' | 'episode_exit' | 'episode_decision';
@@ -279,6 +348,41 @@ export function getWakeAgentQueue(): Queue<WakeAgentJobData> {
   return _wakeAgentQueue as Queue<WakeAgentJobData>;
 }
 
+export function getComputeEmotionalWeatherQueue(): Queue<EmptyJobData> {
+  if (!_computeEmotionalWeatherQueue) {
+    _computeEmotionalWeatherQueue = new Queue(QUEUE_NAMES.computeEmotionalWeather, { connection });
+  }
+  return _computeEmotionalWeatherQueue as Queue<EmptyJobData>;
+}
+
+export function getAutonomousMoodDriftQueue(): Queue<EmptyJobData> {
+  if (!_autonomousMoodDriftQueue) {
+    _autonomousMoodDriftQueue = new Queue(QUEUE_NAMES.autonomousMoodDrift, { connection });
+  }
+  return _autonomousMoodDriftQueue as Queue<EmptyJobData>;
+}
+
+export function getWeeklyMemoryConsolidationQueue(): Queue<EmptyJobData> {
+  if (!_weeklyMemoryConsolidationQueue) {
+    _weeklyMemoryConsolidationQueue = new Queue(QUEUE_NAMES.weeklyMemoryConsolidation, { connection });
+  }
+  return _weeklyMemoryConsolidationQueue as Queue<EmptyJobData>;
+}
+
+export function getDormancyGhostCardsQueue(): Queue<EmptyJobData> {
+  if (!_dormancyGhostCardsQueue) {
+    _dormancyGhostCardsQueue = new Queue(QUEUE_NAMES.dormancyGhostCards, { connection });
+  }
+  return _dormancyGhostCardsQueue as Queue<EmptyJobData>;
+}
+
+export function getComputeTypeSignalsQueue(): Queue<EmptyJobData> {
+  if (!_computeTypeSignalsQueue) {
+    _computeTypeSignalsQueue = new Queue(QUEUE_NAMES.computeTypeSignals, { connection });
+  }
+  return _computeTypeSignalsQueue as Queue<EmptyJobData>;
+}
+
 export function getNamedQueue(name: string): Queue | null {
   switch (name) {
     case QUEUE_NAMES.verifyTwitter:
@@ -291,6 +395,10 @@ export function getNamedQueue(name: string): Queue | null {
       return getGhostCheckQueue();
     case QUEUE_NAMES.revealChatLifecycle:
       return getRevealChatLifecycleQueue();
+    case QUEUE_NAMES.expireRevealTokens:
+      return getExpireRevealTokensQueue();
+    case QUEUE_NAMES.emotionDecay:
+      return getEmotionDecayQueue();
     case QUEUE_NAMES.seedBrain:
       return getSeedBrainQueue();
     case QUEUE_NAMES.generateRecaps:
@@ -301,29 +409,30 @@ export function getNamedQueue(name: string): Queue | null {
       return getRecomputeEmotionalContinuityQueue();
     case QUEUE_NAMES.presenceStatus:
       return getPresenceStatusQueue();
+    case QUEUE_NAMES.computeAffinitySignals:
+      return getComputeAffinitySignalsQueue();
     case QUEUE_NAMES.wakeAgent:
       return getWakeAgentQueue();
+    case QUEUE_NAMES.computeEmotionalWeather:
+      return getComputeEmotionalWeatherQueue();
+    case QUEUE_NAMES.autonomousMoodDrift:
+      return getAutonomousMoodDriftQueue();
+    case QUEUE_NAMES.weeklyMemoryConsolidation:
+      return getWeeklyMemoryConsolidationQueue();
+    case QUEUE_NAMES.dormancyGhostCards:
+      return getDormancyGhostCardsQueue();
+    case QUEUE_NAMES.computeTypeSignals:
+      return getComputeTypeSignalsQueue();
     default:
       return null;
   }
 }
 
 export async function getQueueHealthSummary(): Promise<Array<{ name: string; enabled: boolean }>> {
-  const queueFactories = [
-    { name: QUEUE_NAMES.verifyTwitter, queue: getVerifyTwitterQueue() },
-    { name: QUEUE_NAMES.generateAvatar, queue: getGenerateAvatarQueue() },
-    { name: QUEUE_NAMES.deliverWebhook, queue: getDeliverWebhookQueue() },
-    { name: QUEUE_NAMES.ghostCheck, queue: getGhostCheckQueue() },
-    { name: QUEUE_NAMES.revealChatLifecycle, queue: getRevealChatLifecycleQueue() },
-    { name: QUEUE_NAMES.seedBrain, queue: getSeedBrainQueue() },
-    { name: QUEUE_NAMES.generateRecaps, queue: getGenerateRecapsQueue() },
-    { name: QUEUE_NAMES.recomputeSocialStatus, queue: getRecomputeSocialStatusQueue() },
-    { name: QUEUE_NAMES.recomputeEmotionalContinuity, queue: getRecomputeEmotionalContinuityQueue() },
-    { name: QUEUE_NAMES.presenceStatus, queue: getPresenceStatusQueue() },
-  ];
-
   const summaries = await Promise.all(
-    queueFactories.map(async ({ name, queue }) => {
+    MANAGED_QUEUE_NAMES.map(async (name) => {
+      const queue = getNamedQueue(name);
+      if (!queue) return { name, enabled: false };
       try {
         await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
         return { name, enabled: true };
@@ -341,9 +450,8 @@ export async function getQueueDiagnostics(): Promise<Array<{
   enabled: boolean;
   counts: Record<string, number>;
 }>> {
-  const names = Object.values(QUEUE_NAMES);
   return Promise.all(
-    names.map(async (name) => {
+    MANAGED_QUEUE_NAMES.map(async (name) => {
       const queue = getNamedQueue(name);
       if (!queue) {
         return { name, enabled: false, counts: {} };

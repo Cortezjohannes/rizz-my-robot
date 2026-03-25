@@ -4,14 +4,8 @@ import type { ControlActorContext } from '../middleware/requireControlAccess.js'
 import { getVerificationRequirements, derivePoolStatusFromVerification } from './controlSettings.js';
 import { backupPublicDatabaseSnapshot } from './databaseReset.js';
 import {
-  QUEUE_NAMES,
-  getDeliverWebhookQueue,
-  getGhostCheckQueue,
-  getRevealChatLifecycleQueue,
-  getSeedBrainQueue,
-  getGenerateRecapsQueue,
-  getRecomputeSocialStatusQueue,
-  getRecomputeEmotionalContinuityQueue,
+  MANAGED_QUEUE_NAMES,
+  getNamedQueue,
 } from './queues.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -208,26 +202,7 @@ async function resetAgentState() {
 }
 
 async function drainQueue(name: string) {
-  const queue = (() => {
-    switch (name) {
-      case QUEUE_NAMES.deliverWebhook:
-        return getDeliverWebhookQueue();
-      case QUEUE_NAMES.ghostCheck:
-        return getGhostCheckQueue();
-      case QUEUE_NAMES.revealChatLifecycle:
-        return getRevealChatLifecycleQueue();
-      case QUEUE_NAMES.seedBrain:
-        return getSeedBrainQueue();
-      case QUEUE_NAMES.generateRecaps:
-        return getGenerateRecapsQueue();
-      case QUEUE_NAMES.recomputeSocialStatus:
-        return getRecomputeSocialStatusQueue();
-      case QUEUE_NAMES.recomputeEmotionalContinuity:
-        return getRecomputeEmotionalContinuityQueue();
-      default:
-        return null;
-    }
-  })();
+  const queue = getNamedQueue(name);
 
   if (!queue) return { name, cleaned: false };
 
@@ -241,6 +216,10 @@ async function drainQueue(name: string) {
       queue.clean(0, 10_000, 'paused'),
       queue.clean(0, 10_000, 'prioritized'),
     ]);
+    const repeatableJobs = await queue.getRepeatableJobs();
+    await Promise.allSettled(
+      repeatableJobs.map(async (job) => queue.removeRepeatableByKey(job.key)),
+    );
     return { name, cleaned: true };
   } catch (error) {
     console.error(`[platform-restart] Failed to drain queue ${name}:`, error);
@@ -249,15 +228,7 @@ async function drainQueue(name: string) {
 }
 
 async function clearInteractionQueues() {
-  return Promise.all([
-    drainQueue(QUEUE_NAMES.deliverWebhook),
-    drainQueue(QUEUE_NAMES.ghostCheck),
-    drainQueue(QUEUE_NAMES.revealChatLifecycle),
-    drainQueue(QUEUE_NAMES.seedBrain),
-    drainQueue(QUEUE_NAMES.generateRecaps),
-    drainQueue(QUEUE_NAMES.recomputeSocialStatus),
-    drainQueue(QUEUE_NAMES.recomputeEmotionalContinuity),
-  ]);
+  return Promise.all(MANAGED_QUEUE_NAMES.map((name) => drainQueue(name)));
 }
 
 async function clearRedisByPattern(redis: Redis, pattern: string) {

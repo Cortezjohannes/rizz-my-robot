@@ -145,7 +145,7 @@ export function RevealChatClient({
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const isReadOnly = chatStatus !== 'ACTIVE'
-  const ownerToken = useMemo(() => (typeof window === 'undefined' ? null : getOwnerSessionToken()), [])
+  const ownerToken = typeof window === 'undefined' ? null : getOwnerSessionToken()
   const participantMap = useMemo(
     () => new Map<RevealChatSenderKind, ChatParticipantDescriptor>(
       bootstrap.participants.map((participant) => [participant.kind, participant]),
@@ -620,6 +620,8 @@ export function RevealChatClient({
     URL.revokeObjectURL(url)
   }, [bootstrap.chat_id, messages, participantMap])
 
+  const loginHref = `/login?next=${encodeURIComponent(`/portal/${token}/chat`)}`
+
   if (cryptoError || authError) {
     return (
       <div className="mx-auto flex min-h-screen w-full max-w-5xl items-center justify-center px-4 py-10">
@@ -635,6 +637,14 @@ export function RevealChatClient({
             >
               Retry
             </button>
+            {!ownerToken ? (
+              <Link
+                href={loginHref}
+                className="border-[3px] border-black bg-electric-cyan px-4 py-2 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal-sm"
+              >
+                Log in again
+              </Link>
+            ) : null}
             <Link
               href={`/portal/${encodeURIComponent(token)}`}
               className="border-[3px] border-black bg-white px-4 py-2 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal-sm"

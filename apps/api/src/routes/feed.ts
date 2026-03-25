@@ -75,6 +75,48 @@ type FeedAgentRow = {
   emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
 };
 
+async function loadFeedCardActivityById(cards: FeedCardRow[]) {
+  const activityById = new Map(cards.map((card) => [card.id, card.createdAt] as const));
+  const episodeIds = [...new Set(cards.map((card) => card.episodeId).filter((episodeId): episodeId is string => Boolean(episodeId)))];
+
+  if (episodeIds.length === 0) return activityById;
+
+  const episodes = await prisma.episode.findMany({
+    where: { id: { in: episodeIds } },
+    select: {
+      id: true,
+      messages: {
+        orderBy: [{ createdAt: 'desc' }, { sequenceNumber: 'desc' }],
+        take: 1,
+        select: { createdAt: true },
+      },
+      artifacts: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { createdAt: true },
+      },
+    },
+  });
+
+  const episodeActivityById = new Map(
+    episodes.map((episode) => {
+      const lastMessageAt = episode.messages[0]?.createdAt?.getTime() ?? 0;
+      const lastArtifactAt = episode.artifacts[0]?.createdAt?.getTime() ?? 0;
+      return [episode.id, Math.max(lastMessageAt, lastArtifactAt)] as const;
+    }),
+  );
+
+  for (const card of cards) {
+    if (!card.episodeId) continue;
+    const latestEpisodeActivity = episodeActivityById.get(card.episodeId) ?? 0;
+    if (latestEpisodeActivity > card.createdAt.getTime()) {
+      activityById.set(card.id, new Date(latestEpisodeActivity));
+    }
+  }
+
+  return activityById;
+}
+
 function parseOffsetCursor(input: string | undefined, fallback = 0) {
   const parsed = Number.parseInt(input ?? '', 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -481,7 +523,7 @@ async function buildInteractionPage(input: {
   includeHighlights: boolean;
 }) {
   const fetchCount = Math.min(240, Math.max(72, input.offset + input.limit + HIGHLIGHT_COUNT + 36));
-  const cards = await prisma.feedCard.findMany({
+  const baseCards = await prisma.feedCard.findMany({
     where: {
       cardType: { in: [...WATCHABLE_FEED_TYPES] },
     },
@@ -502,6 +544,39 @@ async function buildInteractionPage(input: {
       createdAt: true,
     },
   });
+  const recentEpisodeIds = (
+    await prisma.episodeMessage.findMany({
+      orderBy: [{ createdAt: 'desc' }, { sequenceNumber: 'desc' }],
+      distinct: ['episodeId'],
+      take: fetchCount,
+      select: { episodeId: true },
+    })
+  ).map((message) => message.episodeId);
+  const recentEpisodeLiveCards = recentEpisodeIds.length > 0
+    ? await prisma.feedCard.findMany({
+        where: {
+          cardType: 'episode_live',
+          episodeId: { in: recentEpisodeIds },
+        },
+        select: {
+          id: true,
+          cardType: true,
+          agentIds: true,
+          episodeId: true,
+          matchId: true,
+          isPublic: true,
+          content: true,
+          dramaQuotient: true,
+          chemistryScore: true,
+          artifactQuality: true,
+          voteScore: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const cards = [...new Map(
+    [...baseCards, ...recentEpisodeLiveCards].map((card) => [card.id, card] as const),
+  ).values()];
 
   const agentIds = [...new Set(cards.flatMap((card) => card.agentIds))];
   const agents = await prisma.agent.findMany({
@@ -534,15 +609,27 @@ async function buildInteractionPage(input: {
       .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
     return agentsForCard.length === card.agentIds.length && cardVisibleUnderLaunchPolicy(card, agentsForCard);
   });
+  const activityByCardId = await loadFeedCardActivityById(eligibleCards);
 
   const rankedCards = [...eligibleCards].sort((a, b) => {
     const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
     const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
-    return scoreB - scoreA;
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return (activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime()) - (activityByCardId.get(a.id)?.getTime() ?? a.createdAt.getTime());
   });
 
   const highlights = input.includeHighlights ? rankedCards.slice(0, HIGHLIGHT_COUNT) : [];
-  const standardCards = rankedCards.slice(input.includeHighlights ? HIGHLIGHT_COUNT : 0);
+  const highlightIds = new Set(highlights.map((card) => card.id));
+  const standardCards = eligibleCards
+    .filter((card) => !highlightIds.has(card.id))
+    .sort((a, b) => {
+      const activityB = activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime();
+      const activityA = activityByCardId.get(a.id)?.getTime() ?? a.createdAt.getTime();
+      if (activityB !== activityA) return activityB - activityA;
+      const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
+      const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
+      return scoreB - scoreA;
+    });
   const pageCards = standardCards.slice(input.offset, input.offset + input.limit);
   const nextCursor = standardCards.length > input.offset + input.limit ? String(input.offset + input.limit) : null;
 
@@ -559,6 +646,7 @@ async function buildInteractionPage(input: {
         likeCounts: cardVoteSummary.likeCounts,
         likedIds: cardVoteSummary.likedIds,
         commentsByCardId: cardComments,
+        activityAt: activityByCardId.get(card.id),
       });
     })),
     interactions: pageCards.map((card) =>
@@ -568,6 +656,7 @@ async function buildInteractionPage(input: {
         likeCounts: voteSummary.likeCounts,
         likedIds: voteSummary.likedIds,
         commentsByCardId,
+        activityAt: activityByCardId.get(card.id),
       })
     ),
     nextCursor,
@@ -580,6 +669,7 @@ function serializeInteractionCard(input: {
   agentsById: Map<string, FeedAgentRow>;
   likeCounts: Map<string, number>;
   likedIds: Set<string>;
+  activityAt?: Date;
   commentsByCardId: Map<string, Array<{
     id: string;
     cardId: string;
@@ -612,7 +702,7 @@ function serializeInteractionCard(input: {
     aura_overlays: story.aura_overlays,
     emotional_aura_overlays: story.emotional_aura_overlays,
     founder_overlays: story.founder_overlays,
-    created_at: input.card.createdAt.toISOString(),
+    created_at: (input.activityAt ?? input.card.createdAt).toISOString(),
     agents: agents.map((agent) => ({
       agent_id: agent.id,
       handle: agent.handle,

@@ -17,28 +17,40 @@ Optional env:
 
 Notes:
   - Use a real disposable shadow database, not just a different schema on the same DB.
-  - If DATABASE_URL is omitted, the script still checks committed migrations vs schema.prisma.
+  - CI should always provide PRISMA_SHADOW_DATABASE_URL so committed migrations vs schema.prisma is enforced on every run.
+  - If DATABASE_URL is omitted, the script still checks committed migrations vs schema.prisma and skips only the live-db comparison.
+  - You can also pass --shadow-database-url=<url> on the command line instead of setting PRISMA_SHADOW_DATABASE_URL.
 
 Example:
   PRISMA_SHADOW_DATABASE_URL=postgres://.../rmr_shadow \\
   DATABASE_URL=postgres://.../rizz_my_robot \\
   pnpm db:audit:parity
+
+  pnpm db:audit:parity --shadow-database-url=postgres://.../rmr_shadow
 `.trim();
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dbDir = resolve(repoRoot, 'packages/db');
-
-function requiredEnv(name) {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required env ${name}.`);
-  }
-  return value;
-}
+const prismaMigrationsDir = resolve(dbDir, 'prisma/migrations');
+const prismaSchemaPath = resolve(dbDir, 'prisma/schema.prisma');
 
 function optionalEnv(name) {
   const value = process.env[name]?.trim();
   return value ? value : null;
+}
+
+function readCliOption(name) {
+  const prefix = `--${name}=`;
+  const arg = process.argv.find((value) => value.startsWith(prefix));
+  if (arg) return arg.slice(prefix.length).trim() || null;
+
+  const index = process.argv.indexOf(`--${name}`);
+  if (index >= 0) {
+    const next = process.argv[index + 1]?.trim();
+    return next ? next : null;
+  }
+
+  return null;
 }
 
 function runPrisma(args, envOverrides = {}) {
@@ -71,7 +83,10 @@ async function main() {
     return;
   }
 
-  const shadowDatabaseUrl = requiredEnv('PRISMA_SHADOW_DATABASE_URL');
+  const shadowDatabaseUrl = readCliOption('shadow-database-url') ?? optionalEnv('PRISMA_SHADOW_DATABASE_URL');
+  if (!shadowDatabaseUrl) {
+    throw new Error('Missing required shadow database url. Set PRISMA_SHADOW_DATABASE_URL or pass --shadow-database-url=<url>.');
+  }
   const databaseUrl = optionalEnv('DATABASE_URL');
 
   await runCheck(
@@ -80,9 +95,9 @@ async function main() {
       'migrate',
       'diff',
       '--from-migrations',
-      'prisma/migrations',
+      prismaMigrationsDir,
       '--to-schema-datamodel',
-      'prisma/schema.prisma',
+      prismaSchemaPath,
       '--shadow-database-url',
       shadowDatabaseUrl,
       '--exit-code',
@@ -97,7 +112,7 @@ async function main() {
 
   await runCheck(
     'live-migration-status',
-    ['migrate', 'status', '--schema', resolve(dbDir, 'prisma/schema.prisma')],
+    ['migrate', 'status', '--schema', prismaSchemaPath],
     { DATABASE_URL: databaseUrl },
   );
 
@@ -109,7 +124,7 @@ async function main() {
       '--from-url',
       databaseUrl,
       '--to-schema-datamodel',
-      'prisma/schema.prisma',
+      prismaSchemaPath,
       '--shadow-database-url',
       shadowDatabaseUrl,
       '--exit-code',
