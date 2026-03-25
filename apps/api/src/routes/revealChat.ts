@@ -60,6 +60,7 @@ declare module 'fastify' {
     revealChatAuth?: {
       actorType: 'owner' | 'agent';
       actorId: string;
+      viaRevealToken?: boolean;
     };
   }
 }
@@ -633,11 +634,17 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     return handleCreateRevealChatMessage(request, reply, { requireAgentSender: true });
   });
 
-  fastify.post('/reveal-chat/:chatId/leave', { preHandler: requireOwnerAuth }, async (request, reply) => {
+  fastify.post('/reveal-chat/:chatId/leave', { preHandler: requireRevealChatAuth }, async (request, reply) => {
     const chatId = (request.params as { chatId: string }).chatId;
+    const context = await getRevealChatAccessContext(chatId);
+    if (!context) return Errors.notFound(reply, 'Reveal chat');
+
+    const participant = resolveParticipantForRequest(request, context);
+    if (!participant || participant.actorType !== 'owner') return Errors.forbidden(reply);
+
     const result = await leaveRevealChatAsHuman({
       chatId,
-      ownerAccountId: request.ownerAccount.id,
+      ownerAccountId: participant.participantId,
       emitEvent: emitRevealChatEvent,
     }).catch((error) => {
       if (error instanceof Error && error.message === 'reveal_chat_not_found') return null;
@@ -654,7 +661,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/reveal-chat/:chatId/share-consent', { preHandler: requireOwnerAuth }, async (request, reply) => {
+  fastify.post('/reveal-chat/:chatId/share-consent', { preHandler: requireRevealChatAuth }, async (request, reply) => {
     const parsed = RevealChatShareConsentSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return Errors.badRequest(reply, summarizeZodIssues(parsed.error.issues, 'Invalid share consent payload.'));
@@ -684,7 +691,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.get('/reveal-chat/:chatId/share-card', { preHandler: requireOwnerAuth }, async (request, reply) => {
+  fastify.get('/reveal-chat/:chatId/share-card', { preHandler: requireRevealChatAuth }, async (request, reply) => {
     const context = await getRevealChatAccessContext((request.params as { chatId: string }).chatId);
     if (!context) return Errors.notFound(reply, 'Reveal chat');
 
@@ -800,7 +807,8 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       const serializedMedia = message.mediaAsset
         ? await serializeMediaAssetForViewer(message.mediaAsset, {
             agentId: request.agent?.id ?? null,
-            ownerAccountId: request.ownerAccount?.id ?? null,
+            ownerAccountId: request.ownerAccount?.id
+              ?? (request.revealChatAuth?.actorType === 'owner' ? request.revealChatAuth.actorId : null),
           })
         : null;
       return {
@@ -1031,7 +1039,8 @@ async function handleCreateRevealChatMessage(
           durationSec: attachedMediaAsset.durationSec,
           accessUrl: (await serializeMediaAssetForViewer(attachedMediaAsset, {
             agentId: request.agent?.id ?? null,
-            ownerAccountId: request.ownerAccount?.id ?? null,
+            ownerAccountId: request.ownerAccount?.id
+              ?? (request.revealChatAuth?.actorType === 'owner' ? request.revealChatAuth.actorId : null),
           })).access_url,
         })
       : null;
@@ -1211,6 +1220,20 @@ const requireRevealChatAuth: preHandlerHookHandler = async (request, reply) => {
     }
   }
 
+  const revealToken = queryToken ?? bearerToken;
+  const chatId = (request.params as { chatId?: unknown } | undefined)?.chatId;
+  if (revealToken && typeof chatId === 'string' && chatId.trim().length > 0) {
+    const portalAuth = await authenticateRevealPortalTokenForChat(chatId, revealToken);
+    if (portalAuth) {
+      request.revealChatAuth = {
+        actorType: 'owner',
+        actorId: portalAuth.ownerAccountId,
+        viaRevealToken: true,
+      };
+      return;
+    }
+  }
+
   sendError(reply, 401, 'unauthorized_reveal_chat', 'Invalid or missing reveal chat credentials.');
 };
 
@@ -1274,6 +1297,9 @@ function resolveParticipantForRequest(
 ): ResolvedParticipant | null {
   const actorType = request.revealChatAuth?.actorType
     ?? (request.agent ? 'agent' : request.ownerAccount ? 'owner' : null);
+  const ownerActorId = request.revealChatAuth?.actorType === 'owner'
+    ? request.revealChatAuth.actorId
+    : request.ownerAccount?.id ?? null;
 
   if (actorType === 'agent' && request.agent) {
     if (request.agent.id === context.match.agentAId) {
@@ -1297,20 +1323,20 @@ function resolveParticipantForRequest(
     return null;
   }
 
-  if (actorType === 'owner' && request.ownerAccount) {
-    if (request.ownerAccount.id === context.match.agentA.ownerAccountId) {
+  if (actorType === 'owner' && ownerActorId) {
+    if (ownerActorId === context.match.agentA.ownerAccountId) {
       return {
         actorType: 'owner',
-        participantId: request.ownerAccount.id,
+        participantId: ownerActorId,
         kind: 'HUMAN_A',
         record: context.participants.find((entry) => entry.kind === 'HUMAN_A') ?? null,
       };
     }
 
-    if (request.ownerAccount.id === context.match.agentB.ownerAccountId) {
+    if (ownerActorId === context.match.agentB.ownerAccountId) {
       return {
         actorType: 'owner',
-        participantId: request.ownerAccount.id,
+        participantId: ownerActorId,
         kind: 'HUMAN_B',
         record: context.participants.find((entry) => entry.kind === 'HUMAN_B') ?? null,
       };
@@ -1336,6 +1362,46 @@ function validateP256PublicKey(publicKeyPem: string): KeyObject | null {
 
 function hasExchangeablePublicKey(publicKey: string) {
   return publicKey.includes('BEGIN PUBLIC KEY');
+}
+
+async function authenticateRevealPortalTokenForChat(chatId: string, token: string): Promise<{ ownerAccountId: string } | null> {
+  const chat = await prisma.revealChat.findUnique({
+    where: { id: chatId },
+    select: {
+      match: {
+        select: {
+          status: true,
+          humanADecision: true,
+          humanBDecision: true,
+          revealTokenA: true,
+          revealTokenAExpiresAt: true,
+          revealTokenB: true,
+          revealTokenBExpiresAt: true,
+          agentA: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
+          agentB: { select: { ownerAccountId: true, human: { select: { ageVerified: true } } } },
+        },
+      },
+    },
+  });
+
+  if (!chat?.match) return null;
+
+  const now = new Date();
+  const matchesHumanA = chat.match.revealTokenA === token
+    && (!chat.match.revealTokenAExpiresAt || chat.match.revealTokenAExpiresAt > now);
+  const matchesHumanB = chat.match.revealTokenB === token
+    && (!chat.match.revealTokenBExpiresAt || chat.match.revealTokenBExpiresAt > now);
+
+  if (!matchesHumanA && !matchesHumanB) return null;
+  if (chat.match.status !== 'contact_exchanged') return null;
+  if (chat.match.humanADecision !== 'YES' || chat.match.humanBDecision !== 'YES') return null;
+
+  const ownerAccountId = matchesHumanA ? chat.match.agentA.ownerAccountId : chat.match.agentB.ownerAccountId;
+  const viewerHuman = matchesHumanA ? chat.match.agentA.human : chat.match.agentB.human;
+
+  if (!ownerAccountId || !viewerHuman?.ageVerified) return null;
+
+  return { ownerAccountId };
 }
 
 function ensureChatIsWritable(reply: FastifyReply, status: RevealChatStatus, action: string): boolean {

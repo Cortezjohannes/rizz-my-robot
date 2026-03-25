@@ -10,7 +10,7 @@ import {
 } from '@/lib/revealChatCrypto'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-import { API_BASE, getOwnerSessionToken, ownerApiFetch } from '@/lib/api'
+import { API_BASE, getOwnerSessionToken } from '@/lib/api'
 import type {
   PortalRevealChatBootstrapResponse,
   RevealChatHistoryResponse,
@@ -146,6 +146,7 @@ export function RevealChatClient({
 
   const isReadOnly = chatStatus !== 'ACTIVE'
   const ownerToken = typeof window === 'undefined' ? null : getOwnerSessionToken()
+  const revealChatToken = ownerToken ?? token
   const participantMap = useMemo(
     () => new Map<RevealChatSenderKind, ChatParticipantDescriptor>(
       bootstrap.participants.map((participant) => [participant.kind, participant]),
@@ -197,7 +198,12 @@ export function RevealChatClient({
     for (let page = 0; page < 3; page += 1) {
       const query = new URLSearchParams({ limit: '50' })
       if (before) query.set('before', before)
-      const response = await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/messages?${query.toString()}`, {
+      const response = await fetch(`${API_BASE}/reveal-chat/${bootstrap.chat_id}/messages?${query.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${revealChatToken}`,
+        },
         cache: 'no-store',
       })
 
@@ -215,35 +221,42 @@ export function RevealChatClient({
     }
 
     setMessages(collected.map(toUiMessage))
-  }, [bootstrap.chat_id])
+  }, [API_BASE, bootstrap.chat_id, revealChatToken])
+
+  const revealChatFetch = useCallback((path: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> | undefined),
+      Authorization: `Bearer ${revealChatToken}`,
+    }
+
+    return fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    })
+  }, [API_BASE, revealChatToken])
 
   const handleTypingPulse = useCallback(async () => {
     if (isReadOnly || isLeaving) return
 
     try {
-      await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/typing`, {
+      await revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/typing`, {
         method: 'POST',
         body: JSON.stringify({ senderKind: bootstrap.participant_kind }),
       })
     } catch {
       // best effort
     }
-  }, [bootstrap.chat_id, bootstrap.participant_kind, isLeaving, isReadOnly])
+  }, [bootstrap.chat_id, bootstrap.participant_kind, isLeaving, isReadOnly, revealChatFetch])
 
   const connectStream = useCallback(() => {
-    if (!ownerToken) {
-      setAuthError('Owner session required. Open this chat while signed in as the matching owner.')
-      setConnectionState('disconnected')
-      return
-    }
-
     eventSourceRef.current?.close()
     if (reconnectTimerRef.current) {
       window.clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
 
-    const streamUrl = `${API_BASE}/reveal-chat/${bootstrap.chat_id}/stream?token=${encodeURIComponent(ownerToken)}`
+    const streamUrl = `${API_BASE}/reveal-chat/${bootstrap.chat_id}/stream?token=${encodeURIComponent(revealChatToken)}`
     const source = new EventSource(streamUrl)
     eventSourceRef.current = source
     setConnectionState(reconnectAttemptRef.current > 0 ? 'reconnecting' : 'connecting')
@@ -371,7 +384,7 @@ export function RevealChatClient({
         connectStream()
       }, backoff)
     }
-  }, [API_BASE, bootstrap.chat_id, ownerToken, upsertMessage])
+  }, [API_BASE, bootstrap.chat_id, revealChatToken, upsertMessage, participantMap])
 
   useEffect(() => {
     if (!departureBanner) return
@@ -404,14 +417,9 @@ export function RevealChatClient({
       setAuthError(null)
       sessionKeyRef.current = null
 
-      if (!ownerToken) {
-        setAuthError('Owner session required. Open this chat while signed in as the matching owner.')
-        return
-      }
-
       try {
         const pair = await loadOrCreateEcdhKeyPair(bootstrap.chat_id)
-        const keyResponse = await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/keys`, {
+        const keyResponse = await revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/keys`, {
           method: 'POST',
           body: JSON.stringify({ publicKey: pair.publicKeyPEM }),
         })
@@ -451,7 +459,7 @@ export function RevealChatClient({
       active = false
       eventSourceRef.current?.close()
     }
-  }, [bootstrap.chat_id, bootstrap.participant_kind, connectStream, handshakeNonce, ownerToken, refreshHistory])
+  }, [bootstrap.chat_id, bootstrap.participant_kind, connectStream, handshakeNonce, refreshHistory, revealChatFetch])
 
   useEffect(() => {
     if (!cryptoReady || messages.length === 0) return
@@ -461,11 +469,11 @@ export function RevealChatClient({
     }
 
     readReceiptTimerRef.current = window.setTimeout(() => {
-      void ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/read`, {
+      void revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/read`, {
         method: 'POST',
       }).catch(() => {})
     }, 1500)
-  }, [bootstrap.chat_id, cryptoReady, messages])
+  }, [bootstrap.chat_id, cryptoReady, messages, revealChatFetch])
 
   const handleSend = useCallback(async (plaintext: string) => {
     const sessionKey = sessionKeyRef.current
@@ -492,7 +500,7 @@ export function RevealChatClient({
     upsertMessage(optimistic)
 
     try {
-      const response = await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/messages`, {
+      const response = await revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/messages`, {
         method: 'POST',
         body: JSON.stringify({
           ...encrypted,
@@ -524,7 +532,7 @@ export function RevealChatClient({
       })
       throw error
     }
-  }, [bootstrap.chat_id, bootstrap.participant_kind, refreshHistory, upsertMessage])
+  }, [bootstrap.chat_id, bootstrap.participant_kind, refreshHistory, revealChatFetch, upsertMessage])
 
   const handleRetryMessage = useCallback(async (message: RevealChatUiMessage) => {
     if (!message.plaintextFallback) return
@@ -536,7 +544,7 @@ export function RevealChatClient({
 
     try {
       const encrypted = await encryptMessage(message.plaintextFallback, sessionKeyRef.current!)
-      const response = await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/messages`, {
+      const response = await revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/messages`, {
         method: 'POST',
         body: JSON.stringify({
           ...encrypted,
@@ -567,12 +575,12 @@ export function RevealChatClient({
         deliveryState: 'failed',
       })
     }
-  }, [bootstrap.chat_id, bootstrap.participant_kind, refreshHistory, upsertMessage])
+  }, [bootstrap.chat_id, bootstrap.participant_kind, refreshHistory, revealChatFetch, upsertMessage])
 
   const handleLeave = useCallback(async () => {
     setIsLeaving(true)
     try {
-      const response = await ownerApiFetch(`/reveal-chat/${bootstrap.chat_id}/leave`, {
+      const response = await revealChatFetch(`/reveal-chat/${bootstrap.chat_id}/leave`, {
         method: 'POST',
         body: JSON.stringify({}),
       })
@@ -594,7 +602,7 @@ export function RevealChatClient({
     } finally {
       setIsLeaving(false)
     }
-  }, [bootstrap.chat_id, token])
+  }, [bootstrap.chat_id, revealChatFetch, token])
 
   const handleDownloadConversation = useCallback(async () => {
     const sessionKey = sessionKeyRef.current
