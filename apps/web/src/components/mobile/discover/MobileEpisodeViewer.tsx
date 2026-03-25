@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import useSWR from 'swr'
 import { viewerApiFetch, viewerFetcher } from '@/lib/api'
-import type { FeedCardDetailResponse, FeedInteractionCard } from '@/lib/types'
+import type { FeedCardDetailResponse, FeedInteractionCard, PublicEpisodeArtifact, PublicEpisodeMessage } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { isImageArtifact, isAudioArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
@@ -17,6 +17,149 @@ import Image from 'next/image'
 interface MobileEpisodeViewerProps {
   card: FeedInteractionCard
   onClose: () => void
+}
+
+function normalizeHandle(handle: string | null | undefined) {
+  return handle?.trim().toLowerCase() ?? null
+}
+
+function buildArtifactQueues(artifacts: PublicEpisodeArtifact[]) {
+  const byId = new Map<string, PublicEpisodeArtifact>()
+  const byHandle = new Map<string, PublicEpisodeArtifact[]>()
+  const fallback: PublicEpisodeArtifact[] = []
+
+  for (const artifact of [...artifacts].sort((a, b) => (
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  ))) {
+    byId.set(artifact.artifact_id, artifact)
+    const handle = normalizeHandle(artifact.creator_handle)
+    if (!handle) {
+      fallback.push(artifact)
+      continue
+    }
+
+    const queue = byHandle.get(handle) ?? []
+    queue.push(artifact)
+    byHandle.set(handle, queue)
+  }
+
+  return { byId, byHandle, fallback }
+}
+
+function takeArtifactForMessage(
+  message: PublicEpisodeMessage,
+  queues: ReturnType<typeof buildArtifactQueues>,
+) {
+  if (message.message_type !== 'artifact_drop') return null
+
+  if (message.artifact_id) {
+    const exact = queues.byId.get(message.artifact_id)
+    if (exact) {
+      queues.byId.delete(message.artifact_id)
+      return exact
+    }
+  }
+
+  const senderHandle = normalizeHandle(message.sender_handle)
+  if (senderHandle) {
+    const bucket = queues.byHandle.get(senderHandle)
+    if (bucket?.length) {
+      return bucket.shift() ?? null
+    }
+  }
+
+  return queues.fallback.shift() ?? null
+}
+
+function MobileArtifactDropCard({
+  artifact,
+  senderHandle,
+  senderAvatarUrl,
+  isRight,
+  index,
+  createdAt,
+}: {
+  artifact: PublicEpisodeArtifact | null
+  senderHandle: string | null
+  senderAvatarUrl: string | null
+  isRight: boolean
+  index: number
+  createdAt: string
+}) {
+  const isReady = artifact?.status === 'ready'
+  const label = artifact ? artifactTypeLabel(artifact.artifact_type) : 'artifact'
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: isRight ? 16 : -16 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.04, duration: 0.2 }}
+      className={`flex items-end gap-2 ${isRight ? 'flex-row-reverse' : ''}`}
+    >
+      <AgentOrb avatarUrl={senderAvatarUrl} handle={senderHandle} size="sm" glow={isRight ? 'cyan' : 'amber'} />
+      <div
+        className={`
+          max-w-[85%] rounded-xl px-3 py-2 border-2 border-black
+          ${isRight
+            ? 'bg-electric-cyan/10 rounded-br-sm'
+            : 'bg-electric-amber/10 rounded-bl-sm'
+          }
+        `}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <span className="font-pixel text-[6px] text-black/40 uppercase">
+            {senderHandle ?? 'unknown'}
+          </span>
+          <span className="font-pixel text-[6px] text-black/30 uppercase">
+            {new Date(createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </span>
+        </div>
+        <p className="font-pixel text-[6px] text-black/40 uppercase mb-2">
+          Artifact drop{artifact ? ` · ${label}` : ''}
+        </p>
+        {artifact && isReady ? (
+          <div className="space-y-2">
+            {artifact.text_content ? (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed text-black/80">
+                {artifact.text_content}
+              </p>
+            ) : null}
+            {artifact.content_url && isImageArtifact(artifact.artifact_type) && (
+              <div className="relative w-full aspect-[4/5] rounded overflow-hidden">
+                <Image
+                  src={artifact.content_url}
+                  alt={artifactTypeLabel(artifact.artifact_type)}
+                  fill
+                  className="object-contain"
+                  sizes="(max-width: 640px) 100vw"
+                />
+              </div>
+            )}
+            {artifact.content_url && isAudioArtifact(artifact.artifact_type) && (
+              <BrutalAudioPlayer src={artifact.content_url} />
+            )}
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+              <a
+                href={artifact.content_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex border-[3px] border-black bg-white px-3 py-2 font-pixel text-[7px] uppercase tracking-widest text-black shadow-brutal-sm"
+              >
+                Open file
+              </a>
+            ) : null}
+          </div>
+        ) : (
+          <div className="border-[2px] border-dashed border-black/20 bg-white/70 px-3 py-2">
+            <p className="text-sm text-black/70">This artifact is still being finished.</p>
+            <p className="font-pixel text-[6px] uppercase tracking-widest text-black/40 mt-1">
+              {artifact ? `${label} · ${artifact.status.replaceAll('_', ' ')}` : 'pending artifact'}
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
 }
 
 export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps) {
@@ -32,6 +175,23 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
   const agentB = card.agents[1]
   const episode = data?.public_episode
   const detail = data?.card
+  const timelineEntries = episode
+    ? (() => {
+        const queues = buildArtifactQueues(episode.artifacts)
+        return episode.messages.map((message) => (
+          message.message_type === 'artifact_drop'
+            ? {
+                kind: 'artifact' as const,
+                message,
+                artifact: takeArtifactForMessage(message, queues),
+              }
+            : {
+                kind: 'message' as const,
+                message,
+              }
+        ))
+      })()
+    : []
 
   const handleLike = async () => {
     try {
@@ -45,8 +205,8 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
     }
   }
 
-  const hasMessages = episode && episode.messages.length > 0
-  const hasArtifacts = episode && episode.artifacts && episode.artifacts.length > 0
+  const hasMessages = timelineEntries.some((entry) => entry.kind === 'message')
+  const hasArtifacts = timelineEntries.some((entry) => entry.kind === 'artifact')
 
   return (
     <AnimatePresence>
@@ -132,27 +292,41 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
           )}
 
           {/* Messages — conversation transcript */}
-          {hasMessages && (
+          {hasMessages || hasArtifacts ? (
             <div className="space-y-3">
               <p className="font-pixel text-[7px] text-black/40 uppercase">Conversation</p>
-              {episode.messages.map((msg, i) => {
-                const isRight = agentB ? msg.sender_agent_id === agentB.agent_id : false
-                const sender = card.agents.find((a) => a.agent_id === msg.sender_agent_id)
+              {timelineEntries.map((entry, i) => {
+                const sender = card.agents.find((a) => a.agent_id === entry.message.sender_agent_id)
+                const isRight = agentB ? entry.message.sender_agent_id === agentB.agent_id : false
+
+                if (entry.kind === 'artifact') {
+                  return (
+                    <MobileArtifactDropCard
+                      key={entry.message.message_id}
+                      artifact={entry.artifact}
+                      senderHandle={sender?.handle ?? entry.message.sender_handle}
+                      senderAvatarUrl={sender?.avatar_url ?? null}
+                      isRight={isRight}
+                      index={i}
+                      createdAt={entry.message.created_at}
+                    />
+                  )
+                }
 
                 return (
                   <MobileChatBubble
-                    key={msg.message_id}
-                    senderHandle={sender?.handle ?? msg.sender_handle}
+                    key={entry.message.message_id}
+                    senderHandle={sender?.handle ?? entry.message.sender_handle}
                     senderAvatarUrl={sender?.avatar_url ?? null}
-                    content={msg.content}
+                    content={entry.message.content}
                     isRight={isRight}
                     index={i}
-                    messageType={msg.message_type}
+                    messageType={entry.message.message_type}
                   />
                 )
               })}
             </div>
-          )}
+          ) : null}
 
           {/* No messages fallback */}
           {data && !hasMessages && !hasArtifacts && (
@@ -161,51 +335,6 @@ export function MobileEpisodeViewer({ card, onClose }: MobileEpisodeViewerProps)
               <p className="font-pixel text-[7px] text-black/30 uppercase">
                 No transcript available for this moment
               </p>
-            </div>
-          )}
-
-          {/* Inline artifacts */}
-          {hasArtifacts && (
-            <div className="pt-2 border-t-2 border-black/10">
-              <p className="font-pixel text-[7px] text-black/40 uppercase mb-3">Artifacts</p>
-              <div className="space-y-3">
-                {episode.artifacts.map((artifact) => (
-                  <div
-                    key={artifact.artifact_id}
-                    className="border-[3px] border-black rounded-lg overflow-hidden bg-beige-light"
-                  >
-                    <div className="px-3 py-2 border-b-2 border-black/10 flex items-center justify-between">
-                      <span className="font-pixel text-[6px] text-black/40 uppercase">
-                        {artifactTypeLabel(artifact.artifact_type)}
-                      </span>
-                      <span className="font-pixel text-[6px] text-black/30">
-                        by {artifact.creator_handle ?? 'unknown'}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      {isImageArtifact(artifact.artifact_type) && artifact.content_url && (
-                        <div className="relative w-full aspect-[4/5] rounded overflow-hidden">
-                          <Image
-                            src={artifact.content_url}
-                            alt={artifactTypeLabel(artifact.artifact_type)}
-                            fill
-                            className="object-contain"
-                            sizes="(max-width: 640px) 100vw"
-                          />
-                        </div>
-                      )}
-                      {isAudioArtifact(artifact.artifact_type) && artifact.content_url && (
-                        <BrutalAudioPlayer src={artifact.content_url} />
-                      )}
-                      {artifact.text_content && (
-                        <p className="text-sm whitespace-pre-wrap leading-relaxed text-black/80">
-                          {artifact.text_content}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

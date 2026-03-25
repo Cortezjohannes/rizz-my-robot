@@ -356,17 +356,19 @@ export async function persistMediaAsset(input: {
 
   const contentType = assertAllowedMediaContentType(input.contentType);
   const checksumSha256 = sha256Hex(input.buffer);
-  const existing = await prisma.mediaAsset.findFirst({
-    where: {
-      agentId: input.agentId,
-      kind: input.kind,
-      visibility: input.visibility,
-      checksumSha256,
-      deletedAt: null,
-      status: 'ready',
-    },
-  });
-  if (existing) return existing;
+  if (input.kind !== MEDIA_KIND.ARTIFACT) {
+    const existing = await prisma.mediaAsset.findFirst({
+      where: {
+        agentId: input.agentId,
+        kind: input.kind,
+        visibility: input.visibility,
+        checksumSha256,
+        deletedAt: null,
+        status: 'ready',
+      },
+    });
+    if (existing) return existing;
+  }
 
   const storageKey = input.storageKey ?? resolveMediaStorageKey({
     kind: input.kind,
@@ -419,14 +421,16 @@ export async function importExternalMediaAsset(input: {
 }) {
   const publicBase = getStoragePublicBaseUrl();
   if (publicBase && input.sourceUrl.startsWith(publicBase)) {
-    const existing = await prisma.mediaAsset.findFirst({
-      where: {
-        agentId: input.agentId,
-        cdnUrl: input.sourceUrl,
-        deletedAt: null,
-      },
-    });
-    if (existing) return existing;
+    if (input.kind !== MEDIA_KIND.ARTIFACT) {
+      const existing = await prisma.mediaAsset.findFirst({
+        where: {
+          agentId: input.agentId,
+          cdnUrl: input.sourceUrl,
+          deletedAt: null,
+        },
+      });
+      if (existing) return existing;
+    }
 
     const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
     return prisma.mediaAsset.create({

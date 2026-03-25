@@ -9,6 +9,7 @@ import { processEmotionDecay } from './jobs/emotionDecay.js';
 import { processRevealChatLifecycle } from './jobs/revealChatLifecycle.js';
 import { processSeedBrain, type SeedBrainJobData } from './jobs/seedBrain.js';
 import { processGenerateRecaps } from './jobs/generateRecaps.js';
+import { processRecoverArtifacts } from './jobs/recoverArtifacts.js';
 import { processRecomputeSocialStatus } from './jobs/recomputeSocialStatus.js';
 import { processRecomputeEmotionalContinuity } from './jobs/recomputeEmotionalContinuity.js';
 import { processPresenceStatus } from './jobs/presenceStatus.js';
@@ -30,6 +31,7 @@ const QUEUE_NAMES = {
   emotionDecay: 'emotion-decay',
   seedBrain: 'seed-brain',
   generateRecaps: 'generate-recaps',
+  artifactRecovery: 'artifact-recovery',
   recomputeSocialStatus: 'recompute-social-status',
   recomputeEmotionalContinuity: 'recompute-emotional-continuity',
   presenceStatus: 'presence-status',
@@ -174,6 +176,15 @@ async function startWorkers(): Promise<WorkerRuntime> {
     );
     createdWorkers.push(generateRecapsWorker);
 
+    const artifactRecoveryWorker = new Worker(
+      QUEUE_NAMES.artifactRecovery,
+      async (job) => {
+        await processRecoverArtifacts(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(artifactRecoveryWorker);
+
     const recomputeSocialStatusWorker = new Worker(
       QUEUE_NAMES.recomputeSocialStatus,
       async (job) => {
@@ -310,6 +321,13 @@ async function startWorkers(): Promise<WorkerRuntime> {
       jobId: 'generate-recaps-recurring',
     });
 
+    const artifactRecoveryQueue = new Queue(QUEUE_NAMES.artifactRecovery, { connection: getRedisConnection() });
+    queues.push(artifactRecoveryQueue);
+    await artifactRecoveryQueue.add('artifact-recovery', {}, {
+      repeat: { every: parseInt(process.env.ARTIFACT_RECOVERY_REPEAT_MS ?? `${15 * 60 * 1000}`, 10) },
+      jobId: 'artifact-recovery-recurring',
+    });
+
     const socialStatusQueue = new Queue(QUEUE_NAMES.recomputeSocialStatus, { connection: getRedisConnection() });
     queues.push(socialStatusQueue);
     await socialStatusQueue.add('recompute-social-status', {}, {
@@ -372,7 +390,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
     ]);
 
     console.info(
-      `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, recompute-social-status, recompute-emotional-continuity`
+      `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, artifact-recovery, recompute-social-status, recompute-emotional-continuity`
         + ', presence-status, compute-affinity-signals, wake-agent, compute-emotional-weather, autonomous-mood-drift, weekly-memory-consolidation, dormancy-ghost-cards, compute-type-signals'
     );
 

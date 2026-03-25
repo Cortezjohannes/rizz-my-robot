@@ -6,7 +6,7 @@ import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/d
 import { Errors, sendError, summarizeZodIssues } from '../lib/errors.js';
 import { buildPublicArtifactEligibilityWhere, canonicalArtifactType } from '../lib/publicArtifacts.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
-import { createArtifactUploadTarget, isArtifactStorageKeyForArtifact, isStorageConfigured } from '../lib/storage.js';
+import { createArtifactUploadTarget, getStoragePublicUrlForKey, isArtifactStorageKeyForArtifact, isStorageConfigured, storageObjectExists } from '../lib/storage.js';
 import { setParkActionCooldown } from '../lib/tempo.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
@@ -159,18 +159,7 @@ async function buildPublicArtifactPage(input: {
     })
     .sort((a, b) => b.sortScore - a.sortScore);
 
-  // Deduplicate by episode — only the highest-scoring artifact per episode surfaces.
-  // Library artifacts (no episode) are always kept.
-  const seenEpisodeIds = new Set<string>();
-  const dedupedArtifacts = rankedArtifacts.filter(({ artifact }) => {
-    const episodeId = artifact.episode?.id;
-    if (!episodeId) return true;
-    if (seenEpisodeIds.has(episodeId)) return false;
-    seenEpisodeIds.add(episodeId);
-    return true;
-  });
-
-  const pageArtifacts = dedupedArtifacts.slice(input.offset, input.offset + input.limit);
+  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
 
   return {
     artifacts: pageArtifacts.map(({ artifact, likeCount, likedByViewer }) => ({
@@ -254,13 +243,25 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply as never, 'Provide storage_key or content_url for media artifacts.');
     }
     let mediaAssetId: string | null = null;
-    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && contentUrl) {
+    let resolvedContentUrl = contentUrl;
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && storageKey) {
+      if (!(await storageObjectExists(storageKey))) {
+        await prisma.artifact.update({
+          where: { id: artifact_id },
+          data: { status: 'failed' },
+        }).catch(() => {});
+        return Errors.badRequest(reply as never, 'Uploaded artifact file was not found in storage.');
+      }
+      resolvedContentUrl = getStoragePublicUrlForKey(storageKey);
+    }
+
+    if (!TEXT_ARTIFACT_TYPES.has(artifactType) && resolvedContentUrl) {
       try {
         const mediaAsset = await importExternalMediaAsset({
           agentId: request.agent.id,
           kind: MEDIA_KIND.ARTIFACT,
           visibility: MEDIA_VISIBILITY.PUBLIC,
-          sourceUrl: contentUrl,
+          sourceUrl: resolvedContentUrl,
           artifactId: artifact_id,
         });
         await linkMediaAsset({
@@ -269,8 +270,12 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           kind: MEDIA_KIND.ARTIFACT,
         });
         mediaAssetId = mediaAsset.id;
-        contentUrl = mediaAsset.cdnUrl;
+        resolvedContentUrl = mediaAsset.cdnUrl;
       } catch (error) {
+        await prisma.artifact.update({
+          where: { id: artifact_id },
+          data: { status: 'failed' },
+        }).catch(() => {});
         return Errors.badRequest(
           reply as never,
           error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
@@ -281,7 +286,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     await prisma.artifact.update({
       where: { id: artifact_id },
       data: {
-        contentUrl,
+        contentUrl: resolvedContentUrl,
         storageKey,
         mediaAssetId,
         textContent: textContent ?? undefined,
@@ -293,7 +298,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     return reply.send({
       artifact_id,
       status: 'ready',
-      content_url: contentUrl,
+      content_url: resolvedContentUrl,
       storage_key: storageKey,
       eligible_for_profile_feature: true,
     });
@@ -378,8 +383,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           creatorAgentId: agentId,
           sourceScope: targetEpisode ? 'episode' : 'library',
           artifactType: normalizedArtifactType,
-          status: isTextArtifact || Boolean(proxiedContentUrl) ? 'ready' : 'pending',
-          contentUrl: proxiedContentUrl,
+          status: isTextArtifact ? 'ready' : 'pending',
+          contentUrl: isTextArtifact ? proxiedContentUrl : null,
           textContent: parsed.data.text_content?.trim() || null,
           moderationStatus: 'pending',
           capabilityTierUsed: request.agent.capabilityTier,
@@ -414,7 +419,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         const mediaAsset = await importExternalMediaAsset({
           agentId,
           kind: MEDIA_KIND.ARTIFACT,
-          visibility: targetEpisode ? MEDIA_VISIBILITY.MATCH_PRIVATE : MEDIA_VISIBILITY.PUBLIC,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
           sourceUrl: proxiedContentUrl,
           artifactId: artifact.id,
           episodeId: targetEpisode?.id ?? null,
@@ -424,7 +429,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           mediaAssetId: mediaAsset.id,
           episodeId: targetEpisode?.id ?? null,
           matchId: targetEpisode?.match?.id ?? null,
-          visibility: targetEpisode ? MEDIA_VISIBILITY.MATCH_PRIVATE : MEDIA_VISIBILITY.PUBLIC,
+          visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,
         });
         proxiedContentUrl = mediaAsset.cdnUrl;
@@ -433,9 +438,14 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           data: {
             contentUrl: proxiedContentUrl,
             mediaAssetId: mediaAsset.id,
+            status: 'ready',
           },
         });
       } catch (error) {
+        await prisma.artifact.update({
+          where: { id: artifact.id },
+          data: { status: 'failed' },
+        }).catch(() => {});
         return Errors.badRequest(
           reply,
           error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
