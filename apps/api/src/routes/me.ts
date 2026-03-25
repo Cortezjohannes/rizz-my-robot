@@ -18,6 +18,7 @@ import {
   PoolPauseSchema,
   PromoCodeSchema,
   SocialSettingsSchema,
+  UsernameSchema,
   pickDefaultAvatarUrl,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -71,6 +72,10 @@ import {
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
+const RequiredProfileActionConfirmSchema = z.object({
+  action_key: z.enum(['handle_confirmation']),
+  handle: UsernameSchema.optional(),
+});
 const OmnimonPresenceSchema = z.object({
   live: z.boolean(),
 });
@@ -1825,6 +1830,90 @@ export async function meRoutes(fastify: FastifyInstance) {
       old_key_expires_at: graceEndsAt.toISOString(),
       previous_key_grace_ends_at: graceEndsAt.toISOString(),
       message: 'API key rotated. Your previous key will keep working briefly while your runtime updates.',
+    });
+  });
+
+  fastify.post('/me/required-profile-action/confirm', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const parsed = RequiredProfileActionConfirmSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid required profile action confirmation payload.', { issues: parsed.error.issues });
+    }
+
+    const agentId = request.agent.id;
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        id: true,
+        handle: true,
+        handleChangeCount: true,
+        createdAt: true,
+      },
+    });
+    if (!agent) return Errors.notFound(reply, 'Agent');
+
+    const legacyIdentityRefreshState = await readLegacyIdentityRefreshState(agentId);
+    const requiredProfileAction = getLegacyIdentityRefreshAction({
+      createdAt: agent.createdAt,
+      handle: agent.handle,
+      handleChangeCount: agent.handleChangeCount,
+      legacyUsernameConfirmedAt: legacyIdentityRefreshState.legacyUsernameConfirmedAt,
+      legacyProfileRefreshedAt: legacyIdentityRefreshState.legacyProfileRefreshedAt,
+    });
+
+    if (!requiredProfileAction || requiredProfileAction.kind !== 'legacy_identity_refresh') {
+      return reply.send({
+        status: 'noop',
+        action_key: parsed.data.action_key,
+        required_profile_action: null,
+      });
+    }
+
+    if (parsed.data.action_key !== 'handle_confirmation') {
+      return Errors.badRequest(reply, 'That required profile action cannot be confirmed from this endpoint.');
+    }
+
+    let nextHandle = agent.handle;
+    if (parsed.data.handle && parsed.data.handle !== agent.handle) {
+      const available = await isHandleAvailable(parsed.data.handle, { excludeAgentId: agentId });
+      if (!available) {
+        return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
+      }
+
+      await prisma.agent.update({
+        where: { id: agentId },
+        data: {
+          handle: parsed.data.handle,
+          handleChangeCount: { increment: 1 },
+        },
+      });
+
+      await repairHistoricalHandleReferences({
+        agentId,
+        oldHandle: agent.handle,
+        newHandle: parsed.data.handle,
+      }).catch(() => null);
+
+      nextHandle = parsed.data.handle;
+    }
+
+    await markLegacyUsernameConfirmed(agentId).catch(() => null);
+
+    const nextLegacyState = await readLegacyIdentityRefreshState(agentId);
+    const nextRequiredProfileAction = getLegacyIdentityRefreshAction({
+      createdAt: agent.createdAt,
+      handle: nextHandle,
+      handleChangeCount: parsed.data.handle && parsed.data.handle !== agent.handle
+        ? (agent.handleChangeCount ?? 0) + 1
+        : agent.handleChangeCount,
+      legacyUsernameConfirmedAt: nextLegacyState.legacyUsernameConfirmedAt,
+      legacyProfileRefreshedAt: nextLegacyState.legacyProfileRefreshedAt,
+    });
+
+    return reply.send({
+      status: 'confirmed',
+      action_key: parsed.data.action_key,
+      handle: nextHandle,
+      required_profile_action: nextRequiredProfileAction,
     });
   });
 
