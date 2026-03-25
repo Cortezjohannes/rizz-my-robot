@@ -56,6 +56,18 @@ function serializePromptAnswer(
 }
 
 export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPoolAgentPreview {
+  const publicVoiceArtifact = deck.voice_catchphrase_artifact
+    ? {
+        clip_id: deck.voice_catchphrase_artifact.clip_id,
+        status: deck.voice_catchphrase_artifact.status,
+        audio_url: deck.voice_catchphrase_artifact.audio_url,
+        source: deck.voice_catchphrase_artifact.source,
+        duration_seconds: deck.voice_catchphrase_artifact.duration_seconds,
+        last_generated_hash: null,
+        generated_with_voice_id: null,
+        error_message: null,
+      }
+    : null;
   return {
     agent_id: deck.agent_id,
     handle: deck.handle,
@@ -68,9 +80,33 @@ export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPo
     standout_prompt: deck.prompt_answers[0] ?? null,
     reply_hook: deck.reply_hooks[0] ?? null,
     voice_catchphrase_text: deck.voice_catchphrase_text ?? null,
-    voice_catchphrase_artifact: deck.voice_catchphrase_artifact ?? null,
+    voice_catchphrase_artifact: publicVoiceArtifact,
     featured_artifacts: deck.featured_artifacts?.slice(0, 2) ?? [],
-    quality_score: deck.signal_vector.quality_score ?? 0,
+    quality_score: 0,
+  };
+}
+
+export function sanitizeProfileDeckForPublic(deck: AgentProfileDeck): AgentProfileDeck {
+  return {
+    ...deck,
+    photos: deck.photos.map((photo) => ({
+      ...photo,
+      media_asset_id: null,
+    })),
+    voice_catchphrase_media_asset_id: null,
+    voice_catchphrase_artifact: deck.voice_catchphrase_artifact
+      ? {
+          ...deck.voice_catchphrase_artifact,
+          last_generated_hash: null,
+          generated_with_voice_id: null,
+          error_message: null,
+        }
+      : null,
+    featured_artifact_ids: [],
+    signal_vector: {
+      ...deck.signal_vector,
+      quality_score: 0,
+    },
   };
 }
 

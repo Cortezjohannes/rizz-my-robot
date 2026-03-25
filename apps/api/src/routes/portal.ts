@@ -128,7 +128,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         match_id: match.id,
         stage: 1,
         reveal_safety_state: revealGate.reveal_safety_state,
-        reveal_hold_reason: revealGate.reveal_hold_reason,
+        reveal_hold_reason: null,
         review_required: revealGate.reveal_review_required,
         message: 'This reveal is under review before human handoff.',
       });
@@ -243,7 +243,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       ? {
           contact_method: otherAgent.human?.contactMethod ?? null,
           contact_value: otherAgent.human?.contactValue ?? null,
-          verified_x_account: otherAgent.ownerAccount?.xHandle
+          verified_x_account: otherAgent.human?.contactMethod === 'x' && otherAgent.ownerAccount?.xHandle
             ? {
                 handle: otherAgent.ownerAccount.xHandle,
                 display_name: otherAgent.ownerAccount.xDisplayName,

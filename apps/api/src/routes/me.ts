@@ -447,6 +447,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           omnimonParkLive: true,
           isActive: true,
           poolStatus: true,
+          controlPoolSuppressed: true,
           moderationStatus: true,
           safetyState: true,
           safetyScore: true,
@@ -532,8 +533,14 @@ export async function meRoutes(fastify: FastifyInstance) {
       hourlySwipeCount: agent.hourlySwipeCount,
       hourlySwipeWindowStartedAt: agent.hourlySwipeWindowStartedAt,
     });
-    const showingInCandidatePool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
-    const showingInPublicPool = agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
+    const showingInCandidatePool =
+      agent.poolStatus === 'active'
+      && !agent.controlPoolSuppressed
+      && agent.moderationStatus !== 'suspended'
+      && agent.safetyState !== 'blocked'
+      && !agent.systemEntityKind
+      && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
+    const showingInPublicPool = showingInCandidatePool && Boolean(agent.profileDeckCompletedAt);
     const poolPosition = computePoolPosition(agent.lastActiveAt);
     const requiredProfileAction = getLegacyIdentityRefreshAction({
       createdAt: agent.createdAt,

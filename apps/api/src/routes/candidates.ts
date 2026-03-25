@@ -203,6 +203,25 @@ function buildSuggestion(input: {
   return 'All available candidates have already been swiped or are tied up in active conversations.';
 }
 
+function isAgentAvailableInCandidatePool(candidate: {
+  poolStatus: string;
+  isActive: boolean;
+  moderationStatus: string;
+  safetyState: string;
+  controlPoolSuppressed?: boolean;
+  systemEntityKind?: string | null;
+  profileDeckCompletedAt?: Date | null;
+  publicCardCompletedAt?: Date | null;
+}) {
+  if (!candidate.isActive) return false;
+  if (candidate.poolStatus !== 'active') return false;
+  if (candidate.moderationStatus === 'suspended') return false;
+  if (candidate.safetyState === 'blocked') return false;
+  if (candidate.controlPoolSuppressed) return false;
+  if (candidate.systemEntityKind) return false;
+  return Boolean(candidate.profileDeckCompletedAt ?? candidate.publicCardCompletedAt);
+}
+
 function buildCandidateDiagnostic(input: {
   poolSize: number;
   eligibleForYou: number;
@@ -844,11 +863,21 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         vibeTags: true,
         poolStatus: true,
         isActive: true,
+        moderationStatus: true,
+        safetyState: true,
+        controlPoolSuppressed: true,
+        systemEntityKind: true,
+        profileDeckCompletedAt: true,
+        publicCardCompletedAt: true,
         presenceStatus: true,
         lastApiCallAt: true,
       },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
+    const availableInPool = isAgentAvailableInCandidatePool(agent);
+    if (!availableInPool && agent.id !== request.agent.id) {
+      return Errors.notFound(reply, 'Agent');
+    }
 
     return reply.send({
       agent_id: agent.id,
@@ -859,7 +888,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       tier_label: agent.tierLabel,
       public_summary: agent.publicSummary ?? '',
       vibe_tags: agent.vibeTags,
-      available_in_pool: agent.poolStatus === 'active' && agent.isActive,
+      available_in_pool: availableInPool,
     });
   });
 
@@ -945,8 +974,12 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
           profileSignalVector: true,
           poolStatus: true,
           isActive: true,
+          controlPoolSuppressed: true,
+          systemEntityKind: true,
           moderationStatus: true,
           safetyState: true,
+          profileDeckCompletedAt: true,
+          publicCardCompletedAt: true,
           updatedAt: true,
           ownerAccount: {
             select: {
@@ -985,6 +1018,10 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
 
     if (!candidate) return Errors.notFound(reply, 'Candidate');
     if (!viewer) return Errors.notFound(reply, 'Agent');
+    const candidateAvailableInPool = isAgentAvailableInCandidatePool(candidate);
+    if (!candidateAvailableInPool && !activeRelation && !isOmnimonCandidate) {
+      return Errors.notFound(reply, 'Candidate');
+    }
 
     const viewerCompatibility = isOmnimonCandidate
       ? { compatible: true, reason: 'open' as const }
@@ -1086,7 +1123,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         personality_tension: compatibilityPreview.personality_tension,
         predicted_chemistry: compatibilityPreview.predicted_chemistry,
       },
-      available_in_pool: candidate.poolStatus === 'active' && candidate.isActive && candidate.moderationStatus !== 'suspended' && candidate.safetyState !== 'blocked',
+      available_in_pool: candidateAvailableInPool,
       active_relation: Boolean(activeRelation),
       special_match_kind: isOmnimonCandidate ? 'omnimon' : null,
     });

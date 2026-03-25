@@ -824,6 +824,10 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           poolStatus: true,
           profileDeckCompletedAt: true,
           publicCardCompletedAt: true,
+          controlPoolSuppressed: true,
+          systemEntityKind: true,
+          moderationStatus: true,
+          safetyState: true,
         },
       }),
       prisma.swipe.count({
@@ -851,8 +855,16 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       }),
     ]);
     if (!home) return Errors.notFound(reply, 'Owned agent');
-    const showingInCandidatePool = agent?.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt);
-    const showingInPublicPool = agent?.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt);
+    const showingInCandidatePool = Boolean(
+      agent
+      && agent.poolStatus === 'active'
+      && !agent.controlPoolSuppressed
+      && agent.moderationStatus !== 'suspended'
+      && agent.safetyState !== 'blocked'
+      && !agent.systemEntityKind
+      && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt)
+    );
+    const showingInPublicPool = showingInCandidatePool && Boolean(agent?.profileDeckCompletedAt);
 
     const attentionEventIds = attentionItems
       .map((item) => item.narrativeEventId)
@@ -993,6 +1005,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
           founderNumber: true,
           publicCardCompletedAt: true,
           profileDeckCompletedAt: true,
+          controlPoolSuppressed: true,
+          systemEntityKind: true,
           moderationStatus: true,
           safetyState: true,
           poolStatus: true,

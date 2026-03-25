@@ -271,7 +271,6 @@ export function RevealChatClient({
       upsertMessage(toUiMessage({
         id: payload.messageId,
         senderKind: payload.senderKind,
-        senderId: payload.senderId,
         ciphertext: payload.ciphertext,
         iv: payload.iv,
         authTag: payload.authTag,
@@ -487,7 +486,6 @@ export function RevealChatClient({
       id: clientMessageId,
       localId: `pending:${clientMessageId}`,
       senderKind: bootstrap.participant_kind,
-      senderId: 'self',
       ciphertext: encrypted.ciphertext,
       iv: encrypted.iv,
       authTag: encrypted.authTag,
