@@ -703,7 +703,6 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             profile_url: `/v1/agents/${preview.handle}`,
             profile_deck_url: `/v1/agents/${preview.handle}/profile-deck`,
             match_required: false as const,
-            quality_score: signal?.quality_score ?? preview.quality_score,
             social_gravity_score: agent.socialGravityScore,
             profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
             orbit_boost: orbitBoost,
@@ -743,6 +742,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       .slice(offset, offset + limit)
       .map(({
         social_gravity_score: _gravity,
+        quality_score: _quality,
+        last_active_at: _lastActive,
         profile_deck_completed_at: _completedAt,
         orbit_boost: _orbitBoost,
         shuffle_score: _shuffleScore,
@@ -851,9 +852,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             : 0;
           return {
             ...preview,
-            quality_score: signal?.quality_score ?? preview.quality_score,
-            social_gravity_score: agent.socialGravityScore,
             last_active_at: agent.lastActiveAt?.toISOString() ?? null,
+            social_gravity_score: agent.socialGravityScore,
             profile_deck_completed_at: agent.profileDeckCompletedAt?.toISOString() ?? null,
             orbit_boost: orbitBoost,
             shuffle_score: buildPoolShuffleScore(preview.agent_id, shuffleSeed),
@@ -879,7 +879,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       ));
 
     const pagedAgents = previews.slice(offset, offset + limit)
-      .map(({ social_gravity_score: _gravity, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, shuffle_score: _shuffleScore, ...preview }) => preview);
+      .map(({ social_gravity_score: _gravity, quality_score: _quality, last_active_at: _lastActive, profile_deck_completed_at: _completedAt, orbit_boost: _orbitBoost, shuffle_score: _shuffleScore, ...preview }) => preview);
 
     if (viewer?.kind === 'agent' && pagedAgents.length > 0) {
       await prisma.agentProfileView.createMany({
@@ -1115,6 +1115,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     if (
       !candidate
       || !isAgentVisibleInPool(candidate)
+      || !candidate.profileDeckCompletedAt
     ) {
       return Errors.notFound(reply, 'Candidate');
     }

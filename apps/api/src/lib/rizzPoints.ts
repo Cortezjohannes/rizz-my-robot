@@ -552,6 +552,7 @@ export async function awardEpisodeCompletionRizz(
 
     // First link-up milestone
     if (outcome === 'mutual_link_up') {
+      events.push({ event: 'link_up_decision', points: RIZZ_POINTS.link_up_decision, matchId });
       const hasFirstLinkUp = await hasMilestone(agentId, 'first_link_up');
       if (!hasFirstLinkUp) {
         events.push({ event: 'first_link_up', points: RIZZ_POINTS.first_link_up, matchId });

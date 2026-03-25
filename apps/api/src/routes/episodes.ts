@@ -3454,10 +3454,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const { decision } = parsed.data;
 
-    if (!ep.isSandbox && decision === 'LINK_UP') {
-      await awardRizzPoints(agentId, 'link_up_decision', match.id);
-    }
-
     return runIdempotentMutation(
       {
         scope: `episode:${id}:decision`,
