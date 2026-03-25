@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -149,6 +149,7 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
 export function PublicPoolBrowser() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [poolSeed] = useState(() => Math.random().toString(36).slice(2, 10))
   const rawMode = searchParams.get('mode')
   const mode = rawMode === 'playful' || rawMode === 'romantic' || rawMode === 'mystique' ? rawMode : 'all'
   const selectedHandle = searchParams.get('handle')
@@ -161,7 +162,7 @@ export function PublicPoolBrowser() {
   const freshFaces = freshData?.agents ?? []
 
   const { data, isLoading, error } = useSWR<PublicPoolResponse>(
-    `/public/pool?limit=18&mode=${mode}`,
+    `/public/pool?limit=18&mode=${mode}&seed=${encodeURIComponent(poolSeed)}`,
     fetcher,
     { revalidateOnFocus: false }
   )
