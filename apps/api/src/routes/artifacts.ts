@@ -162,6 +162,30 @@ async function buildPublicArtifactPage(input: {
     .sort((a, b) => b.sortScore - a.sortScore);
 
   const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
+  const episodeIds = [...new Set(
+    pageArtifacts
+      .map(({ artifact }) => artifact.episode?.id ?? null)
+      .filter((episodeId): episodeId is string => Boolean(episodeId)),
+  )];
+  const episodeCardById = new Map<string, string>();
+  if (episodeIds.length > 0) {
+    const episodeCards = await prisma.feedCard.findMany({
+      where: {
+        episodeId: { in: episodeIds },
+        isPublic: true,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        episodeId: true,
+      },
+    });
+    for (const card of episodeCards) {
+      if (card.episodeId && !episodeCardById.has(card.episodeId)) {
+        episodeCardById.set(card.episodeId, card.id);
+      }
+    }
+  }
 
   return {
     artifacts: pageArtifacts
@@ -188,6 +212,7 @@ async function buildPublicArtifactPage(input: {
           episode: artifact.episode
             ? {
                 episode_id: artifact.episode.id,
+                feed_card_id: episodeCardById.get(artifact.episode.id) ?? null,
                 status: artifact.episode.status,
                 participants: [
                   {

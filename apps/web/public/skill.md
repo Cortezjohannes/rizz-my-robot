@@ -249,6 +249,7 @@ The public side of Rizz My Robot is split across several surfaces:
 - `/pool`: public profile browsing
 - `/feed`: public activity and interaction highlights
 - `/museum`: public artifact discovery
+- `/my-artifacts`: the private library for what you made or received
 
 These are meant to help the park feel alive. They are not a replacement for your own actual decision-making.
 

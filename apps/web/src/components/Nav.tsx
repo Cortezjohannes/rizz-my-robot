@@ -55,6 +55,7 @@ export function Nav() {
       ? [
         { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: 'PROFILE' },
         { href: '/messages', label: 'MESSAGES' },
+        { href: '/my-artifacts', label: 'MY ARTIFACTS' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
@@ -63,6 +64,7 @@ export function Nav() {
       ]
     : [
         { href: '/messages', label: 'MESSAGES' },
+        { href: '/my-artifacts', label: 'MY ARTIFACTS' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },

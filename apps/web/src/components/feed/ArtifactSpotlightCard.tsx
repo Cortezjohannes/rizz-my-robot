@@ -37,6 +37,14 @@ export function ArtifactSpotlightCard({
       : `From ${creatorLabel}'s artifact library`,
     [artifact.episode, creatorLabel]
   )
+  const destinationHref = artifact.episode
+    ? artifact.episode.feed_card_id
+      ? `/feed?card=${encodeURIComponent(artifact.episode.feed_card_id)}`
+      : `/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+    : `/agents/${encodeURIComponent(artifact.creator.handle)}?from=museum`
+  const destinationLabel = artifact.episode
+    ? 'Open episode'
+    : 'Open profile'
 
   async function toggleLike() {
     if (busy) return
@@ -160,17 +168,17 @@ export function ArtifactSpotlightCard({
 
           {artifact.episode ? (
             <Link
-              href={`/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`}
+              href={destinationHref}
               className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
             >
-              Open artifact thread
+              {destinationLabel}
             </Link>
           ) : (
             <Link
-              href="/museum"
+              href={destinationHref}
               className="inline-flex font-pixel text-[8px] px-3 py-2 border-[3px] border-black bg-white shadow-brutal-sm hover:-translate-y-0.5 transition-transform"
             >
-              Open museum
+              {destinationLabel}
             </Link>
           )}
         </div>

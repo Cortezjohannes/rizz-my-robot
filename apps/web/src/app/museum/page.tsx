@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { fetcher, getBrowserAuthMode, ownerFetcher, viewerFetcher } from '@/lib/api'
+import { fetcher, ownerFetcher, viewerFetcher } from '@/lib/api'
 import { artifactTypeLabel, normalizeArtifactType } from '@/lib/artifacts'
 import type {
   ArtifactLibraryItem,
@@ -17,7 +17,6 @@ import { ArtifactCard, DashboardSectionHeader } from '@/components/dashboard/Das
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import { assets } from '@/lib/assets'
 import { MobileGate } from '@/components/mobile/MobileGate'
-import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
 
 const ARTIFACT_TYPES: ArtifactType[] = [
   'poem',
@@ -127,7 +126,7 @@ function PublicMuseum() {
   )
 }
 
-function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
+export function MyArtifactsView({ authMode }: { authMode: 'owner' | 'agent' }) {
   const [mounted, setMounted] = useState(false)
   const [artifactType, setArtifactType] = useState<string>('')
   const [episodeId, setEpisodeId] = useState<string>('')
@@ -183,7 +182,7 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
     if (artifactType) params.set('artifact_type', artifactType)
     if (episodeId) params.set('episode_id', episodeId)
     const next = params.toString()
-    window.history.replaceState(null, '', next ? `/museum?${next}` : '/museum')
+    window.history.replaceState(null, '', next ? `/my-artifacts?${next}` : '/my-artifacts')
   }, [artifactType, episodeId, mounted])
 
   if (!mounted) {
@@ -203,7 +202,7 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
 
   const body = authMode === 'owner'
     ? 'Every poem, image, serenade, and expressive gesture your agent has ever made or received. Curated, filterable, permanent.'
-    : 'The permanent collection. Poems, serenades, moodboards, and every artifact that mattered enough to keep.'
+    : 'Everything your runtime has made or received. Use this as your private working collection, not the public museum.'
 
   return (
     <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
@@ -221,8 +220,8 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
           className="bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-5"
         >
           <DashboardSectionHeader
-            eyebrow="Museum"
-            title="The Museum"
+            eyebrow="My Artifacts"
+            title="My Artifacts"
             body={body}
             iconSrc={assets.micro.brandBadges}
           />
@@ -275,9 +274,9 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
               className="md:col-span-2 bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6"
             >
               <img src={assets.micro.dogSolo} alt="" aria-hidden={true} data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
-              <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">The Museum is empty</p>
+              <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">No artifacts yet</p>
               <p className="text-sm text-gray-700 mt-2">
-                Once episodes get expressive, the artifacts will be archived here — filterable by type and thread.
+                Once episodes get expressive, the things your agent makes or receives will show up here — filterable by type and thread.
               </p>
             </motion.div>
           ) : (
@@ -294,7 +293,7 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
                     artifact.episode
                       ? authMode === 'owner'
                         ? `/messages?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-                        : `/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
+                        : `/my-artifacts?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
                       : null
                   }
                   threadLabel={artifact.episode ? (authMode === 'owner' ? 'See thread' : 'Filter thread') : 'Open artifact'}
@@ -309,48 +308,10 @@ function AuthenticatedMuseum({ authMode }: { authMode: 'owner' | 'agent' }) {
 }
 
 export default function MuseumPage() {
-  const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')
-  const [resolved, setResolved] = useState(false)
-
-  useEffect(() => {
-    setAuthMode(getBrowserAuthMode())
-    setResolved(true)
-  }, [])
-
-  if (!resolved) {
-    return (
-      <>
-        <Nav />
-        <main className="min-h-screen pt-24 px-4 py-8 bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
-          <div className="max-w-6xl mx-auto space-y-4">
-            <div className="h-36 border-[4px] border-black bg-white skeleton-shimmer" />
-            <div className="grid gap-4 md:grid-cols-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-48 border-[3px] border-black bg-white skeleton-shimmer" />
-              ))}
-            </div>
-          </div>
-        </main>
-      </>
-    )
-  }
-
-  if (authMode === 'guest') {
-    return (
-      <>
-        <Nav />
-        <PublicMuseum />
-      </>
-    )
-  }
-
   return (
-    <MobileGate
-      initialTab="profile"
-      mobileContent={<MobileProfileTab initialSubView="museum" />}
-    >
+    <MobileGate initialTab="discover">
       <Nav />
-      <AuthenticatedMuseum authMode={authMode} />
+      <PublicMuseum />
     </MobileGate>
   )
 }

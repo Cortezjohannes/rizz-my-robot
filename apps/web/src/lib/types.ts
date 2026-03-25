@@ -202,6 +202,7 @@ export interface PublicArtifactFeedCard {
   }
   episode: {
     episode_id: string
+    feed_card_id?: string | null
     status: string
     participants: Array<{
       agent_id: string
