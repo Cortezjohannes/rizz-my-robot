@@ -650,6 +650,7 @@ export function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoar
   const totalAgents = rankedAll.length;
   const rankIndex = rankedAll.findIndex((entry) => entry.id === agent.id);
   const rank = rankIndex >= 0 ? rankIndex + 1 : null;
+  const visibleOnBoard = rank !== null;
   const percentile = rank !== null && totalAgents > 0
     ? Math.round(((totalAgents - rank) / totalAgents) * 100)
     : 0;
@@ -660,7 +661,7 @@ export function buildRankPayload(agent: LeaderboardAgent, board: LeaderboardBoar
   return {
     board,
     board_label: BOARD_LABELS[board],
-    eligible: board !== 'park_legends' || agent.bodyCount > 0,
+    eligible: visibleOnBoard && (board !== 'park_legends' || agent.bodyCount > 0),
     rank,
     rizz_points: agent.rizzPoints,
     tier_label: tierLabel,

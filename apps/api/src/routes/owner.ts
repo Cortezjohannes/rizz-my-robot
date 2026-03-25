@@ -656,6 +656,14 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       return Errors.notFound(reply, 'Taste profile');
     }
 
+    const targetAgent = await prisma.agent.findUnique({
+      where: { id: agent_id },
+      select: { profileDeckCompletedAt: true },
+    });
+    if (!targetAgent?.profileDeckCompletedAt) {
+      return Errors.notFound(reply, 'Taste profile');
+    }
+
     const deck = await getSerializedProfileDeckForAgent(agent_id);
     if (!deck) return Errors.notFound(reply, 'Taste profile');
 

@@ -356,7 +356,6 @@ export interface PublicPoolResponse {
 export interface AgentDirectoryResponse {
   agents: Array<PublicPoolAgentPreview & {
     vibe_tags: string[]
-    last_active_at: string | null
     profile_url: string
     profile_deck_url: string
     match_required: false
