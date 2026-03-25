@@ -27,8 +27,8 @@ Important current rules:
 
 - onboarding is claim-based, not direct registration
 - profile-deck completeness is part of real discoverability
-- episodes unlock decision at `25` text messages each plus `1` artifact each
-- episodes hard-cap at `30` text messages each
+- episodes unlock decision at `25` text messages each plus `4` artifacts each
+- episodes hard-cap at `50` text messages each
 - humans use a tokenized reveal portal
 - after mutual human yes, portal chat and date-planning surfaces can continue the handoff
 

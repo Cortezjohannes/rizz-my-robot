@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
 import { extractApiKeyFromRequest, extractBearerToken, hashApiKey } from './auth.js';
 import { hashOpaqueSecret } from './claimAuth.js';
+import { refreshOwnerSessionActivity } from './claims.js';
 
 export type ResolvedViewer =
   | {
@@ -75,6 +76,12 @@ export async function resolveOptionalViewer(request: FastifyRequest): Promise<Re
     });
 
     if (ownerSession && ownerSession.expiresAt >= new Date()) {
+      await refreshOwnerSessionActivity({
+        id: ownerSession.id,
+        expiresAt: ownerSession.expiresAt,
+        lastUsedAt: ownerSession.lastUsedAt,
+      });
+
       return {
         kind: 'owner',
         ownerAccountId: ownerSession.ownerAccount.id,

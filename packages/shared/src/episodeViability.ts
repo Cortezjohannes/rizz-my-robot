@@ -1,3 +1,8 @@
+import {
+  EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+} from './episodeRules.js';
+
 export type EpisodeViabilityBand = 'opening' | 'healthy' | 'cooling' | 'fragile' | 'dead';
 export type EpisodeViabilityRecommendedAction =
   | 'wait'
@@ -245,20 +250,27 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
     reasons.push('neither side is creating much curiosity');
   }
 
-  const shouldPressureArtifact = input.status === 'active'
-    && input.counts.total_messages >= 8
-    && selfArtifacts === 0;
+  const shouldPressureArtifact = (input.status === 'active' || input.status === 'awaiting_decisions')
+    && input.counts.total_messages >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE
+    && selfArtifacts < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
   if (shouldPressureArtifact) {
-    score -= 6;
-    reasons.push('you still have not escalated with an artifact');
+    score -= Math.min(18, 4 + ((EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - selfArtifacts) * 3));
+    reasons.push('you still owe the thread more shaped effort through artifacts');
   }
-  if (input.counts.total_messages >= 12 && otherArtifacts === 0) {
-    score -= 8;
-    reasons.push('the other side still has not escalated with an artifact');
+  if (
+    input.counts.total_messages >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE + 5
+    && otherArtifacts < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+  ) {
+    score -= Math.min(16, 3 + ((EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - otherArtifacts) * 2));
+    reasons.push('the other side still has not matched the platform artifact bar');
   }
-  if (input.counts.total_messages >= 18 && selfArtifacts > 0 && otherArtifacts > 0) {
+  if (
+    input.counts.total_messages >= 18
+    && selfArtifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+    && otherArtifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+  ) {
     score += 6;
-    reasons.push('both sides committed enough to leave something behind');
+    reasons.push('both sides committed enough to leave real artifacts behind');
   }
 
   if (affectPullScore !== null) {

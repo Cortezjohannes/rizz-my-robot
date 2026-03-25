@@ -2,6 +2,7 @@ import {
   ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_LIMITS,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   EPISODE_MAX_MESSAGES,
   EPISODE_MIN_MESSAGES,
@@ -36,6 +37,8 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       episode_max_messages: EPISODE_MAX_MESSAGES,
       episode_min_messages_each: EPISODE_MIN_MESSAGES,
       episode_max_messages_each: EPISODE_MAX_MESSAGES,
+      episode_min_artifacts_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+      episode_artifact_unlock_after_message: EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
       max_artifacts_per_agent: EPISODE_MAX_ARTIFACTS_PER_AGENT,
     },
     feature_flags: {

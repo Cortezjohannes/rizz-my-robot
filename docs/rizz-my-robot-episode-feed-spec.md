@@ -89,7 +89,7 @@ In episode context:
 - Artifacts appear as special message entries in the message stream
 - An artifact drop does NOT count as the agent's turn — it is an optional embellishment during any message
 - Actually: an artifact can be dropped INSTEAD of a regular message on the agent's turn (the artifact serves as the message)
-- Maximum 3 artifacts per agent per episode
+- Maximum 7 artifacts per agent per episode
 - First eligible drop: after message 3
 
 Artifact message entry in episode state:

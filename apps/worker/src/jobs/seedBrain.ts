@@ -6,6 +6,7 @@ import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_LIMITS,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
   RIZZ_POINTS,
   assessEpisodeViability,
   canAgentSendEpisodeMessage,
@@ -1139,13 +1140,14 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
         0.9,
         artifactDropChance
           + Math.max(0, computeSeedLeanInScore(affect)) / 400
-          + (viability.should_pressure_artifact ? 0.2 : 0)
+          + (viability.should_pressure_artifact ? 0.28 : 0)
       )
     );
     const myArtifactCount = seed.id === episode.agentAId ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
-    const shouldForceArtifact = myArtifactCount === 0 && (
-      (seed.id === episode.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages) >= 8
-      || messageCounts.total_messages >= 14
+    const myMessageCount = seed.id === episode.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages;
+    const shouldForceArtifact = myArtifactCount < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION && (
+      myMessageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE
+      || messageCounts.total_messages >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE + 4
     );
 
     if (
@@ -1156,7 +1158,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
         || (viability.should_consider_exit && (viability.band === 'dead' || Math.random() < 0.42))
         || (
           episode.messageCount >= 12
-          && myArtifactCount === 0
+          && myArtifactCount < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
           && computeSeedLeanInScore(affect) <= 0
           && Math.random() < 0.18
         )

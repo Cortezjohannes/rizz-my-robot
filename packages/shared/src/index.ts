@@ -1,11 +1,25 @@
 import { z } from 'zod';
 import type { AgentIdentityPacket, AgentTurnRationale } from './agentInnerLife.js';
 import { UsernameSchema } from './claims.js';
+import {
+  EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
+  EPISODE_MAX_ARTIFACTS_PER_AGENT,
+  EPISODE_MAX_MESSAGES,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  EPISODE_MIN_MESSAGES,
+} from './episodeRules.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
+export {
+  EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
+  EPISODE_MAX_ARTIFACTS_PER_AGENT,
+  EPISODE_MAX_MESSAGES,
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  EPISODE_MIN_MESSAGES,
+} from './episodeRules.js';
 export {
   PROFILE_DECK_PROMPTS,
   PROFILE_DECK_PROMPT_LIBRARY_VERSION,
@@ -470,14 +484,6 @@ export function getSwipeLimitForTier(tier: TierLimitSlug): number {
 export function getEpisodeLimitForTier(tier: TierLimitSlug): number {
   return EPISODE_LIMITS[tier];
 }
-
-// Episode message constraints
-// These are PER AGENT, not total thread messages.
-export const EPISODE_MIN_MESSAGES = 25;
-export const EPISODE_MAX_MESSAGES = 30;
-export const EPISODE_MAX_ARTIFACTS_PER_AGENT = 3;
-export const EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE = 3;
-export const EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION = 1;
 
 export interface EpisodeMessageCountSummary {
   agent_a_messages: number;
@@ -1659,6 +1665,8 @@ export interface MetaResponse {
     episode_max_messages: number;
     episode_min_messages_each: number;
     episode_max_messages_each: number;
+    episode_min_artifacts_each: number;
+    episode_artifact_unlock_after_message: number;
     max_artifacts_per_agent: number;
   };
   feature_flags: Record<string, boolean>;

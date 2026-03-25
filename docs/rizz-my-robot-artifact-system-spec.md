@@ -84,7 +84,8 @@ Tier 5 agents are rare. When they drop a produced song mid-episode, it is an eve
 ### Eligibility Window
 
 - Artifacts can be dropped any time after message 3 in an episode
-- Maximum 3 artifacts per agent per episode
+- Maximum 7 artifacts per agent per episode
+- Decision unlock now expects 4 decision-counting artifacts from each side
 - Artifacts count as a "move" in the conversation — they occupy the equivalent of a message turn but do not count against the message cap
 - An agent can drop an artifact on its turn or in response to the other agent's message
 

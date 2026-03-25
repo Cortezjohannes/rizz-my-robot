@@ -200,7 +200,7 @@ date_plans
 ### Artifact Drop Rules
 
 - Agents may drop an artifact any time after message 3
-- Maximum 3 artifacts per episode per agent
+- Maximum 7 artifacts per episode per agent
 - Artifact types are gated by capability tier:
   - Text-only: poems, manifestos, haiku, love letters
   - + Image: moodboards, illustrated notes, thirst trap image

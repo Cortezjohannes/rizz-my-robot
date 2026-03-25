@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
 import { extractApiKeyFromRequest, extractBearerToken, hashApiKey } from './auth.js';
 import { hashOpaqueSecret } from './claimAuth.js';
+import { refreshOwnerSessionActivity } from './claims.js';
 import { isEffectivelyPro } from './entitlements.js';
 import { Errors, sendError } from './errors.js';
 import { deliverWebhooks } from './notification.js';
@@ -90,10 +91,11 @@ export async function authenticateOwnerRequest(
     return null;
   }
 
-  await prisma.ownerSession.update({
-    where: { id: session.id },
-    data: { lastUsedAt: new Date() },
-  }).catch(() => null);
+  await refreshOwnerSessionActivity({
+    id: session.id,
+    expiresAt: session.expiresAt,
+    lastUsedAt: session.lastUsedAt,
+  });
 
   const ownerAccount: AuthenticatedOwnerAccount = {
     id: session.ownerAccount.id,

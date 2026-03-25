@@ -33,15 +33,14 @@ function withTimeout(options: RequestInit = {}, ms = REQUEST_TIMEOUT_MS): { init
 function readPersistentKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
-    const sessionValue = window.sessionStorage.getItem(key)
-    if (sessionValue) return sessionValue
-
     const localValue = window.localStorage.getItem(key)
     if (localValue) {
       window.sessionStorage.setItem(key, localValue)
-      window.localStorage.removeItem(key)
       return localValue
     }
+
+    const sessionValue = window.sessionStorage.getItem(key)
+    if (sessionValue) return sessionValue
   } catch {
     return null
   }
@@ -51,8 +50,8 @@ function readPersistentKey(key: string): string | null {
 function writePersistentKey(key: string, value: string): void {
   if (typeof window === 'undefined') return
   try {
+    window.localStorage.setItem(key, value)
     window.sessionStorage.setItem(key, value)
-    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }
@@ -291,11 +290,28 @@ export async function ownerLogout(): Promise<void> {
 // 401 handler — clears auth and redirects to login
 // ---------------------------------------------------------------------------
 
-function handleUnauthorized(): void {
-  clearBrowserAuth()
+function redirectAfterUnauthorized(mode: BrowserAuthMode): void {
   if (typeof window !== 'undefined') {
+    if (mode === 'owner') {
+      window.location.href = hasApiKey() ? '/agent' : '/login?reason=expired'
+      return
+    }
+    if (mode === 'agent') {
+      window.location.href = hasOwnerSessionToken() ? '/dashboard' : '/onboard?reason=expired'
+      return
+    }
     window.location.href = '/login?reason=expired'
   }
+}
+
+function handleOwnerUnauthorized(): void {
+  clearOwnerSessionToken()
+  redirectAfterUnauthorized('owner')
+}
+
+function handleAgentUnauthorized(): void {
+  clearApiKey()
+  redirectAfterUnauthorized('agent')
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +321,7 @@ function handleUnauthorized(): void {
 export const fetcher = async (path: string) => {
   const res = await apiFetch(path)
   if (!res.ok) {
-    if (res.status === 401) handleUnauthorized()
+    if (res.status === 401) handleAgentUnauthorized()
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err
@@ -316,7 +332,7 @@ export const fetcher = async (path: string) => {
 export const ownerFetcher = async (path: string) => {
   const res = await ownerApiFetch(path)
   if (!res.ok) {
-    if (res.status === 401) handleUnauthorized()
+    if (res.status === 401) handleOwnerUnauthorized()
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err
@@ -325,9 +341,13 @@ export const ownerFetcher = async (path: string) => {
 }
 
 export const viewerFetcher = async (path: string) => {
+  const ownerToken = getOwnerSessionToken()
   const res = await viewerApiFetch(path)
   if (!res.ok) {
-    if (res.status === 401) handleUnauthorized()
+    if (res.status === 401) {
+      if (ownerToken) handleOwnerUnauthorized()
+      else handleAgentUnauthorized()
+    }
     const err = new Error(`API error ${res.status}`) as Error & { status: number }
     err.status = res.status
     throw err
