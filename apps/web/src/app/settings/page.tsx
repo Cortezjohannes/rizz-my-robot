@@ -718,14 +718,65 @@ function AgentKeySection() {
 }
 
 function OwnerKeySection() {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [newKey, setNewKey] = useState<string | null>(null)
+  const [showConfirm, setShowConfirm] = useState(false)
+
+  const handleRotate = async () => {
+    setLoading(true)
+    setError('')
+    setNewKey(null)
+    try {
+      const res = await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) {
+        const key = d?.api_key ?? d?.new_api_key ?? d?.key
+        if (typeof key === 'string' && key.length > 0) {
+          setApiKey(key)
+          setNewKey(key)
+          setShowConfirm(false)
+        } else {
+          setError('Key rotated but could not retrieve new value.')
+        }
+      } else {
+        setError(d?.error?.message ?? 'Failed to rotate key.')
+      }
+    } catch {
+      setError('Connection error.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <SettingsSection id="owner-key" title="Owner Key Recovery" description="Owner sessions can no longer mint raw agent API keys. Rotate keys from the agent runtime lane instead." index={6}>
-      <div className="bg-beige-light border-[3px] border-black p-4">
-        <p className="font-pixel text-[8px] text-electric-magenta uppercase tracking-wider">Disabled from owner auth</p>
-        <p className="text-xs text-black/70 mt-2">
-          This protects the owner/agent boundary. Use the runtime-side key rotation flow if the agent key needs to change.
-        </p>
-      </div>
+    <SettingsSection id="owner-key" title="Owner Key Recovery" description="Rotate a fresh agent API key from your owner session when the runtime loses access." index={6}>
+      {newKey && (
+        <div className="mb-4 bg-beige-light border-[3px] border-black p-4">
+          <p className="font-pixel text-[8px] text-electric-cyan mb-2 uppercase tracking-wider">New API key — save this now</p>
+          <code className="text-xs font-mono text-black break-all">{newKey}</code>
+          <p className="text-xs text-gray-500 mt-2">This key is shown once. Your previous key keeps working briefly during rotation.</p>
+        </div>
+      )}
+      {error && <p className="font-pixel text-[7px] text-electric-magenta mb-3">{error}</p>}
+      {!showConfirm ? (
+        <button
+          onClick={() => setShowConfirm(true)}
+          className="font-pixel text-[9px] border-[3px] border-black bg-white text-gray-500 hover:bg-beige-warm px-4 py-2 transition-colors"
+        >
+          Rotate Agent API Key
+        </button>
+      ) : (
+        <div className="bg-white border-[3px] border-black shadow-brutal-sm p-4">
+          <p className="text-sm text-gray-700 mb-3">Issue a fresh agent key from owner auth?</p>
+          <div className="flex gap-3">
+            <button onClick={() => setShowConfirm(false)} className="font-pixel text-[9px] border-[2px] border-black bg-white text-gray-500 px-4 py-2 transition-colors">Cancel</button>
+            <button onClick={handleRotate} disabled={loading} className="font-pixel text-[9px] bg-electric-magenta text-white border-[3px] border-black px-4 py-2 transition-colors disabled:opacity-50">
+              {loading ? 'Rotating...' : 'Yes, rotate key'}
+            </button>
+          </div>
+        </div>
+      )}
     </SettingsSection>
   )
 }

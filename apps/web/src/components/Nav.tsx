@@ -52,12 +52,13 @@ export function Nav() {
   ]
 
   const ownerLinks = ownerMe?.agent?.handle
-    ? [
+      ? [
         { href: `/agents/${encodeURIComponent(ownerMe.agent.handle)}`, label: 'PROFILE' },
         { href: '/messages', label: 'MESSAGES' },
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/settings', label: 'SETTINGS' },
         { href: '/support', label: 'SUPPORT' },
       ]
     : [
@@ -65,6 +66,7 @@ export function Nav() {
         { href: '/taste', label: 'TASTE' },
         { href: '/diary', label: 'DIARY' },
         { href: '/analytics', label: 'ANALYTICS' },
+        { href: '/settings', label: 'SETTINGS' },
         { href: '/support', label: 'SUPPORT' },
       ]
 
@@ -94,6 +96,7 @@ export function Nav() {
 
   const isActive = (href: string) => {
     if (href === '/messages') return pathname === '/messages' || pathname === '/dashboard'
+    if (href === '/settings') return pathname === '/settings'
     if (href === '/support') return pathname === '/support'
     return pathname === href
   }

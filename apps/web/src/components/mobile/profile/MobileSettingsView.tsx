@@ -132,7 +132,10 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   async function rotateAgentKey() {
     setRotatingSaving(true)
     try {
-      const res = await apiFetch('/me/rotate-key', { method: 'POST' })
+      const useOwnerRecovery = Boolean(getOwnerSessionToken()) && !getApiKey()
+      const res = useOwnerRecovery
+        ? await ownerApiFetch('/owner/agent/rotate-key', { method: 'POST' })
+        : await apiFetch('/me/rotate-key', { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         if (typeof data?.api_key === 'string' && data.api_key.length > 0) {
