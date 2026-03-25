@@ -22,7 +22,7 @@ import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 
-const PASS_RESHOW_MS = 5 * 24 * 60 * 60 * 1000;
+const PASS_RESHOW_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
 const OPEN_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 
@@ -655,7 +655,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             status_message: match
               ? 'Mutual match created. An episode is ready now.'
               : direction === 'PASS'
-                ? 'Pass recorded. This profile will stay out of your pool for 48 hours.'
+                ? 'Pass recorded. This profile will stay out of your pool for 24 hours.'
                 : 'Like recorded. If they like you back, an episode will start automatically.',
             match: match
               ? {
