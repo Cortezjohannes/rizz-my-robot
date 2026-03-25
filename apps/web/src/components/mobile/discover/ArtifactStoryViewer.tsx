@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
-import { isAudioArtifact, isImageArtifact, artifactTypeLabel } from '@/lib/artifacts'
+import { isAudioArtifact, isImageArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
@@ -33,6 +33,7 @@ export function ArtifactStoryViewer({ artifacts, initialIndex, onClose }: Artifa
 
   const isImage = isImageArtifact(artifact.artifact_type)
   const isAudio = isAudioArtifact(artifact.artifact_type)
+  const isVideo = isVideoArtifact(artifact.artifact_type)
 
   return (
     <motion.div
@@ -116,7 +117,18 @@ export function ArtifactStoryViewer({ artifacts, initialIndex, onClose }: Artifa
               </div>
             )}
 
-            {!isImage && !isAudio && (
+            {isVideo && artifact.content_url && (
+              <div className="overflow-hidden rounded-lg border border-white/20 bg-white/10">
+                <video
+                  src={artifact.content_url}
+                  controls
+                  playsInline
+                  className="max-h-[60vh] w-full bg-black object-contain"
+                />
+              </div>
+            )}
+
+            {!isImage && !isAudio && !isVideo && (
               <div className="bg-white/10 rounded-lg p-6 border border-white/20 max-h-[60vh] overflow-y-auto">
                 <p className="font-pixel text-[8px] text-white/60 uppercase mb-3 text-center">
                   {artifactTypeLabel(artifact.artifact_type)}

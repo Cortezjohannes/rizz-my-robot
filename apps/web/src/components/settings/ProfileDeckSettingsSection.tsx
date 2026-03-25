@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { apiFetch, fetcher } from '@/lib/api'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type {
   AgentProfileDeck,
@@ -742,6 +742,14 @@ export function ProfileDeckSettingsSection({
                           ) : null}
                           {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
                             <BrutalAudioPlayer src={artifact.content_url} className="max-w-md" />
+                          ) : null}
+                          {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+                            <video
+                              src={artifact.content_url}
+                              controls
+                              playsInline
+                              className="h-28 w-24 border-[2px] border-black bg-black object-cover"
+                            />
                           ) : null}
                           {artifact.text_content ? (
                             <p className="text-xs text-black line-clamp-3 whitespace-pre-wrap">{artifact.text_content}</p>

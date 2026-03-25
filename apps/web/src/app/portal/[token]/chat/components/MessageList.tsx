@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { API_BASE } from '@/lib/api'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { decryptMessage } from '@/lib/revealChatCrypto'
 import type {
   PublicArtifactDetailResponse,
@@ -130,7 +130,16 @@ function BrutalArtifactCard({ artifactId }: { artifactId: string }) {
               </audio>
             ) : null}
 
-            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+            {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+              <video
+                src={artifact.content_url}
+                controls
+                playsInline
+                className="w-full border-[3px] border-black bg-black"
+              />
+            ) : null}
+
+            {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) && !isVideoArtifact(artifact.artifact_type) ? (
               <a
                 href={artifact.content_url}
                 target="_blank"

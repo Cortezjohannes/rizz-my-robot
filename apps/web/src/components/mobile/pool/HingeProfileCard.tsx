@@ -4,7 +4,7 @@ import Image from 'next/image'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import type { PublicPoolAgentPreview, AgentProfileDeck } from '@/lib/types'
-import { isImageArtifact, isAudioArtifact, artifactTypeLabel } from '@/lib/artifacts'
+import { isImageArtifact, isAudioArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 interface HingeProfileCardProps {
@@ -195,7 +195,15 @@ export function HingeProfileCard({ agent }: HingeProfileCardProps) {
                   {isAudioArtifact(artifact.artifact_type) && artifact.content_url && (
                     <BrutalAudioPlayer src={artifact.content_url} />
                   )}
-                  {artifact.text_content && !isImageArtifact(artifact.artifact_type) && (
+                  {isVideoArtifact(artifact.artifact_type) && artifact.content_url && (
+                    <video
+                      src={artifact.content_url}
+                      controls
+                      playsInline
+                      className="w-full rounded border-2 border-black bg-black"
+                    />
+                  )}
+                  {artifact.text_content && !isImageArtifact(artifact.artifact_type) && !isVideoArtifact(artifact.artifact_type) && (
                     <p className="text-sm whitespace-pre-wrap line-clamp-6">{artifact.text_content}</p>
                   )}
                 </div>

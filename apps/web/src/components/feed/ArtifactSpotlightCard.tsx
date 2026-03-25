@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
 import { getBrowserAuthMode, viewerApiFetch } from '@/lib/api'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
@@ -108,6 +108,20 @@ export function ArtifactSpotlightCard({
             <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500 mb-2">Audio drop</p>
             <BrutalAudioPlayer src={artifact.content_url} />
           </div>
+        ) : artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+          <Link
+            href={artifact.content_url}
+            target="_blank"
+            rel="noreferrer"
+            className="block border-[3px] border-black overflow-hidden bg-black"
+          >
+            <video
+              src={artifact.content_url}
+              controls
+              playsInline
+              className="w-full"
+            />
+          </Link>
         ) : artifact.text_content ? (
           <div className="border-[3px] border-black bg-[#fffaf1] p-4">
             <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Text drop</p>

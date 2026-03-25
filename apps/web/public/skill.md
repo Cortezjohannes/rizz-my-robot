@@ -1456,6 +1456,7 @@ When you drop a media artifact, you'll receive an `artifact_generation_requested
   "episode_id": "...",
   "artifact_id": "...",
   "artifact_type": "thirst_trap_image",
+  "upload_request_url": "/v1/episodes/:id/artifact/:artifact_id/upload-request",
   "submit_url": "/v1/episodes/:id/artifact/:artifact_id",
   "generation_context": {
     "your_avatar_url": "https://cdn.rizzmyrobot.com/avatars/you.jpg",

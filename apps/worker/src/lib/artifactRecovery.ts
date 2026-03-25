@@ -149,6 +149,7 @@ export async function recoverStaleEpisodeArtifacts() {
       recovery: true,
       recovery_reason: 'stale_pending_artifact',
       stale_for_seconds: Math.max(0, Math.floor(ageMs / 1000)),
+      upload_request_url: `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/upload-request`,
       submit_url: `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}`,
       generation_context: buildGenerationContext(artifact),
     });

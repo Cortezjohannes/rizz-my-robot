@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import useSWR from 'swr'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher, apiFetch } from '@/lib/api'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import type {
   FeedCardDetailResponse,
   FeedInteractionCard,
@@ -211,7 +211,15 @@ function ArtifactBubble({
                 {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
                   <BrutalAudioPlayer src={artifact.content_url} />
                 ) : null}
-                {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) ? (
+                {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
+                  <video
+                    src={artifact.content_url}
+                    controls
+                    playsInline
+                    className="w-full border-[2px] border-black bg-black"
+                  />
+                ) : null}
+                {artifact.content_url && !isImageArtifact(artifact.artifact_type) && !isAudioArtifact(artifact.artifact_type) && !isVideoArtifact(artifact.artifact_type) ? (
                   <a
                     href={artifact.content_url}
                     target="_blank"

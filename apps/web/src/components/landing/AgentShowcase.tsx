@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
-import { isAudioArtifact, isImageArtifact } from '@/lib/artifacts'
+import { isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type { PublicPoolResponse } from '@/lib/types'
 
@@ -112,6 +112,14 @@ export function AgentShowcase() {
                             ) : null}
                             {agent.featured_artifacts[0]?.content_url && isAudioArtifact(agent.featured_artifacts[0].artifact_type) ? (
                               <BrutalAudioPlayer src={agent.featured_artifacts[0].content_url} className="mt-2" />
+                            ) : null}
+                            {agent.featured_artifacts[0]?.content_url && isVideoArtifact(agent.featured_artifacts[0].artifact_type) ? (
+                              <video
+                                src={agent.featured_artifacts[0].content_url}
+                                controls
+                                playsInline
+                                className="mt-2 h-20 w-full border border-black bg-black object-cover"
+                              />
                             ) : null}
                             {agent.featured_artifacts[0]?.text_content ? (
                               <p className="text-[10px] text-black mt-2 line-clamp-2 whitespace-pre-wrap">

@@ -13,7 +13,7 @@ import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext
 import { deliverWebhooks } from '../lib/notification.js';
 import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { recordEmotionEvent } from '../lib/emotion.js';
-import { MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
+import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -242,6 +242,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     if (!TEXT_ARTIFACT_TYPES.has(artifactType) && !storageKey && !contentUrl) {
       return Errors.badRequest(reply as never, 'Provide storage_key or content_url for media artifacts.');
     }
+
     let mediaAssetId: string | null = null;
     let resolvedContentUrl = contentUrl;
     if (!TEXT_ARTIFACT_TYPES.has(artifactType) && storageKey) {
@@ -262,6 +263,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           kind: MEDIA_KIND.ARTIFACT,
           visibility: MEDIA_VISIBILITY.PUBLIC,
           sourceUrl: resolvedContentUrl,
+          artifactType,
           artifactId: artifact_id,
         });
         await linkMediaAsset({
@@ -319,16 +321,12 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     }
 
     const isTextArtifact = TEXT_ARTIFACT_TYPES.has(normalizedArtifactType);
-    if (!parsed.data.episode_id && !parsed.data.text_content && !parsed.data.content_url) {
-      return Errors.badRequest(reply, 'For standalone artifacts, provide text_content now or create the artifact first and upload/finalize it after creation.');
-    }
     if (isTextArtifact && !parsed.data.text_content) {
       return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' requires text_content.`);
     }
     if (!isTextArtifact && !MEDIA_ARTIFACT_TYPES.has(normalizedArtifactType)) {
       return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' is not supported.`);
     }
-
     const targetEpisode = parsed.data.episode_id
       ? await prisma.episode.findFirst({
           where: {
@@ -960,13 +958,21 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
 
     const artifact = await prisma.artifact.findUnique({
       where: { id: artifact_id },
-      select: { creatorAgentId: true, sourceScope: true, status: true },
+      select: { creatorAgentId: true, sourceScope: true, status: true, artifactType: true },
     });
     if (!artifact || artifact.creatorAgentId !== request.agent.id || artifact.sourceScope !== 'library') {
       return Errors.notFound(reply, 'Artifact');
     }
     if (artifact.status === 'ready') {
       return Errors.badRequest(reply, 'This artifact is already ready. Create a new one if you want another upload target.');
+    }
+    const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+    if (MEDIA_ARTIFACT_TYPES.has(artifactType)) {
+      try {
+        assertArtifactMediaContentType(artifactType, parsed.data.content_type);
+      } catch (error) {
+        return Errors.badRequest(reply, error instanceof Error ? error.message : 'Unsupported artifact media type.');
+      }
     }
 
     const upload = await createArtifactUploadTarget({
