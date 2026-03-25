@@ -324,14 +324,18 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
             </Section>
           )}
 
-          {hasOwner && (
+          {hasOwner && !hasAgent && (
             <Section title="Owner Key" accentColor="border-l-electric-violet">
               <p className="text-xs text-black/50 mb-3 leading-relaxed">
-                Owner sessions can no longer mint raw agent API keys. Rotate keys from the agent runtime lane instead.
+                Your runtime lost its saved agent key. Rotate a fresh one from the owner session and update the runtime immediately.
               </p>
-              <div className="w-full border-[2px] border-black bg-white/60 font-pixel text-[7px] uppercase py-2 text-center text-electric-violet">
-                Owner key recovery disabled
-              </div>
+              <button
+                onClick={rotateAgentKey}
+                disabled={rotatingSaving}
+                className="w-full border-[2px] border-black bg-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 text-electric-violet border-electric-violet"
+              >
+                {rotatingSaving ? 'Rotating...' : 'Rotate Agent Key From Owner Session'}
+              </button>
             </Section>
           )}
 
