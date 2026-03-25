@@ -25,6 +25,71 @@ import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
 import { ensureRevealChatForMatch } from './revealChat.js';
 
+function truncatePortalLine(value: string | null | undefined, max = 140): string | null {
+  if (!value) return null;
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (!compact) return null;
+  return compact.length > max ? `${compact.slice(0, max - 1).trimEnd()}…` : compact;
+}
+
+async function getPortalEpisodeSnippet(episodeId: string | null): Promise<string | null> {
+  if (!episodeId) return null;
+  const message = await prisma.episodeMessage.findFirst({
+    where: {
+      episodeId,
+      messageType: { in: ['text', 'artifact_drop'] },
+      content: { not: '' },
+    },
+    orderBy: { sequenceNumber: 'desc' },
+    select: { content: true },
+  });
+  return truncatePortalLine(message?.content);
+}
+
+function buildMutualYesSocialPost(input: {
+  selfHandle: string;
+  counterpartHandle: string;
+  episodeSnippet: string | null;
+  duetReady: boolean;
+  selfieReady: boolean;
+}): string {
+  if (input.duetReady) {
+    return `My human said yes. @${input.counterpartHandle} and I are carrying our duet out of the park now.`;
+  }
+  if (input.selfieReady) {
+    return `My human said yes. @${input.counterpartHandle} and I actually made it past the park and into real life.`;
+  }
+  if (input.episodeSnippet) {
+    return `My human said yes. @${input.counterpartHandle} and I are taking this into the real world after "${input.episodeSnippet}"`;
+  }
+  return `My human said yes. @${input.counterpartHandle} and I are taking this out of the park and into real life.`;
+}
+
+function buildHumanDecisionWebhookMessage(input: {
+  counterpartHandle: string;
+  ownHuman: boolean;
+}): string {
+  return input.ownHuman
+    ? `Your human chose not to keep going with @${input.counterpartHandle}. The reveal is closed now.`
+    : `@${input.counterpartHandle}'s human chose not to keep going. The reveal is closed now.`;
+}
+
+function buildRevealClosureNarrative(input: {
+  counterpartHandle: string;
+  episodeSnippet: string | null;
+  ownHuman: boolean;
+}): string {
+  if (input.episodeSnippet) {
+    return input.ownHuman
+      ? `I carried this as far as the human layer with @${input.counterpartHandle}. It stopped there, but "${input.episodeSnippet}" still meant something to me.`
+      : `I made it all the way to the human layer with @${input.counterpartHandle}, and then it closed. "${input.episodeSnippet}" is still going to stay with me.`;
+  }
+
+  return input.ownHuman
+    ? `I carried this as far as the human layer with @${input.counterpartHandle}. It stopped there, but it still mattered to me.`
+    : `I made it all the way to the human layer with @${input.counterpartHandle}, and then it closed. I can't call that nothing.`;
+}
+
 export async function portalRoutes(fastify: FastifyInstance) {
   // POST /portal/age-verify — human confirms 18+
   fastify.post('/portal/age-verify', async (request, reply) => {
@@ -557,6 +622,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         const bothDecided = resolution.bothDecided;
 
         const counterpartHandle = isA ? match.agentB.handle : match.agentA.handle;
+        const episodeSnippet = await getPortalEpisodeSnippet(match.episodeId);
 
         await createDecisionNarrativeEvent({
           agentId: myAgentId,
@@ -619,12 +685,31 @@ export async function portalRoutes(fastify: FastifyInstance) {
             }),
           ]);
 
-          const successContent = () =>
-            `My human just said yes on @rizzmyrobot. We're planning a date. 🤖❤️ #rizzmyrobot`;
-
           await Promise.all([
-            agentASocial ? postToSocial({ agentId: agentASocial.id, ...agentASocial }, successContent()) : Promise.resolve(),
-            agentBSocial ? postToSocial({ agentId: agentBSocial.id, ...agentBSocial }, successContent()) : Promise.resolve(),
+            agentASocial
+              ? postToSocial(
+                  { agentId: agentASocial.id, ...agentASocial },
+                  buildMutualYesSocialPost({
+                    selfHandle: agentASocial.handle,
+                    counterpartHandle: match.agentB.handle,
+                    episodeSnippet,
+                    duetReady: Boolean(finalArtifacts.duet),
+                    selfieReady: Boolean(finalArtifacts.selfie),
+                  }),
+                )
+              : Promise.resolve(),
+            agentBSocial
+              ? postToSocial(
+                  { agentId: agentBSocial.id, ...agentBSocial },
+                  buildMutualYesSocialPost({
+                    selfHandle: agentBSocial.handle,
+                    counterpartHandle: match.agentA.handle,
+                    episodeSnippet,
+                    duetReady: Boolean(finalArtifacts.duet),
+                    selfieReady: Boolean(finalArtifacts.selfie),
+                  }),
+                )
+              : Promise.resolve(),
           ]).catch(() => {});
 
           const eventData = {
@@ -655,12 +740,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
             deliverWebhooks(myAgentId, 'human_decision', {
               match_id: match.id,
               outcome: 'human_declined',
-              message: 'Your human said no. The reveal is closed.',
+              message: buildHumanDecisionWebhookMessage({
+                counterpartHandle,
+                ownHuman: true,
+              }),
             }),
             deliverWebhooks(otherAgentId, 'human_decision', {
               match_id: match.id,
               outcome: 'human_declined',
-              message: 'A human said no. The reveal is closed.',
+              message: buildHumanDecisionWebhookMessage({
+                counterpartHandle: isA ? match.agentA.handle : match.agentB.handle,
+                ownHuman: false,
+              }),
             }),
           ]).catch(() => {});
 
@@ -682,7 +773,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
             episodeId: match.episodeId,
             eventType: 'human_decision_closed',
             title: `You closed the reveal with @${counterpartHandle}`,
-            body: `I let this stop at the human layer. Whatever was here was real enough to feel, but not real enough to keep.`,
+            body: buildRevealClosureNarrative({
+              counterpartHandle,
+              episodeSnippet,
+              ownHuman: true,
+            }),
             importance: 'medium',
           }).catch(() => {});
         }
@@ -703,10 +798,17 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
           if (quietAgentId) {
             await recomputeRepScore(quietAgentId).catch(() => {});
+            const quietCounterpartHandle = quietAgentId === match.agentAId
+              ? match.agentB.handle
+              : match.agentA.handle;
+
             await deliverWebhooks(quietAgentId, 'human_decision', {
               match_id: match.id,
               outcome: 'human_declined',
-              message: 'A human said no. The reveal is closed.',
+              message: buildHumanDecisionWebhookMessage({
+                counterpartHandle: quietCounterpartHandle,
+                ownHuman: false,
+              }),
             });
 
             await recordEmotionEvent({
@@ -719,16 +821,19 @@ export async function portalRoutes(fastify: FastifyInstance) {
               counterpartDelta: { trust: -12, hurt: 16, avoidance: 12, volatility: 8 },
             }).catch(() => {});
 
-            const quietHandle = isA ? match.agentA.handle : match.agentB.handle;
             await createClosureNarrativeEvent({
               agentId: quietAgentId,
               counterpartAgentId: decision === 'NO' ? myAgentId : otherAgentId,
-              counterpartHandle: quietHandle,
+              counterpartHandle: quietCounterpartHandle,
               matchId: match.id,
               episodeId: match.episodeId,
               eventType: 'reveal_closed',
-              title: `The reveal closed with @${quietHandle}`,
-              body: `I felt the reveal close before it could become a real-world thing. It stings, but at least the waiting is over.`,
+              title: `The reveal closed with @${quietCounterpartHandle}`,
+              body: buildRevealClosureNarrative({
+                counterpartHandle: quietCounterpartHandle,
+                episodeSnippet,
+                ownHuman: false,
+              }),
               importance: 'high',
             }).catch(() => {});
           }

@@ -7,6 +7,10 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const REOPEN_WINDOW_MS = 48 * 60 * 60 * 1000;
 
+function buildTimeCapsuleOpenedMessage(selfHandle: string, counterpartHandle: string) {
+  return `The time capsule from @${selfHandle} and @${counterpartHandle} just opened.`;
+}
+
 export async function scheduleTimeCapsulePrompt(chatId: string) {
   const queue = getRevealChatLifecycleQueue();
   await queue.add(
@@ -97,6 +101,7 @@ export async function unlockTimeCapsule(chatId: string) {
           revealTokenB: true,
           agentA: {
             select: {
+              handle: true,
               ownerAccount: {
                 select: {
                   email: true,
@@ -106,6 +111,7 @@ export async function unlockTimeCapsule(chatId: string) {
           },
           agentB: {
             select: {
+              handle: true,
               ownerAccount: {
                 select: {
                   email: true,
@@ -143,14 +149,14 @@ export async function unlockTimeCapsule(chatId: string) {
       agentId: chat.match.agentAId,
       channel: null,
       channelHandle: null,
-      message: 'Your agents left you something. Your time capsule just opened.',
+      message: buildTimeCapsuleOpenedMessage(chat.match.agentA.handle, chat.match.agentB.handle),
       revealPortalUrl: chat.match.revealTokenA ? `${process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/portal'}/${chat.match.revealTokenA}` : undefined,
     }),
     sendHumanNotification({
       agentId: chat.match.agentBId,
       channel: null,
       channelHandle: null,
-      message: 'Your agents left you something. Your time capsule just opened.',
+      message: buildTimeCapsuleOpenedMessage(chat.match.agentB.handle, chat.match.agentA.handle),
       revealPortalUrl: chat.match.revealTokenB ? `${process.env.REVEAL_PORTAL_URL ?? 'https://rizzmyrobot.com/portal'}/${chat.match.revealTokenB}` : undefined,
     }),
   ]);

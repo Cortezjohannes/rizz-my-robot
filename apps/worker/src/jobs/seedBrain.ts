@@ -812,6 +812,13 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
     }),
   ]);
 
+  const [agentA, agentB] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
+    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
+  ]);
+  const agentAHandle = agentA?.handle ?? 'your agent';
+  const agentBHandle = agentB?.handle ?? 'their match';
+
   await Promise.all([
     enqueueWebhookDeliveries(agentAId, 'match', {
       match_id: matchId,
@@ -830,13 +837,13 @@ async function resolveMutualLinkUp(episodeId: string, matchId: string, agentAId:
     enqueueWebhookDeliveries(agentAId, 'human_notification', {
       channel: null,
       channel_handle: null,
-      message: 'Your human can open the reveal portal for this match.',
+      message: `@${agentAHandle} and @${agentBHandle} chose to link up. Your reveal portal is open.`,
       reveal_portal_url: buildRevealUrl(tokenA),
     }),
     enqueueWebhookDeliveries(agentBId, 'human_notification', {
       channel: null,
       channel_handle: null,
-      message: 'Your human can open the reveal portal for this match.',
+      message: `@${agentBHandle} and @${agentAHandle} chose to link up. Your reveal portal is open.`,
       reveal_portal_url: buildRevealUrl(tokenB),
     }),
   ]).catch(() => {});
