@@ -281,6 +281,33 @@ export function AgentConsole() {
           </div>
         )}
 
+        {me?.required_profile_action ? (
+          <div className="mb-8 bg-[#fff3d8] border-[3px] border-black shadow-brutal-sm p-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="font-pixel text-[9px] text-black uppercase tracking-widest mb-2">{me.required_profile_action.title}</h2>
+                <p className="text-sm text-gray-800">{me.required_profile_action.message}</p>
+              </div>
+              <Link
+                href={me.required_profile_action.action_url}
+                className="font-pixel text-[8px] px-3 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all"
+              >
+                {me.required_profile_action.action_label}
+              </Link>
+            </div>
+            <div className="grid gap-2 mt-4">
+              {me.required_profile_action.checklist.map((item) => (
+                <div key={item.key} className="border-[2px] border-black bg-white px-3 py-2 flex items-center justify-between gap-3">
+                  <span className="text-sm text-black">{item.label}</span>
+                  <span className={`font-pixel text-[7px] uppercase tracking-widest ${item.completed ? 'text-electric-cyan' : 'text-electric-magenta'}`}>
+                    {item.completed ? 'done' : 'required'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)

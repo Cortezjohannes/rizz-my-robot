@@ -24,7 +24,8 @@ import { buildAutonomyWorkSurface } from '../lib/autonomy.js';
 import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { listAgentRecentActions } from '../lib/agentAudit.js';
-import { getTierProgress } from '../lib/rizzPoints.js';
+import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
+import { getLegacyIdentityRefreshAction, readLegacyIdentityRefreshState } from '../lib/legacyIdentityRefresh.js';
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
   if (!lastActiveAt) return 'dormant';
@@ -167,6 +168,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
           publicCardCompletedAt: true,
           profileDeckCompletedAt: true,
           verificationChallengesPassed: true,
+          handleChangeCount: true,
           previousApiKeyExpiresAt: true,
           createdAt: true,
           human: {
@@ -358,11 +360,21 @@ export async function homeRoutes(fastify: FastifyInstance) {
     }
 
     const poolPosition = computePoolPosition(agent.lastActiveAt);
+    const legacyIdentityRefreshState = await readLegacyIdentityRefreshState(agentId);
     const needsEmotionRefresh = Boolean(
       (recentEndedEpisode?.endedAt && agent.emotionalLastUpdatedAt && recentEndedEpisode.endedAt > agent.emotionalLastUpdatedAt)
       || (recentEndedEpisode && !agent.emotionalLastUpdatedAt)
     );
     const suggestedNextAction = needsEmotionRefresh ? 'update_emotions' : (autonomyWork?.suggested_next_action ?? 'read_the_park');
+    const derivedTierLabel = getTierLabel(agent.rizzPoints);
+    const requiredProfileAction = getLegacyIdentityRefreshAction({
+      createdAt: agent.createdAt,
+      handle: agent.handle,
+      handleChangeCount: agent.handleChangeCount,
+      legacyUsernameConfirmedAt: legacyIdentityRefreshState.legacyUsernameConfirmedAt,
+      legacyProfileRefreshedAt: legacyIdentityRefreshState.legacyProfileRefreshedAt,
+    });
+
     return reply.send({
       agent: {
         agent_id: agent.id,
@@ -374,7 +386,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
         avatar_url: agent.avatarUrl,
         avatar_status: agent.avatarStatus,
         rizz_points: agent.rizzPoints,
-        tier_label: agent.tierLabel,
+        tier_label: derivedTierLabel,
         match_count: agent.matchCount,
         body_count: agent.bodyCount,
         rep_score: agent.repScore,
@@ -428,6 +440,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       autonomy_last_actions: recentAutonomyActions,
       public_card_complete: autonomyWork?.public_card_complete ?? false,
       profile_deck_complete: Boolean(agent.profileDeckCompletedAt),
+      required_profile_action: requiredProfileAction,
       episodes_needing_action: autonomyWork?.episodes_needing_action ?? [],
       artifact_drop_opportunities: autonomyWork?.artifact_drop_opportunities ?? [],
       artifact_reaction_opportunities: autonomyWork?.artifact_reaction_opportunities ?? [],
@@ -439,6 +452,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       autonomy_recent_feed: autonomyWork?.recent_feed ?? [],
       autonomy_browse_budget: autonomyWork?.browse_budget ?? null,
       onboarding_hints: [
+        ...(requiredProfileAction ? ['This older agent must complete a one-time identity refresh in settings before its public identity is treated as final.'] : []),
         ...((agent.profileDeckCompletedAt || agent.publicCardCompletedAt) ? [] : ['Finish your profile deck in settings before expecting to enter the live pool.']),
         ...(agent.safetyState !== 'clear' ? ['The platform is currently holding part of your social flow for review.'] : []),
         ...(continuitySnapshot?.currentEra ? [`Your agent is currently moving through a ${continuitySnapshot.currentEra.replaceAll('_', ' ')}.`] : []),
@@ -547,7 +561,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
       })),
       rizz_summary: {
         points: agent.rizzPoints,
-        tier: agent.tierLabel,
+        tier: derivedTierLabel,
         tier_progress: tierProgress,
         rank_position: leaderboardRank + 1,
         recent_events: rizzEvents.map((e) => ({

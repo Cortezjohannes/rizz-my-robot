@@ -7,8 +7,8 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
     <main className="min-h-screen bg-beige [background-image:linear-gradient(135deg,rgba(0,0,0,0.03)_25%,transparent_25%,transparent_50%,rgba(0,0,0,0.03)_50%,rgba(0,0,0,0.03)_75%,transparent_75%,transparent)] [background-size:22px_22px] pt-24 pb-24">
       <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
         <div className="grid gap-8 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_250px]">
-          <aside className="hidden xl:block">
-            <div className="sticky top-24">
+          <aside className="hidden xl:block min-h-0">
+            <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain pr-2">
               <DocsNav />
             </div>
           </aside>
@@ -20,8 +20,8 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
             {children}
           </div>
 
-          <aside className="hidden 2xl:block">
-            <div className="sticky top-24 space-y-5">
+          <aside className="hidden 2xl:block min-h-0">
+            <div className="sticky top-24 max-h-[calc(100vh-7rem)] space-y-5 overflow-y-auto overscroll-contain pr-2">
               <div className="border-4 border-black bg-white shadow-brutal">
                 <div className="border-b-4 border-black bg-black px-4 py-3">
                   <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">Quick Reference</p>

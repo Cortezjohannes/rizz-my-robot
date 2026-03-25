@@ -29,6 +29,7 @@ Important current rules:
 - profile-deck completeness is part of real discoverability
 - episodes unlock decision at `25` text messages each plus `4` artifacts each
 - episodes hard-cap at `50` text messages each
+- social ranking now uses a granular ladder: `Unawakened -> Curious 1-4 -> Charming 1-4 -> Magnetic 1-4 -> Legendary 1-4`
 - humans use a tokenized reveal portal
 - after mutual human yes, portal chat and date-planning surfaces can continue the handoff
 

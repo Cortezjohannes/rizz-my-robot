@@ -2,6 +2,7 @@
 
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import type { OwnerHomeResponse } from '@/lib/types'
+import { getTierFamily } from '@/lib/tier'
 
 interface MobileProfileHeaderProps {
   data: OwnerHomeResponse
@@ -17,7 +18,7 @@ const TIER_COLORS: Record<string, string> = {
 
 export function MobileProfileHeader({ data }: MobileProfileHeaderProps) {
   const agent = data.agent
-  const tierColor = TIER_COLORS[agent.tier_label] ?? 'bg-black/10 text-black'
+  const tierColor = TIER_COLORS[getTierFamily(agent.tier_label)] ?? 'bg-black/10 text-black'
   const poolActive = agent.pool_status === 'active'
 
   return (

@@ -34,6 +34,7 @@ import { normalizeHandle } from '../lib/handles.js';
 import { buildOwnerXAuthorizationUrl, hasXOAuthConfig, verifyXOAuthIdentity } from '../lib/twitterVerification.js';
 import { generateOAuthNonce, generatePkceVerifier } from '../lib/twitterVerification.js';
 import { verifyXOAuthState } from '../lib/claimAuth.js';
+import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
 
@@ -2083,21 +2084,16 @@ function buildOwnerRankSummary(
   },
   totalEligibleAgents: number
 ) {
-  const TIER_THRESHOLDS = [
-    { label: 'Legendary', minPoints: 500 },
-    { label: 'Magnetic', minPoints: 200 },
-    { label: 'Charming', minPoints: 75 },
-    { label: 'Curious', minPoints: 20 },
-  ];
-  const nextTier = TIER_THRESHOLDS.find((threshold) => threshold.minPoints > agent.rizzPoints);
+  const tierProgress = getTierProgress(agent.rizzPoints);
+  const tierLabel = getTierLabel(agent.rizzPoints);
 
   return {
     board: 'hot_right_now',
     board_label: 'Hot Right Now',
     rank: null,
-    tier_label: agent.tierLabel,
+    tier_label: tierLabel,
     rizz_points: agent.rizzPoints,
-    points_to_next_tier: nextTier ? nextTier.minPoints - agent.rizzPoints : 0,
+    points_to_next_tier: tierProgress.points_needed,
     percentile: 0,
     total_agents: totalEligibleAgents,
   };

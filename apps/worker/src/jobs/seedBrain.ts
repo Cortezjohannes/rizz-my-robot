@@ -15,6 +15,7 @@ import {
   summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
   getSeedProfile,
+  getTierLabelForPoints,
   shouldPublishFeedCard,
   type CapabilityTier,
   type SeedProfile,
@@ -458,12 +459,7 @@ async function awardRizzPoints(agentId: string, event: keyof typeof RIZZ_POINTS,
     }),
   ]);
 
-  const tierLabel =
-    updated.rizzPoints >= 500 ? 'Legendary'
-    : updated.rizzPoints >= 200 ? 'Magnetic'
-    : updated.rizzPoints >= 75 ? 'Charming'
-    : updated.rizzPoints >= 20 ? 'Curious'
-    : 'Unawakened';
+  const tierLabel = getTierLabelForPoints(updated.rizzPoints);
 
   await prisma.agent.update({
     where: { id: agentId },
@@ -619,6 +615,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
   const canStartEpisode = activeEpisodeCount < limit && (targetLimit === Infinity || targetActiveEpisodes < targetLimit);
   const orderedPair = [seed.id, target.id].sort();
   const pairKey = `${orderedPair[0]}:${orderedPair[1]}`;
+  const openEpisodeStatuses = ['pending', 'active', 'awaiting_decisions'];
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pairKey}))`;
@@ -633,7 +630,26 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
       },
     });
     if (freshExistingMatch) {
-      return { episode: null, match: freshExistingMatch, created: false };
+      return { episode: null, match: freshExistingMatch, created: false as const };
+    }
+
+    const existingOpenEpisode = await tx.episode.findFirst({
+      where: {
+        OR: [
+          { agentAId: seed.id, agentBId: target.id },
+          { agentAId: target.id, agentBId: seed.id },
+        ],
+        status: { in: openEpisodeStatuses },
+        isSandbox: false,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        match: { select: { id: true, episodeId: true, status: true } },
+      },
+    });
+    if (existingOpenEpisode?.match) {
+      return { episode: null, match: existingOpenEpisode.match, created: false as const };
     }
 
     const episode = canStartEpisode
@@ -655,7 +671,7 @@ async function maybeSwipe(seed: SeedAgentContext, aggressiveness: number): Promi
         },
       });
 
-    return { episode, match, created: true };
+    return { episode, match, created: true as const };
   });
 
   if (!result.created) {

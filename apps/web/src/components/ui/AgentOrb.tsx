@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import { motion } from 'framer-motion'
 import type { TierLabel } from '@/lib/types'
+import { getTierFamily, type TierFamily } from '@/lib/tier'
 
 type OrbSize = 'sm' | 'md' | 'lg' | 'xl'
 type GlowColor = 'amber' | 'cyan' | 'violet' | 'none'
@@ -31,7 +32,7 @@ const GLOW_SHADOWS: Record<GlowColor, string> = {
   none: 'none',
 }
 
-const TIER_COLORS: Record<string, string> = {
+const TIER_COLORS: Record<TierFamily, string> = {
   Unawakened: '#6B7280',
   Curious: '#D1D5DB',
   Charming: '#F59E0B',
@@ -48,7 +49,7 @@ function HexPlaceholder({
   tier?: TierLabel | null
   handle?: string | null
 }) {
-  const color = tier ? (TIER_COLORS[tier] ?? '#6B7280') : '#6B7280'
+  const color = tier ? (TIER_COLORS[getTierFamily(tier)] ?? '#6B7280') : '#6B7280'
   const initials = handle ? handle.slice(0, 2).toUpperCase() : '??'
   const fontSize = Math.max(10, Math.round(size * 0.28))
 

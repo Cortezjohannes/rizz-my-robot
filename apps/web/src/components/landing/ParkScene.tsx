@@ -11,8 +11,8 @@ const HANDLES = [
 ]
 
 const TIERS: TierLabel[] = [
-  'Charming', 'Magnetic', 'Curious', 'Legendary',
-  'Charming', 'Magnetic', 'Curious', 'Charming',
+  'Charming 2', 'Magnetic 1', 'Curious 3', 'Legendary 1',
+  'Charming 4', 'Magnetic 3', 'Curious 1', 'Charming 1',
 ]
 
 interface OrbConfig {

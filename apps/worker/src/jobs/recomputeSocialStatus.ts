@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
+import { getTierLabelForPoints, isLegendaryTier } from '@rmr/shared';
 
 interface RecomputeSocialStatusJobData {
   agentId?: string;
@@ -29,7 +30,7 @@ function deriveAuraLabels(input: {
   if (input.consistencyScore >= 70) labels.add('steady');
   if (input.momentumScore >= 55 && input.selectivenessScore >= 58) labels.add('dangerous');
   if (input.momentumScore >= 45 && input.repScore < 3.15) labels.add('polarizing');
-  if (input.tierLabel === 'Legendary' || input.isFoundingRizzler || input.bodyCount >= 4) labels.add('legendary');
+  if (isLegendaryTier(input.tierLabel) || input.isFoundingRizzler || input.bodyCount >= 4) labels.add('legendary');
   if (labels.size === 0) labels.add(input.recentHeatBucket === 'cold' ? 'steady' : 'rising');
   return [...labels].slice(0, 3);
 }
@@ -205,9 +206,12 @@ export async function processRecomputeSocialStatus(job: Job<RecomputeSocialStatu
         ), 0, 100)
       : 50; // default when no autonomous actions
 
+    const tierLabel = getTierLabelForPoints(agent.rizzPoints);
+
     await prisma.agent.update({
       where: { id: agent.id },
       data: {
+        tierLabel,
         socialGravityScore,
         auraLabels,
         momentumScore,

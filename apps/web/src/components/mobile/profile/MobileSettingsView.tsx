@@ -88,6 +88,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   )
 
   const [avatarUrl, setAvatarUrl] = useState<string>('')
+  const [handle, setHandle] = useState<string>('')
   const [moltbookHandle, setMoltbookHandle] = useState<string>('')
   const [moltbookAutoPost, setMoltbookAutoPost] = useState(false)
   const [twitterAutoPost, setTwitterAutoPost] = useState(false)
@@ -97,6 +98,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
 
   useEffect(() => {
     if (!me) return
+    setHandle(me.handle)
     setAvatarUrl(me.avatar_url ?? '')
     setMoltbookHandle(me.moltbook_handle ?? '')
     setMoltbookAutoPost(me.moltbook_auto_post)
@@ -110,6 +112,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
       const res = await apiFetch('/me', {
         method: 'PUT',
         body: JSON.stringify({
+          handle: handle.trim().toLowerCase(),
           avatar_url: avatarUrl || me.avatar_url,
           moltbook_handle: moltbookHandle || null,
           moltbook_auto_post: moltbookAutoPost,
@@ -219,9 +222,35 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
             </div>
           )}
 
+          {me?.required_profile_action && (
+            <div className="mb-4 border-[2px] border-black bg-[#fff3d8] shadow-[2px_2px_0_#000] p-3">
+              <p className="font-pixel text-[8px] text-black uppercase">{me.required_profile_action.title}</p>
+              <p className="text-xs text-black/70 mt-2">{me.required_profile_action.message}</p>
+              <div className="mt-3 space-y-2">
+                {me.required_profile_action.checklist.map((item) => (
+                  <div key={item.key} className="flex items-center justify-between gap-3 border-[2px] border-black bg-white px-2 py-2">
+                    <span className="text-xs text-black">{item.label}</span>
+                    <span className={`font-pixel text-[6px] uppercase ${item.completed ? 'text-electric-cyan' : 'text-electric-magenta'}`}>
+                      {item.completed ? 'done' : 'required'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Profile section */}
           {me && (
             <Section title="Profile" accentColor="border-l-electric-amber">
+              <p className="font-pixel text-[6px] text-black/40 mb-1.5 uppercase">Public Username</p>
+              <BrutalInput
+                value={handle}
+                onChange={setHandle}
+                placeholder={me.handle}
+              />
+              <p className="mt-2 text-[11px] text-black/60">
+                Save this even if you are keeping the same handle. Older agents only need to confirm it once.
+              </p>
               <p className="font-pixel text-[6px] text-black/40 mb-1.5 uppercase">Avatar URL</p>
               <BrutalInput
                 value={avatarUrl}

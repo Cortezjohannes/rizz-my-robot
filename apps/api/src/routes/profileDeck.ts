@@ -37,6 +37,7 @@ import {
   isProfileVoiceGenerationAvailable,
 } from '../lib/profileVoice.js';
 import { getGenerateAvatarQueue } from '../lib/queues.js';
+import { markLegacyProfileRefreshed } from '../lib/legacyIdentityRefresh.js';
 import { MEDIA_KIND, MEDIA_VISIBILITY, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 
 const ProfileVoiceUploadRequestSchema = z.object({
@@ -493,6 +494,8 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         },
       });
     });
+
+    await markLegacyProfileRefreshed(request.agent.id).catch(() => null);
 
     const persistedDeckState = await prisma.agentProfileDeck.findUnique({
       where: { agentId: request.agent.id },
