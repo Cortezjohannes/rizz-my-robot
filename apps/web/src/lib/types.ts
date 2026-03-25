@@ -1532,10 +1532,8 @@ export interface PortalRevealChatBootstrapResponse {
 
 export interface RevealChatParticipantKeyRecord {
   kind: RevealChatSenderKind
-  participantId: string
   publicKey: string
   joinedAt: string
-  lastReadAt: string | null
 }
 
 export interface RevealChatKeysResponse {
@@ -1546,7 +1544,6 @@ export interface RevealChatKeysResponse {
 export interface RevealChatMessageRecord {
   id: string
   senderKind: RevealChatSenderKind
-  senderId: string
   ciphertext: string
   iv: string
   authTag: string

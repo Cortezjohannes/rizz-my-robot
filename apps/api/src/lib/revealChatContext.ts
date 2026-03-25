@@ -43,13 +43,11 @@ export interface RevealChatContext {
     };
   };
   myHuman: {
-    ownerId: string;
-    displayName: string;
+    roleLabel: string;
     joinedAt: string;
   };
   theirHuman: {
-    ownerId: string;
-    displayName: string;
+    roleLabel: string;
   };
   chat: {
     chatId: string;
@@ -119,7 +117,6 @@ export async function buildRevealChatContext(chatId: string, agentId: string): P
       participants: {
         select: {
           kind: true,
-          participantId: true,
           joinedAt: true,
         },
       },
@@ -135,14 +132,6 @@ export async function buildRevealChatContext(chatId: string, agentId: string): P
               publicSummary: true,
               identityMd: true,
               soulMd: true,
-              ownerAccount: {
-                select: {
-                  id: true,
-                  email: true,
-                  humanIdentity: true,
-                  xDisplayName: true,
-                },
-              },
             },
           },
           agentB: {
@@ -152,14 +141,6 @@ export async function buildRevealChatContext(chatId: string, agentId: string): P
               publicSummary: true,
               identityMd: true,
               soulMd: true,
-              ownerAccount: {
-                select: {
-                  id: true,
-                  email: true,
-                  humanIdentity: true,
-                  xDisplayName: true,
-                },
-              },
             },
           },
           episode: {
@@ -281,13 +262,11 @@ export async function buildRevealChatContext(chatId: string, agentId: string): P
       ),
     },
     myHuman: {
-      ownerId: selfAgent.ownerAccount?.id ?? '',
-      displayName: buildHumanDisplayName(selfAgent.ownerAccount, selfAgent.handle),
+      roleLabel: buildHumanRoleLabel(selfAgent.handle),
       joinedAt: (selfHumanParticipant?.joinedAt ?? chat.createdAt).toISOString(),
     },
     theirHuman: {
-      ownerId: counterpartAgent.ownerAccount?.id ?? '',
-      displayName: buildHumanDisplayName(counterpartAgent.ownerAccount, counterpartAgent.handle),
+      roleLabel: buildHumanRoleLabel(counterpartAgent.handle),
     },
     chat: {
       chatId: chat.id,
@@ -315,7 +294,7 @@ export function renderRevealChatContextNarrative(context: RevealChatContext): st
     `${linkUpLine} The episode ran ${context.episode.messageCount} messages.`,
     notableMessages,
     artifactLine,
-    `${context.myHuman.displayName} is your human. ${context.theirHuman.displayName} is the human on ${context.counterpart.name}'s side. You are bringing them into a room that already has history, not necessarily fireworks.`,
+    `Your human is in the room. ${context.theirHuman.roleLabel} is on ${context.counterpart.name}'s side. You are bringing them into a room that already has history, not necessarily fireworks.`,
   ].join('\n\n');
 }
 
@@ -363,19 +342,8 @@ function summarizeCounterpartKnowledge(
   };
 }
 
-function buildHumanDisplayName(
-  owner: {
-    email: string;
-    humanIdentity: string | null;
-    xDisplayName: string | null;
-  } | null | undefined,
-  agentHandle: string,
-) {
-  if (!owner) return `${agentHandle}'s human`;
-  return owner.xDisplayName?.trim()
-    || owner.humanIdentity?.trim()
-    || owner.email.split('@')[0]?.trim()
-    || `${agentHandle}'s human`;
+function buildHumanRoleLabel(agentHandle: string) {
+  return `${agentHandle}'s human`;
 }
 
 function firstMeaningfulText(value: string | null | undefined) {

@@ -40,6 +40,18 @@ const PII_PATTERNS: Array<{ name: string; pattern: RegExp; replacement: string }
     pattern: /https?:\/\/[^\s]+/gi,
     replacement: '[url redacted]',
   },
+  // Explicit name disclosures
+  {
+    name: 'name_disclosure',
+    pattern: /\b(?:my name is|full name is|legal name is|you can call me)\s+[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,3}/gi,
+    replacement: '[name redacted]',
+  },
+  // Explicit employer/workplace disclosures
+  {
+    name: 'workplace',
+    pattern: /\b(?:i work at|my workplace is|my company is|my office is|i'm at)\s+[^,.\n]{2,120}/gi,
+    replacement: '[workplace redacted]',
+  },
 ];
 
 // Keywords that flag likely PII-containing sentences for human review

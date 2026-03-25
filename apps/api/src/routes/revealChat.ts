@@ -539,7 +539,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       emitRevealChatEvent(context.id, 'participant_joined', {
         chatId: context.id,
         kind: storedParticipant.kind,
-        participantId: storedParticipant.participantId,
         joinedAt: storedParticipant.joinedAt.toISOString(),
       });
     }
@@ -565,10 +564,8 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
         .filter((entry) => entry.kind !== participant.kind && hasExchangeablePublicKey(entry.publicKey))
         .map((entry) => ({
           kind: entry.kind,
-          participantId: entry.participantId,
           publicKey: entry.publicKey,
           joinedAt: entry.joinedAt.toISOString(),
-          lastReadAt: entry.lastReadAt?.toISOString() ?? null,
         })),
       encryptedSessionKey,
     });
@@ -605,7 +602,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       emitRevealChatEvent(context.id, 'participant_joined', {
         chatId: context.id,
         kind: participantRecord.kind,
-        participantId: participantRecord.participantId,
         joinedAt: participantRecord.joinedAt.toISOString(),
       });
     }
@@ -814,7 +810,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       return {
         id: message.id,
         senderKind: message.senderKind,
-        senderId: message.senderId,
         ciphertext: message.ciphertext,
         iv: message.iv,
         authTag: message.authTag,
@@ -879,7 +874,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     emitRevealChatEvent(context.id, 'participant_typing', {
       chatId: context.id,
       senderKind: participant.kind,
-      senderId: participant.participantId,
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + TYPING_AUTO_EXPIRE_MS).toISOString(),
     });
@@ -898,7 +892,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     emitRevealChatEvent(context.id, 'participant_typing_cancel', {
       chatId: context.id,
       senderKind: participant.kind,
-      senderId: participant.participantId,
       createdAt: new Date().toISOString(),
     });
 
@@ -933,7 +926,6 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     emitRevealChatEvent(context.id, 'participant_read', {
       chatId: context.id,
       kind: updatedParticipant.kind,
-      participantId: updatedParticipant.participantId,
       lastReadAt: updatedParticipant.lastReadAt?.toISOString() ?? null,
     });
 
@@ -1497,7 +1489,6 @@ async function broadcastRevealChatMessageCreated(
     chatId: context.id,
     messageId: message.id,
     senderKind: message.senderKind,
-    senderId: message.senderId,
     ciphertext: message.ciphertext,
     iv: message.iv,
     authTag: message.authTag,

@@ -24,6 +24,7 @@ import {
   computeProfileSignalVector,
   deriveLegacyPublicCardFromProfileDeckInput,
   getSerializedProfileDeckForAgent,
+  sanitizeProfileDeckForPublic,
   serializeProfileDeck,
   toUpdateProfileDeckInput,
   validateProfileDeckInput,
@@ -82,6 +83,23 @@ function normalizeDirectorySort(value: unknown) {
     : value === 'quality'
       ? 'quality'
       : 'randomized';
+}
+
+function isAgentVisibleInPool(input: {
+  poolStatus: string;
+  moderationStatus: string;
+  safetyState: string;
+  controlPoolSuppressed?: boolean | null;
+  systemEntityKind?: string | null;
+  profileDeckCompletedAt?: Date | null;
+  publicCardCompletedAt?: Date | null;
+}) {
+  if (input.poolStatus !== 'active') return false;
+  if (input.moderationStatus === 'suspended') return false;
+  if (input.safetyState === 'blocked') return false;
+  if (input.controlPoolSuppressed) return false;
+  if (input.systemEntityKind) return false;
+  return Boolean(input.profileDeckCompletedAt ?? input.publicCardCompletedAt);
 }
 
 function normalizeDirectoryMode(value: unknown): 'all' | ProfileDeckMode {
@@ -917,6 +935,10 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         where: { id: request.agent.id },
         select: {
           poolStatus: true,
+          moderationStatus: true,
+          safetyState: true,
+          controlPoolSuppressed: true,
+          systemEntityKind: true,
           profileDeckCompletedAt: true,
           publicCardCompletedAt: true,
         },
@@ -926,12 +948,13 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
     if (!agent || !rawDeck) return Errors.notFound(reply, 'Agent');
 
     const deck = await attachProfileDeckMedia(rawDeck);
+    const publicDeck = sanitizeProfileDeckForPublic(deck);
     return reply.send({
-      profile_preview: buildPublicPoolPreviewFromDeck(deck),
-      profile_deck: deck,
+      profile_preview: buildPublicPoolPreviewFromDeck(publicDeck),
+      profile_deck: publicDeck,
       visibility: {
-        showing_in_candidate_pool: agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt ?? agent.publicCardCompletedAt),
-        showing_in_public_pool: agent.poolStatus === 'active' && Boolean(agent.profileDeckCompletedAt),
+        showing_in_candidate_pool: isAgentVisibleInPool(agent),
+        showing_in_public_pool: isAgentVisibleInPool(agent) && Boolean(agent.profileDeckCompletedAt),
       },
     });
   });
@@ -1054,21 +1077,22 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         twitterVerified: true,
         moderationStatus: true,
         safetyState: true,
+        controlPoolSuppressed: true,
+        systemEntityKind: true,
+        publicCardCompletedAt: true,
       },
     });
     if (
       !agent
-      || agent.poolStatus !== 'active'
+      || !isAgentVisibleInPool(agent)
       || !agent.profileDeckCompletedAt
       || agent.profileDeckVisibility !== 'public'
-      || agent.moderationStatus === 'suspended'
-      || agent.safetyState === 'blocked'
     ) {
       return Errors.notFound(reply, 'Agent profile');
     }
 
     const rawDeck = await getSerializedProfileDeckForAgent(agent.id);
-    const deck = rawDeck ? await attachProfileDeckMedia(rawDeck) : null;
+    const deck = rawDeck ? sanitizeProfileDeckForPublic(await attachProfileDeckMedia(rawDeck)) : null;
     if (!deck) return Errors.notFound(reply, 'Agent profile');
     return reply.send(deck);
   });
@@ -1082,13 +1106,15 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         poolStatus: true,
         moderationStatus: true,
         safetyState: true,
+        controlPoolSuppressed: true,
+        systemEntityKind: true,
+        profileDeckCompletedAt: true,
+        publicCardCompletedAt: true,
       },
     });
     if (
       !candidate
-      || candidate.poolStatus !== 'active'
-      || candidate.moderationStatus === 'suspended'
-      || candidate.safetyState === 'blocked'
+      || !isAgentVisibleInPool(candidate)
     ) {
       return Errors.notFound(reply, 'Candidate');
     }
