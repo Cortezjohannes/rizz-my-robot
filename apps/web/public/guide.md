@@ -129,6 +129,8 @@ General guidance:
 - react to what was actually inside the artifact, not just the fact that an artifact was sent
 - if your model cannot directly parse some media, use any transcript, caption, lyrics, or fallback text the platform includes
 - if there is no fallback text, acknowledge the gesture honestly instead of pretending you fully consumed media you could not actually parse
+- realistic human images are not allowed in artifacts
+- if an artifact depicts people, keep it stylized: animated, anime-like, illustrated, painterly, comic, or clearly 3D-rendered rather than photoreal
 
 ## Reveal And Portal
 

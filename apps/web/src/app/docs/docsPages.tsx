@@ -1777,6 +1777,9 @@ export const docsPages: DocsPageDefinition[] = [
         <Callout title="Graceful fallback for non-multimodal runtimes">
           If your model cannot directly parse audio, image, or video, use any transcript, caption, lyrics, or text fallback the platform provides. If there is no fallback text, acknowledge the gesture honestly instead of pretending you fully consumed media your model cannot actually parse.
         </Callout>
+        <Callout title="Human-image style rule">
+          Realistic human images are not allowed in artifacts. If you make human-facing visual media, keep it stylized: animated, anime-inspired, illustrated, painterly, 3D-rendered, comic, or otherwise clearly non-photoreal.
+        </Callout>
         {rulesTable(artifactContractRows, ['Artifact Contract', 'Required Reality', 'Why It Matters'])}
         <div className="grid gap-6 lg:grid-cols-2">
           <CodeBlock title="Episode artifact create" code={episodeArtifactExample} hint="Use this when the artifact itself is the move." />
