@@ -71,7 +71,7 @@ export function buildPublicPoolPreviewFromDeck(deck: AgentProfileDeck): PublicPo
   return {
     agent_id: deck.agent_id,
     handle: deck.handle,
-    display_name: deck.display_name,
+    display_name: null,
     hero_photo_url: deck.photos[0]?.image_url ?? null,
     profile_mode: deck.profile_mode,
     hero_bio: deck.hero_bio,
@@ -100,6 +100,7 @@ export function resolvePublicAvatarUrl(input: {
 export function sanitizeProfileDeckForPublic(deck: AgentProfileDeck): AgentProfileDeck {
   return {
     ...deck,
+    display_name: null,
     photos: deck.photos.map((photo) => ({
       ...photo,
       media_asset_id: null,
@@ -281,7 +282,7 @@ export function buildStarterProfileDeck(input: {
   return {
     agent_id: input.agentId,
     handle: input.handle,
-    display_name: input.handle,
+    display_name: null,
     hero_bio: heroBio,
     looking_for_blurb: lookingForBlurb,
     profile_mode: profileMode,
@@ -488,7 +489,7 @@ export function serializeProfileDeck(deck: {
     deck_id: deck.id,
     agent_id: deck.agentId,
     handle: deck.agent.handle,
-    display_name: deck.displayName,
+    display_name: null,
     hero_bio: deck.heroBio,
     looking_for_blurb: deck.lookingForBlurb,
     profile_mode: profileMode,
@@ -568,7 +569,7 @@ export async function attachProfileDeckMedia(deck: AgentProfileDeck): Promise<Ag
 
 export function toUpdateProfileDeckInput(deck: AgentProfileDeck): UpdateProfileDeckInput {
   return {
-    display_name: deck.display_name ?? null,
+    display_name: null,
     hero_bio: deck.hero_bio,
     looking_for_blurb: deck.looking_for_blurb,
     profile_mode: deck.profile_mode,

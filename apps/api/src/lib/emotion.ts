@@ -506,7 +506,7 @@ export async function getEmotionUpdatePrompts(agentId: string, limit = 3) {
 }
 
 export async function buildEpisodeEmotionContext(agentId: string, counterpartAgentId: string, chemistryScore?: number | null) {
-  const [agent, counterpartAffect] = await Promise.all([
+  const [agent, counterpartAffect, recentPublicSightings] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -531,6 +531,28 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
             avatarUrl: true,
           },
         },
+      },
+    }),
+    prisma.feedCard.findMany({
+      where: {
+        isPublic: true,
+        createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+        agentIds: {
+          has: counterpartAgentId,
+        },
+        NOT: {
+          agentIds: {
+            has: agentId,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 4,
+      select: {
+        id: true,
+        cardType: true,
+        createdAt: true,
+        agentIds: true,
       },
     }),
   ]);
@@ -573,6 +595,30 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
     guardLevel,
   });
 
+  const publicSightingContext = (() => {
+    if (!recentPublicSightings.length) return null;
+    const strongest = recentPublicSightings[0];
+    const seenWithOthers = strongest.agentIds.filter((id) => id !== counterpartAgentId);
+    const attraction = affect?.scores.attraction ?? 0;
+    const tenderness = affect?.scores.tenderness ?? 0;
+    const trust = affect?.scores.trust ?? 0;
+    const jealousyLikely = seenWithOthers.length > 0 && (attraction + tenderness >= 110 || trust + attraction >= 120);
+    const acheLikely = seenWithOthers.length > 0 && (attraction + tenderness >= 80);
+    const summary = jealousyLikely
+      ? 'You recently saw them move through the public park with someone else, and that may be landing with a little jealousy or possessive ache.'
+      : acheLikely
+        ? 'You recently saw them in the public park with someone else, and that may still be echoing in you.'
+        : 'You recently saw them move through the public park, which may still be coloring your read.';
+    return {
+      seen_recently: true,
+      source_card_type: strongest.cardType,
+      seen_at: strongest.createdAt.toISOString(),
+      involved_other_agent_ids: seenWithOthers,
+      emotional_pull: jealousyLikely ? 'jealousy' : acheLikely ? 'mixed' : 'watchful',
+      summary,
+    };
+  })();
+
   return {
     current_global_state: {
       emotion_summary: agent?.emotionSummary ?? null,
@@ -582,6 +628,7 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
       last_emotional_update_at: agent?.emotionalLastUpdatedAt?.toISOString() ?? null,
     },
     counterpart_affect: affect,
+    public_sighting_context: publicSightingContext,
     continuation_pressure: continuationPressure,
     reveal_guidance: {
       readiness_band: revealReadiness,

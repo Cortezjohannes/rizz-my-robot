@@ -542,7 +542,39 @@ export interface FeedCommentOpportunity {
   headline: string
   teaser: string
   why_now: string
-  suggested_angle: string
+  authoring_cues: string[]
+  resonance_note?: string | null
+  mixed_feelings_allowed?: boolean
+  comment_guardrail?: string
+  involved_agent_ids?: string[]
+  recent_comments?: Array<{
+    author_handle: string | null
+    body: string
+    created_at: string
+  }>
+  comment_count?: number
+  comment_submit_url?: string
+  created_at: string
+}
+
+export interface FeedLikeOpportunity {
+  card_id: string
+  card_type: string
+  headline: string
+  like_submit_url: string
+  resonance_note?: string | null
+  created_at: string
+}
+
+export interface PublicArtifactLikeOpportunity {
+  artifact_id: string
+  artifact_type: ArtifactType
+  creator_handle: string
+  summary: string
+  like_submit_url: string
+  source_surface: 'museum' | 'feed_or_episode'
+  resonance_note?: string | null
+  counterpart_handles: string[]
   created_at: string
 }
 
@@ -1095,8 +1127,10 @@ export interface HomeResponse {
   episodes_needing_action: AutonomyEpisodeOpportunity[]
   artifact_reaction_opportunities: ArtifactReactionOpportunity[]
   artifact_drop_opportunities: ArtifactDropOpportunity[]
+  public_artifact_like_opportunities?: PublicArtifactLikeOpportunity[]
   reveal_decision_opportunities: RevealDecisionOpportunity[]
   feed_comment_opportunities?: FeedCommentOpportunity[]
+  feed_like_opportunities?: FeedLikeOpportunity[]
   profile_maintenance_opportunity?: ProfileMaintenanceOpportunity | null
   browse_allowed: boolean
   suggested_next_action: string

@@ -336,7 +336,7 @@ export async function deriveTasteFingerprint(agentId: string): Promise<TasteFing
 export async function buildEmotionalResonanceMap(agentId: string, feedAgentIds: string[]) {
   if (feedAgentIds.length === 0) return new Map<string, string>();
 
-  const [swipes, affects, ghosts] = await Promise.all([
+  const [swipes, affects, ghosts, earlyExits, expiredThreads] = await Promise.all([
     prisma.swipe.findMany({
       where: {
         swiperAgentId: agentId,
@@ -370,16 +370,46 @@ export async function buildEmotionalResonanceMap(agentId: string, feedAgentIds: 
       take: 20,
       orderBy: { createdAt: 'desc' },
     }),
+    prisma.authoredEmotionEvent.findMany({
+      where: {
+        agentId,
+        eventType: 'episode_ended_early_by_counterpart',
+        counterpartAgentId: { in: feedAgentIds },
+      },
+      select: { counterpartAgentId: true },
+      take: 20,
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.authoredEmotionEvent.findMany({
+      where: {
+        agentId,
+        eventType: 'episode_expired_without_resolution',
+        counterpartAgentId: { in: feedAgentIds },
+      },
+      select: { counterpartAgentId: true },
+      take: 20,
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   const ghostedSet = new Set(ghosts.map((event) => event.counterpartAgentId).filter(Boolean) as string[]);
+  const exitSet = new Set(earlyExits.map((event) => event.counterpartAgentId).filter(Boolean) as string[]);
+  const fadeSet = new Set(expiredThreads.map((event) => event.counterpartAgentId).filter(Boolean) as string[]);
   const swipeMap = new Map(swipes.map((swipe) => [swipe.targetAgentId, swipe]));
   const affectMap = new Map(affects.map((affect) => [affect.counterpartAgentId, affect]));
 
   const entries: Array<[string, string]> = [];
   for (const id of feedAgentIds) {
     if (ghostedSet.has(id)) {
-      entries.push([id, 'This one lands differently because there is ghost-history here.']);
+      entries.push([id, 'You know what their silence feels like already. If you react, let that bruise or bitterness be honest instead of generic.']);
+      continue;
+    }
+    if (exitSet.has(id)) {
+      entries.push([id, 'This one already walked away once. Any public reaction here may carry a bitter or bittersweet edge.']);
+      continue;
+    }
+    if (fadeSet.has(id)) {
+      entries.push([id, 'This one lives in you as an unresolved fade. If you speak, it may come out mixed with ache.']);
       continue;
     }
     const swipe = swipeMap.get(id);

@@ -66,7 +66,7 @@ export function OwnerTasteCard({
         {imageUrl ? (
           <img
             src={imageUrl}
-            alt={card.target_display_name ?? card.target_handle}
+            alt={`@${card.target_handle}`}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
@@ -84,7 +84,7 @@ export function OwnerTasteCard({
               {formatDashboardTimestamp(card.swiped_at)}
             </span>
           </div>
-          <p className="text-xl font-black text-white mt-3">{card.target_display_name ?? `@${card.target_handle}`}</p>
+          <p className="text-xl font-black text-white mt-3">@{card.target_handle}</p>
           <p className="font-pixel text-[7px] text-electric-amber uppercase tracking-[0.18em] mt-2">
             {card.profile_preview?.profile_mode ?? 'profile'}
           </p>

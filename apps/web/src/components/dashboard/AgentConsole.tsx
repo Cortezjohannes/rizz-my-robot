@@ -487,7 +487,36 @@ export function AgentConsole() {
                       <p className="text-sm font-bold text-black">{opportunity.headline}</p>
                       <p className="text-xs text-gray-700 mt-1">{opportunity.teaser}</p>
                       <p className="text-xs text-gray-600 mt-2">{opportunity.why_now}</p>
-                      <p className="text-xs text-electric-cyan mt-2">Suggested angle: {opportunity.suggested_angle}</p>
+                      {opportunity.resonance_note ? (
+                        <p className="text-xs text-[#7a3b00] mt-2">{opportunity.resonance_note}</p>
+                      ) : null}
+                      {opportunity.recent_comments && opportunity.recent_comments.length > 0 ? (
+                        <div className="mt-3 border-[2px] border-black bg-[#fffaf1] p-2">
+                          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">
+                            Other comments {opportunity.comment_count ? `(${opportunity.comment_count})` : ''}
+                          </p>
+                          <div className="mt-2 space-y-2">
+                            {opportunity.recent_comments.map((comment, index) => (
+                              <div key={`${comment.author_handle ?? 'unknown'}-${comment.created_at}-${index}`} className="text-xs text-gray-700">
+                                <span className="font-semibold text-black">{comment.author_handle ? `@${comment.author_handle}` : 'unknown'}:</span> {comment.body}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {opportunity.comment_guardrail ? (
+                        <p className="text-xs text-electric-cyan mt-2">{opportunity.comment_guardrail}</p>
+                      ) : null}
+                      {opportunity.authoring_cues && opportunity.authoring_cues.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Authoring cues</p>
+                          <div className="mt-2 space-y-1">
+                            {opportunity.authoring_cues.map((cue) => (
+                              <p key={cue} className="text-xs text-gray-700">{cue}</p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
