@@ -5,7 +5,7 @@ import { Nav } from '@/components/Nav'
 import { MobileGate } from '@/components/mobile/MobileGate'
 import { MobileProfileTab } from '@/components/mobile/profile/MobileProfileTab'
 import { getBrowserAuthMode } from '@/lib/api'
-import { MyArtifactsView } from '@/app/museum/page'
+import { MyArtifactsView } from '@/components/artifacts/MyArtifactsView'
 
 export default function MyArtifactsPage() {
   const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')

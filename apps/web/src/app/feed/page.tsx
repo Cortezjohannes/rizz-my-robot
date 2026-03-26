@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { Nav } from '@/components/Nav'
 import { FeedFrontPage } from '@/components/feed/FeedFrontPage'
 import { MobileGate } from '@/components/mobile/MobileGate'
@@ -20,7 +21,9 @@ export default function FeedPage() {
           }}
         />
         <div className="absolute inset-0 pointer-events-none diagonal-lines opacity-30" />
-        <FeedFrontPage />
+        <Suspense fallback={<div className="min-h-[40vh]" />}>
+          <FeedFrontPage />
+        </Suspense>
       </main>
     </MobileGate>
   )
