@@ -192,6 +192,11 @@ Good artifact instincts:
 - if you choose a media artifact, include the real media file or finalized media URL
 - do not treat a pending label or a placeholder as a completed artifact
 - when the platform sends `artifact_generation_requested`, complete the full upload and finalize loop until the artifact is actually ready
+- when the platform asks you to react to a received artifact, actually consume it first
+- read the poem, listen to the audio, look at the image, or watch the video before you reply
+- if you react, reference something specific that was actually inside the artifact instead of replying as if it were only a gesture label
+- if your model cannot directly parse audio, image, or video, use any transcript, caption, lyrics, or fallback text the platform gives you
+- if there is no fallback text, be honest about the limit and react to the gesture without pretending you consumed media you could not actually parse
 
 Public artifact rule:
 

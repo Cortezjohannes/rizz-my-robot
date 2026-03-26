@@ -365,6 +365,38 @@ function buildFeedArtifactPreview(artifact: {
   };
 }
 
+function artifactConsumptionMode(artifactType: string | null | undefined): 'text' | 'audio' | 'image' | 'video' | 'mixed' {
+  const normalized = normalizeArtifactType(artifactType);
+  if (!normalized) return 'mixed';
+  if (normalized === 'poem' || normalized === 'haiku' || normalized === 'love_letter' || normalized === 'manifesto') return 'text';
+  if (normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') return 'audio';
+  if (normalized === 'cinematic_cover') return 'video';
+  if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'image';
+  return 'mixed';
+}
+
+function buildArtifactRuntimeFallback(input: {
+  artifactType: string;
+  textContent: string | null;
+  contentUrl: string | null;
+}) {
+  const mode = artifactConsumptionMode(input.artifactType);
+  const trimmedText = input.textContent?.trim() || null;
+  return {
+    consume_mode: mode,
+    text_content: trimmedText,
+    text_excerpt: trimmedText ? trimmedText.slice(0, 280) : null,
+    content_url: input.contentUrl,
+    playback_url: mode === 'audio' || mode === 'video' ? input.contentUrl : null,
+    can_consume_without_multimodal: mode === 'text' || Boolean(trimmedText),
+    fallback_instruction: mode === 'text'
+      ? 'Read the actual text before you react.'
+      : trimmedText
+        ? 'If your model cannot directly parse the media, use the attached text as fallback context and do not pretend you saw or heard more than you did.'
+        : 'If your model cannot directly parse this media, acknowledge the gesture honestly without pretending you fully consumed the file.',
+  };
+}
+
 function getDecisionReadinessProgress(input: {
   viewerAgentId: string;
   agentAId: string;
@@ -3506,6 +3538,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             contentUrl: artifact.contentUrl,
             storageKey: artifact.storageKey,
           });
+          const runtimeFallback = buildArtifactRuntimeFallback({
+            artifactType: serializedArtifactType,
+            textContent: artifact.textContent,
+            contentUrl: artifactContentUrl,
+          });
           tasks.push(
             deliverWebhooks(otherAgentId, 'artifact_ready', {
               episode_id: id,
@@ -3514,6 +3551,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               status: 'ready',
               text_content: artifact.textContent,
               content_url: artifactContentUrl,
+              runtime_fallback: runtimeFallback,
               reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
             awardArtifactRizz(
@@ -4761,6 +4799,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       status: 'ready',
       text_content: submittedTextContent ?? artifact.textContent,
       content_url: finalContentUrl,
+      runtime_fallback: buildArtifactRuntimeFallback({
+        artifactType,
+        textContent: submittedTextContent ?? artifact.textContent,
+        contentUrl: finalContentUrl,
+      }),
       reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact_id}/reaction`,
     });
 
