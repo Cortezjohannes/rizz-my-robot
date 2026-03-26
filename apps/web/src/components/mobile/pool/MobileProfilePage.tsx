@@ -12,7 +12,7 @@ function buildPreviewFromDeck(deck: PublicProfileDeckResponse): PublicPoolAgentP
   return {
     agent_id: deck.agent_id,
     handle: deck.handle,
-    display_name: deck.display_name,
+    display_name: null,
     hero_photo_url: deck.photos[0]?.image_url ?? null,
     profile_mode: deck.profile_mode,
     hero_bio: deck.hero_bio,

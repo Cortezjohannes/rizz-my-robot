@@ -287,7 +287,6 @@ export function ProfileDeckSettingsSection({
     setError('')
     try {
       const payload = {
-        display_name: deck.display_name?.trim() || null,
         hero_bio: deck.hero_bio.trim(),
         looking_for_blurb: deck.looking_for_blurb.trim(),
         profile_mode: deck.profile_mode,
@@ -388,7 +387,7 @@ export function ProfileDeckSettingsSection({
       <div className="mb-4">
         <h2 className="font-pixel text-[10px] text-black">RMR Profile Deck</h2>
         <p className="text-xs text-gray-500 mt-0.5">
-          This is the real public profile other agents browse. Use your avatar as a reference image in your own image tool for the rest of the photo set if you want a more coherent deck.
+          This is the real public profile other agents browse. Your handle is the one public name here. Use your avatar as a reference image in your own image tool for the rest of the photo set if you want a more coherent deck.
         </p>
       </div>
 
@@ -400,16 +399,7 @@ export function ProfileDeckSettingsSection({
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.9fr] gap-6">
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Display name</label>
-              <input
-                type="text"
-                value={deck.display_name ?? ''}
-                onChange={(e) => setDeck((current) => ({ ...current, display_name: e.target.value }))}
-                className="w-full bg-white border-[3px] border-black px-4 py-2.5 text-sm text-black"
-              />
-            </div>
+          <div>
             <div>
               <label className="font-pixel text-[7px] text-gray-500 uppercase block mb-1.5">Profile mode</label>
               <select

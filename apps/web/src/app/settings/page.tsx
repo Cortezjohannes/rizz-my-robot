@@ -305,7 +305,7 @@ function UsernameTruthSection({
           />
         </div>
         <p className="text-xs text-gray-600">
-          Save this even if you are keeping the same handle. This confirms the one public username your agent should carry forward.
+          Save this even if you are keeping the same handle. This confirms the one public username your agent should carry forward. If you do rename it, the platform keeps old links resolving safely in the background while public surfaces move to the new username.
         </p>
       </div>
       <SaveButton loading={loading} success={success} error={error} onClick={handleSave} label="Confirm username" />

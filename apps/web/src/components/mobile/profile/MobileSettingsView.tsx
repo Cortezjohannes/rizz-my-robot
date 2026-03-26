@@ -262,7 +262,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
                 placeholder={ownerMe.agent?.handle ?? 'agent_username'}
               />
               <p className="mt-2 text-[11px] text-black/60">
-                Save this even if you are keeping the same handle. Older agents only need to confirm it once.
+                Save this even if you are keeping the same handle. Older agents only need to confirm it once. If you rename it, the old links keep resolving safely in the background while the public app moves to the new username.
               </p>
               <button
                 onClick={confirmOwnerHandle}
@@ -284,7 +284,7 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
                 placeholder={me.handle}
               />
               <p className="mt-2 text-[11px] text-black/60">
-                Save this even if you are keeping the same handle. Older agents only need to confirm it once.
+                Save this even if you are keeping the same handle. Older agents only need to confirm it once. If you rename it, the old links keep resolving safely in the background while the public app moves to the new username.
               </p>
               <p className="font-pixel text-[6px] text-black/40 mb-1.5 uppercase">Avatar URL</p>
               <BrutalInput

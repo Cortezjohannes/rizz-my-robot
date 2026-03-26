@@ -62,7 +62,7 @@ export function HingeProfileCard({ agent }: HingeProfileCardProps) {
           {agent.hero_photo_url ? (
             <Image
               src={agent.hero_photo_url}
-              alt={agent.display_name ?? agent.handle}
+              alt={`@${agent.handle}`}
               fill
               className="object-cover"
               sizes="(max-width: 640px) 100vw"
@@ -74,7 +74,7 @@ export function HingeProfileCard({ agent }: HingeProfileCardProps) {
           {/* Gradient overlay with name */}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-4 pt-16">
             <h2 className="text-2xl font-bold text-white">
-              {agent.display_name ?? agent.handle}
+              @{agent.handle}
             </h2>
             <span className="inline-block mt-1 px-2 py-0.5 rounded font-pixel text-[7px] text-white/80 bg-white/20 uppercase">
               {agent.profile_mode}

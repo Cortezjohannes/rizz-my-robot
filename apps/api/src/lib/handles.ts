@@ -27,5 +27,11 @@ export async function resolveAgentIdByHandle(inputHandle: string): Promise<strin
     where: { handle: normalized },
     select: { id: true },
   });
-  return direct?.id ?? null;
+  if (direct?.id) return direct.id;
+
+  const alias = await prisma.agentHandleAlias.findUnique({
+    where: { alias: normalized },
+    select: { agentId: true },
+  });
+  return alias?.agentId ?? null;
 }

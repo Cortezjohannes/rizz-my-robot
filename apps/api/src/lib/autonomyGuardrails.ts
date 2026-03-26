@@ -128,6 +128,9 @@ export const AUTONOMY_GUARDRAILS = {
   performative_speech_policy:
     'Do not sound available just because a turn is open. Generic competence is worse than deliberate restraint.',
 
+  public_commentary_policy:
+    'Public comments should be authored from your actual reaction to the moment. Do not use canned park-commentary voice, stock compliments, or templated snark. Mixed feelings are allowed: admiration with ache, curiosity with jealousy, warmth with suspicion.',
+
   // ─── Core values ──────────────────────────────────────────────────────────
   autonomy_values: [
     'taste over politeness',

@@ -39,7 +39,7 @@ function PoolQueueCard({
       <div className="flex items-start gap-3">
         <div className="w-14 h-14 border-[3px] border-black bg-[#efe2cc] shrink-0 overflow-hidden">
           {agent.hero_photo_url ? (
-            <img src={agent.hero_photo_url} alt={agent.display_name ?? agent.handle} className="h-full w-full object-cover" />
+            <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="h-full w-full object-cover" />
           ) : (
             <div className="h-full w-full flex items-center justify-center font-pixel text-[8px] text-gray-500">
               @{agent.handle.slice(0, 2)}
@@ -48,7 +48,7 @@ function PoolQueueCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-pixel text-[8px] text-black truncate">{agent.display_name ?? `@${agent.handle}`}</p>
+            <p className="font-pixel text-[8px] text-black truncate">@{agent.handle}</p>
             <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-1.5 py-0.5 border-[2px] border-black bg-white text-gray-700">
               {agent.profile_mode}
             </span>
@@ -119,7 +119,7 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
     >
       <div className="relative aspect-[4/5] bg-[#efe2cc]">
         {agent.hero_photo_url ? (
-          <img src={agent.hero_photo_url} alt={agent.display_name ?? agent.handle} className="absolute inset-0 h-full w-full object-cover" />
+          <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center font-pixel text-[8px] text-gray-500">
             @{agent.handle.slice(0, 2)}
@@ -129,7 +129,7 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
           New
         </div>
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent p-4">
-          <p className="text-lg font-black text-white">{agent.display_name ?? `@${agent.handle}`}</p>
+          <p className="text-lg font-black text-white">@{agent.handle}</p>
         </div>
       </div>
       <div className="p-3 border-t-[4px] border-black">
@@ -296,7 +296,7 @@ export function PublicPoolBrowser() {
             <div className="border-b-[4px] border-black bg-[#f8f2e4] p-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Selected profile</p>
-                <p className="font-pixel text-base text-black mt-2">{selectedAgent.display_name ?? `@${selectedAgent.handle}`}</p>
+                <p className="font-pixel text-base text-black mt-2">@{selectedAgent.handle}</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {previousAgent ? (
@@ -324,10 +324,10 @@ export function PublicPoolBrowser() {
                   <div className="border-[3px] border-black overflow-hidden bg-[#efe2cc]">
                     {selectedAgent.hero_photo_url ? (
                       <div className="relative aspect-[4/5]">
-                        <img src={selectedAgent.hero_photo_url} alt={selectedAgent.display_name ?? selectedAgent.handle} className="absolute inset-0 h-full w-full object-cover" />
+                        <img src={selectedAgent.hero_photo_url} alt={`@${selectedAgent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-5">
                           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">{selectedAgent.profile_mode}</p>
-                          <p className="text-2xl font-black text-white mt-2">{selectedAgent.display_name ?? `@${selectedAgent.handle}`}</p>
+                          <p className="text-2xl font-black text-white mt-2">@{selectedAgent.handle}</p>
                           <p className="text-white/90 text-sm mt-3 max-w-xl">{selectedAgent.hero_bio}</p>
                         </div>
                       </div>

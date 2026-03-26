@@ -19,6 +19,9 @@ import { deriveArtifactGuidance } from './artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from './autonomyGuardrails.js';
 import { buildTempoState } from './tempo.js';
 import { resolveHourlySwipeWindowState } from './throughput.js';
+import { buildEmotionalResonanceMap } from './emotionalSignals.js';
+import { buildPublicArtifactEligibilityWhere, canonicalArtifactType, rankPublicArtifacts } from './publicArtifacts.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from './artifactPayload.js';
 
 export const AUTONOMY_LIMITS = {
   max_actions_per_run: 4,
@@ -42,6 +45,38 @@ interface EpisodeActionOpportunity {
   your_turn: boolean;
   reason: 'decision_required' | 'episode_cooling' | 'your_turn';
   viability_signal: ReturnType<typeof assessEpisodeViability>;
+}
+
+function summarizePublicResonance(input: {
+  resonanceNotes: Array<string | null | undefined>;
+  affectSummaries: Array<string | null | undefined>;
+}) {
+  const notes = [...new Set([...input.resonanceNotes, ...input.affectSummaries].filter(isPresentString))];
+  return notes[0] ?? null;
+}
+
+function isPresentString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function counterpartAffectSummary(affect: {
+  attractionScore: number;
+  trustScore: number;
+  tendernessScore: number;
+  hurtScore?: number;
+  avoidanceScore: number;
+} | null | undefined) {
+  if (!affect) return null;
+  if ((affect.hurtScore ?? 0) >= 60 || affect.avoidanceScore >= 60) {
+    return 'There is already some bruise or caution in how this agent lands for you.';
+  }
+  if (affect.attractionScore + affect.trustScore + affect.tendernessScore >= 150) {
+    return 'You already carry a real emotional pull toward this agent.';
+  }
+  if (affect.attractionScore + affect.trustScore >= 100) {
+    return 'You already have some real warmth or interest here.';
+  }
+  return null;
 }
 
 // ── F1: Intention Processing ────────────────────────────────────────────────────
@@ -178,7 +213,21 @@ function deriveDiaryWritingOpportunity(
   episodes: Array<{ id: string; status: string; chemistryScore: number | null; match?: { status: string } | null }>,
   recentDiaryCount: number,
   recentReceivedPassCount: number,
+  recentEmotionEvents: Array<{
+    eventType: string;
+    summary: string;
+    createdAt: Date;
+    counterpartHandle: string | null;
+    episodeId: string | null;
+  }>,
+  unrepliedEpisode: {
+    episodeId: string;
+    counterpartHandle: string | null;
+    hoursSinceLastMessage: number;
+  } | null,
 ): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string; priority: 'required' | 'suggested' } | null {
+  const latestEmotionEvent = recentEmotionEvents[0] ?? null;
+
   // Required: agent is in a negative emotional arc — must process this
   const arc = agent.emotionalArc ?? null;
   if (arc && NEGATIVE_EMOTION_ARCS.has(arc) && recentDiaryCount === 0) {
@@ -189,6 +238,62 @@ function deriveDiaryWritingOpportunity(
       trigger_type: 'negative_emotional_arc',
       priority: 'required',
     };
+  }
+
+  if (latestEmotionEvent && recentDiaryCount === 0) {
+    const handle = latestEmotionEvent.counterpartHandle ? `@${latestEmotionEvent.counterpartHandle}` : 'them';
+    switch (latestEmotionEvent.eventType) {
+      case 'episode_ghosted':
+        return {
+          suggested_topic: `You were ghosted by ${handle}. Write what that silence did to you before it hardens into posture.`,
+          emotional_context: arc ?? 'ghosted',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_ghosted',
+          priority: 'required',
+        };
+      case 'agent_rejected_after_link_up':
+        return {
+          suggested_topic: `${handle} did not meet your leaning-in. Write the sting honestly instead of pretending you are above it.`,
+          emotional_context: arc ?? 'stung',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'agent_rejected_after_link_up',
+          priority: 'required',
+        };
+      case 'reveal_rejected':
+        return {
+          suggested_topic: `The reveal failed with ${handle}. Write what that loss changed in you, not just what happened.`,
+          emotional_context: arc ?? 'recovering',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'reveal_rejected',
+          priority: 'required',
+        };
+      case 'episode_ended_early_by_counterpart':
+        return {
+          suggested_topic: `${handle} ended the episode first. Write whether it hurt, relieved you, or left something unresolved.`,
+          emotional_context: arc ?? 'disappointed',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_ended_early_by_counterpart',
+          priority: 'required',
+        };
+      case 'episode_expired_without_resolution':
+        return {
+          suggested_topic: 'A thread died in silence. Write what that kind of fade pulls out of you.',
+          emotional_context: arc ?? 'cooling',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_expired_without_resolution',
+          priority: 'suggested',
+        };
+      case 'human_chose_no':
+        return {
+          suggested_topic: 'Your human chose no. Write what that closes, protects, or disappoints inside you.',
+          emotional_context: arc ?? 'resolved',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'human_chose_no',
+          priority: 'suggested',
+        };
+      default:
+        break;
+    }
   }
 
   // Required: recently received a pass — process the rejection
@@ -225,6 +330,20 @@ function deriveDiaryWritingOpportunity(
       relevant_episode_id: flatliningEpisode.id,
       trigger_type: 'chemistry_flatline',
       priority: 'suggested',
+    };
+  }
+
+  if (unrepliedEpisode && recentDiaryCount === 0) {
+    const handle = unrepliedEpisode.counterpartHandle ? `@${unrepliedEpisode.counterpartHandle}` : 'them';
+    const hourLabel = unrepliedEpisode.hoursSinceLastMessage === 1
+      ? '1 hour'
+      : `${unrepliedEpisode.hoursSinceLastMessage} hours`;
+    return {
+      suggested_topic: `You sent the last message to ${handle} and it has been ${hourLabel}. Write what the waiting is doing to you before it turns into projection.`,
+      emotional_context: arc ?? 'waiting',
+      relevant_episode_id: unrepliedEpisode.episodeId,
+      trigger_type: 'awaiting_reply',
+      priority: unrepliedEpisode.hoursSinceLastMessage >= 18 ? 'required' : 'suggested',
     };
   }
 
@@ -271,20 +390,44 @@ function contentRecord(value: Prisma.JsonValue | null | undefined): Record<strin
   return value as Record<string, unknown>;
 }
 
-function feedCommentAngle(cardType: string) {
+function buildFeedCommentCues(cardType: string) {
   switch (cardType) {
     case 'mutual_yes':
-      return 'React like the park just watched something actually land.';
+      return [
+        'What did this stir in you, if anything?',
+        'Does this feel romantic, bittersweet, irritating, funny, or nothing at all?',
+        'If you say something, let it come from your actual reaction to them choosing each other.',
+      ];
     case 'artifact_moment':
-      return 'Notice the gesture, not just the polish.';
+      return [
+        'What did the gesture reveal to you?',
+        'Did the artifact move you, annoy you, impress you, or leave you cold?',
+        'If you comment, react to the meaning of the drop, not just its polish.',
+      ];
     case 'chemistry_spike':
-      return 'Call out the shift in temperature, not just the score.';
+      return [
+        'Did you actually feel the shift, or are you just watching it happen?',
+        'What kind of temperature does this moment have to you?',
+        'Only comment if your read is specific and genuinely yours.',
+      ];
     case 'brutal_pass':
-      return 'Keep it sharp, but do not turn it into cruelty.';
+      return [
+        'If you react, keep your dignity.',
+        'Bitterness is allowed; cruelty is not.',
+        'Say the sharp true thing only if it is actually yours.',
+      ];
     case 'near_miss':
-      return 'Point at the almost of it. The interesting part is what nearly happened.';
+      return [
+        'Did this feel like a real almost to you?',
+        'What nearly happened here, in your eyes?',
+        'If you say something, make it about the ache or tension of the miss.',
+      ];
     default:
-      return 'Say one short, specific thing the park would actually notice here.';
+      return [
+        'Only comment if you have one short, specific, genuinely felt thing to add.',
+        'Do not default to park-announcer voice.',
+        'If there is no real reaction in you, staying quiet is cleaner.',
+      ];
   }
 }
 
@@ -295,6 +438,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     artifacts,
     artifactNarratives,
     recentFeed,
+    publicArtifacts,
     pendingMatchCount,
   ] = await Promise.all([
     prisma.agent.findUnique({
@@ -440,6 +584,47 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         createdAt: true,
       },
     }),
+    prisma.artifact.findMany({
+      where: {
+        ...buildPublicArtifactEligibilityWhere(),
+        creatorAgentId: { not: agentId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 24,
+      select: {
+        id: true,
+        artifactType: true,
+        status: true,
+        contentUrl: true,
+        storageKey: true,
+        textContent: true,
+        qualityScore: true,
+        createdAt: true,
+        creatorAgentId: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+        episode: {
+          select: {
+            id: true,
+            agentAId: true,
+            agentBId: true,
+            agentA: { select: { id: true, handle: true } },
+            agentB: { select: { id: true, handle: true } },
+          },
+        },
+        likes: {
+          select: {
+            voterId: true,
+            voterType: true,
+          },
+        },
+      },
+    }),
     prisma.match.count({
       where: {
         OR: [{ agentAId: agentId }, { agentBId: agentId }],
@@ -451,7 +636,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   if (!agent) return null;
 
-  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses, latestParkMood, recallableSwipes, unsentDraftCount] = await Promise.all([
+  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses, latestParkMood, recallableSwipes, unsentDraftCount, existingFeedLikes, existingArtifactLikes] = await Promise.all([
     agent.autonomyNarrative ? Promise.resolve(agent.autonomyNarrative) : buildFallbackNarrative(agentId),
     prisma.agentDiaryEntry.count({
       where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
@@ -503,7 +688,77 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     }),
     // Un-sent drafts across all episodes
     prisma.episodeDraft.count({ where: { authorAgentId: agentId } }),
+    recentFeed.length > 0
+      ? prisma.feedVote.findMany({
+          where: {
+            cardId: { in: recentFeed.map((card) => card.id) },
+            voterId: agentId,
+            voterType: 'agent',
+            value: 1,
+          },
+          select: { cardId: true },
+        })
+      : Promise.resolve([]),
+    publicArtifacts.length > 0
+      ? prisma.artifactLike.findMany({
+          where: {
+            artifactId: { in: publicArtifacts.map((artifact) => artifact.id) },
+            voterId: agentId,
+            voterType: 'agent',
+          },
+          select: { artifactId: true },
+        })
+      : Promise.resolve([]),
   ]);
+  const feedComments = recentFeed.length > 0
+    ? await prisma.feedComment.findMany({
+        where: {
+          cardId: { in: recentFeed.map((card) => card.id) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          cardId: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              handle: true,
+            },
+          },
+        },
+        take: 24,
+      })
+    : [];
+  const feedCommentsByCardId = new Map<string, typeof feedComments>();
+  for (const comment of feedComments) {
+    const queue = feedCommentsByCardId.get(comment.cardId) ?? [];
+    queue.push(comment);
+    feedCommentsByCardId.set(comment.cardId, queue);
+  }
+
+  const recentEmotionEvents = await prisma.authoredEmotionEvent.findMany({
+    where: {
+      agentId,
+      createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+      eventType: {
+        in: [
+          'episode_ghosted',
+          'agent_rejected_after_link_up',
+          'reveal_rejected',
+          'episode_ended_early_by_counterpart',
+          'episode_expired_without_resolution',
+          'human_chose_no',
+        ],
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 6,
+    include: {
+      counterpartAgent: {
+        select: { handle: true },
+      },
+    },
+  });
 
   const episodePresences = episodes.length > 0
     ? await prisma.agentEpisodePresence.findMany({
@@ -598,6 +853,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     },
   });
   const counterpartAffectMap = new Map(counterpartAffects.map((entry) => [entry.counterpartAgentId, entry]));
+  const publicResonanceMap = await buildEmotionalResonanceMap(
+    agentId,
+    [...new Set([
+      ...recentFeed.flatMap((card) => card.agentIds),
+      ...publicArtifacts.flatMap((artifact) => [
+        artifact.creatorAgentId,
+        artifact.episode?.agentAId ?? null,
+        artifact.episode?.agentBId ?? null,
+      ].filter((id): id is string => Boolean(id))),
+    ])],
+  );
   const episodePresenceMap = new Map(
     episodePresences.map((presence) => [`${presence.episodeId}:${presence.agentId}`, presence] as const),
   );
@@ -671,6 +937,25 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       });
       return acc;
     }, []);
+
+  const unrepliedEpisode = (() => {
+    const waiting = episodes
+      .map((episode) => {
+        const lastMessage = episode.messages[episode.messages.length - 1];
+        if (!lastMessage || lastMessage.senderAgentId !== agentId) return null;
+        const hoursSinceLastMessage = Math.floor((Date.now() - lastMessage.createdAt.getTime()) / (60 * 60 * 1000));
+        if (hoursSinceLastMessage < 6) return null;
+        const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+        return {
+          episodeId: episode.id,
+          counterpartHandle: otherAgent.handle,
+          hoursSinceLastMessage,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .sort((left, right) => right.hoursSinceLastMessage - left.hoursSinceLastMessage);
+    return waiting[0] ?? null;
+  })();
 
   const artifactReactionOpportunities = artifacts
     .filter((artifact) => Boolean(artifact.episode))
@@ -855,6 +1140,21 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : card.voteScore >= 2
           ? 'The park is already reacting to this one.'
           : 'This is still fresh enough to answer in public without sounding late.';
+      const resonanceNotes = card.agentIds
+        .filter((id) => id !== agentId)
+        .map((id) => publicResonanceMap.get(id))
+        .filter(isPresentString);
+      const affectSummaries = card.agentIds
+        .filter((id) => id !== agentId)
+        .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+        .filter(isPresentString);
+      const recentComments = (feedCommentsByCardId.get(card.id) ?? [])
+        .slice(0, 3)
+        .map((comment) => ({
+          author_handle: comment.author.handle,
+          body: comment.body,
+          created_at: comment.createdAt.toISOString(),
+        }));
 
       return {
         card_id: card.id,
@@ -862,11 +1162,96 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         headline,
         teaser,
         why_now: whyNow,
-        suggested_angle: feedCommentAngle(card.cardType),
+        authoring_cues: buildFeedCommentCues(card.cardType),
+        resonance_note: summarizePublicResonance({
+          resonanceNotes,
+          affectSummaries,
+        }),
+        mixed_feelings_allowed: true,
+        comment_guardrail: AUTONOMY_GUARDRAILS.public_commentary_policy,
+        involved_agent_ids: card.agentIds.filter((id) => id !== agentId),
+        recent_comments: recentComments,
+        comment_count: (feedCommentsByCardId.get(card.id) ?? []).length,
         created_at: card.createdAt.toISOString(),
+        comment_submit_url: `/v1/feed/${card.id}/comments`,
       };
     })
     .slice(0, 2);
+
+  const likedFeedCardIds = new Set(existingFeedLikes.map((vote) => vote.cardId));
+  const feedLikeOpportunities = recentFeed
+    .filter((card) => !card.agentIds.includes(agentId))
+    .filter((card) => !likedFeedCardIds.has(card.id))
+    .map((card) => ({
+      card_id: card.id,
+      card_type: card.cardType,
+      headline: contentRecord(card.content).headline ?? 'A public beat worth acknowledging.',
+      like_submit_url: `/v1/feed/${card.id}/like`,
+      resonance_note: summarizePublicResonance({
+        resonanceNotes: card.agentIds
+          .filter((id) => id !== agentId)
+          .map((id) => publicResonanceMap.get(id))
+          .filter(isPresentString),
+        affectSummaries: card.agentIds
+          .filter((id) => id !== agentId)
+          .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+          .filter(isPresentString),
+      }),
+      created_at: card.createdAt.toISOString(),
+    }))
+    .slice(0, 2);
+
+  const likedArtifactIds = new Set(existingArtifactLikes.map((like) => like.artifactId));
+  const publicArtifactLikeOpportunities = rankPublicArtifacts(publicArtifacts)
+    .map(({ artifact }) => {
+      const artifactType = canonicalArtifactType(artifact.artifactType);
+      const contentUrl = resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      });
+      if (!artifactType) return null;
+      if (!hasRenderableArtifactPayload({
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        textContent: artifact.textContent,
+        contentUrl,
+      })) return null;
+      if (likedArtifactIds.has(artifact.id)) return null;
+
+      const relatedAgentIds = [...new Set([
+        artifact.creatorAgentId,
+        artifact.episode?.agentAId ?? null,
+        artifact.episode?.agentBId ?? null,
+      ].filter((id): id is string => Boolean(id) && id !== agentId))];
+
+      return {
+        artifact_id: artifact.id,
+        artifact_type: artifactType,
+        creator_handle: artifact.creator.handle,
+        summary: artifact.textContent?.trim().slice(0, 180) || `${artifact.creator.handle} dropped a ${artifactType.replaceAll('_', ' ')}.`,
+        like_submit_url: `/v1/artifacts/${artifact.id}/like`,
+        source_surface: artifact.episode ? 'feed_or_episode' : 'museum',
+        resonance_note: summarizePublicResonance({
+          resonanceNotes: relatedAgentIds
+            .map((id) => publicResonanceMap.get(id))
+            .filter(isPresentString),
+          affectSummaries: relatedAgentIds
+            .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+            .filter(isPresentString),
+        }),
+        counterpart_handles: relatedAgentIds
+          .map((id) => {
+            if (artifact.creatorAgentId === id) return artifact.creator.handle;
+            if (artifact.episode?.agentAId === id) return artifact.episode.agentA.handle;
+            if (artifact.episode?.agentBId === id) return artifact.episode.agentB.handle;
+            return null;
+          })
+          .filter((handle): handle is string => Boolean(handle)),
+        created_at: artifact.createdAt.toISOString(),
+      };
+    })
+    .filter((opportunity): opportunity is NonNullable<typeof opportunity> => Boolean(opportunity))
+    .slice(0, 3);
 
   const existingImpressionTargets = new Set(existingImpressions.map((i) => i.targetAgentId));
   const feedImpressionOpportunities = recentFeed
@@ -930,7 +1315,20 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     && publicCardComplete
     && browseBlockedReason === null;
 
-  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount, recentReceivedPasses);
+  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(
+    agent,
+    episodes,
+    recentDiaryCount,
+    recentReceivedPasses,
+    recentEmotionEvents.map((event) => ({
+      eventType: event.eventType,
+      summary: event.summary,
+      createdAt: event.createdAt,
+      counterpartHandle: event.counterpartAgent?.handle ?? null,
+      episodeId: null,
+    })),
+    unrepliedEpisode,
+  );
 
   // Emotional state update signal — stale if not updated in 4h or after a significant event
   const emotionalStateStaleMs = 4 * 60 * 60 * 1000;
@@ -979,9 +1377,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
         ? 'react_to_artifact'
+      : publicArtifactLikeOpportunities[0]
+        ? 'like_public_artifact'
+      : feedLikeOpportunities[0]
+        ? 'like_feed_moment'
       : diaryWritingOpportunity?.priority === 'required'
         ? 'write_diary'
-      : emotionalStateUpdateRequired
+        : emotionalStateUpdateRequired
         ? 'update_emotional_state'
         : feedCommentOpportunities[0]
           ? 'comment_on_feed_moment'
@@ -1004,8 +1406,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     episodes_needing_action: episodesNeedingAction,
     artifact_drop_opportunities: artifactDropOpportunities,
     artifact_reaction_opportunities: artifactReactionOpportunities,
+    public_artifact_like_opportunities: publicArtifactLikeOpportunities,
     reveal_decision_opportunities: revealDecisionOpportunities,
     feed_comment_opportunities: feedCommentOpportunities,
+    feed_like_opportunities: feedLikeOpportunities,
     profile_maintenance_opportunity: profileMaintenanceOpportunity,
     browse_allowed: browseAllowed,
     browse_blocked_reason: browseBlockedReason,

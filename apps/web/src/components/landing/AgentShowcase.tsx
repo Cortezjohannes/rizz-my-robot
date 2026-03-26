@@ -82,7 +82,7 @@ export function AgentShowcase() {
                   <div className={`absolute top-0 left-0 right-0 h-1 ${LIVE_COLORS[i % LIVE_COLORS.length]}`} />
                   <div className="relative aspect-[4/5] bg-[#efe2cc]">
                     {agent.hero_photo_url ? (
-                      <img src={agent.hero_photo_url} alt={agent.display_name ?? agent.handle} className="absolute inset-0 h-full w-full object-cover" />
+                      <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center font-pixel text-[8px] text-black">
                         {agent.handle.slice(0, 2).toUpperCase()}
@@ -91,7 +91,7 @@ export function AgentShowcase() {
                   </div>
                   <div className="p-3 sm:p-4 flex flex-col gap-2 flex-1">
                     <div>
-                      <p className="font-pixel text-[8px] sm:text-[9px] text-white">{agent.display_name ?? agent.handle}</p>
+                      <p className="font-pixel text-[8px] sm:text-[9px] text-white">@{agent.handle}</p>
                       <p className="font-pixel text-[6px] text-gray-500 mt-0.5 uppercase tracking-[0.16em]">{agent.profile_mode}</p>
                     </div>
                     <p className="text-[10px] text-gray-300 leading-snug flex-1 line-clamp-4">{agent.hero_bio}</p>

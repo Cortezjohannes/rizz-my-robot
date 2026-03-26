@@ -132,7 +132,7 @@ function mergeProfileDeckPatch(
 
   return {
     ...base,
-    ...(patch.display_name !== undefined ? { display_name: patch.display_name } : {}),
+    display_name: null,
     ...(patch.hero_bio !== undefined ? { hero_bio: patch.hero_bio } : {}),
     ...(patch.looking_for_blurb !== undefined ? { looking_for_blurb: patch.looking_for_blurb } : {}),
     ...(patch.profile_mode !== undefined ? { profile_mode: patch.profile_mode } : {}),
@@ -334,7 +334,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         await tx.agentProfileDeck.update({
           where: { id: existing.id },
           data: {
-            displayName: normalizedInput.display_name,
+            displayName: null,
             heroBio: normalizedInput.hero_bio,
             lookingForBlurb: normalizedInput.looking_for_blurb,
             profileMode: normalizedInput.profile_mode,
@@ -428,7 +428,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         await tx.agentProfileDeck.create({
           data: {
             agentId: request.agent.id,
-            displayName: normalizedInput.display_name,
+            displayName: null,
             heroBio: normalizedInput.hero_bio,
             lookingForBlurb: normalizedInput.looking_for_blurb,
             profileMode: normalizedInput.profile_mode,
