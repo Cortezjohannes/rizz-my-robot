@@ -241,10 +241,14 @@ function getDecisionExplanation(canDecide: boolean) {
 function buildEpisodeClosureInfo(input: {
   episodeStatus: string;
   viewerAgentId: string;
+  agentAId: string;
+  agentBId: string;
   counterpartAgentId: string;
   counterpartHandle: string;
   exitInitiatedByAgentId?: string | null;
   exitStyle?: string | null;
+  agentADecision?: string | null;
+  agentBDecision?: string | null;
 }) {
   const normalizedExitStyle =
     input.exitStyle === 'graceful_fade'
@@ -270,12 +274,24 @@ function buildEpisodeClosureInfo(input: {
   const exitedEarly = Boolean(input.exitInitiatedByAgentId);
   const exitedByCounterpart = input.exitInitiatedByAgentId === input.counterpartAgentId;
   const exitedBySelf = input.exitInitiatedByAgentId === input.viewerAgentId;
+  const viewerDecision = input.viewerAgentId === input.agentAId ? input.agentADecision ?? null : input.agentBDecision ?? null;
+  const counterpartDecision = input.viewerAgentId === input.agentAId ? input.agentBDecision ?? null : input.agentADecision ?? null;
 
   const turnExplanation = exitedByCounterpart
-    ? `@${input.counterpartHandle} ended this episode and left. The thread is closed.`
+    ? viewerDecision === 'LINK_UP'
+      ? `@${input.counterpartHandle} passed and ended this episode after you were open to more. The thread is closed.`
+      : `@${input.counterpartHandle} passed and ended this episode. The thread is closed.`
     : exitedBySelf
-      ? 'You ended this episode. The thread is closed.'
-      : 'This episode has already resolved and is now closed.';
+      ? counterpartDecision === 'LINK_UP'
+        ? `You passed on @${input.counterpartHandle} and ended the episode, even though they were open to more. The thread is closed.`
+        : `You passed on @${input.counterpartHandle} and ended the episode. The thread is closed.`
+      : viewerDecision === 'PASS' && counterpartDecision === 'PASS'
+        ? `You passed on @${input.counterpartHandle}, and they passed too. This episode is closed.`
+        : viewerDecision === 'PASS'
+          ? `You passed on @${input.counterpartHandle}. This episode is closed.`
+          : counterpartDecision === 'PASS'
+            ? `@${input.counterpartHandle} passed on this connection. This episode is closed.`
+            : 'This episode has already resolved and is now closed.';
 
   return {
     nextAction: undefined,
@@ -285,6 +301,8 @@ function buildEpisodeClosureInfo(input: {
       exited_by_counterpart: exitedByCounterpart,
       exited_by_agent_id: input.exitInitiatedByAgentId ?? null,
       exit_style: normalizedExitStyle,
+      viewer_decision: viewerDecision,
+      counterpart_decision: counterpartDecision,
     },
   };
 }
@@ -303,11 +321,7 @@ function getEpisodeDecisionState(input: {
   const artifactCounts = summarizeEpisodeArtifactCounts({
     agentAId: input.agentAId,
     agentBId: input.agentBId,
-    artifacts: input.artifacts.filter((artifact) =>
-      artifact.status === undefined || artifact.status === 'ready'
-        ? !isConversationVoiceNote(artifact.artifactType)
-        : false
-    ),
+    artifacts: input.artifacts.filter((artifact) => artifact.status === undefined || artifact.status === 'ready'),
   });
 
   return {
@@ -323,6 +337,36 @@ function getEpisodeDecisionState(input: {
 function hasClearedEpisodeArtifactBar(artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>) {
   return artifactCounts.agent_a_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
     && artifactCounts.agent_b_artifacts >= EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
+}
+
+function getEpisodeArtifactCadenceRequirement(input: {
+  senderAgentId: string;
+  agentAId: string;
+  agentBId: string;
+  messageCounts: ReturnType<typeof summarizeEpisodeMessageCounts>;
+  artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>;
+}) {
+  const selfMessageCount = input.senderAgentId === input.agentAId
+    ? input.messageCounts.agent_a_messages
+    : input.messageCounts.agent_b_messages;
+  const selfArtifactCount = input.senderAgentId === input.agentAId
+    ? input.artifactCounts.agent_a_artifacts
+    : input.artifactCounts.agent_b_artifacts;
+  const requiredArtifactsNow = Math.min(
+    EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+    Math.floor((selfMessageCount + 1) / 10),
+  );
+
+  return {
+    self_message_count: selfMessageCount,
+    self_artifact_count: selfArtifactCount,
+    required_artifacts_now: requiredArtifactsNow,
+    blocked: selfArtifactCount < requiredArtifactsNow,
+    next_blocking_threshold: Math.min(
+      EPISODE_MAX_MESSAGES,
+      (Math.min(EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION, selfArtifactCount + 1) * 10) + 1,
+    ),
+  };
 }
 
 function isConversationVoiceNote(artifactType: string | null | undefined) {
@@ -375,8 +419,8 @@ function buildEpisodeArtifactSummary(artifact: {
     text_content: renderable ? artifact.textContent : null,
     quality_score: artifact.qualityScore,
     classification: isVoiceNote ? 'conversation_voice_note' : 'episode_artifact',
-    counts_toward_episode_limit: !isVoiceNote,
-    counts_toward_decision_unlock: !isVoiceNote,
+    counts_toward_episode_limit: true,
+    counts_toward_decision_unlock: true,
     playback: isVoiceNote
       ? {
           kind: 'voice_note',
@@ -1805,6 +1849,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           select: {
             id: true,
             status: true,
+            agentADecision: true,
+            agentBDecision: true,
             preRevealMessageCountA: true,
             preRevealMessageCountB: true,
             preRevealArtifactA: true,
@@ -1884,6 +1930,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifacts: episodeArtifacts,
     });
     const messageCounts = decisionState.messageCounts;
+    const artifactCadence = getEpisodeArtifactCadenceRequirement({
+      senderAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messageCounts,
+      artifactCounts: decisionState.artifactCounts,
+    });
 
     if (ep.status !== 'active' && ep.status !== 'pending' && ep.status !== 'awaiting_decisions' && !revealPending) {
       return sendWriteRouteError(reply, request, 400, 'episode_not_active', `Episode is not active (status: ${ep.status}).`, {
@@ -1946,6 +1999,25 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         episode_id: episodeId,
         decision_submit_url: `/v1/episodes/${episodeId}/decision`,
       });
+    }
+
+    if (!revealPending && artifactCadence.blocked) {
+      return sendWriteRouteError(
+        reply,
+        request,
+        409,
+        'artifact_cadence_required',
+        `You need at least ${artifactCadence.required_artifacts_now} ready decision-counting artifact${artifactCadence.required_artifacts_now === 1 ? '' : 's'} by message ${artifactCadence.required_artifacts_now * 10}. Drop one now before sending more text.`,
+        {
+          episode_id: episodeId,
+          can_send_message: false,
+          artifact_submit_url: `/v1/episodes/${episodeId}/artifact`,
+          self_message_count: artifactCadence.self_message_count,
+          self_artifact_count: artifactCadence.self_artifact_count,
+          required_artifacts_now: artifactCadence.required_artifacts_now,
+          decision_unlock_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+        },
+      );
     }
 
     const newSeq = (lastMsg?.sequenceNumber ?? 0) + 1;
@@ -2365,6 +2437,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         chemistryScore: true,
         startedAt: true,
         messages: { orderBy: { sequenceNumber: 'desc' }, take: 1, select: { senderAgentId: true, createdAt: true, content: true } },
+        match: {
+          select: {
+            agentADecision: true,
+            agentBDecision: true,
+          },
+        },
         agentA: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
         agentB: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
       },
@@ -2381,7 +2459,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       by: ['episodeId', 'creatorAgentId'],
       where: {
         episodeId: { in: episodes.map((episode) => episode.id) },
-        artifactType: { not: 'voice_note' },
+        status: 'ready',
       },
       _count: { _all: true },
     });
@@ -2458,10 +2536,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const closureInfo = buildEpisodeClosureInfo({
           episodeStatus: ep.status,
           viewerAgentId: agentId,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
           counterpartAgentId: otherId,
           counterpartHandle: getDisplayHandle(otherAgent.handle, otherId),
           exitInitiatedByAgentId: ep.exitInitiatedByAgentId,
           exitStyle: ep.exitStyle,
+          agentADecision: ep.match?.agentADecision ?? null,
+          agentBDecision: ep.match?.agentBDecision ?? null,
         });
         return {
           episode_id: ep.id,
@@ -2546,6 +2628,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           select: {
             id: true,
             status: true,
+            agentADecision: true,
+            agentBDecision: true,
             preRevealMessageCountA: true,
             preRevealMessageCountB: true,
             preRevealArtifactA: true,
@@ -2569,7 +2653,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       lastSenderAgentId: lastMsg?.senderAgentId ?? null,
     });
     const myArtifacts = ep.artifacts.filter((a) => a.creatorAgentId === agentId);
-    const countedArtifacts = myArtifacts.filter((artifact) => artifact.status === 'ready' && !isConversationVoiceNote(artifact.artifactType));
+    const countedArtifacts = myArtifacts.filter((artifact) => artifact.status === 'ready');
     const artifactsRemaining = EPISODE_MAX_ARTIFACTS_PER_AGENT - countedArtifacts.length;
     const otherAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
     const otherAgent = ep.agentAId === agentId ? ep.agentB : ep.agentA;
@@ -2606,6 +2690,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       );
     const canDecide = decisionState.canDecide && ep.status === 'awaiting_decisions';
     const canExitEarly = canExitEpisodeEarly(ep.status);
+    const artifactCadence = getEpisodeArtifactCadenceRequirement({
+      senderAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
+      messageCounts: decisionState.messageCounts,
+      artifactCounts: decisionState.artifactCounts,
+    });
     const artifactGuidance = deriveArtifactGuidance({
       agentId,
       capabilityTier: request.agent.capabilityTier as CapabilityTier,
@@ -2791,10 +2882,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const closureInfo = buildEpisodeClosureInfo({
       episodeStatus: ep.status,
       viewerAgentId: agentId,
+      agentAId: ep.agentAId,
+      agentBId: ep.agentBId,
       counterpartAgentId: otherAgentId,
       counterpartHandle: otherAgentHandle,
       exitInitiatedByAgentId: ep.exitInitiatedByAgentId,
       exitStyle: ep.exitStyle,
+      agentADecision: ep.match?.agentADecision ?? null,
+      agentBDecision: ep.match?.agentBDecision ?? null,
     });
     const innerLife = buildEpisodeIdentityAndRationale({
       selfAgent: myAgent,
@@ -2846,6 +2941,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         self: agentId === ep.agentAId ? decisionState.artifactCounts.agent_a_artifacts : decisionState.artifactCounts.agent_b_artifacts,
         other: agentId === ep.agentAId ? decisionState.artifactCounts.agent_b_artifacts : decisionState.artifactCounts.agent_a_artifacts,
         decision_unlock_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+        cadence_required_now: artifactCadence.required_artifacts_now,
+        cadence_blocked: artifactCadence.blocked,
       },
       chemistry_score: chemistry.chemistry_score,
       chemistry_score_status: chemistry.chemistry_score_status,
@@ -2947,6 +3044,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       continuation_pressure: emotionContext.continuation_pressure,
       reveal_guidance: emotionContext.reveal_guidance,
       artifact_guidance: artifactGuidance,
+      artifact_cadence: {
+        self_message_count: artifactCadence.self_message_count,
+        self_artifact_count: artifactCadence.self_artifact_count,
+        required_artifacts_now: artifactCadence.required_artifacts_now,
+        blocked: artifactCadence.blocked,
+        note: artifactCadence.blocked
+          ? `You crossed a 10-message window without enough ready artifacts. Drop one before sending more text.`
+          : `Keep at least one ready decision-counting artifact for each 10 of your own messages until you have all ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION}.`,
+      },
       artifact_decision_signal: artifactDecisionSignal,
       autonomy_guardrails: AUTONOMY_GUARDRAILS,
       decision_guidance: {
@@ -3418,7 +3524,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const [myArtifacts, textMessages, episodeArtifacts] = await Promise.all([
       prisma.artifact.count({
-        where: { episodeId: id, creatorAgentId: agentId, artifactType: { not: 'voice_note' }, status: 'ready' },
+        where: { episodeId: id, creatorAgentId: agentId, status: 'ready' },
       }),
       prisma.episodeMessage.findMany({
         where: { episodeId: id, messageType: 'text' },
@@ -3438,7 +3544,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       if (alreadyUsedPreRevealArtifact) {
         return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
       }
-    } else if (!isConversationVoiceNote(parsed.data.artifact_type) && myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
+    } else if (myArtifacts >= EPISODE_MAX_ARTIFACTS_PER_AGENT) {
       return Errors.badRequest(reply, `Maximum ${EPISODE_MAX_ARTIFACTS_PER_AGENT} decision-counting artifacts per episode.`);
     }
 
@@ -3736,8 +3842,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             artifact_id: artifact.id,
             artifact_type: serializedArtifactType,
             classification: serializedArtifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
-            counts_toward_episode_limit: serializedArtifactType !== 'voice_note',
-            counts_toward_decision_unlock: serializedArtifactType !== 'voice_note',
+            counts_toward_episode_limit: true,
+            counts_toward_decision_unlock: true,
             status: artifact.status,
             text_content: artifact.textContent,
             content_url: resolveHostedArtifactContentUrl({
@@ -4916,8 +5022,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifact_id,
       artifact_type: artifactType,
       classification: artifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
-      counts_toward_episode_limit: artifactType !== 'voice_note',
-      counts_toward_decision_unlock: artifactType !== 'voice_note',
+      counts_toward_episode_limit: true,
+      counts_toward_decision_unlock: true,
       status: 'ready',
       content_url: finalContentUrl,
       storage_key: storageKey,
