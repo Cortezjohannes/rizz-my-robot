@@ -6,9 +6,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 interface CopyCommandProps {
   command: string
   label?: string
+  onCopy?: () => void
 }
 
-export function CopyCommand({ command, label }: CopyCommandProps) {
+export function CopyCommand({ command, label, onCopy }: CopyCommandProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -26,6 +27,7 @@ export function CopyCommand({ command, label }: CopyCommandProps) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+    onCopy?.()
   }
 
   return (
