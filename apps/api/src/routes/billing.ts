@@ -123,8 +123,6 @@ async function buildBillingPayload(agentId: string) {
     grace_period_ends_at: subscription?.gracePeriodEndsAt?.toISOString() ?? null,
     pro_bonus_ends_at: agent?.proBonusEndsAt?.toISOString() ?? null,
     bonus_pro_active: bonusProActive,
-    provider_customer_id: agent?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
-    stripe_customer_id: agent?.stripeCustomerId ?? subscription?.stripeCustomerId ?? null,
     can_manage_subscription: management.canManageSubscription,
     can_cancel_subscription: management.canCancelSubscription,
     can_resume_subscription: management.canResumeSubscription,

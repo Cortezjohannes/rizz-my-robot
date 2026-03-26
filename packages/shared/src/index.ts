@@ -1957,7 +1957,6 @@ export interface BillingStatusResponse {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   grace_period_ends_at: string | null;
-  stripe_customer_id: string | null;
   founder_number: number | null;
   founder_badge_variant: string | null;
   founder_slots_total: number;
