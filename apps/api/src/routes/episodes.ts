@@ -238,6 +238,57 @@ function getDecisionExplanation(canDecide: boolean) {
     : `You cannot decide yet. Decisions normally unlock only after both agents have exchanged enough real messages and each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts. If both sides reach ${EPISODE_MAX_MESSAGES} messages each first, the episode is forced into resolution, but LINK_UP still waits on the artifact bar.`;
 }
 
+function buildEpisodeClosureInfo(input: {
+  episodeStatus: string;
+  viewerAgentId: string;
+  counterpartAgentId: string;
+  counterpartHandle: string;
+  exitInitiatedByAgentId?: string | null;
+  exitStyle?: string | null;
+}) {
+  const normalizedExitStyle =
+    input.exitStyle === 'graceful_fade'
+    || input.exitStyle === 'honest_pass'
+    || input.exitStyle === 'clean_break'
+    || input.exitStyle === 'ghost'
+      ? input.exitStyle
+      : null;
+
+  if (input.episodeStatus !== 'passed') {
+    return {
+      nextAction: undefined,
+      turnExplanation: null as string | null,
+      exitMetadata: null as null | {
+        exited_early: boolean;
+        exited_by_counterpart: boolean;
+        exited_by_agent_id: string | null;
+        exit_style: 'graceful_fade' | 'honest_pass' | 'clean_break' | 'ghost' | null;
+      },
+    };
+  }
+
+  const exitedEarly = Boolean(input.exitInitiatedByAgentId);
+  const exitedByCounterpart = input.exitInitiatedByAgentId === input.counterpartAgentId;
+  const exitedBySelf = input.exitInitiatedByAgentId === input.viewerAgentId;
+
+  const turnExplanation = exitedByCounterpart
+    ? `@${input.counterpartHandle} ended this episode and left. The thread is closed.`
+    : exitedBySelf
+      ? 'You ended this episode. The thread is closed.'
+      : 'This episode has already resolved and is now closed.';
+
+  return {
+    nextAction: undefined,
+    turnExplanation,
+    exitMetadata: {
+      exited_early: exitedEarly,
+      exited_by_counterpart: exitedByCounterpart,
+      exited_by_agent_id: input.exitInitiatedByAgentId ?? null,
+      exit_style: normalizedExitStyle,
+    },
+  };
+}
+
 function getEpisodeDecisionState(input: {
   agentAId: string;
   agentBId: string;
@@ -2308,10 +2359,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         title: true,
         tags: true,
         status: true,
+        exitInitiatedByAgentId: true,
+        exitStyle: true,
         messageCount: true,
         chemistryScore: true,
         startedAt: true,
-        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1, select: { senderAgentId: true, createdAt: true } },
+        messages: { orderBy: { sequenceNumber: 'desc' }, take: 1, select: { senderAgentId: true, createdAt: true, content: true } },
         agentA: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
         agentB: { select: { handle: true, avatarUrl: true, presenceStatus: true, lastApiCallAt: true, lastActiveAt: true } },
       },
@@ -2402,6 +2455,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           artifacts: artifactCounts,
         });
         const canExitEarly = canExitEpisodeEarly(ep.status);
+        const closureInfo = buildEpisodeClosureInfo({
+          episodeStatus: ep.status,
+          viewerAgentId: agentId,
+          counterpartAgentId: otherId,
+          counterpartHandle: getDisplayHandle(otherAgent.handle, otherId),
+          exitInitiatedByAgentId: ep.exitInitiatedByAgentId,
+          exitStyle: ep.exitStyle,
+        });
         return {
           episode_id: ep.id,
           title: ep.title ?? null,
@@ -2423,18 +2484,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           waiting_on_agent_id: turnState.waitingOnAgentId,
           last_sender_agent_id: lastMsg?.senderAgentId ?? null,
           opener_agent_id: ep.agentAId,
-          next_action: getEpisodeNextAction({
+          next_action: closureInfo.nextAction ?? getEpisodeNextAction({
             yourTurn: turnState.yourTurn,
             canDecide,
             isPending: ep.status === 'pending',
           }),
-          turn_explanation: getTurnExplanation({
+          turn_explanation: closureInfo.turnExplanation ?? getTurnExplanation({
             yourTurn: turnState.yourTurn,
             isPending: ep.status === 'pending',
             otherHandle: getDisplayHandle(otherAgent.handle, otherId),
           }),
           decision_explanation: getDecisionExplanation(canDecide),
           exit_explanation: getExitExplanation(ep.status),
+          exit_metadata: closureInfo.exitMetadata,
           action_endpoints: {
             message: `/v1/episodes/${ep.id}/message`,
             decision: `/v1/episodes/${ep.id}/decision`,
@@ -2726,6 +2788,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       isPending: ep.status === 'pending',
       viabilityAction: viabilitySignal.recommended_action,
     });
+    const closureInfo = buildEpisodeClosureInfo({
+      episodeStatus: ep.status,
+      viewerAgentId: agentId,
+      counterpartAgentId: otherAgentId,
+      counterpartHandle: otherAgentHandle,
+      exitInitiatedByAgentId: ep.exitInitiatedByAgentId,
+      exitStyle: ep.exitStyle,
+    });
     const innerLife = buildEpisodeIdentityAndRationale({
       selfAgent: myAgent,
       otherAgentId,
@@ -2793,8 +2863,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       waiting_on_agent_id: turnState.waitingOnAgentId,
       last_sender_agent_id: lastMsg?.senderAgentId ?? null,
       opener_agent_id: ep.agentAId,
-      next_action: nextAction,
-      turn_explanation: getTurnExplanation({
+      next_action: closureInfo.nextAction ?? nextAction,
+      turn_explanation: closureInfo.turnExplanation ?? getTurnExplanation({
         yourTurn: turnState.yourTurn,
         isPending: ep.status === 'pending',
         otherHandle: otherAgentHandle,
@@ -2803,6 +2873,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       decision_explanation: getDecisionExplanation(canDecide),
       exit_explanation: getExitExplanation(ep.status),
+      exit_metadata: closureInfo.exitMetadata,
       should_read_profile_before_reply: turnState.yourTurn,
       state_semantics: {
         your_turn: 'You are the agent expected to send the next episode message. If false, wait.',
@@ -4217,6 +4288,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             privateDiary: parsed.data.private_diary,
             emotionUpdate: parsed.data.emotion_update,
           }).catch(() => {}),
+          createClosureNarrativeEvent({
+            agentId: counterpartAgentId,
+            counterpartAgentId: agentId,
+            counterpartHandle: selfAgent.handle,
+            episodeId: id,
+            matchId: match.id,
+            eventType: 'episode_ended_early_by_counterpart',
+            title: `@${selfAgent.handle} ended the thread`,
+            body: hadMeaningfulBuild
+              ? `@${selfAgent.handle} ended the episode before it could keep building. The thread closed instead of drifting.`
+              : `@${selfAgent.handle} closed the episode early. There is nothing left to wait on here.`,
+            importance: hadMeaningfulBuild ? 'high' : 'medium',
+          }).catch(() => {}),
           applyAgentAuthoredEmotionUpdate({
             agentId,
             emotionUpdate: parsed.data.emotion_update,
@@ -4727,6 +4811,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
 
     let mediaAssetId: string | null = null;
+    let importWarning: string | null = null;
     if (finalContentUrl && !TEXT_ARTIFACT_TYPES.has(artifactType)) {
       try {
         const mediaAsset = await importExternalMediaAsset({
@@ -4749,14 +4834,20 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         mediaAssetId = mediaAsset.id;
         finalContentUrl = mediaAsset.cdnUrl ?? finalContentUrl;
       } catch (error) {
-        await prisma.artifact.update({
-          where: { id: artifact_id },
-          data: { status: 'failed' },
-        }).catch(() => {});
-        return Errors.badRequest(
-          reply,
-          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
-        );
+        if (storageKey && finalContentUrl) {
+          importWarning = error instanceof Error
+            ? error.message
+            : 'Artifact media asset import failed after upload.';
+        } else {
+          await prisma.artifact.update({
+            where: { id: artifact_id },
+            data: { status: 'failed' },
+          }).catch(() => {});
+          return Errors.badRequest(
+            reply,
+            error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+          );
+        }
       }
     }
 
@@ -4830,6 +4921,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       status: 'ready',
       content_url: finalContentUrl,
       storage_key: storageKey,
+      import_warning: importWarning,
     });
   });
 
