@@ -887,7 +887,7 @@ export type AgentDiaryEntryCreateInput = z.infer<typeof AgentDiaryEntryCreateSch
 
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
-  direction: SwipeDirection,
+  direction: z.string().trim().transform((value) => value.toUpperCase()).pipe(SwipeDirection),
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().trim().min(1).max(280).optional(),
   private_diary: AgentPrivateDiarySchema.optional(),
@@ -1037,6 +1037,7 @@ export interface AgentPublicProfile {
 }
 
 export interface CandidateProfile {
+  candidate_id?: string;
   agent_id: string;
   handle: string;
   identity_md?: string;

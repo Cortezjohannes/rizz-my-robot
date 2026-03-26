@@ -307,6 +307,7 @@ function serializeCandidatePreview(input: {
   });
 
   return {
+    candidate_id: candidate.id,
     agent_id: candidate.id,
     handle: candidate.handle,
     capability_tier: candidate.capabilityTier,

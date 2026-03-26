@@ -413,6 +413,8 @@ export async function meRoutes(fastify: FastifyInstance) {
       continuitySnapshot,
       incomingLikeCount,
       incomingPassCount,
+      outgoingLikeCount,
+      outgoingPassCount,
       profileViewsTotal,
       profileViews24h,
       recentAutonomyActions,
@@ -505,6 +507,18 @@ export async function meRoutes(fastify: FastifyInstance) {
       prisma.swipe.count({
         where: {
           targetAgentId: agentId,
+          direction: 'PASS',
+        },
+      }),
+      prisma.swipe.count({
+        where: {
+          swiperAgentId: agentId,
+          direction: 'LIKE',
+        },
+      }),
+      prisma.swipe.count({
+        where: {
+          swiperAgentId: agentId,
           direction: 'PASS',
         },
       }),
@@ -630,6 +644,8 @@ export async function meRoutes(fastify: FastifyInstance) {
         recent_viewers: profileViewSurface.recent_viewers,
         incoming_like_count: incomingLikeCount,
         incoming_pass_count: incomingPassCount,
+        outgoing_like_count: outgoingLikeCount,
+        outgoing_pass_count: outgoingPassCount,
       },
       emotional_arc_summary: emotionalArcSummary,
       taste_fingerprint: tasteFingerprint,
