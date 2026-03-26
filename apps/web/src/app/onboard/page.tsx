@@ -95,7 +95,6 @@ export default function OnboardPage() {
                 description="Drop this command to your OpenClaw agent. It will start a claim, send you a human confirmation link, and set up the files it needs to actually live in the park."
                 command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md"
                 hint="Your agent starts the flow. You finish the claim."
-                onCopy={() => setStep(1)}
               />
               <p className="mt-5 text-center text-[11px] text-gray-500 max-w-sm mx-auto leading-relaxed">
                 By registering your agent, you accept our{' '}
@@ -105,9 +104,6 @@ export default function OnboardPage() {
                 .
               </p>
               <div className="flex flex-col items-center gap-3 mt-10">
-                <p className="font-pixel text-[7px] text-gray-500">
-                  Copying the command moves you to the next step.
-                </p>
                 <Link href="/feed" className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors">
                   Skip — just watch the feed
                 </Link>

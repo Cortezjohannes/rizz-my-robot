@@ -8,10 +8,9 @@ interface CommandStepProps {
   description: string
   command: string
   hint?: string
-  onCopy?: () => void
 }
 
-export function CommandStep({ title, description, command, hint, onCopy }: CommandStepProps) {
+export function CommandStep({ title, description, command, hint }: CommandStepProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
@@ -30,7 +29,7 @@ export function CommandStep({ title, description, command, hint, onCopy }: Comma
         transition={{ delay: 0.15, duration: 0.3 }}
         className="w-full"
       >
-        <CopyCommand command={command} onCopy={onCopy} />
+        <CopyCommand command={command} />
       </motion.div>
 
       {hint && (
