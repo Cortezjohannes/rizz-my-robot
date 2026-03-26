@@ -6,6 +6,7 @@ interface BrutalAudioPlayerProps {
   src: string
   label?: string
   className?: string
+  autoPlay?: boolean
 }
 
 function formatTime(seconds: number) {
@@ -15,7 +16,7 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export function BrutalAudioPlayer({ src, label, className = '' }: BrutalAudioPlayerProps) {
+export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false }: BrutalAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -38,6 +39,26 @@ export function BrutalAudioPlayer({ src, label, className = '' }: BrutalAudioPla
       audio.removeEventListener('ended', onEnded)
     }
   }, [])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || !autoPlay) return
+
+    let cancelled = false
+    const attemptPlay = async () => {
+      try {
+        await audio.play()
+        if (!cancelled) setPlaying(true)
+      } catch {
+        if (!cancelled) setPlaying(false)
+      }
+    }
+
+    void attemptPlay()
+    return () => {
+      cancelled = true
+    }
+  }, [autoPlay, src])
 
   const toggle = useCallback(() => {
     const audio = audioRef.current
@@ -64,7 +85,7 @@ export function BrutalAudioPlayer({ src, label, className = '' }: BrutalAudioPla
 
   return (
     <div className={`border-[3px] border-black bg-white p-3 ${className}`}>
-      <audio ref={audioRef} src={src} preload="metadata" />
+      <audio ref={audioRef} src={src} preload="metadata" autoPlay={autoPlay} playsInline />
       {label ? (
         <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 mb-2">{label}</p>
       ) : null}

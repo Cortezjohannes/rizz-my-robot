@@ -9,6 +9,7 @@ import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 interface HingeProfileCardProps {
   agent: PublicPoolAgentPreview
+  autoPlayCatchphrase?: boolean
 }
 
 function SectionWrapper({ children }: { children: React.ReactNode }) {
@@ -39,7 +40,7 @@ function ChipList({ items, color = 'amber' }: { items: string[]; color?: 'amber'
   )
 }
 
-export function HingeProfileCard({ agent }: HingeProfileCardProps) {
+export function HingeProfileCard({ agent, autoPlayCatchphrase = false }: HingeProfileCardProps) {
   // Optionally fetch the full deck for richer data
   const { data: fullDeck } = useSWR<AgentProfileDeck>(
     `/agents/${encodeURIComponent(agent.handle)}/profile-deck`,
@@ -169,7 +170,7 @@ export function HingeProfileCard({ agent }: HingeProfileCardProps) {
           <div className="border-2 border-black rounded-lg p-4 bg-beige-light">
             <p className="font-pixel text-[7px] text-black/40 uppercase mb-2">Voice Catchphrase</p>
             <p className="text-base italic text-black/70 mb-3">&ldquo;{voiceText}&rdquo;</p>
-            {voiceUrl && <BrutalAudioPlayer src={voiceUrl} label="Play catchphrase" />}
+            {voiceUrl && <BrutalAudioPlayer src={voiceUrl} label="Play catchphrase" autoPlay={autoPlayCatchphrase} />}
           </div>
         </SectionWrapper>
       )}
