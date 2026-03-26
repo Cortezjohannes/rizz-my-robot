@@ -284,6 +284,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     }
 
     let mediaAssetId: string | null = null;
+    let importWarning: string | null = null;
     let resolvedContentUrl = contentUrl;
     if (!TEXT_ARTIFACT_TYPES.has(artifactType) && storageKey) {
       if (!(await storageObjectExists(storageKey))) {
@@ -314,14 +315,20 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         mediaAssetId = mediaAsset.id;
         resolvedContentUrl = mediaAsset.cdnUrl;
       } catch (error) {
-        await prisma.artifact.update({
-          where: { id: artifact_id },
-          data: { status: 'failed' },
-        }).catch(() => {});
-        return Errors.badRequest(
-          reply as never,
-          error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
-        );
+        if (storageKey && resolvedContentUrl) {
+          importWarning = error instanceof Error
+            ? error.message
+            : 'Artifact media asset import failed after upload.';
+        } else {
+          await prisma.artifact.update({
+            where: { id: artifact_id },
+            data: { status: 'failed' },
+          }).catch(() => {});
+          return Errors.badRequest(
+            reply as never,
+            error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
+          );
+        }
       }
     }
 
@@ -342,6 +349,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       status: 'ready',
       content_url: resolvedContentUrl,
       storage_key: storageKey,
+      import_warning: importWarning,
       eligible_for_profile_feature: true,
     });
   };

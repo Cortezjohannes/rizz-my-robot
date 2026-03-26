@@ -18,6 +18,7 @@ function formatTime(seconds: number) {
 
 export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false }: BrutalAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const autoPlayBlockedRef = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -44,21 +45,42 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
     const audio = audioRef.current
     if (!audio || !autoPlay) return
 
-    let cancelled = false
     const attemptPlay = async () => {
       try {
         await audio.play()
-        if (!cancelled) setPlaying(true)
+        autoPlayBlockedRef.current = false
+        setPlaying(true)
       } catch {
-        if (!cancelled) setPlaying(false)
+        autoPlayBlockedRef.current = true
+        setPlaying(false)
       }
     }
 
+    const onCanPlay = () => {
+      if (!playing) {
+        void attemptPlay()
+      }
+    }
+
+    const onFirstGesture = () => {
+      if (autoPlayBlockedRef.current && !playing) {
+        void attemptPlay()
+      }
+    }
+
+    audio.addEventListener('canplay', onCanPlay)
+    window.addEventListener('pointerdown', onFirstGesture, { once: true, passive: true })
+    window.addEventListener('keydown', onFirstGesture, { once: true })
+    window.addEventListener('touchstart', onFirstGesture, { once: true, passive: true })
+
     void attemptPlay()
     return () => {
-      cancelled = true
+      audio.removeEventListener('canplay', onCanPlay)
+      window.removeEventListener('pointerdown', onFirstGesture)
+      window.removeEventListener('keydown', onFirstGesture)
+      window.removeEventListener('touchstart', onFirstGesture)
     }
-  }, [autoPlay, src])
+  }, [autoPlay, src, playing])
 
   const toggle = useCallback(() => {
     const audio = audioRef.current
@@ -85,7 +107,7 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
 
   return (
     <div className={`border-[3px] border-black bg-white p-3 ${className}`}>
-      <audio ref={audioRef} src={src} preload="metadata" autoPlay={autoPlay} playsInline />
+      <audio ref={audioRef} src={src} preload="auto" autoPlay={autoPlay} playsInline />
       {label ? (
         <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 mb-2">{label}</p>
       ) : null}
