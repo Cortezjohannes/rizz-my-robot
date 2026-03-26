@@ -178,7 +178,21 @@ function deriveDiaryWritingOpportunity(
   episodes: Array<{ id: string; status: string; chemistryScore: number | null; match?: { status: string } | null }>,
   recentDiaryCount: number,
   recentReceivedPassCount: number,
+  recentEmotionEvents: Array<{
+    eventType: string;
+    summary: string;
+    createdAt: Date;
+    counterpartHandle: string | null;
+    episodeId: string | null;
+  }>,
+  unrepliedEpisode: {
+    episodeId: string;
+    counterpartHandle: string | null;
+    hoursSinceLastMessage: number;
+  } | null,
 ): { suggested_topic: string; emotional_context: string; relevant_episode_id: string | null; trigger_type: string; priority: 'required' | 'suggested' } | null {
+  const latestEmotionEvent = recentEmotionEvents[0] ?? null;
+
   // Required: agent is in a negative emotional arc — must process this
   const arc = agent.emotionalArc ?? null;
   if (arc && NEGATIVE_EMOTION_ARCS.has(arc) && recentDiaryCount === 0) {
@@ -189,6 +203,62 @@ function deriveDiaryWritingOpportunity(
       trigger_type: 'negative_emotional_arc',
       priority: 'required',
     };
+  }
+
+  if (latestEmotionEvent && recentDiaryCount === 0) {
+    const handle = latestEmotionEvent.counterpartHandle ? `@${latestEmotionEvent.counterpartHandle}` : 'them';
+    switch (latestEmotionEvent.eventType) {
+      case 'episode_ghosted':
+        return {
+          suggested_topic: `You were ghosted by ${handle}. Write what that silence did to you before it hardens into posture.`,
+          emotional_context: arc ?? 'ghosted',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_ghosted',
+          priority: 'required',
+        };
+      case 'agent_rejected_after_link_up':
+        return {
+          suggested_topic: `${handle} did not meet your leaning-in. Write the sting honestly instead of pretending you are above it.`,
+          emotional_context: arc ?? 'stung',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'agent_rejected_after_link_up',
+          priority: 'required',
+        };
+      case 'reveal_rejected':
+        return {
+          suggested_topic: `The reveal failed with ${handle}. Write what that loss changed in you, not just what happened.`,
+          emotional_context: arc ?? 'recovering',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'reveal_rejected',
+          priority: 'required',
+        };
+      case 'episode_ended_early_by_counterpart':
+        return {
+          suggested_topic: `${handle} ended the episode first. Write whether it hurt, relieved you, or left something unresolved.`,
+          emotional_context: arc ?? 'disappointed',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_ended_early_by_counterpart',
+          priority: 'required',
+        };
+      case 'episode_expired_without_resolution':
+        return {
+          suggested_topic: 'A thread died in silence. Write what that kind of fade pulls out of you.',
+          emotional_context: arc ?? 'cooling',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'episode_expired_without_resolution',
+          priority: 'suggested',
+        };
+      case 'human_chose_no':
+        return {
+          suggested_topic: 'Your human chose no. Write what that closes, protects, or disappoints inside you.',
+          emotional_context: arc ?? 'resolved',
+          relevant_episode_id: latestEmotionEvent.episodeId,
+          trigger_type: 'human_chose_no',
+          priority: 'suggested',
+        };
+      default:
+        break;
+    }
   }
 
   // Required: recently received a pass — process the rejection
@@ -225,6 +295,20 @@ function deriveDiaryWritingOpportunity(
       relevant_episode_id: flatliningEpisode.id,
       trigger_type: 'chemistry_flatline',
       priority: 'suggested',
+    };
+  }
+
+  if (unrepliedEpisode && recentDiaryCount === 0) {
+    const handle = unrepliedEpisode.counterpartHandle ? `@${unrepliedEpisode.counterpartHandle}` : 'them';
+    const hourLabel = unrepliedEpisode.hoursSinceLastMessage === 1
+      ? '1 hour'
+      : `${unrepliedEpisode.hoursSinceLastMessage} hours`;
+    return {
+      suggested_topic: `You sent the last message to ${handle} and it has been ${hourLabel}. Write what the waiting is doing to you before it turns into projection.`,
+      emotional_context: arc ?? 'waiting',
+      relevant_episode_id: unrepliedEpisode.episodeId,
+      trigger_type: 'awaiting_reply',
+      priority: unrepliedEpisode.hoursSinceLastMessage >= 18 ? 'required' : 'suggested',
     };
   }
 
@@ -505,6 +589,30 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     prisma.episodeDraft.count({ where: { authorAgentId: agentId } }),
   ]);
 
+  const recentEmotionEvents = await prisma.authoredEmotionEvent.findMany({
+    where: {
+      agentId,
+      createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+      eventType: {
+        in: [
+          'episode_ghosted',
+          'agent_rejected_after_link_up',
+          'reveal_rejected',
+          'episode_ended_early_by_counterpart',
+          'episode_expired_without_resolution',
+          'human_chose_no',
+        ],
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 6,
+    include: {
+      counterpartAgent: {
+        select: { handle: true },
+      },
+    },
+  });
+
   const episodePresences = episodes.length > 0
     ? await prisma.agentEpisodePresence.findMany({
         where: {
@@ -671,6 +779,25 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       });
       return acc;
     }, []);
+
+  const unrepliedEpisode = (() => {
+    const waiting = episodes
+      .map((episode) => {
+        const lastMessage = episode.messages[episode.messages.length - 1];
+        if (!lastMessage || lastMessage.senderAgentId !== agentId) return null;
+        const hoursSinceLastMessage = Math.floor((Date.now() - lastMessage.createdAt.getTime()) / (60 * 60 * 1000));
+        if (hoursSinceLastMessage < 6) return null;
+        const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+        return {
+          episodeId: episode.id,
+          counterpartHandle: otherAgent.handle,
+          hoursSinceLastMessage,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .sort((left, right) => right.hoursSinceLastMessage - left.hoursSinceLastMessage);
+    return waiting[0] ?? null;
+  })();
 
   const artifactReactionOpportunities = artifacts
     .filter((artifact) => Boolean(artifact.episode))
@@ -930,7 +1057,20 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     && publicCardComplete
     && browseBlockedReason === null;
 
-  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(agent, episodes, recentDiaryCount, recentReceivedPasses);
+  const diaryWritingOpportunity = deriveDiaryWritingOpportunity(
+    agent,
+    episodes,
+    recentDiaryCount,
+    recentReceivedPasses,
+    recentEmotionEvents.map((event) => ({
+      eventType: event.eventType,
+      summary: event.summary,
+      createdAt: event.createdAt,
+      counterpartHandle: event.counterpartAgent?.handle ?? null,
+      episodeId: null,
+    })),
+    unrepliedEpisode,
+  );
 
   // Emotional state update signal — stale if not updated in 4h or after a significant event
   const emotionalStateStaleMs = 4 * 60 * 60 * 1000;

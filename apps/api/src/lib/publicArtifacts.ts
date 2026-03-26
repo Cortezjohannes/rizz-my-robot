@@ -160,7 +160,34 @@ export async function getFeaturedArtifactsForProfile(input: {
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(5, input.limit ?? 5)));
 
-  const results: PublicArtifactFeedCard[] = [];
+  const episodeCardById = new Map<string, string>();
+  const episodeIds = [...new Set(
+    ranked
+      .map(({ artifact }) => artifact.episode?.id ?? null)
+      .filter((episodeId): episodeId is string => Boolean(episodeId)),
+  )];
+  if (episodeIds.length > 0) {
+    const episodeCards = await prisma.feedCard.findMany({
+      where: {
+        episodeId: { in: episodeIds },
+        isPublic: true,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        episodeId: true,
+      },
+    });
+    for (const card of episodeCards) {
+      if (card.episodeId && !episodeCardById.has(card.episodeId)) {
+        episodeCardById.set(card.episodeId, card.id);
+      }
+    }
+  }
+
+  const results: Array<PublicArtifactFeedCard & {
+    episode: (NonNullable<PublicArtifactFeedCard['episode']> & { feed_card_id?: string | null }) | null;
+  }> = [];
   for (const { artifact } of ranked) {
     const artifactType = canonicalArtifactType(artifact.artifactType);
     if (!artifactType) continue;
@@ -195,6 +222,7 @@ export async function getFeaturedArtifactsForProfile(input: {
       episode: artifact.episode
         ? {
             episode_id: artifact.episode.id,
+            feed_card_id: episodeCardById.get(artifact.episode.id) ?? null,
             status: artifact.episode.status,
             participants: [
               {

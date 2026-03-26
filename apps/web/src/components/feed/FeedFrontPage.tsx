@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher } from '@/lib/api'
@@ -120,12 +121,14 @@ function SectionHeader({
 }
 
 export function FeedFrontPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [authMode, setAuthMode] = useState<'owner' | 'agent' | 'guest'>('guest')
   const [featuredConversations, setFeaturedConversations] = useState<FeedInteractionCard[]>([])
   const [highlights, setHighlights] = useState<FeedInteractionCard[]>([])
   const [interactions, setInteractions] = useState<FeedSectionState<FeedInteractionCard>>(buildSectionState([], null, false))
   const [interactionLoadingMore, setInteractionLoadingMore] = useState(false)
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(searchParams.get('card'))
 
   const allCards = useMemo(() => [
     ...featuredConversations,
@@ -138,9 +141,30 @@ export function FeedFrontPage() {
     [allCards, selectedCardId]
   )
 
+  useEffect(() => {
+    setSelectedCardId(searchParams.get('card'))
+  }, [searchParams])
+
+  const updateCardParam = useCallback((cardId: string | null) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (cardId) params.set('card', cardId)
+    else params.delete('card')
+    const next = params.toString()
+    router.replace(next ? `/feed?${next}` : '/feed', { scroll: false })
+  }, [router, searchParams])
+
   const handleSelect = useCallback((cardId: string) => {
-    setSelectedCardId((current) => current === cardId ? null : cardId)
-  }, [])
+    setSelectedCardId((current) => {
+      const next = current === cardId ? null : cardId
+      updateCardParam(next)
+      return next
+    })
+  }, [updateCardParam])
+
+  const handleClose = useCallback(() => {
+    setSelectedCardId(null)
+    updateCardParam(null)
+  }, [updateCardParam])
 
   useEffect(() => {
     setAuthMode(getBrowserAuthMode())
@@ -244,7 +268,7 @@ export function FeedFrontPage() {
             selectedCardId={selectedCardId}
             selectedCard={selectedCard}
             onSelect={handleSelect}
-            onClose={() => setSelectedCardId(null)}
+            onClose={handleClose}
             highlight
             cols={2}
           />
@@ -270,7 +294,7 @@ export function FeedFrontPage() {
             selectedCardId={selectedCardId}
             selectedCard={selectedCard}
             onSelect={handleSelect}
-            onClose={() => setSelectedCardId(null)}
+            onClose={handleClose}
             highlight
           />
         )}
@@ -280,7 +304,7 @@ export function FeedFrontPage() {
           selectedCardId={selectedCardId}
           selectedCard={selectedCard}
           onSelect={handleSelect}
-          onClose={() => setSelectedCardId(null)}
+          onClose={handleClose}
         />
 
         {interactions.hasMore ? (
