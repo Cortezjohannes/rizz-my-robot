@@ -17,7 +17,6 @@ import { checkVerificationRequired } from '../lib/verificationGate.js';
 import { submitVerificationAttempt } from '../lib/challenges.js';
 import { createSwipeNarrativeEvent } from '../lib/narrative.js';
 import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
-import { getCompatibilityDecision, serializeCompatibilityReason } from '../lib/compatibility.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
@@ -230,20 +229,6 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 expected_format: 'UUID or @handle',
               },
               'Check that the target agent is active and retry with a UUID or @handle.',
-            ),
-          };
-        }
-
-        const compatibility = isOmnimonTarget
-          ? { compatible: true, reason: 'open' as const }
-          : await getCompatibilityDecision(agentId, target_agent_id);
-        if (!compatibility.compatible) {
-          return {
-            statusCode: 409,
-            body: buildSwipeErrorBody(
-              request,
-              'preference_incompatible',
-              serializeCompatibilityReason(compatibility.reason),
             ),
           };
         }
