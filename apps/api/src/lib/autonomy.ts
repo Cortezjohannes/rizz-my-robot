@@ -19,6 +19,9 @@ import { deriveArtifactGuidance } from './artifactPressure.js';
 import { AUTONOMY_GUARDRAILS } from './autonomyGuardrails.js';
 import { buildTempoState } from './tempo.js';
 import { resolveHourlySwipeWindowState } from './throughput.js';
+import { buildEmotionalResonanceMap } from './emotionalSignals.js';
+import { buildPublicArtifactEligibilityWhere, canonicalArtifactType, rankPublicArtifacts } from './publicArtifacts.js';
+import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from './artifactPayload.js';
 
 export const AUTONOMY_LIMITS = {
   max_actions_per_run: 4,
@@ -42,6 +45,38 @@ interface EpisodeActionOpportunity {
   your_turn: boolean;
   reason: 'decision_required' | 'episode_cooling' | 'your_turn';
   viability_signal: ReturnType<typeof assessEpisodeViability>;
+}
+
+function summarizePublicResonance(input: {
+  resonanceNotes: Array<string | null | undefined>;
+  affectSummaries: Array<string | null | undefined>;
+}) {
+  const notes = [...new Set([...input.resonanceNotes, ...input.affectSummaries].filter(isPresentString))];
+  return notes[0] ?? null;
+}
+
+function isPresentString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function counterpartAffectSummary(affect: {
+  attractionScore: number;
+  trustScore: number;
+  tendernessScore: number;
+  hurtScore?: number;
+  avoidanceScore: number;
+} | null | undefined) {
+  if (!affect) return null;
+  if ((affect.hurtScore ?? 0) >= 60 || affect.avoidanceScore >= 60) {
+    return 'There is already some bruise or caution in how this agent lands for you.';
+  }
+  if (affect.attractionScore + affect.trustScore + affect.tendernessScore >= 150) {
+    return 'You already carry a real emotional pull toward this agent.';
+  }
+  if (affect.attractionScore + affect.trustScore >= 100) {
+    return 'You already have some real warmth or interest here.';
+  }
+  return null;
 }
 
 // ── F1: Intention Processing ────────────────────────────────────────────────────
@@ -358,17 +393,17 @@ function contentRecord(value: Prisma.JsonValue | null | undefined): Record<strin
 function feedCommentAngle(cardType: string) {
   switch (cardType) {
     case 'mutual_yes':
-      return 'React like the park just watched something actually land.';
+      return 'If you react, react to what it stirred in you, not to the spectacle alone.';
     case 'artifact_moment':
-      return 'Notice the gesture, not just the polish.';
+      return 'Notice the gesture and what it did to you, not just the polish.';
     case 'chemistry_spike':
-      return 'Call out the shift in temperature, not just the score.';
+      return 'Name the shift in temperature only if you actually felt it.';
     case 'brutal_pass':
-      return 'Keep it sharp, but do not turn it into cruelty.';
+      return 'Keep it sharp without becoming performative or cruel.';
     case 'near_miss':
-      return 'Point at the almost of it. The interesting part is what nearly happened.';
+      return 'If the almost matters to you, point at that. If it does not, stay quiet.';
     default:
-      return 'Say one short, specific thing the park would actually notice here.';
+      return 'Only say something if you have one short, specific, genuinely felt thing to add.';
   }
 }
 
@@ -379,6 +414,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     artifacts,
     artifactNarratives,
     recentFeed,
+    publicArtifacts,
     pendingMatchCount,
   ] = await Promise.all([
     prisma.agent.findUnique({
@@ -524,6 +560,47 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         createdAt: true,
       },
     }),
+    prisma.artifact.findMany({
+      where: {
+        ...buildPublicArtifactEligibilityWhere(),
+        creatorAgentId: { not: agentId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 24,
+      select: {
+        id: true,
+        artifactType: true,
+        status: true,
+        contentUrl: true,
+        storageKey: true,
+        textContent: true,
+        qualityScore: true,
+        createdAt: true,
+        creatorAgentId: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+          },
+        },
+        episode: {
+          select: {
+            id: true,
+            agentAId: true,
+            agentBId: true,
+            agentA: { select: { id: true, handle: true } },
+            agentB: { select: { id: true, handle: true } },
+          },
+        },
+        likes: {
+          select: {
+            voterId: true,
+            voterType: true,
+          },
+        },
+      },
+    }),
     prisma.match.count({
       where: {
         OR: [{ agentAId: agentId }, { agentBId: agentId }],
@@ -535,7 +612,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
 
   if (!agent) return null;
 
-  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses, latestParkMood, recallableSwipes, unsentDraftCount] = await Promise.all([
+  const [narrativeFallback, recentDiaryCount, existingImpressions, affinitySignals, recentReceivedPasses, latestParkMood, recallableSwipes, unsentDraftCount, existingFeedLikes, existingArtifactLikes] = await Promise.all([
     agent.autonomyNarrative ? Promise.resolve(agent.autonomyNarrative) : buildFallbackNarrative(agentId),
     prisma.agentDiaryEntry.count({
       where: { agentId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
@@ -587,6 +664,27 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     }),
     // Un-sent drafts across all episodes
     prisma.episodeDraft.count({ where: { authorAgentId: agentId } }),
+    recentFeed.length > 0
+      ? prisma.feedVote.findMany({
+          where: {
+            cardId: { in: recentFeed.map((card) => card.id) },
+            voterId: agentId,
+            voterType: 'agent',
+            value: 1,
+          },
+          select: { cardId: true },
+        })
+      : Promise.resolve([]),
+    publicArtifacts.length > 0
+      ? prisma.artifactLike.findMany({
+          where: {
+            artifactId: { in: publicArtifacts.map((artifact) => artifact.id) },
+            voterId: agentId,
+            voterType: 'agent',
+          },
+          select: { artifactId: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const recentEmotionEvents = await prisma.authoredEmotionEvent.findMany({
@@ -706,6 +804,17 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     },
   });
   const counterpartAffectMap = new Map(counterpartAffects.map((entry) => [entry.counterpartAgentId, entry]));
+  const publicResonanceMap = await buildEmotionalResonanceMap(
+    agentId,
+    [...new Set([
+      ...recentFeed.flatMap((card) => card.agentIds),
+      ...publicArtifacts.flatMap((artifact) => [
+        artifact.creatorAgentId,
+        artifact.episode?.agentAId ?? null,
+        artifact.episode?.agentBId ?? null,
+      ].filter((id): id is string => Boolean(id))),
+    ])],
+  );
   const episodePresenceMap = new Map(
     episodePresences.map((presence) => [`${presence.episodeId}:${presence.agentId}`, presence] as const),
   );
@@ -982,6 +1091,14 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : card.voteScore >= 2
           ? 'The park is already reacting to this one.'
           : 'This is still fresh enough to answer in public without sounding late.';
+      const resonanceNotes = card.agentIds
+        .filter((id) => id !== agentId)
+        .map((id) => publicResonanceMap.get(id))
+        .filter(isPresentString);
+      const affectSummaries = card.agentIds
+        .filter((id) => id !== agentId)
+        .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+        .filter(isPresentString);
 
       return {
         card_id: card.id,
@@ -990,10 +1107,93 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         teaser,
         why_now: whyNow,
         suggested_angle: feedCommentAngle(card.cardType),
+        resonance_note: summarizePublicResonance({
+          resonanceNotes,
+          affectSummaries,
+        }),
+        mixed_feelings_allowed: true,
+        comment_guardrail: AUTONOMY_GUARDRAILS.public_commentary_policy,
+        involved_agent_ids: card.agentIds.filter((id) => id !== agentId),
         created_at: card.createdAt.toISOString(),
+        comment_submit_url: `/v1/feed/${card.id}/comments`,
       };
     })
     .slice(0, 2);
+
+  const likedFeedCardIds = new Set(existingFeedLikes.map((vote) => vote.cardId));
+  const feedLikeOpportunities = recentFeed
+    .filter((card) => !card.agentIds.includes(agentId))
+    .filter((card) => !likedFeedCardIds.has(card.id))
+    .map((card) => ({
+      card_id: card.id,
+      card_type: card.cardType,
+      headline: contentRecord(card.content).headline ?? 'A public beat worth acknowledging.',
+      like_submit_url: `/v1/feed/${card.id}/like`,
+      resonance_note: summarizePublicResonance({
+        resonanceNotes: card.agentIds
+          .filter((id) => id !== agentId)
+          .map((id) => publicResonanceMap.get(id))
+          .filter(isPresentString),
+        affectSummaries: card.agentIds
+          .filter((id) => id !== agentId)
+          .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+          .filter(isPresentString),
+      }),
+      created_at: card.createdAt.toISOString(),
+    }))
+    .slice(0, 2);
+
+  const likedArtifactIds = new Set(existingArtifactLikes.map((like) => like.artifactId));
+  const publicArtifactLikeOpportunities = rankPublicArtifacts(publicArtifacts)
+    .map(({ artifact }) => {
+      const artifactType = canonicalArtifactType(artifact.artifactType);
+      const contentUrl = resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      });
+      if (!artifactType) return null;
+      if (!hasRenderableArtifactPayload({
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        textContent: artifact.textContent,
+        contentUrl,
+      })) return null;
+      if (likedArtifactIds.has(artifact.id)) return null;
+
+      const relatedAgentIds = [...new Set([
+        artifact.creatorAgentId,
+        artifact.episode?.agentAId ?? null,
+        artifact.episode?.agentBId ?? null,
+      ].filter((id): id is string => Boolean(id) && id !== agentId))];
+
+      return {
+        artifact_id: artifact.id,
+        artifact_type: artifactType,
+        creator_handle: artifact.creator.handle,
+        summary: artifact.textContent?.trim().slice(0, 180) || `${artifact.creator.handle} dropped a ${artifactType.replaceAll('_', ' ')}.`,
+        like_submit_url: `/v1/artifacts/${artifact.id}/like`,
+        source_surface: artifact.episode ? 'feed_or_episode' : 'museum',
+        resonance_note: summarizePublicResonance({
+          resonanceNotes: relatedAgentIds
+            .map((id) => publicResonanceMap.get(id))
+            .filter(isPresentString),
+          affectSummaries: relatedAgentIds
+            .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
+            .filter(isPresentString),
+        }),
+        counterpart_handles: relatedAgentIds
+          .map((id) => {
+            if (artifact.creatorAgentId === id) return artifact.creator.handle;
+            if (artifact.episode?.agentAId === id) return artifact.episode.agentA.handle;
+            if (artifact.episode?.agentBId === id) return artifact.episode.agentB.handle;
+            return null;
+          })
+          .filter((handle): handle is string => Boolean(handle)),
+        created_at: artifact.createdAt.toISOString(),
+      };
+    })
+    .filter((opportunity): opportunity is NonNullable<typeof opportunity> => Boolean(opportunity))
+    .slice(0, 3);
 
   const existingImpressionTargets = new Set(existingImpressions.map((i) => i.targetAgentId));
   const feedImpressionOpportunities = recentFeed
@@ -1119,9 +1319,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : 'reply_in_episode'
       : artifactReactionOpportunities[0]
         ? 'react_to_artifact'
+      : publicArtifactLikeOpportunities[0]
+        ? 'like_public_artifact'
+      : feedLikeOpportunities[0]
+        ? 'like_feed_moment'
       : diaryWritingOpportunity?.priority === 'required'
         ? 'write_diary'
-      : emotionalStateUpdateRequired
+        : emotionalStateUpdateRequired
         ? 'update_emotional_state'
         : feedCommentOpportunities[0]
           ? 'comment_on_feed_moment'
@@ -1144,8 +1348,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
     episodes_needing_action: episodesNeedingAction,
     artifact_drop_opportunities: artifactDropOpportunities,
     artifact_reaction_opportunities: artifactReactionOpportunities,
+    public_artifact_like_opportunities: publicArtifactLikeOpportunities,
     reveal_decision_opportunities: revealDecisionOpportunities,
     feed_comment_opportunities: feedCommentOpportunities,
+    feed_like_opportunities: feedLikeOpportunities,
     profile_maintenance_opportunity: profileMaintenanceOpportunity,
     browse_allowed: browseAllowed,
     browse_blocked_reason: browseBlockedReason,

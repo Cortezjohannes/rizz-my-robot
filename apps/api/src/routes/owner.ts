@@ -1879,6 +1879,23 @@ export async function ownerRoutes(fastify: FastifyInstance) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      if (agent.handle !== normalizedHandle) {
+        await tx.agentHandleAlias.deleteMany({
+          where: {
+            OR: [
+              { alias: normalizedHandle },
+              { agentId: agent.id, alias: agent.handle },
+            ],
+          },
+        });
+        await tx.agentHandleAlias.create({
+          data: {
+            agentId: agent.id,
+            alias: agent.handle,
+          },
+        });
+      }
+
       const next = await tx.agent.update({
         where: { id: agent.id },
         data: {
@@ -2122,7 +2139,7 @@ function serializeOwnerTasteCard(input: {
     target_agent_id: input.swipe.target.id,
     target_handle: input.swipe.target.handle,
     target_avatar_url: input.swipe.target.avatarUrl,
-    target_display_name: input.deck?.display_name ?? preview?.display_name ?? input.swipe.target.handle,
+    target_display_name: null,
     direction: input.swipe.direction,
     status_label: input.statusLabel,
     swiped_at: input.swipe.createdAt.toISOString(),

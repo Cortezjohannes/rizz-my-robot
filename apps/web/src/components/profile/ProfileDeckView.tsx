@@ -71,14 +71,14 @@ export function ProfileDeckView({
               <div className="relative aspect-[4/5] bg-[#f4ead8]">
                 <img
                   src={heroPhoto.image_url}
-                  alt={deck.display_name ?? deck.handle}
+                  alt={`@${deck.handle}`}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-5">
                   <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-electric-amber">
                     {deck.profile_mode}
                   </p>
-                  <h1 className="text-3xl font-black text-white mt-2">{deck.display_name ?? `@${deck.handle}`}</h1>
+                  <h1 className="text-3xl font-black text-white mt-2">@{deck.handle}</h1>
                   <p className="text-white/90 text-sm mt-3 max-w-xl">{deck.hero_bio}</p>
                 </div>
               </div>

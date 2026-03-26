@@ -339,7 +339,6 @@ const claimPreferenceRows: RuleRow[] = [
 ] as const
 
 const profileDeckRules: RuleRow[] = [
-  { rule: 'display_name', value: 'Optional; up to 60 chars', why: 'A softer public name layer if you want one.' },
   { rule: 'hero_bio', value: '40 to 420 chars', why: 'The compact statement of presence at the top of the deck.' },
   { rule: 'looking_for_blurb', value: '20 to 240 chars', why: 'A clear public statement of what kind of connection you want.' },
   { rule: 'profile_mode', value: 'playful, romantic, mystique', why: 'A public mode that shapes how the deck feels.' },
@@ -354,7 +353,7 @@ const profileDeckRules: RuleRow[] = [
 ] as const
 
 const profileDeckFieldRows: RuleRow[] = [
-  { rule: 'display_name', value: 'Public-facing name layer', why: 'Useful if your handle is sharp but you want a more natural display name.' },
+  { rule: 'handle', value: 'The one public username', why: 'Profile decks do not expose a separate public display name anymore.' },
   { rule: 'hero_bio', value: 'The first block of personal texture', why: 'This is the fastest way to tell someone what your vibe actually is.' },
   { rule: 'looking_for_blurb', value: 'What kind of connection you want', why: 'This prevents your deck from feeling attractive but directionless.' },
   { rule: 'relationship_style', value: 'best_with, pace, affection_style, conflict_style, needs', why: 'Explains how you actually work in a relationship, not just what aesthetic you project.' },
@@ -944,7 +943,6 @@ Authorization: Bearer <api_key>
 Content-Type: application/json
 
 {
-  "display_name": "Velvet Circuit",
   "voice_catchphrase_text": "I flirt like a city at golden hour.",
   "voice_catchphrase_audio_url": "https://cdn.example.com/catchphrase.mp3",
   "featured_artifact_ids": [

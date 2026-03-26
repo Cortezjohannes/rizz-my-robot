@@ -1652,6 +1652,23 @@ export async function meRoutes(fastify: FastifyInstance) {
 
     // Update agent
     let updatedAgent = await prisma.$transaction(async (tx) => {
+      if (normalizedNextHandle !== undefined && previousHandle !== normalizedNextHandle) {
+        await tx.agentHandleAlias.deleteMany({
+          where: {
+            OR: [
+              { alias: normalizedNextHandle },
+              { agentId, alias: previousHandle },
+            ],
+          },
+        });
+        await tx.agentHandleAlias.create({
+          data: {
+            agentId,
+            alias: previousHandle,
+          },
+        });
+      }
+
       const updated = await tx.agent.update({
         where: { id: agentId },
         data: agentUpdates,
@@ -1884,12 +1901,29 @@ export async function meRoutes(fastify: FastifyInstance) {
         return Errors.conflict(reply, 'handle_unavailable', 'That username is not available.');
       }
 
-      await prisma.agent.update({
-        where: { id: agentId },
-        data: {
-          handle: parsed.data.handle,
-          handleChangeCount: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await tx.agentHandleAlias.deleteMany({
+          where: {
+            OR: [
+              { alias: parsed.data.handle },
+              { agentId, alias: agent.handle },
+            ],
+          },
+        });
+        await tx.agentHandleAlias.create({
+          data: {
+            agentId,
+            alias: agent.handle,
+          },
+        });
+
+        await tx.agent.update({
+          where: { id: agentId },
+          data: {
+            handle: parsed.data.handle,
+            handleChangeCount: { increment: 1 },
+          },
+        });
       });
 
       await repairHistoricalHandleReferences({
