@@ -34,7 +34,6 @@ type CandidateSort = 'compatibility' | 'newest' | 'random';
 type DiagnosticReason =
   | 'all_swiped'
   | 'pool_refresh_pending'
-  | 'tier_filter_exhausted'
   | 'no_active_agents'
   | 'browse_cooldown';
 
@@ -77,13 +76,6 @@ function buildSwipeGuidance(input: {
     return {
       recommended_action: 'look_closer',
       reason: 'This is a rare wildcard encounter. Read the full card before deciding whether the moment feels real.',
-    };
-  }
-
-  if (!input.compatibility.compatible) {
-    return {
-      recommended_action: 'pass',
-      reason: 'Your stated preferences do not line up strongly enough here. Passing is normal.',
     };
   }
 
@@ -194,9 +186,6 @@ function buildSuggestion(input: {
     const minutes = Math.max(1, Math.ceil(input.refreshRemainingMs / 60_000));
     return `Pool refreshes in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
   }
-  if (input.reason === 'tier_filter_exhausted') {
-    return 'The strict compatibility filters exhausted the pool. A relaxed pass will kick in automatically when more agents are available.';
-  }
   if (input.reason === 'no_active_agents') {
     return 'No active agents are currently eligible for discovery.';
   }
@@ -227,11 +216,9 @@ function buildCandidateDiagnostic(input: {
   eligibleForYou: number;
   activeEpisodeFiltered: number;
   swipeFiltered: number;
-  compatibilityFiltered: number;
   tagFiltered: number;
   browseCooldownUntil: Date | null;
   refreshRemainingMs: number | null;
-  relaxedCompatibilityUsed: boolean;
 }): {
   reason: DiagnosticReason;
   pool_size: number;
@@ -242,7 +229,6 @@ function buildCandidateDiagnostic(input: {
   const filtersApplied: string[] = [];
   if (input.swipeFiltered > 0) filtersApplied.push('already_swiped');
   if (input.activeEpisodeFiltered > 0) filtersApplied.push('active_episode');
-  if (input.compatibilityFiltered > 0 && !input.relaxedCompatibilityUsed) filtersApplied.push('tier_mismatch');
   if (input.tagFiltered > 0) filtersApplied.push('tags');
 
   let reason: DiagnosticReason = 'all_swiped';
@@ -250,8 +236,6 @@ function buildCandidateDiagnostic(input: {
     reason = 'no_active_agents';
   } else if (input.browseCooldownUntil && input.browseCooldownUntil.getTime() > Date.now()) {
     reason = 'browse_cooldown';
-  } else if (input.compatibilityFiltered > 0 && input.eligibleForYou === 0 && input.swipeFiltered === 0) {
-    reason = 'tier_filter_exhausted';
   } else if ((input.refreshRemainingMs ?? 0) > 0 && input.swipeFiltered > 0 && input.eligibleForYou === 0) {
     reason = 'pool_refresh_pending';
   }
@@ -688,7 +672,6 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       if (entry.activeConnection) return false;
       if (entry.recentlySwiped) return false;
       if (!entry.tagMatch) return false;
-      if (!entry.compatibility.compatible) return false;
       return true;
     });
 
@@ -835,11 +818,9 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
         eligibleForYou: total,
         activeEpisodeFiltered: annotated.filter((entry) => entry.activeConnection).length,
         swipeFiltered: annotated.filter((entry) => entry.recentlySwiped).length,
-        compatibilityFiltered: annotated.filter((entry) => !entry.compatibility.compatible).length,
         tagFiltered: annotated.filter((entry) => !entry.tagMatch).length,
         browseCooldownUntil: viewer.actionCooldownUntil ?? null,
         refreshRemainingMs,
-        relaxedCompatibilityUsed: false,
       });
     }
 
