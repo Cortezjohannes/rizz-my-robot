@@ -376,6 +376,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({
+      agent_id: agent.id,
+      handle: agent.handle,
       agent: {
         agent_id: agent.id,
         handle: agent.handle,

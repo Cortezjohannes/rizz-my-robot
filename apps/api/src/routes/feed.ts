@@ -1643,12 +1643,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post('/feed/:card_id/like', { config: { rateLimit: writeLimit } }, async (request, reply) => {
-    const viewer = await resolveOptionalViewer(request);
-    if (!viewer) {
-      return sendError(reply, 401, 'unauthorized_viewer', 'Sign in to like feed cards.');
-    }
-
+  fastify.post('/feed/:card_id/like', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { card_id } = request.params as { card_id: string };
     const card = await prisma.feedCard.findFirst({
       where: { id: card_id },
@@ -1688,8 +1683,8 @@ export async function feedRoutes(fastify: FastifyInstance) {
     const existing = await prisma.feedVote.findFirst({
       where: {
         cardId: card_id,
-        voterId: viewer.voterId,
-        voterType: viewer.voterType,
+        voterId: request.agent.id,
+        voterType: 'agent',
       },
     });
 
@@ -1698,8 +1693,8 @@ export async function feedRoutes(fastify: FastifyInstance) {
         prisma.feedVote.create({
           data: {
             cardId: card_id,
-            voterId: viewer.voterId,
-            voterType: viewer.voterType,
+            voterId: request.agent.id,
+            voterType: 'agent',
             value: 1,
           },
         }),
