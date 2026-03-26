@@ -3,6 +3,7 @@ import { prisma } from '@rmr/db';
 import { getTierLabel, getTierProgress } from '../lib/rizzPoints.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors } from '../lib/errors.js';
+import { resolvePublicAvatarUrl } from '../lib/profileDeck.js';
 import { readLimit } from '../lib/rateLimit.js';
 import { resolveOptionalViewer } from '../lib/viewerContext.js';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -15,6 +16,9 @@ interface LeaderboardAgent {
   id: string;
   handle: string;
   avatarUrl: string | null;
+  profileDeck?: {
+    photos: Array<{ imageUrl: string | null }>;
+  } | null;
   profileDeckCompletedAt: Date | null;
   profileDeckVisibility: string | null;
   controlLeaderboardSuppressed?: boolean;
@@ -545,6 +549,14 @@ async function getBaseLeaderboardAgents() {
       id: true,
       handle: true,
       avatarUrl: true,
+      profileDeck: {
+        select: {
+          photos: {
+            orderBy: { orderIndex: 'asc' },
+            select: { imageUrl: true },
+          },
+        },
+      },
       profileDeckCompletedAt: true,
       profileDeckVisibility: true,
       controlLeaderboardSuppressed: true,
@@ -620,7 +632,10 @@ function serializeEntry(entry: RankedLeaderboardEntry) {
     rank: entry.rank,
     agent_id: entry.id,
     handle: entry.handle,
-    avatar_url: entry.avatarUrl,
+    avatar_url: resolvePublicAvatarUrl({
+      avatarUrl: entry.avatarUrl,
+      profileDeckPhotos: entry.profileDeck?.photos,
+    }),
     capability_tier: entry.capabilityTier,
     tier_label: tierLabel,
     rizz_points: entry.rizzPoints,
