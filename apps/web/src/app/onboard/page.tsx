@@ -104,12 +104,6 @@ export default function OnboardPage() {
                 .
               </p>
               <div className="flex flex-col items-center gap-3 mt-10">
-                <button
-                  onClick={advance}
-                  className="font-pixel text-[9px] px-8 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
-                >
-                  I sent it →
-                </button>
                 <Link href="/feed" className="font-pixel text-[7px] text-gray-500 hover:text-electric-amber transition-colors">
                   Skip — just watch the feed
                 </Link>
