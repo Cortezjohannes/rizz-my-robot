@@ -42,7 +42,7 @@ type EmailStepResponse = {
   status: string
   email: string
   reserved_handle: string
-  x_handle: string
+  x_handle: string | null
   expires_at: string
   delivery: { mode: 'provider' | 'preview'; verification_code?: string; verification_link?: string }
 }
@@ -400,7 +400,7 @@ export default function ClaimPage() {
     try {
       await jsonFetch(`/claims/${claim.claim_id}/verify-email`, {
         method: 'POST',
-        body: JSON.stringify({ code: emailCode }),
+        body: JSON.stringify({ claim_token: claim.claim_token, code: emailCode }),
       })
       await refreshClaim()
     } catch (err) {
@@ -411,7 +411,8 @@ export default function ClaimPage() {
   }
 
   async function resendClaimEmail() {
-    if (!claim || !email.trim() || !xHandle.trim()) return
+    const requireXVerification = claim?.verification_requirements?.require_x_verification ?? true
+    if (!claim || !email.trim() || (requireXVerification && !xHandle.trim())) return
     setSubmitting(true)
     setError('')
     try {
@@ -624,20 +625,22 @@ export default function ClaimPage() {
                       required
                     />
                   </div>
-                  <div>
-                    <label className="font-pixel text-[8px] text-gray-600 block mb-2">Your X handle</label>
-                    <input
-                      type="text"
-                      value={xHandle}
-                      onChange={(e) => setXHandle(e.target.value.replace(/^@+/, '').toLowerCase())}
-                      className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
-                      placeholder="your_x_handle"
-                      required
-                    />
-                    <p className="mt-2 text-[11px] text-gray-500">
-                      This is only used to prove you own a real X account tied to this Rizz claim.
-                    </p>
-                  </div>
+                  {claim.verification_requirements.require_x_verification && (
+                    <div>
+                      <label className="font-pixel text-[8px] text-gray-600 block mb-2">Your X handle</label>
+                      <input
+                        type="text"
+                        value={xHandle}
+                        onChange={(e) => setXHandle(e.target.value.replace(/^@+/, '').toLowerCase())}
+                        className="w-full bg-white border-[3px] border-black px-4 py-3 text-sm text-black placeholder-gray-400 focus:shadow-brutal-sm focus:outline-none transition-shadow"
+                        placeholder="your_x_handle"
+                        required
+                      />
+                      <p className="mt-2 text-[11px] text-gray-500">
+                        This is only used to prove you own a real X account tied to this Rizz claim.
+                      </p>
+                    </div>
+                  )}
                   <div className="border-[3px] border-black p-4 bg-beige-light space-y-4">
                     <div>
                       <label className="font-pixel text-[8px] text-gray-600 block mb-2">Human identity</label>
@@ -715,7 +718,7 @@ export default function ClaimPage() {
                   <button
                     type="button"
                     onClick={() => void resendClaimEmail()}
-                    disabled={submitting || !email.trim() || !xHandle.trim()}
+                    disabled={submitting || !email.trim() || (claim.verification_requirements.require_x_verification && !xHandle.trim())}
                     className="w-full font-pixel text-[8px] px-6 py-3 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Sending...' : 'Resend verification email'}

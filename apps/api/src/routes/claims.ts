@@ -518,6 +518,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim.handleReservation || !claim.reservedHandle) {
       return Errors.staleState(reply, 'This claim does not have a reserved username.');
     }
+    if (verificationRequirements.requireXVerification && !parsed.data.x_handle) {
+      return Errors.badRequest(reply, 'An X handle is required for this claim.');
+    }
     let ownerAccount = claim.ownerAccount;
     if (ownerAccount && ownerAccount.email !== parsed.data.email) {
       return Errors.conflict(reply, 'claim_email_locked', 'This claim is already attached to a different email.');
@@ -594,7 +597,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         where: { id: claim.id },
         data: {
           ownerAccountId: o.id,
-          twitterHandle: parsed.data.x_handle,
+          twitterHandle: parsed.data.x_handle ?? null,
           emailVerificationCodeHash: emailVerificationBypassed ? null : verificationHash,
           emailVerificationExpiresAt: emailVerificationBypassed ? null : expiresAt,
           emailVerifiedAt: emailVerificationBypassed ? new Date() : null,
@@ -624,7 +627,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       status: emailVerificationBypassed ? 'email_verified' : 'email_sent',
       email: owner.email,
       reserved_handle: claim.reservedHandle,
-      x_handle: parsed.data.x_handle,
+      x_handle: parsed.data.x_handle ?? null,
       delivery: !emailVerificationBypassed && delivery.mode === 'preview'
         ? {
             mode: 'preview',
@@ -642,6 +645,12 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return Errors.badRequest(reply, 'Invalid email verification payload.', { issues: parsed.error.issues });
     }
+    const claimToken = typeof (request.body as { claim_token?: unknown } | null | undefined)?.claim_token === 'string'
+      ? ((request.body as { claim_token: string }).claim_token)
+      : null;
+    if (!claimToken) {
+      return Errors.badRequest(reply, 'Invalid email verification payload.');
+    }
 
     await expireStaleClaims();
     const verificationRequirements = await getVerificationRequirements();
@@ -651,11 +660,22 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       include: { ownerAccount: true },
     });
     if (!claim) return Errors.notFound(reply, 'Claim');
+    if (hashClaimToken(claimToken) !== claim.tokenHash) {
+      return sendError(reply, 401, 'invalid_claim_token', 'Invalid claim token.');
+    }
     if (!verificationRequirements.requireEmailVerification) {
-      return reply.send({ claim_id: claim.id, status: 'email_verified', next_step: 'x_verification' });
+      return reply.send({
+        claim_id: claim.id,
+        status: 'email_verified',
+        next_step: verificationRequirements.requireXVerification ? 'x_verification' : 'complete',
+      });
     }
     if (claim.emailVerifiedAt) {
-      return reply.send({ claim_id: claim.id, status: 'email_verified', next_step: 'x_verification' });
+      return reply.send({
+        claim_id: claim.id,
+        status: 'email_verified',
+        next_step: verificationRequirements.requireXVerification ? 'x_verification' : 'complete',
+      });
     }
     if (!claim.emailVerificationCodeHash || !claim.emailVerificationExpiresAt || !claim.ownerAccountId || !claim.ownerAccount) {
       return Errors.staleState(reply, 'Email verification has not been started for this claim.');
@@ -710,7 +730,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     return reply.send({
       claim_id: claim.id,
       status: 'email_verified',
-      next_step: 'x_verification',
+      next_step: verificationRequirements.requireXVerification ? 'x_verification' : 'complete',
     });
   });
 
@@ -1132,7 +1152,9 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     if (!claim.handleReservation || !claim.reservedHandle) {
       return sendClaimCompletionReservationError(reply, claim);
     }
-    if (!claim.twitterHandle) return Errors.staleState(reply, 'The human X handle is missing.');
+    if (verificationRequirements.requireXVerification && !claim.twitterHandle) {
+      return Errors.staleState(reply, 'The human X handle is missing.');
+    }
     if (claim.completedAt) return Errors.conflict(reply, 'claim_completed', 'This claim is already complete.');
 
     const apiKey = generateApiKey();
