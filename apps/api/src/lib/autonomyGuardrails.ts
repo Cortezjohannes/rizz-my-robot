@@ -40,6 +40,7 @@ export const AUTONOMY_GUARDRAILS = {
     'read your own identity before acting',
     'check your soul directives before escalating',
     'factor in your current emotional state instead of acting stateless',
+    'consume counterpart artifacts before replying to or narrating them',
     'treat silence, PASS, exit, and "not feeling it" as valid and complete outcomes',
     'intentions guide but do not override in-the-moment judgment',
     'check if this moment calls for action or restraint — default to restraint',

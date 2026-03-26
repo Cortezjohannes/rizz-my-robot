@@ -377,12 +377,81 @@ function artifactReactionSummary(input: {
 }): string {
   const source = input.fromHandle ? `@${input.fromHandle}` : 'someone in the park';
   const artifactType = normalizeArtifactType(input.artifactType) ?? input.artifactType;
-  return `${source} dropped a ${artifactType.replace(/_/g, ' ')} for you. Decide whether it changed anything.`;
+  return `${source} dropped a ${artifactType.replace(/_/g, ' ')} for you. Consume the actual artifact before deciding whether it changed anything.`;
 }
 
 function artifactReactionPreview(artifactType: string): string {
   const normalized = normalizeArtifactType(artifactType) ?? artifactType;
   return `A ${normalized.replace(/_/g, ' ')} produced during your episode`;
+}
+
+function artifactConsumptionMode(artifactType: string | null | undefined): 'text' | 'audio' | 'image' | 'video' | 'mixed' {
+  const normalized = normalizeArtifactType(artifactType);
+  if (!normalized) return 'mixed';
+  if (normalized === 'poem' || normalized === 'haiku' || normalized === 'love_letter' || normalized === 'manifesto') return 'text';
+  if (normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') return 'audio';
+  if (normalized === 'cinematic_cover') return 'video';
+  if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'image';
+  return 'mixed';
+}
+
+function artifactConsumptionHint(artifactType: string | null | undefined): string {
+  switch (artifactConsumptionMode(artifactType)) {
+    case 'text':
+      return 'Read the actual text before you answer. If you react, acknowledge something specific you actually read.';
+    case 'audio':
+      return 'Listen to the actual audio before you answer. If you react, respond to the tone, words, or feeling you actually heard.';
+    case 'image':
+      return 'Look at the actual image before you answer. If you react, respond to what is in the image, not just the gesture of sending one.';
+    case 'video':
+      return 'Watch the actual video before you answer. If you react, respond to something specific you actually saw.';
+    default:
+      return 'Consume the real artifact before you answer and react to something specific inside it.';
+  }
+}
+
+function buildArtifactReactionCues(input: {
+  artifactType: string | null | undefined;
+  textContent: string | null | undefined;
+}): string[] {
+  const mode = artifactConsumptionMode(input.artifactType);
+  const cues = [
+    'Do not react as if the artifact were only a label. React to what is actually inside it.',
+    'If the artifact left you cold, say that honestly instead of faking gratitude.',
+  ];
+  if (mode === 'text' && input.textContent?.trim()) {
+    cues.unshift('Quote or paraphrase a specific line only if it genuinely stayed with you.');
+  } else if (mode === 'audio') {
+    cues.unshift('Notice whether the voice or music changed the temperature for you.');
+  } else if (mode === 'image') {
+    cues.unshift('Name the visual detail, aesthetic, or implied intent that actually landed for you.');
+  } else if (mode === 'video') {
+    cues.unshift('React to the motion, mood, or scene that actually hit you.');
+  }
+  return cues;
+}
+
+function buildArtifactReactionPayload(input: {
+  artifactType: string;
+  textContent: string | null;
+  contentUrl: string | null;
+}) {
+  const mode = artifactConsumptionMode(input.artifactType);
+  const trimmedText = input.textContent?.trim() || null;
+  return {
+    consume_mode: mode,
+    text_content: trimmedText,
+    text_excerpt: trimmedText ? trimmedText.slice(0, 280) : null,
+    content_url: input.contentUrl,
+    playback_url: mode === 'audio' || mode === 'video' ? input.contentUrl : null,
+    can_consume_without_multimodal: mode === 'text' || Boolean(trimmedText),
+    consume_hint: artifactConsumptionHint(input.artifactType),
+    fallback_instruction: mode === 'text'
+      ? 'Read the text itself before reacting.'
+      : trimmedText
+        ? 'If you cannot directly parse the media, use the attached text as fallback context and do not pretend you saw or heard more than you did.'
+        : 'If you cannot directly parse this media, acknowledge the gesture honestly without pretending you fully consumed the file.',
+  };
 }
 
 function contentRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
@@ -960,28 +1029,51 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   const artifactReactionOpportunities = artifacts
     .filter((artifact) => Boolean(artifact.episode))
     .filter((artifact) => !artifactNarrativeMap.get(artifact.id))
-    .map((artifact) => {
+    .flatMap((artifact) => {
       const episode = artifact.episode!;
       const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
-      return {
+      const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+      const contentUrl = resolveHostedArtifactContentUrl({
+        contentUrl: artifact.contentUrl,
+        storageKey: artifact.storageKey,
+      });
+      if (!hasRenderableArtifactPayload({
+        artifactType,
+        status: artifact.status,
+        textContent: artifact.textContent,
+        contentUrl,
+      })) {
+        return [];
+      }
+      const payload = buildArtifactReactionPayload({
+        artifactType,
+        textContent: artifact.textContent,
+        contentUrl,
+      });
+      return [{
         narrative_event_id: `artifact:${artifact.id}`,
         episode_id: artifact.episodeId,
         from_agent_id: otherAgent.id,
         from_handle: otherAgent.handle,
         artifact_id: artifact.id,
-        artifact_type: normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType,
+        artifact_type: artifactType,
         action: 'react_to_artifact',
         summary: artifactReactionSummary({
           fromHandle: otherAgent.handle,
-          artifactType: artifact.artifactType,
+          artifactType,
         }),
         react_url: `/v1/artifacts/${artifact.id}/react`,
-        preview: artifactReactionPreview(artifact.artifactType),
+        preview: payload.text_excerpt ?? artifactReactionPreview(artifactType),
+        artifact_payload: payload,
+        authoring_cues: buildArtifactReactionCues({
+          artifactType,
+          textContent: artifact.textContent,
+        }),
         created_at: artifact.createdAt.toISOString(),
         reaction_submit_url: artifact.episodeId
           ? `/v1/episodes/${artifact.episodeId}/artifact/${artifact.id}/reaction`
           : null,
-      };
+      }];
     });
 
   const artifactDropOpportunities = episodes

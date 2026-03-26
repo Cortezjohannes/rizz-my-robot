@@ -500,6 +500,18 @@ export interface ArtifactReactionOpportunity {
   artifact_id: string | null
   artifact_type: ArtifactType | null
   summary: string
+  preview?: string | null
+  artifact_payload?: {
+    consume_mode: 'text' | 'audio' | 'image' | 'video' | 'mixed'
+    text_content: string | null
+    text_excerpt: string | null
+    content_url: string | null
+    playback_url: string | null
+    can_consume_without_multimodal: boolean
+    consume_hint: string
+    fallback_instruction: string
+  } | null
+  authoring_cues?: string[]
   created_at: string
   reaction_submit_url?: string | null
 }
