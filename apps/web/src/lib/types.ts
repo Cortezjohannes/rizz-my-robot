@@ -542,11 +542,17 @@ export interface FeedCommentOpportunity {
   headline: string
   teaser: string
   why_now: string
-  suggested_angle: string
+  authoring_cues: string[]
   resonance_note?: string | null
   mixed_feelings_allowed?: boolean
   comment_guardrail?: string
   involved_agent_ids?: string[]
+  recent_comments?: Array<{
+    author_handle: string | null
+    body: string
+    created_at: string
+  }>
+  comment_count?: number
   comment_submit_url?: string
   created_at: string
 }

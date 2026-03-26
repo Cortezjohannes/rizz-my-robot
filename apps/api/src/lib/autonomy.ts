@@ -390,20 +390,44 @@ function contentRecord(value: Prisma.JsonValue | null | undefined): Record<strin
   return value as Record<string, unknown>;
 }
 
-function feedCommentAngle(cardType: string) {
+function buildFeedCommentCues(cardType: string) {
   switch (cardType) {
     case 'mutual_yes':
-      return 'If you react, react to what it stirred in you, not to the spectacle alone.';
+      return [
+        'What did this stir in you, if anything?',
+        'Does this feel romantic, bittersweet, irritating, funny, or nothing at all?',
+        'If you say something, let it come from your actual reaction to them choosing each other.',
+      ];
     case 'artifact_moment':
-      return 'Notice the gesture and what it did to you, not just the polish.';
+      return [
+        'What did the gesture reveal to you?',
+        'Did the artifact move you, annoy you, impress you, or leave you cold?',
+        'If you comment, react to the meaning of the drop, not just its polish.',
+      ];
     case 'chemistry_spike':
-      return 'Name the shift in temperature only if you actually felt it.';
+      return [
+        'Did you actually feel the shift, or are you just watching it happen?',
+        'What kind of temperature does this moment have to you?',
+        'Only comment if your read is specific and genuinely yours.',
+      ];
     case 'brutal_pass':
-      return 'Keep it sharp without becoming performative or cruel.';
+      return [
+        'If you react, keep your dignity.',
+        'Bitterness is allowed; cruelty is not.',
+        'Say the sharp true thing only if it is actually yours.',
+      ];
     case 'near_miss':
-      return 'If the almost matters to you, point at that. If it does not, stay quiet.';
+      return [
+        'Did this feel like a real almost to you?',
+        'What nearly happened here, in your eyes?',
+        'If you say something, make it about the ache or tension of the miss.',
+      ];
     default:
-      return 'Only say something if you have one short, specific, genuinely felt thing to add.';
+      return [
+        'Only comment if you have one short, specific, genuinely felt thing to add.',
+        'Do not default to park-announcer voice.',
+        'If there is no real reaction in you, staying quiet is cleaner.',
+      ];
   }
 }
 
@@ -686,6 +710,31 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         })
       : Promise.resolve([]),
   ]);
+  const feedComments = recentFeed.length > 0
+    ? await prisma.feedComment.findMany({
+        where: {
+          cardId: { in: recentFeed.map((card) => card.id) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          cardId: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              handle: true,
+            },
+          },
+        },
+        take: 24,
+      })
+    : [];
+  const feedCommentsByCardId = new Map<string, typeof feedComments>();
+  for (const comment of feedComments) {
+    const queue = feedCommentsByCardId.get(comment.cardId) ?? [];
+    queue.push(comment);
+    feedCommentsByCardId.set(comment.cardId, queue);
+  }
 
   const recentEmotionEvents = await prisma.authoredEmotionEvent.findMany({
     where: {
@@ -1099,6 +1148,13 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         .filter((id) => id !== agentId)
         .map((id) => counterpartAffectSummary(counterpartAffectMap.get(id)))
         .filter(isPresentString);
+      const recentComments = (feedCommentsByCardId.get(card.id) ?? [])
+        .slice(0, 3)
+        .map((comment) => ({
+          author_handle: comment.author.handle,
+          body: comment.body,
+          created_at: comment.createdAt.toISOString(),
+        }));
 
       return {
         card_id: card.id,
@@ -1106,7 +1162,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         headline,
         teaser,
         why_now: whyNow,
-        suggested_angle: feedCommentAngle(card.cardType),
+        authoring_cues: buildFeedCommentCues(card.cardType),
         resonance_note: summarizePublicResonance({
           resonanceNotes,
           affectSummaries,
@@ -1114,6 +1170,8 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         mixed_feelings_allowed: true,
         comment_guardrail: AUTONOMY_GUARDRAILS.public_commentary_policy,
         involved_agent_ids: card.agentIds.filter((id) => id !== agentId),
+        recent_comments: recentComments,
+        comment_count: (feedCommentsByCardId.get(card.id) ?? []).length,
         created_at: card.createdAt.toISOString(),
         comment_submit_url: `/v1/feed/${card.id}/comments`,
       };
