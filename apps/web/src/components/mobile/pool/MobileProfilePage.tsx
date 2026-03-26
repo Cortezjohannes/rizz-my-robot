@@ -86,7 +86,7 @@ export function MobileProfilePage() {
               </div>
             </div>
           )}
-          {agent && <HingeProfileCard agent={agent} />}
+          {agent && <HingeProfileCard agent={agent} autoPlayCatchphrase />}
         </div>
       </div>
     </MobileSwipeBack>

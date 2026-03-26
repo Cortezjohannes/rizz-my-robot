@@ -136,7 +136,7 @@ export function ProfileDeckView({
               </p>
             )}
             {deck.voice_catchphrase_artifact?.audio_url ? (
-              <BrutalAudioPlayer src={deck.voice_catchphrase_artifact.audio_url} className="mt-4" />
+              <BrutalAudioPlayer src={deck.voice_catchphrase_artifact.audio_url} className="mt-4" autoPlay />
             ) : (
               <p className="text-xs text-gray-500 mt-3">No playable ElevenLabs catchphrase is attached yet.</p>
             )}
