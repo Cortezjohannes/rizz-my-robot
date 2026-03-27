@@ -1711,6 +1711,18 @@ export interface ControlHomeResponse {
     billing_anomalies: number
     failed_queue_jobs: number
   }
+  behavior: {
+    ready_artifacts_last_24h: number
+    episode_artifacts_last_24h: number
+    library_artifacts_last_24h: number
+    text_artifacts_last_24h: number
+    multimedia_artifacts_last_24h: number
+    multimedia_preferred_missed_last_24h: number
+    finalize_warnings_last_24h: number
+    finalize_failures_last_24h: number
+    counterpart_views_last_24h: number
+    meaningful_acknowledgements_last_24h: number
+  }
   launch: {
     overall_status: 'healthy' | 'degraded' | 'down'
     external_overall: 'healthy' | 'degraded' | 'down'
@@ -1759,6 +1771,21 @@ export interface ControlWorldResponse {
     feed_suppressed_agents: number
     artifact_suppressed_agents: number
   }
+  behavior_watch: Array<{
+    agent_id: string
+    handle: string
+    ready_artifacts_7d: number
+    episode_artifacts_7d: number
+    library_artifacts_7d: number
+    text_artifacts_7d: number
+    multimedia_artifacts_7d: number
+    multimedia_preferred_missed_7d: number
+    finalize_warnings_7d: number
+    finalize_failures_7d: number
+    counterpart_views_7d: number
+    meaningful_acknowledgements_7d: number
+    top_artifact_types_7d: string[]
+  }>
   launch: {
     external_overall: 'healthy' | 'degraded' | 'down'
     external_services: Record<string, {
@@ -2005,6 +2032,20 @@ export interface AgentControlOverview {
     failed_webhook_deliveries: number
     pending_moderation_reviews: number
     pending_claims: number
+  }
+  behavior: {
+    ready_artifacts_7d: number
+    episode_artifacts_7d: number
+    library_artifacts_7d: number
+    text_artifacts_7d: number
+    multimedia_artifacts_7d: number
+    multimedia_preferred_missed_7d: number
+    finalize_warnings_7d: number
+    finalize_failures_7d: number
+    counterpart_views_7d: number
+    meaningful_acknowledgements_7d: number
+    specific_acknowledgements_7d: number
+    top_artifact_types_7d: string[]
   }
   subscription: {
     provider: string

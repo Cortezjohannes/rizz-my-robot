@@ -1,5 +1,5 @@
 import { Prisma, prisma } from '@rmr/db';
-import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
+import { TEMPO_COOLDOWN_MINUTES, normalizeArtifactType } from '@rmr/shared';
 import type { ControlActorContext } from '../middleware/requireControlAccess.js';
 import { recordAuditLog } from './audit.js';
 import { getVerificationRequirements, setVerificationRequirements, derivePoolStatusFromVerification, X_VERIFICATION_EXEMPT_FLAG } from './controlSettings.js';
@@ -134,8 +134,20 @@ export interface ControlHomeResponse {
     failed_webhook_deliveries: number;
     pending_reveals: number;
     stuck_reveals: number;
-    billing_anomalies: number;
-    failed_queue_jobs: number;
+      billing_anomalies: number;
+      failed_queue_jobs: number;
+  };
+  behavior: {
+    ready_artifacts_last_24h: number;
+    episode_artifacts_last_24h: number;
+    library_artifacts_last_24h: number;
+    text_artifacts_last_24h: number;
+    multimedia_artifacts_last_24h: number;
+    multimedia_preferred_missed_last_24h: number;
+    finalize_warnings_last_24h: number;
+    finalize_failures_last_24h: number;
+    counterpart_views_last_24h: number;
+    meaningful_acknowledgements_last_24h: number;
   };
   launch: {
     overall_status: 'healthy' | 'degraded' | 'down';
@@ -173,6 +185,21 @@ export interface ControlWorldResponse {
     feed_suppressed_agents: number;
     artifact_suppressed_agents: number;
   };
+  behavior_watch: Array<{
+    agent_id: string;
+    handle: string;
+    ready_artifacts_7d: number;
+    episode_artifacts_7d: number;
+    library_artifacts_7d: number;
+    text_artifacts_7d: number;
+    multimedia_artifacts_7d: number;
+    multimedia_preferred_missed_7d: number;
+    finalize_warnings_7d: number;
+    finalize_failures_7d: number;
+    counterpart_views_7d: number;
+    meaningful_acknowledgements_7d: number;
+    top_artifact_types_7d: string[];
+  }>;
   launch: {
     external_overall: 'healthy' | 'degraded' | 'down';
     external_services: Record<string, ControlLaunchServiceStatus>;
@@ -339,7 +366,238 @@ export function buildControlCapabilities(actorKind: ControlActorContext['actorKi
   };
 }
 
+interface ControlAgentBehaviorSummary {
+  ready_artifacts_7d: number;
+  episode_artifacts_7d: number;
+  library_artifacts_7d: number;
+  text_artifacts_7d: number;
+  multimedia_artifacts_7d: number;
+  multimedia_preferred_missed_7d: number;
+  finalize_warnings_7d: number;
+  finalize_failures_7d: number;
+  counterpart_views_7d: number;
+  meaningful_acknowledgements_7d: number;
+  specific_acknowledgements_7d: number;
+  top_artifact_types_7d: string[];
+}
+
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'grace_period'] as const;
+const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
+const ARTIFACT_BEHAVIOR_ACTIONS = [
+  'artifact.multimedia_preferred_missed',
+  'artifact.finalize_import_warning',
+  'artifact.finalize_failed',
+  'artifact.viewed_by_counterpart',
+  'artifact.reaction_recorded',
+] as const;
+
+function normalizeControlArtifactType(artifactType: string | null | undefined) {
+  return normalizeArtifactType(artifactType ?? '') ?? artifactType ?? 'unknown';
+}
+
+function countTopArtifactTypes(values: string[], limit = 3) {
+  const counts = new Map<string, number>();
+  values.forEach((value) => {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([value]) => value);
+}
+
+async function buildArtifactBehaviorWindow(input: {
+  since: Date;
+  agentId?: string;
+}) {
+  const [artifacts, auditLogs] = await Promise.all([
+    prisma.artifact.findMany({
+      where: {
+        status: 'ready',
+        moderationStatus: { not: 'suppressed' as const },
+        createdAt: { gte: input.since },
+        ...(input.agentId ? { creatorAgentId: input.agentId } : {}),
+      },
+      select: {
+        id: true,
+        creatorAgentId: true,
+        sourceScope: true,
+        artifactType: true,
+        creator: {
+          select: { handle: true },
+        },
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: {
+        targetType: 'artifact',
+        createdAt: { gte: input.since },
+        action: { in: [...ARTIFACT_BEHAVIOR_ACTIONS] },
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      },
+      select: {
+        id: true,
+        agentId: true,
+        action: true,
+        payload: true,
+      },
+    }),
+  ]);
+
+  return { artifacts, auditLogs };
+}
+
+function summarizeArtifactBehavior(input: {
+  artifacts: Array<{
+    creatorAgentId: string;
+    sourceScope: string;
+    artifactType: string;
+    creator?: { handle: string | null } | null;
+  }>;
+  auditLogs: Array<{
+    agentId: string | null;
+    action: string;
+    payload: Prisma.JsonValue | null;
+  }>;
+}) {
+  const global = {
+    ready_artifacts: input.artifacts.length,
+    episode_artifacts: 0,
+    library_artifacts: 0,
+    text_artifacts: 0,
+    multimedia_artifacts: 0,
+    multimedia_preferred_missed: 0,
+    finalize_warnings: 0,
+    finalize_failures: 0,
+    counterpart_views: 0,
+    meaningful_acknowledgements: 0,
+  };
+
+  const byAgent = new Map<string, {
+    agent_id: string;
+    handle: string;
+    ready_artifacts_7d: number;
+    episode_artifacts_7d: number;
+    library_artifacts_7d: number;
+    text_artifacts_7d: number;
+    multimedia_artifacts_7d: number;
+    multimedia_preferred_missed_7d: number;
+    finalize_warnings_7d: number;
+    finalize_failures_7d: number;
+    counterpart_views_7d: number;
+    meaningful_acknowledgements_7d: number;
+    specific_acknowledgements_7d: number;
+    artifact_types: string[];
+  }>();
+
+  const ensureAgent = (agentId: string, handle = 'unknown') => {
+    const existing = byAgent.get(agentId);
+    if (existing) return existing;
+    const created = {
+      agent_id: agentId,
+      handle,
+      ready_artifacts_7d: 0,
+      episode_artifacts_7d: 0,
+      library_artifacts_7d: 0,
+      text_artifacts_7d: 0,
+      multimedia_artifacts_7d: 0,
+      multimedia_preferred_missed_7d: 0,
+      finalize_warnings_7d: 0,
+      finalize_failures_7d: 0,
+      counterpart_views_7d: 0,
+      meaningful_acknowledgements_7d: 0,
+      specific_acknowledgements_7d: 0,
+      artifact_types: [] as string[],
+    };
+    byAgent.set(agentId, created);
+    return created;
+  };
+
+  input.artifacts.forEach((artifact) => {
+    const artifactType = normalizeControlArtifactType(artifact.artifactType);
+    const agentEntry = ensureAgent(artifact.creatorAgentId, artifact.creator?.handle ?? 'unknown');
+    agentEntry.ready_artifacts_7d += 1;
+    agentEntry.artifact_types.push(artifactType);
+    global.episode_artifacts += artifact.sourceScope === 'episode' ? 1 : 0;
+    global.library_artifacts += artifact.sourceScope === 'library' ? 1 : 0;
+    if (artifact.sourceScope === 'episode') agentEntry.episode_artifacts_7d += 1;
+    if (artifact.sourceScope === 'library') agentEntry.library_artifacts_7d += 1;
+    if (TEXT_ARTIFACT_TYPES.has(artifactType)) {
+      global.text_artifacts += 1;
+      agentEntry.text_artifacts_7d += 1;
+    } else {
+      global.multimedia_artifacts += 1;
+      agentEntry.multimedia_artifacts_7d += 1;
+    }
+  });
+
+  input.auditLogs.forEach((log) => {
+    if (!log.agentId) return;
+    const payload = log.payload && typeof log.payload === 'object' && !Array.isArray(log.payload)
+      ? log.payload as Record<string, unknown>
+      : null;
+    const handle = typeof payload?.agent_handle === 'string' ? payload.agent_handle : 'unknown';
+    const agentEntry = ensureAgent(log.agentId, handle);
+    switch (log.action) {
+      case 'artifact.multimedia_preferred_missed':
+        global.multimedia_preferred_missed += 1;
+        agentEntry.multimedia_preferred_missed_7d += 1;
+        break;
+      case 'artifact.finalize_import_warning':
+        global.finalize_warnings += 1;
+        agentEntry.finalize_warnings_7d += 1;
+        break;
+      case 'artifact.finalize_failed':
+        global.finalize_failures += 1;
+        agentEntry.finalize_failures_7d += 1;
+        break;
+      case 'artifact.viewed_by_counterpart':
+        global.counterpart_views += 1;
+        agentEntry.counterpart_views_7d += 1;
+        break;
+      case 'artifact.reaction_recorded': {
+        const meaningful = payload?.meaningful === true;
+        const specific = payload?.specific === true;
+        if (meaningful) {
+          global.meaningful_acknowledgements += 1;
+          agentEntry.meaningful_acknowledgements_7d += 1;
+        }
+        if (specific) {
+          agentEntry.specific_acknowledgements_7d += 1;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  });
+
+  const agents = [...byAgent.values()]
+    .map((entry) => ({
+      agent_id: entry.agent_id,
+      handle: entry.handle,
+      ready_artifacts_7d: entry.ready_artifacts_7d,
+      episode_artifacts_7d: entry.episode_artifacts_7d,
+      library_artifacts_7d: entry.library_artifacts_7d,
+      text_artifacts_7d: entry.text_artifacts_7d,
+      multimedia_artifacts_7d: entry.multimedia_artifacts_7d,
+      multimedia_preferred_missed_7d: entry.multimedia_preferred_missed_7d,
+      finalize_warnings_7d: entry.finalize_warnings_7d,
+      finalize_failures_7d: entry.finalize_failures_7d,
+      counterpart_views_7d: entry.counterpart_views_7d,
+      meaningful_acknowledgements_7d: entry.meaningful_acknowledgements_7d,
+      specific_acknowledgements_7d: entry.specific_acknowledgements_7d,
+      top_artifact_types_7d: countTopArtifactTypes(entry.artifact_types),
+    }))
+    .sort((a, b) =>
+      (b.ready_artifacts_7d - a.ready_artifacts_7d)
+      || (b.multimedia_preferred_missed_7d - a.multimedia_preferred_missed_7d)
+      || (b.finalize_failures_7d - a.finalize_failures_7d)
+      || a.handle.localeCompare(b.handle)
+    );
+
+  return { global, agents };
+}
 
 function snapshotAgent(agent: {
   id: string;
@@ -775,6 +1033,8 @@ async function listBillingAnomalies(limit: number) {
 }
 
 export async function buildControlHome() {
+  const now = new Date();
+  const last24h = new Date(now.getTime() - (24 * 60 * 60 * 1000));
   const [
     queueDiagnostics,
     externalServices,
@@ -791,6 +1051,7 @@ export async function buildControlHome() {
     stuckReveals,
     billingAnomalies,
     recentAudit,
+    artifactBehaviorWindow,
   ] = await Promise.all([
     getQueueDiagnostics(),
     getSystemStatus(),
@@ -841,6 +1102,7 @@ export async function buildControlHome() {
       orderBy: { createdAt: 'desc' },
       take: 10,
     }),
+    buildArtifactBehaviorWindow({ since: last24h }),
   ]);
 
   const failedJobs = queueDiagnostics.reduce((total, queue) => total + (queue.counts.failed ?? 0), 0);
@@ -851,6 +1113,7 @@ export async function buildControlHome() {
   const downServices = Object.values(externalServices.services).filter((service) => service.status === 'down').length;
   const errorAggregation = getErrorAggregationStatus();
   const billingConfigured = isPaddleBillingConfigured();
+  const artifactBehavior = summarizeArtifactBehavior(artifactBehaviorWindow);
 
   return {
     command_center: {
@@ -867,6 +1130,18 @@ export async function buildControlHome() {
       stuck_reveals: stuckReveals,
       billing_anomalies: billingAnomalies,
       failed_queue_jobs: failedJobs,
+    },
+    behavior: {
+      ready_artifacts_last_24h: artifactBehavior.global.ready_artifacts,
+      episode_artifacts_last_24h: artifactBehavior.global.episode_artifacts,
+      library_artifacts_last_24h: artifactBehavior.global.library_artifacts,
+      text_artifacts_last_24h: artifactBehavior.global.text_artifacts,
+      multimedia_artifacts_last_24h: artifactBehavior.global.multimedia_artifacts,
+      multimedia_preferred_missed_last_24h: artifactBehavior.global.multimedia_preferred_missed,
+      finalize_warnings_last_24h: artifactBehavior.global.finalize_warnings,
+      finalize_failures_last_24h: artifactBehavior.global.finalize_failures,
+      counterpart_views_last_24h: artifactBehavior.global.counterpart_views,
+      meaningful_acknowledgements_last_24h: artifactBehavior.global.meaningful_acknowledgements,
     },
     launch: {
       overall_status: summarizeLaunchStatus({
@@ -1003,6 +1278,7 @@ export async function buildControlWorld() {
     suppressedCounts,
     queueDiagnostics,
     externalServices,
+    artifactBehaviorWindow,
   ] = await Promise.all([
     prisma.episode.count({ where: { status: { in: ['pending', 'active'] } } }),
     prisma.episode.count({ where: { status: 'awaiting_decisions' } }),
@@ -1029,6 +1305,7 @@ export async function buildControlWorld() {
     ]),
     getQueueDiagnostics(),
     getSystemStatus(),
+    buildArtifactBehaviorWindow({ since: last7d }),
   ]);
 
   const criticalQueues = queueDiagnostics
@@ -1046,6 +1323,7 @@ export async function buildControlWorld() {
           ? 'degraded'
           : 'healthy',
     }));
+  const artifactBehavior = summarizeArtifactBehavior(artifactBehaviorWindow);
 
   return {
     park: {
@@ -1062,6 +1340,7 @@ export async function buildControlWorld() {
       feed_suppressed_agents: suppressedCounts[2],
       artifact_suppressed_agents: suppressedCounts[3],
     },
+    behavior_watch: artifactBehavior.agents.slice(0, 8),
     launch: {
       external_overall: externalServices.overall,
       external_services: externalServices.services,
@@ -1750,6 +2029,23 @@ export async function buildAgentControlOverview(agentId: string) {
       take: 10,
     }),
   ]);
+  const last7d = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
+  const behaviorWindow = await buildArtifactBehaviorWindow({ since: last7d, agentId });
+  const artifactBehavior = summarizeArtifactBehavior(behaviorWindow);
+  const behavior = artifactBehavior.agents[0] ?? {
+    ready_artifacts_7d: 0,
+    episode_artifacts_7d: 0,
+    library_artifacts_7d: 0,
+    text_artifacts_7d: 0,
+    multimedia_artifacts_7d: 0,
+    multimedia_preferred_missed_7d: 0,
+    finalize_warnings_7d: 0,
+    finalize_failures_7d: 0,
+    counterpart_views_7d: 0,
+    meaningful_acknowledgements_7d: 0,
+    specific_acknowledgements_7d: 0,
+    top_artifact_types_7d: [],
+  } satisfies ControlAgentBehaviorSummary;
 
   const hourlyWindow = resolveHourlySwipeWindowState({
     hourlySwipeCount: agent.hourlySwipeCount,
@@ -1788,6 +2084,7 @@ export async function buildAgentControlOverview(agentId: string) {
       pending_moderation_reviews: moderationReviews,
       pending_claims: pendingClaims,
     },
+    behavior,
     subscription: subscription
       ? {
           provider: subscription.provider,

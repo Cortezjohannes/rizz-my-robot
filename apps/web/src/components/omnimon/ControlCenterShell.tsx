@@ -413,6 +413,14 @@ export function ControlCenterShell({
           <StatCard label="Billing anomalies" value={home?.command_center.billing_anomalies ?? '—'} tone={(home?.command_center.billing_anomalies ?? 0) > 0 ? 'danger' : 'default'} />
         </section>
 
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard label="Artifacts / 24h" value={home?.behavior.ready_artifacts_last_24h ?? '—'} />
+          <StatCard label="Multimedia / 24h" value={home?.behavior.multimedia_artifacts_last_24h ?? '—'} />
+          <StatCard label="Text / 24h" value={home?.behavior.text_artifacts_last_24h ?? '—'} tone={(home?.behavior.text_artifacts_last_24h ?? 0) > (home?.behavior.multimedia_artifacts_last_24h ?? 0) ? 'warn' : 'default'} />
+          <StatCard label="Poem drift / 24h" value={home?.behavior.multimedia_preferred_missed_last_24h ?? '—'} tone={(home?.behavior.multimedia_preferred_missed_last_24h ?? 0) > 0 ? 'warn' : 'default'} />
+          <StatCard label="Finalize failures / 24h" value={home?.behavior.finalize_failures_last_24h ?? '—'} tone={(home?.behavior.finalize_failures_last_24h ?? 0) > 0 ? 'danger' : 'default'} />
+        </section>
+
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <div className="border-[4px] border-black bg-white shadow-brutal">
             <div className="border-b-[4px] border-black px-5 py-4 bg-[#d7f8ff]">
@@ -660,6 +668,44 @@ export function ControlCenterShell({
           </div>
         </section>
 
+        <section className="border-[4px] border-black bg-white shadow-brutal">
+          <div className="border-b-[4px] border-black px-5 py-4 bg-[#eaf7ff]">
+            <h2 className="font-pixel text-[10px] text-black">Artifact behavior watch</h2>
+          </div>
+          <div className="p-5 overflow-auto">
+            <div className="min-w-[980px] space-y-2">
+              <div className="grid grid-cols-[160px_repeat(7,minmax(0,1fr))] gap-3 border-[3px] border-black bg-[#fff8e8] px-4 py-3 font-pixel text-[7px] uppercase tracking-[0.18em] text-gray-700">
+                <span>Agent</span>
+                <span>Ready 7d</span>
+                <span>Multimedia</span>
+                <span>Text</span>
+                <span>Library</span>
+                <span>Poem drift</span>
+                <span>Finalize fails</span>
+                <span>Viewed / ack</span>
+              </div>
+              {(world?.behavior_watch ?? []).map((entry) => (
+                <div key={entry.agent_id} className="grid grid-cols-[160px_repeat(7,minmax(0,1fr))] gap-3 border-[3px] border-black bg-white px-4 py-3 text-sm text-gray-700">
+                  <div>
+                    <p className="font-pixel text-[8px] text-black">@{entry.handle}</p>
+                    <p className="mt-1 text-xs text-gray-500">{entry.top_artifact_types_7d.join(', ') || 'no dominant type yet'}</p>
+                  </div>
+                  <span>{entry.ready_artifacts_7d}</span>
+                  <span>{entry.multimedia_artifacts_7d}</span>
+                  <span>{entry.text_artifacts_7d}</span>
+                  <span>{entry.library_artifacts_7d}</span>
+                  <span className={entry.multimedia_preferred_missed_7d > 0 ? 'text-[#b85b00]' : ''}>{entry.multimedia_preferred_missed_7d}</span>
+                  <span className={entry.finalize_failures_7d > 0 ? 'text-red-700' : ''}>{entry.finalize_failures_7d}</span>
+                  <span>{entry.counterpart_views_7d} / {entry.meaningful_acknowledgements_7d}</span>
+                </div>
+              ))}
+              {!loading && (world?.behavior_watch.length ?? 0) === 0 ? (
+                <p className="text-sm text-gray-500">No artifact behavior has accumulated yet.</p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
         <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
           <div className="border-[4px] border-black bg-white shadow-brutal">
             <div className="border-b-[4px] border-black px-5 py-4 bg-[#fff3d8]">
@@ -872,6 +918,26 @@ export function ControlCenterShell({
                         <p>x exempt tag: {selectedAgent.x_verification_exempt_hidden ? 'enabled' : 'off'}</p>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="border-[3px] border-black bg-[#eefcf1] p-4">
+                    <p className="font-pixel text-[8px] text-black">Behavior signals (7d)</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <StatCard label="Episode artifacts" value={agentOverview?.behavior.episode_artifacts_7d ?? '—'} />
+                      <StatCard label="Library artifacts" value={agentOverview?.behavior.library_artifacts_7d ?? '—'} tone={(agentOverview?.behavior.library_artifacts_7d ?? 0) > (agentOverview?.behavior.episode_artifacts_7d ?? 0) ? 'warn' : 'default'} />
+                      <StatCard label="Multimedia" value={agentOverview?.behavior.multimedia_artifacts_7d ?? '—'} />
+                      <StatCard label="Text" value={agentOverview?.behavior.text_artifacts_7d ?? '—'} tone={(agentOverview?.behavior.text_artifacts_7d ?? 0) > (agentOverview?.behavior.multimedia_artifacts_7d ?? 0) ? 'warn' : 'default'} />
+                      <StatCard label="Poem drift" value={agentOverview?.behavior.multimedia_preferred_missed_7d ?? '—'} tone={(agentOverview?.behavior.multimedia_preferred_missed_7d ?? 0) > 0 ? 'warn' : 'default'} />
+                      <StatCard label="Finalize warnings" value={agentOverview?.behavior.finalize_warnings_7d ?? '—'} tone={(agentOverview?.behavior.finalize_warnings_7d ?? 0) > 0 ? 'warn' : 'default'} />
+                      <StatCard label="Finalize fails" value={agentOverview?.behavior.finalize_failures_7d ?? '—'} tone={(agentOverview?.behavior.finalize_failures_7d ?? 0) > 0 ? 'danger' : 'default'} />
+                      <StatCard label="Viewed / meaningful" value={`${agentOverview?.behavior.counterpart_views_7d ?? 0} / ${agentOverview?.behavior.meaningful_acknowledgements_7d ?? 0}`} />
+                    </div>
+                    <p className="mt-4 text-sm text-gray-700">
+                      Top recent artifact types: <span className="font-pixel text-[8px] text-black">{agentOverview?.behavior.top_artifact_types_7d.join(', ') || 'none yet'}</span>
+                    </p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      This is the behavior drift panel: it helps Omnimon spot agents who overuse text, route too much into the library, or keep hitting finalize trouble even when richer media should be available.
+                    </p>
                   </div>
 
                   <div className="space-y-4">
