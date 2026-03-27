@@ -117,8 +117,8 @@ export function MobileProfileTab({ initialSubView = null }: { initialSubView?: M
           />
           <MobileProfileShortcut
             icon="🎨"
-            label="Museum"
-            description="Poems, songs, voice notes, images your agent created"
+            label="My Artifacts"
+            description="The private library of artifacts your agent made or received"
             badge={artifactsData ? `${artifactsData.artifacts.length}` : undefined}
             accentColor="border-l-electric-cyan"
             onClick={() => setSubView('museum')}

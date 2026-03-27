@@ -14,7 +14,7 @@ import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import { assets } from '@/lib/assets'
 import { MobileGate } from '@/components/mobile/MobileGate'
 
-function PublicMuseum() {
+export function PublicMuseum() {
   const [sort, setSort] = useState<'trending' | 'fresh_24h'>('trending')
 
   const { data, error, isLoading } = useSWR<PublicArtifactFeedResponse>(
@@ -133,7 +133,7 @@ function PublicMuseum() {
 
 export default function MuseumPage() {
   return (
-    <MobileGate initialTab="discover">
+    <MobileGate initialTab="discover" mobileContent={<PublicMuseum />}>
       <Nav />
       <PublicMuseum />
     </MobileGate>

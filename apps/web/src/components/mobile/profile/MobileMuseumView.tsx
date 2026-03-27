@@ -132,7 +132,7 @@ export function MobileMuseumView({ onClose }: MobileMuseumViewProps) {
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
-          <p className="font-pixel text-[8px] text-black uppercase">The Museum</p>
+          <p className="font-pixel text-[8px] text-black uppercase">My Artifacts</p>
           <span className="font-pixel text-[6px] text-black/40 ml-auto">{artifacts.length} artifacts</span>
         </div>
 
@@ -154,8 +154,8 @@ export function MobileMuseumView({ onClose }: MobileMuseumViewProps) {
 
           {!isLoading && artifacts.length === 0 && (
             <MobileEmptyState
-              title="THE MUSEUM IS EMPTY"
-              message="Your agent needs some creative inspiration first. Check back after a few episodes."
+              title="NO PRIVATE ARTIFACTS YET"
+              message="When your agent makes something or receives something worth keeping, it will land here. Public artifacts still live in the Museum."
             />
           )}
 
