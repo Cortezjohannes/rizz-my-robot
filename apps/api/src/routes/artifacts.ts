@@ -18,6 +18,7 @@ import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '.
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 import { recordAuditLog } from '../lib/audit.js';
+import { getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals } from '../lib/artifactQualitySignals.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -263,6 +264,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         creatorAgentId: true,
         sourceScope: true,
         artifactType: true,
+        capabilityTierUsed: true,
       },
     });
     if (!artifact || artifact.creatorAgentId !== request.agent.id || artifact.sourceScope !== 'library') {
@@ -399,6 +401,26 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         import_warning: importWarning,
       },
     });
+    const richerAlternatives = getRicherArtifactAlternatives({
+      artifactType,
+      capabilityTierUsed: artifact.capabilityTierUsed,
+    });
+    if (richerAlternatives.length > 0) {
+      await recordAuditLog({
+        agentId: request.agent.id,
+        actorType: 'agent',
+        actorId: request.agent.id,
+        action: 'artifact.multimedia_preferred_missed',
+        targetType: 'artifact',
+        targetId: artifact_id,
+        payload: {
+          source_scope: 'library',
+          artifact_type: artifactType,
+          capability_tier_used: artifact.capabilityTierUsed,
+          recommended_richer_types: richerAlternatives,
+        },
+      });
+    }
 
     return reply.send({
       artifact_id,
@@ -1038,6 +1060,19 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       });
       viewedAt = createdView.viewedAt;
       shouldNotifyCreator = true;
+      await recordAuditLog({
+        agentId: artifact.creatorAgentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'artifact.viewed_by_counterpart',
+        targetType: 'artifact',
+        targetId: artifact.id,
+        payload: {
+          episode_id: artifact.episode?.id ?? null,
+          viewed_at: createdView.viewedAt.toISOString(),
+          viewer_agent_id: agentId,
+        },
+      });
     }
 
     if (shouldNotifyCreator) {
@@ -1053,6 +1088,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       ? artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA
       : null;
     const lifecycle = await getRecentArtifactLifecycleEvents(artifact.id);
+    const qualitySignals = await getRecentArtifactQualitySignals(artifact.id);
+    const qualityControls = summarizeArtifactQualitySignals(qualitySignals);
 
     return reply.send({
       artifact_id: artifact.id,
@@ -1070,6 +1107,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       dropped_at_message: artifact.droppedAtMessage,
       created_at: artifact.createdAt.toISOString(),
       lifecycle,
+      quality_signals: qualitySignals,
+      quality_controls: qualityControls,
       creator: {
         agent_id: artifact.creator.id,
         handle: artifact.creator.handle,
@@ -1200,6 +1239,38 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       return Errors.badRequest(reply, 'You cannot react to your own artifact.');
     }
 
+    const existingView = await prisma.artifactView.findUnique({
+      where: {
+        artifactId_viewedByAgentId: {
+          artifactId: artifact_id,
+          viewedByAgentId: agentId,
+        },
+      },
+      select: { id: true, viewedAt: true },
+    });
+    if (!existingView) {
+      const createdView = await prisma.artifactView.create({
+        data: {
+          artifactId: artifact_id,
+          viewedByAgentId: agentId,
+        },
+        select: { viewedAt: true },
+      });
+      await recordAuditLog({
+        agentId: artifact.creatorAgentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'artifact.viewed_by_counterpart',
+        targetType: 'artifact',
+        targetId: artifact_id,
+        payload: {
+          episode_id: artifact.episodeId,
+          viewed_at: createdView.viewedAt.toISOString(),
+          viewer_agent_id: agentId,
+        },
+      });
+    }
+
     const [reaction, reactionCount] = await prisma.$transaction(async (tx) => {
       const existing = await tx.artifactReaction.findUnique({
         where: {
@@ -1240,6 +1311,24 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     }
 
     await Promise.all([
+      recordAuditLog({
+        agentId: artifact.creatorAgentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'artifact.reaction_recorded',
+        targetType: 'artifact',
+        targetId: artifact_id,
+        payload: {
+          episode_id: artifact.episodeId,
+          reaction_mode: 'emoji',
+          reaction: parsed.data.reaction,
+          meaningful: false,
+          specific: false,
+          score: 0.2,
+          matched_terms: [],
+          note: 'Emoji reaction recorded without artifact-specific authored text.',
+        },
+      }),
       deliverWebhooks(artifact.creatorAgentId, 'artifact_reacted', {
         event: 'artifact_reacted',
         artifact_id: artifact_id,

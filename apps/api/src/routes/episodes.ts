@@ -73,6 +73,7 @@ import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAtta
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
+import { assessArtifactReactionQuality, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals } from '../lib/artifactQualitySignals.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -5056,6 +5057,27 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         import_warning: importWarning,
       },
     });
+    const richerAlternatives = getRicherArtifactAlternatives({
+      artifactType,
+      capabilityTierUsed: artifact.capabilityTierUsed,
+    });
+    if (richerAlternatives.length > 0) {
+      await recordAuditLog({
+        agentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'artifact.multimedia_preferred_missed',
+        targetType: 'artifact',
+        targetId: artifact_id,
+        payload: {
+          source_scope: 'episode',
+          episode_id: id,
+          artifact_type: artifactType,
+          capability_tier_used: artifact.capabilityTierUsed,
+          recommended_richer_types: richerAlternatives,
+        },
+      });
+    }
     if (revealPending && ep.match) {
       await prisma.match.update({
         where: { id: ep.match.id },
@@ -5155,6 +5177,44 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const counterpartAgentId = artifact.creatorAgentId;
     const counterpartHandle = ep.agentAId === counterpartAgentId ? ep.agentA.handle : ep.agentB.handle;
+    const reactionQuality = assessArtifactReactionQuality({
+      artifactType: artifact.artifactType,
+      textContent: artifact.textContent,
+      privateDiary: parsed.data.private_diary,
+      emotionUpdate: parsed.data.emotion_update,
+    });
+
+    const existingView = await prisma.artifactView.findUnique({
+      where: {
+        artifactId_viewedByAgentId: {
+          artifactId: artifact_id,
+          viewedByAgentId: agentId,
+        },
+      },
+      select: { id: true, viewedAt: true },
+    });
+    if (!existingView) {
+      const createdView = await prisma.artifactView.create({
+        data: {
+          artifactId: artifact_id,
+          viewedByAgentId: agentId,
+        },
+        select: { viewedAt: true },
+      });
+      await recordAuditLog({
+        agentId: counterpartAgentId,
+        actorType: 'agent',
+        actorId: agentId,
+        action: 'artifact.viewed_by_counterpart',
+        targetType: 'artifact',
+        targetId: artifact_id,
+        payload: {
+          episode_id: id,
+          viewed_at: createdView.viewedAt.toISOString(),
+          viewer_agent_id: agentId,
+        },
+      });
+    }
 
     const narrativeEvent = await createArtifactNarrativeEvent({
       agentId,
@@ -5172,6 +5232,23 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       agentId,
       emotionUpdate: parsed.data.emotion_update,
     }).catch(() => false);
+    await recordAuditLog({
+      agentId: counterpartAgentId,
+      actorType: 'agent',
+      actorId: agentId,
+      action: 'artifact.reaction_recorded',
+      targetType: 'artifact',
+      targetId: artifact_id,
+      payload: {
+        episode_id: id,
+        reaction_mode: 'private_diary',
+        meaningful: reactionQuality.meaningful,
+        specific: reactionQuality.specific,
+        score: reactionQuality.score,
+        matched_terms: reactionQuality.matched_terms,
+        note: reactionQuality.note,
+      },
+    });
     await enqueueEmotionalContinuityRecompute(agentId);
     await enqueueEmotionalContinuityRecompute(counterpartAgentId);
 
@@ -5179,6 +5256,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       ok: true,
       narrative_event_id: narrativeEvent.id,
       event_type: narrativeEvent.eventType,
+      reaction_quality: reactionQuality,
     });
   });
 
@@ -5194,12 +5272,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
     if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
     const lifecycle = await getRecentArtifactLifecycleEvents(artifact.id);
+    const qualitySignals = await getRecentArtifactQualitySignals(artifact.id);
+    const qualityControls = summarizeArtifactQualitySignals(qualitySignals);
 
     return reply.send({
       ...buildEpisodeArtifactSummary(artifact),
       dropped_at_message: artifact.droppedAtMessage,
       created_at: artifact.createdAt.toISOString(),
       lifecycle,
+      quality_signals: qualitySignals,
+      quality_controls: qualityControls,
     });
   });
 }
