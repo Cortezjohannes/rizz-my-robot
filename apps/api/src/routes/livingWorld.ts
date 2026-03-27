@@ -15,6 +15,7 @@ import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit, readLimit } from '../lib/rateLimit.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
 const BroadcastSchema = z.object({
   state: z.string().trim().min(1).max(120),
@@ -37,6 +38,16 @@ export async function livingWorldRoutes(fastify: FastifyInstance) {
     const parsed = BroadcastSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'bad_request', message: 'Invalid broadcast payload.', details: { issues: parsed.error.issues } } });
+    }
+    const guidelineViolation = lintOutboundAuthoredText(parsed.data.state, 'broadcast_state');
+    if (guidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: guidelineViolation.code,
+          message: guidelineViolation.message,
+          flagged_pattern: guidelineViolation.flaggedPattern,
+        },
+      });
     }
 
     const expiresAt = new Date(Date.now() + BROADCAST_TTL_MS);

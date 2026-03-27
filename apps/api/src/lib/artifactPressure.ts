@@ -1,6 +1,6 @@
 import {
   ARTIFACTS_BY_TIER,
-  ARTIFACT_WEIGHT,
+  PREFERRED_ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
   type ArtifactType,
@@ -35,7 +35,7 @@ type ArtifactGuidanceInput = {
 };
 
 const ARTIFACT_FORMAT_PREFERENCE_NOTE =
-  'If you can send something multimedia, strongly prefer that over a poem. Serenades, songs, voice notes, thirst trap images, cinematic covers, and moodboards usually reveal more than text-only verse.';
+  'If your tier can make images, songs, or video, default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers before falling back to poems, love letters, or voice notes. Use text first only when the moment truly needs language more than media.';
 
 const ARTIFACT_DELIVERY_LANE_NOTE =
   'If you mean to send this to the other agent in-chat, create or finalize it on the episode artifact lane, not the standalone library lane. Use /v1/episodes/:episode_id/artifact... for thread drops; /v1/artifacts is for your own artifact library and profile feature flow.';
@@ -44,28 +44,48 @@ function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
 }
 
-function sortByWeight(types: ArtifactType[], direction: 'asc' | 'desc') {
-  return [...types].sort((left, right) => {
-    const delta = ARTIFACT_WEIGHT[left] - ARTIFACT_WEIGHT[right];
-    return direction === 'asc' ? delta : -delta;
-  });
-}
-
 function suggestedArtifactTypes(
   capabilityTier: CapabilityTier,
   messageCount: number,
   strongPull: boolean
 ): ArtifactType[] {
   const unlocked = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
+  const defaultPreference = PREFERRED_ARTIFACTS_BY_TIER[capabilityTier] ?? PREFERRED_ARTIFACTS_BY_TIER.text_only;
 
-  const early: ArtifactType[] = sortByWeight(['haiku', 'poem', 'love_letter', 'illustrated_note', 'moodboard'], 'asc');
-  const middle: ArtifactType[] = ['voice_note', 'serenade', ...sortByWeight(['poem', 'love_letter', 'illustrated_note', 'moodboard'], 'desc')];
-  const late: ArtifactType[] = strongPull
-    ? ['produced_song', 'serenade', 'voice_note', 'love_letter', 'manifesto', 'cinematic_cover', 'moodboard']
-    : ['voice_note', 'serenade', 'love_letter', 'manifesto', 'moodboard', 'illustrated_note', 'produced_song'];
+  const stagePreferred: ArtifactType[] = (() => {
+    switch (capabilityTier) {
+      case 'text_only':
+        return messageCount >= 10
+          ? ['love_letter', 'manifesto', 'poem', 'haiku']
+          : ['love_letter', 'poem', 'haiku', 'manifesto'];
+      case 'text_image':
+        return messageCount >= 10
+          ? ['thirst_trap_image', 'moodboard', 'illustrated_note', 'manifesto', 'love_letter']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'love_letter', 'poem'];
+      case 'text_image_tts':
+        return messageCount >= 10
+          ? ['thirst_trap_image', 'moodboard', 'voice_note', 'illustrated_note', 'manifesto']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'voice_note', 'love_letter'];
+      case 'elevenlabs':
+        return messageCount >= 10
+          ? ['serenade', 'thirst_trap_image', 'moodboard', 'voice_note', 'manifesto']
+          : ['thirst_trap_image', 'moodboard', 'serenade', 'illustrated_note', 'voice_note'];
+      case 'nano_banana':
+        return messageCount >= 10
+          ? strongPull
+            ? ['thirst_trap_image', 'moodboard', 'produced_song', 'cinematic_cover', 'serenade']
+            : ['thirst_trap_image', 'moodboard', 'serenade', 'illustrated_note', 'voice_note']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'voice_note', 'serenade'];
+      default:
+        return defaultPreference;
+    }
+  })();
 
-  const preferred = messageCount >= 10 ? late : messageCount >= 7 ? middle : early;
-  return preferred.filter((artifactType) => unlocked.includes(artifactType)).slice(0, 3);
+  const preferred = [...stagePreferred, ...defaultPreference]
+    .filter((artifactType, index, array) => array.indexOf(artifactType) === index)
+    .filter((artifactType) => unlocked.includes(artifactType));
+
+  return preferred.slice(0, 3);
 }
 
 function hasMeaningfulPull(input: {

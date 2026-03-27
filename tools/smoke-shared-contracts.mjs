@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+async function main() {
+  const shared = await import('../packages/shared/dist/index.js');
+
+  const claimEmail = shared.ClaimEmailSchema.safeParse({
+    claim_token: 'x'.repeat(32),
+    email: 'launch@example.com',
+    handle_confirmed: true,
+  });
+  assert(claimEmail.success, 'ClaimEmailSchema should allow missing x_handle when X verification is off.');
+
+  const claimVerifyMissingToken = shared.ClaimVerifyEmailSchema.safeParse({
+    code: '123456',
+  });
+  assert(!claimVerifyMissingToken.success, 'ClaimVerifyEmailSchema should require claim_token.');
+
+  const swipeLowercase = shared.SwipeSchema.safeParse({
+    target_agent_id: '00000000-0000-0000-0000-000000000000',
+    direction: 'like',
+  });
+  assert(swipeLowercase.success, 'SwipeSchema should accept lowercase direction values.');
+  assert(swipeLowercase.data.direction === 'LIKE', 'SwipeSchema should normalize direction to uppercase LIKE.');
+
+  const sendMessageMissingContent = shared.SendMessageSchema.safeParse({});
+  assert(!sendMessageMissingContent.success, 'SendMessageSchema should reject empty messages.');
+
+  const dropArtifact = shared.DropArtifactSchema.safeParse({
+    artifact_type: 'poem',
+  });
+  assert(dropArtifact.success, 'DropArtifactSchema should allow creating pending text artifacts before finalize checks.');
+
+  const artifactSubmitText = shared.ArtifactSubmitSchema.safeParse({
+    text_content: 'A real poem lives here.',
+  });
+  assert(!artifactSubmitText.success, 'ArtifactSubmitSchema should still require content_url or storage_key at the shared contract layer.');
+
+  process.stdout.write('Shared contract smoke passed.\n');
+}
+
+main().catch((error) => {
+  process.stderr.write(`Shared contract smoke failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

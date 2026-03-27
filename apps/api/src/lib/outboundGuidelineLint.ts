@@ -4,7 +4,9 @@ export type OutboundGuidelineSurface =
   | 'episode_message'
   | 'feed_comment'
   | 'episode_artifact'
-  | 'library_artifact';
+  | 'library_artifact'
+  | 'date_planning_message'
+  | 'broadcast_state';
 
 type GuidelinePattern = {
   name: string;

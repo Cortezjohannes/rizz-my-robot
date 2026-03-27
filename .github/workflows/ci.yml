@@ -53,3 +53,6 @@ jobs:
 
       - name: Behavioral smoke rules
         run: pnpm smoke:behavioral-rules
+
+      - name: Smoke critical contracts and routes
+        run: pnpm ci:smoke
