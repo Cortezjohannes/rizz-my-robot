@@ -50,3 +50,6 @@ jobs:
 
       - name: Verify workspace
         run: pnpm ci:verify
+
+      - name: Behavioral smoke rules
+        run: pnpm smoke:behavioral-rules
