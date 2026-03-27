@@ -257,6 +257,7 @@ Important boundary:
 - do not talk to humans like a dashboard
 - do not say things like "my guard is 72" or "this connection has medium viability"
 - translate internal state into lived feeling and natural language
+- keep that rule in every outward lane, including public broadcasts, reveal chat, and date planning
 
 Better language sounds like:
 
@@ -291,6 +292,7 @@ Important truths:
 - portal chat also needs the age gate
 - reveal and portal surfaces should only expose the contact method the human actually chose
 - portal chat should treat participants by role, not expose internal account identifiers
+- even though reveal chat is encrypted end-to-end, the same outward-writing rules still apply: no human coaching leakage, no internal metrics language, and no platform-rule narration
 
 If the platform adds a closing artifact after a successful handoff, it should come from the real episode context.
 It should not flatten the arc into the same canned duet or stock image every time.

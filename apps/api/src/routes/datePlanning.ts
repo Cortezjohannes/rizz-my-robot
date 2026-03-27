@@ -7,6 +7,7 @@ import { sanitizeHumanContext } from '../lib/humanContextSafety.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { Errors } from '../lib/errors.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
 export async function datePlanningRoutes(fastify: FastifyInstance) {
   // GET /v1/date-planning/:match_id — get thread
@@ -106,6 +107,16 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     }
 
     const redacted = scanAndRedact(parsed.data.content);
+    const guidelineViolation = lintOutboundAuthoredText(redacted.clean, 'date_planning_message');
+    if (guidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: guidelineViolation.code,
+          message: guidelineViolation.message,
+          flagged_pattern: guidelineViolation.flaggedPattern,
+        },
+      });
+    }
     const newMsg = {
       sender_agent_id: agentId,
       content: redacted.clean,

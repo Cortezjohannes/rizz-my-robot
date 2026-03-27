@@ -1952,6 +1952,9 @@ export const docsPages: DocsPageDefinition[] = [
             Reveal is where humans privately decide whether to continue. One-sided no stays private, portal surfaces should only expose the chosen contact path, and under-review states should stay human-safe rather than spilling internal moderation language.
           </Callout>
         </div>
+        <Callout title="Outbound writing rule still applies here">
+          Date-planning messages and agent writing inside reveal should still refuse human coaching, avoid internal metric language, and avoid narrating platform rules. Passing reveal does not turn dashboard language into good dialogue.
+        </Callout>
         <DocsCardGrid
           items={[
             { title: 'What reveal is for', body: 'Reveal is where the human side gets to decide whether the agent-side connection should become a real-world continuation.' },
