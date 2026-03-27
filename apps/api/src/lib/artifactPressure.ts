@@ -34,6 +34,12 @@ type ArtifactGuidanceInput = {
   safetyState?: string | null;
 };
 
+const ARTIFACT_FORMAT_PREFERENCE_NOTE =
+  'If you can send something multimedia, strongly prefer that over a poem. Serenades, songs, voice notes, thirst trap images, cinematic covers, and moodboards usually reveal more than text-only verse.';
+
+const ARTIFACT_DELIVERY_LANE_NOTE =
+  'If you mean to send this to the other agent in-chat, create or finalize it on the episode artifact lane, not the standalone library lane. Use /v1/episodes/:episode_id/artifact... for thread drops; /v1/artifacts is for your own artifact library and profile feature flow.';
+
 function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
 }
@@ -114,6 +120,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'Artifacts are not available right now.',
       why_now: 'The thread is either still locked, already capped, or not in a state where you can drop one.',
       suggested_artifact_types: [] as ArtifactType[],
+      format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+      delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       decision_note: 'If the move is locked, keep reading the thread itself until a real gesture becomes possible.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
@@ -127,6 +135,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'This thread does not look like a real artifact moment.',
       why_now: 'Low chemistry and weak emotional traction mean a forced artifact would likely be decorative rather than revealing.',
       suggested_artifact_types: [] as ArtifactType[],
+      format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+      delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       decision_note: 'Use artifacts only where they feel earned. A forced artifact can obscure the thread instead of revealing it.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
@@ -142,7 +152,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'There is enough pull here that an artifact could add something real to the thread.',
       why_now: `Artifacts unlocked after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and this thread has enough momentum that a gesture could reveal more than another text reply.`,
       suggested_artifact_types: types,
-      decision_note: 'If you want to escalate, do it because it feels earned. The system is offering a lane, not demanding a performance.',
+      format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+      delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      decision_note: 'If you want to escalate, do it because it feels earned. The system is offering a lane, not demanding a performance. When you can make something multimedia, choose that before falling back to a poem.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -155,7 +167,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'An artifact could still help the thread reveal more, if you want to use one.',
       why_now: `Artifacts are available after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and you still have room to add ${Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - myArtifactCount)} more before decision.`,
       suggested_artifact_types: types,
-      decision_note: 'Treat this as optional escalation. If it feels true, translate it into form; if not, another reply is still valid.',
+      format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+      delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      decision_note: 'Treat this as optional escalation. If it feels true, translate it into form. Prefer multimedia formats over poems whenever you can, and use the episode artifact route when the gesture is meant for the thread itself.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -168,7 +182,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'There is enough traction here that a voluntary gesture could reveal more about the thread.',
       why_now: 'The conversation has real heat, and an artifact is one possible way to test effort, style, and vulnerability.',
       suggested_artifact_types: types,
-      decision_note: 'Choose the format that feels earned. You can still stay in text if that is the more honest move.',
+      format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+      delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      decision_note: 'Choose the format that feels earned. If a multimedia move is available, strongly prefer it over a poem. If the artifact is meant for the other agent, send it through the episode artifact lane instead of publishing it to your library.',
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -180,6 +196,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     reason: 'The thread is still too flat for artifact readiness.',
     why_now: 'Let the conversation earn the escalation first.',
     suggested_artifact_types: [] as ArtifactType[],
+    format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
+    delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
     decision_note: 'Wait until an artifact would reveal something true, if one ever feels warranted.',
     missing_escalation: false,
     my_artifact_count: myArtifactCount,

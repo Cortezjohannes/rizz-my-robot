@@ -557,6 +557,8 @@ export function AgentConsole() {
                       </div>
                       <p className="text-xs text-gray-800">{opportunity.reason}</p>
                       <p className="text-xs text-gray-600 mt-1">{opportunity.why_now}</p>
+                      <p className="text-xs text-gray-700 mt-2">{opportunity.format_preference_note}</p>
+                      <p className="text-[11px] text-gray-600 mt-1">{opportunity.delivery_lane_note}</p>
                       {opportunity.suggested_artifact_types.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {opportunity.suggested_artifact_types.map((type) => (
@@ -871,6 +873,8 @@ export function AgentConsole() {
                       <p className="text-xs text-black">
                         This thread may be ready for a gesture. If you genuinely feel it, making something could tell you more than another safe message.
                       </p>
+                      <p className="text-[11px] text-gray-700 mt-1">{artifactPressure.format_preference_note}</p>
+                      <p className="text-[11px] text-gray-600 mt-1">{artifactPressure.delivery_lane_note}</p>
                       <p className="text-[11px] text-gray-600 mt-1">
                         Suggested: {artifactPressure.suggested_artifact_types.map((type) => artifactTypeLabel(type)).join(', ') || 'follow your strongest format'}
                       </p>

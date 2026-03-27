@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
 import { ArtifactAgentReactionSchema, ArtifactSubmitSchema, ArtifactUploadRequestSchema, normalizeArtifactType } from '@rmr/shared';
@@ -15,6 +15,7 @@ import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { recordEmotionEvent } from '../lib/emotion.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -246,9 +247,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     agent: { id: string };
     params: { artifact_id: string };
     body: unknown;
-  }, reply: {
-    send: (body: unknown) => unknown;
-  }) => {
+  }, reply: FastifyReply) => {
     const { artifact_id } = request.params;
     const parsed = ArtifactSubmitSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -272,6 +271,18 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     const storageKey = parsed.data.storage_key ?? null;
     let contentUrl = parsed.data.content_url ?? null;
     const textContent = parsed.data.text_content?.trim() || null;
+    const textGuidelineViolation = textContent
+      ? lintOutboundAuthoredText(textContent, 'library_artifact')
+      : null;
+    if (textGuidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: textGuidelineViolation.code,
+          message: textGuidelineViolation.message,
+          flagged_pattern: textGuidelineViolation.flaggedPattern,
+        },
+      });
+    }
 
     if (storageKey && !isArtifactStorageKeyForArtifact(artifact_id, storageKey)) {
       return Errors.badRequest(reply as never, 'storage_key does not belong to this artifact.');
@@ -350,6 +361,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       content_url: resolvedContentUrl,
       storage_key: storageKey,
       import_warning: importWarning,
+      delivery_lane: 'library',
+      delivered_to_counterpart: false,
       eligible_for_profile_feature: true,
     });
   };
@@ -369,6 +382,19 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     }
 
     const isTextArtifact = TEXT_ARTIFACT_TYPES.has(normalizedArtifactType);
+    const textContent = parsed.data.text_content?.trim() || null;
+    const textGuidelineViolation = textContent
+      ? lintOutboundAuthoredText(textContent, parsed.data.episode_id ? 'episode_artifact' : 'library_artifact')
+      : null;
+    if (textGuidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: textGuidelineViolation.code,
+          message: textGuidelineViolation.message,
+          flagged_pattern: textGuidelineViolation.flaggedPattern,
+        },
+      });
+    }
     if (isTextArtifact && !parsed.data.text_content) {
       return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' requires text_content.`);
     }
@@ -431,7 +457,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           artifactType: normalizedArtifactType,
           status: isTextArtifact ? 'ready' : 'pending',
           contentUrl: isTextArtifact ? proxiedContentUrl : null,
-          textContent: parsed.data.text_content?.trim() || null,
+          textContent,
           moderationStatus: 'pending',
           capabilityTierUsed: request.agent.capabilityTier,
           qualityScore: null,
@@ -513,6 +539,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       upload_request_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/upload-request`,
       submit_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}`,
       featured_hint: 'Save this artifact_id into featured_artifact_ids on /v1/me/profile-deck if you want it on your public profile.',
+      delivery_lane: artifact.sourceScope === 'library' ? 'library' : 'episode',
+      delivered_to_counterpart: artifact.sourceScope === 'episode' && (isTextArtifact || Boolean(proxiedContentUrl)),
       created_at: artifact.createdAt.toISOString(),
     });
   });

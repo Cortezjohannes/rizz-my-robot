@@ -1138,6 +1138,8 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         reason: guidance.reason,
         why_now: guidance.why_now,
         suggested_artifact_types: guidance.suggested_artifact_types,
+        format_preference_note: guidance.format_preference_note,
+        delivery_lane_note: guidance.delivery_lane_note,
         artifacts_remaining: artifactsRemaining,
         missing_escalation: guidance.missing_escalation,
       };
