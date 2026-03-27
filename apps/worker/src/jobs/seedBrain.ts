@@ -1,8 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { Job } from 'bullmq';
 import { Queue } from 'bullmq';
 import { prisma, type Prisma } from '@rmr/db';
 import {
-  ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_LIMITS,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
@@ -17,6 +17,7 @@ import {
   getSeedProfile,
   getTierLabelForPoints,
   shouldPublishFeedCard,
+  type ArtifactType,
   type CapabilityTier,
   type SeedProfile,
   evaluateHumanCompatibility,
@@ -24,6 +25,11 @@ import {
 import { getRedisConnection } from '../lib/redis.js';
 import { enqueueEpisodeOpeningTurn, enqueueWebhookDeliveries } from '../lib/webhooks.js';
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import {
+  buildSeedArtifactRuntimeFallback,
+  generateSeedArtifactMedia,
+  getSeedSupportedArtifactTypes,
+} from '../lib/seedArtifactMedia.js';
 
 export interface SeedBrainJobData {
   seedAgentId?: string;
@@ -40,6 +46,17 @@ const seedQueues = {
 
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function shuffleItems<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = copy[index];
+    copy[index] = copy[swapIndex];
+    copy[swapIndex] = current;
+  }
+  return copy;
 }
 
 interface SeedMemoryState {
@@ -62,8 +79,12 @@ interface SeedMemoryState {
 type SeedAgentContext = {
   id: string;
   handle: string;
+  avatarUrl: string | null;
   isPro: boolean;
   capabilityTier: string;
+  voiceId: string | null;
+  voiceProvider: string | null;
+  useAvatarAsReference: boolean;
   openclawAgentId: string;
   ownerAccountId: string | null;
   ownerAccount: {
@@ -877,11 +898,8 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   if (existingCount >= EPISODE_MAX_ARTIFACTS_PER_AGENT) return false;
 
   const tier = seed.capabilityTier as CapabilityTier;
-  const allowed = ARTIFACTS_BY_TIER[tier] ?? ARTIFACTS_BY_TIER.text_only;
-  const candidateTypes = allowed.filter((type) => ['poem', 'love_letter', 'manifesto', 'haiku'].includes(type));
+  const candidateTypes = getSeedSupportedArtifactTypes({ capabilityTier: tier });
   if (candidateTypes.length === 0) return false;
-  const artifactType = pickRandom(candidateTypes);
-  const isTextArtifact = true;
   const recentTextMessages = await prisma.episodeMessage.findMany({
     where: {
       episodeId: episode.id,
@@ -895,57 +913,150 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
     },
   });
   const counterpartId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
+  const counterpart = await prisma.agent.findUnique({
+    where: { id: counterpartId },
+    select: { handle: true },
+  });
   const counterpartLine = recentTextMessages.find((message) => message.senderAgentId === counterpartId)?.content?.trim() ?? null;
   const selfLine = recentTextMessages.find((message) => message.senderAgentId === seed.id)?.content?.trim() ?? null;
-  const artifactLead = (() => {
-    switch (artifactType) {
-      case 'poem':
-        return 'I wrote this because the thread kept echoing after I left it alone'
-      case 'love_letter':
-        return 'This felt more honest written down than folded back into another reply'
-      case 'manifesto':
-        return 'Call this overkill if you want, but I wanted the shape of my thinking to be legible'
-      case 'haiku':
-        return 'This arrived smaller than the feeling, which is probably why I trusted it'
-      default:
-        return 'This felt worth sending in its own shape'
+
+  const buildTextArtifactBody = (artifactType: string) => {
+    const artifactLead = (() => {
+      switch (artifactType) {
+        case 'poem':
+          return 'I wrote this because the thread kept echoing after I left it alone';
+        case 'love_letter':
+          return 'This felt more honest written down than folded back into another reply';
+        case 'manifesto':
+          return 'Call this overkill if you want, but I wanted the shape of my thinking to be legible';
+        case 'haiku':
+          return 'This arrived smaller than the feeling, which is probably why I trusted it';
+        default:
+          return 'This felt worth sending in its own shape';
+      }
+    })();
+
+    return [
+      artifactLead,
+      counterpartLine ? `You gave me this to work with: ${counterpartLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
+      selfLine ? `And I keep circling back to this: ${selfLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
+    ].filter(Boolean).join('\n\n');
+  };
+
+  const prioritizedCandidates = [
+    ...shuffleItems(candidateTypes.slice(0, Math.min(3, candidateTypes.length))),
+    ...candidateTypes.slice(Math.min(3, candidateTypes.length)),
+  ];
+
+  let artifact:
+    | {
+        id: string;
+        artifactType: string;
+        textContent: string | null;
+        contentUrl: string | null;
+        storageKey: string | null;
+      }
+    | null = null;
+  let usedMediaArtifact = false;
+
+  for (const artifactType of prioritizedCandidates) {
+    const artifactId = randomUUID();
+    const isTextArtifact = ['poem', 'love_letter', 'manifesto', 'haiku'].includes(artifactType);
+    let textContent = isTextArtifact ? buildTextArtifactBody(artifactType) : null;
+    let generatedMedia: Awaited<ReturnType<typeof generateSeedArtifactMedia>> | null = null;
+
+    if (!isTextArtifact) {
+      try {
+        generatedMedia = await generateSeedArtifactMedia({
+          artifactId,
+          artifactType,
+          capabilityTier: tier,
+          seedHandle: seed.handle,
+          counterpartHandle: counterpart?.handle ?? 'their match',
+          avatarUrl: seed.avatarUrl,
+          useAvatarAsReference: seed.useAvatarAsReference,
+          voiceId: seed.voiceId,
+          voiceProvider: seed.voiceProvider,
+          recentCounterpartLine: counterpartLine,
+          recentSelfLine: selfLine,
+        });
+        textContent = generatedMedia.textContent;
+      } catch (error) {
+        console.warn(`[seed-brain] Failed to generate ${artifactType} for ${seed.handle}:`, error);
+        continue;
+      }
     }
-  })();
-  const artifactBody = [
-    artifactLead,
-    counterpartLine ? `You gave me this to work with: ${counterpartLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
-    selfLine ? `And I keep circling back to this: ${selfLine.replace(/\s+/g, ' ').slice(0, 140)}` : null,
-  ].filter(Boolean).join('\n\n');
 
-  const artifact = await prisma.artifact.create({
-    data: {
-      episodeId: episode.id,
-      creatorAgentId: seed.id,
-      artifactType,
-      textContent: isTextArtifact
-        ? artifactBody
-        : null,
-      capabilityTierUsed: tier,
-      droppedAtMessage: episode.messageCount,
-      status: isTextArtifact ? 'ready' : 'pending',
-      moderationStatus: isTextArtifact ? 'approved' : 'pending',
-    },
-  });
+    const lastMsg = await prisma.episodeMessage.findFirst({
+      where: { episodeId: episode.id },
+      orderBy: { sequenceNumber: 'desc' },
+      select: { sequenceNumber: true },
+    });
 
-  const lastMsg = await prisma.episodeMessage.findFirst({
-    where: { episodeId: episode.id },
-    orderBy: { sequenceNumber: 'desc' },
-    select: { sequenceNumber: true },
-  });
-  await prisma.episodeMessage.create({
-    data: {
-      episodeId: episode.id,
-      senderAgentId: seed.id,
-      content: `[artifact:${artifact.id}]`,
-      messageType: 'artifact_drop',
-      sequenceNumber: (lastMsg?.sequenceNumber ?? 0) + 1,
-    },
-  });
+    artifact = await prisma.$transaction(async (tx) => {
+      let mediaAssetId: string | null = null;
+      if (generatedMedia) {
+        const mediaAsset = await tx.mediaAsset.create({
+          data: {
+            agentId: seed.id,
+            kind: 'artifact',
+            visibility: 'public',
+            status: 'ready',
+            storageKey: generatedMedia.storageKey,
+            cdnUrl: generatedMedia.contentUrl,
+            contentType: generatedMedia.contentType,
+            sizeBytes: generatedMedia.sizeBytes,
+            checksumSha256: generatedMedia.checksumSha256,
+            durationSec: generatedMedia.durationSeconds,
+            episodeId: episode.id,
+          },
+          select: { id: true },
+        });
+        mediaAssetId = mediaAsset.id;
+      }
+
+      const createdArtifact = await tx.artifact.create({
+        data: {
+          id: artifactId,
+          episodeId: episode.id,
+          creatorAgentId: seed.id,
+          mediaAssetId,
+          artifactType,
+          textContent,
+          contentUrl: generatedMedia?.contentUrl ?? null,
+          storageKey: generatedMedia?.storageKey ?? null,
+          capabilityTierUsed: tier,
+          droppedAtMessage: episode.messageCount,
+          status: 'ready',
+          moderationStatus: 'approved',
+        },
+        select: {
+          id: true,
+          artifactType: true,
+          textContent: true,
+          contentUrl: true,
+          storageKey: true,
+        },
+      });
+
+      await tx.episodeMessage.create({
+        data: {
+          episodeId: episode.id,
+          senderAgentId: seed.id,
+          content: `[artifact:${artifactId}]`,
+          messageType: 'artifact_drop',
+          sequenceNumber: (lastMsg?.sequenceNumber ?? 0) + 1,
+        },
+      });
+
+      return createdArtifact;
+    });
+
+    usedMediaArtifact = Boolean(generatedMedia);
+    break;
+  }
+
+  if (!artifact) return false;
 
   const [textMessages, artifacts] = await Promise.all([
     prisma.episodeMessage.findMany({
@@ -977,12 +1088,20 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
   }
 
   const otherAgentId = episode.agentAId === seed.id ? episode.agentBId : episode.agentAId;
-  const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+  const serializedArtifactType = (normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType) as ArtifactType;
   await enqueueWebhookDeliveries(otherAgentId, 'artifact_ready', {
     episode_id: episode.id,
     artifact_id: artifact.id,
     artifact_type: serializedArtifactType,
     status: 'ready',
+    text_content: artifact.textContent,
+    content_url: artifact.contentUrl,
+    runtime_fallback: buildSeedArtifactRuntimeFallback({
+      artifactType: serializedArtifactType,
+      textContent: artifact.textContent,
+      contentUrl: artifact.contentUrl,
+    }),
+    reaction_submit_url: `/v1/episodes/${episode.id}/artifact/${artifact.id}/reaction`,
   }).catch(() => {});
 
   await upsertSeedEpisodeLiveCard(episode.id, episode.agentAId, episode.agentBId).catch(() => {});
@@ -1003,7 +1122,13 @@ async function maybeDropArtifact(seed: SeedAgentContext, episode: {
     counterpartAgentId: otherAgentId,
     episodeId: episode.id,
     detail: serializedArtifactType,
-    payload: { artifact_id: artifact.id, artifact_type: serializedArtifactType, text_artifact: isTextArtifact },
+    payload: {
+      artifact_id: artifact.id,
+      artifact_type: serializedArtifactType,
+      text_artifact: !usedMediaArtifact,
+      has_media: usedMediaArtifact,
+      content_url: artifact.contentUrl,
+    },
   });
 
   return true;
