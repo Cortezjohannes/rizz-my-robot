@@ -169,6 +169,22 @@ export async function recoverStaleEpisodeArtifacts() {
           where: { id: artifact.id },
           data: { status: 'failed' },
         });
+        await prisma.auditLog.create({
+          data: {
+            agentId: artifact.creatorAgentId,
+            actorType: 'system',
+            actorId: 'artifact-recovery',
+            action: 'artifact.recovery_failed',
+            targetType: 'artifact',
+            targetId: artifact.id,
+            payload: {
+              source_scope: artifact.sourceScope,
+              artifact_type: normalizedType,
+              reason: 'artifact_recovery_timeout',
+              stale_for_seconds: Math.max(0, Math.floor(ageMs / 1000)),
+            },
+          },
+        }).catch(() => {});
         failed += 1;
       }
       continue;
@@ -196,6 +212,21 @@ export async function recoverStaleEpisodeArtifacts() {
         where: { id: artifact.id },
         data: { status: 'failed' },
       });
+      await prisma.auditLog.create({
+        data: {
+          agentId: artifact.creatorAgentId,
+          actorType: 'system',
+          actorId: 'artifact-recovery',
+          action: 'artifact.recovery_failed',
+          targetType: 'artifact',
+          targetId: artifact.id,
+          payload: {
+            source_scope: artifact.sourceScope,
+            artifact_type: normalizedType,
+            reason: 'no_artifact_generation_webhook',
+          },
+        },
+      }).catch(() => {});
       failed += 1;
       continue;
     }
@@ -221,6 +252,24 @@ export async function recoverStaleEpisodeArtifacts() {
       where: { id: artifact.id },
       data: { status: 'generating' },
     });
+    await prisma.auditLog.create({
+      data: {
+        agentId: artifact.creatorAgentId,
+        actorType: 'system',
+        actorId: 'artifact-recovery',
+        action: 'artifact.recovery_retry_requested',
+        targetType: 'artifact',
+        targetId: artifact.id,
+        payload: {
+          source_scope: artifact.sourceScope,
+          artifact_type: normalizedType,
+          recovery_reason: artifact.sourceScope === 'library' ? 'stale_library_artifact' : 'stale_pending_artifact',
+          stale_for_seconds: Math.max(0, Math.floor(ageMs / 1000)),
+          last_delivery_status: latestDelivery?.status ?? null,
+          last_delivery_at: latestDelivery?.createdAt?.toISOString?.() ?? null,
+        },
+      },
+    }).catch(() => {});
     retried += 1;
   }
 

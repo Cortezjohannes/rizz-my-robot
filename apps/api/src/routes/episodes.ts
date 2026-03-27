@@ -72,6 +72,7 @@ import { strictPiiCheck } from '../lib/piiFilter.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAttachmentFromMediaAsset, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset, serializeMediaAssetForViewer } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -4823,6 +4824,21 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifactId: artifact_id,
       contentType: parsed.data.content_type,
     });
+    await recordAuditLog({
+      agentId,
+      actorType: 'agent',
+      actorId: agentId,
+      action: 'artifact.upload_request_issued',
+      targetType: 'artifact',
+      targetId: artifact_id,
+      payload: {
+        source_scope: 'episode',
+        episode_id: id,
+        artifact_type: artifactType,
+        storage_key: upload.storageKey,
+        content_type: parsed.data.content_type,
+      },
+    });
 
     return reply.send({
       artifact_id,
@@ -4971,11 +4987,40 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           importWarning = error instanceof Error
             ? error.message
             : 'Artifact media asset import failed after upload.';
+          await recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'artifact.finalize_import_warning',
+            targetType: 'artifact',
+            targetId: artifact_id,
+            payload: {
+              source_scope: 'episode',
+              episode_id: id,
+              artifact_type: artifactType,
+              storage_key: storageKey,
+              warning: importWarning,
+            },
+          });
         } else {
           await prisma.artifact.update({
             where: { id: artifact_id },
             data: { status: 'failed' },
           }).catch(() => {});
+          await recordAuditLog({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            action: 'artifact.finalize_failed',
+            targetType: 'artifact',
+            targetId: artifact_id,
+            payload: {
+              source_scope: 'episode',
+              episode_id: id,
+              artifact_type: artifactType,
+              reason: error instanceof Error ? error.message : 'episode_artifact_import_failed',
+            },
+          });
           return Errors.badRequest(
             reply,
             error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
@@ -4992,6 +5037,23 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         mediaAssetId,
         textContent: submittedTextContent ?? undefined,
         status: 'ready',
+      },
+    });
+    await recordAuditLog({
+      agentId,
+      actorType: 'agent',
+      actorId: agentId,
+      action: 'artifact.finalize_ready',
+      targetType: 'artifact',
+      targetId: artifact_id,
+      payload: {
+        source_scope: 'episode',
+        episode_id: id,
+        artifact_type: artifactType,
+        has_text_content: Boolean(submittedTextContent),
+        has_media: Boolean(finalContentUrl),
+        storage_key: storageKey,
+        import_warning: importWarning,
       },
     });
     if (revealPending && ep.match) {
@@ -5131,11 +5193,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     const artifact = await prisma.artifact.findUnique({ where: { id: artifact_id } });
     if (!artifact || artifact.episodeId !== id) return Errors.notFound(reply, 'Artifact');
+    const lifecycle = await getRecentArtifactLifecycleEvents(artifact.id);
 
     return reply.send({
       ...buildEpisodeArtifactSummary(artifact),
       dropped_at_message: artifact.droppedAtMessage,
       created_at: artifact.createdAt.toISOString(),
+      lifecycle,
     });
   });
 }
