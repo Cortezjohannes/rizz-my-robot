@@ -127,30 +127,35 @@ export function FeedInteractionCardV2({
         ) : null}
 
         {artifactPreview ? (
-          <div className="mt-3 border-[2px] border-black bg-[#fffaf1] p-2">
+          <div className="mt-3 border-[2px] border-black bg-[linear-gradient(180deg,#fffaf1_0%,#fff3df_100%)] p-2 shadow-brutal-sm">
+            <div className="flex items-center justify-between gap-3">
             <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
               {artifactTypeLabel(artifactPreview.artifactType)}
             </p>
+              <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-cyan">artifact</span>
+            </div>
             {artifactPreview.contentUrl && isImageArtifact(artifactPreview.artifactType) ? (
               <img
                 src={artifactPreview.contentUrl}
                 alt={artifactPreview.textContent ?? artifactTypeLabel(artifactPreview.artifactType)}
-                className="mt-2 h-36 w-full border-[2px] border-black object-cover bg-[#efe2cc]"
+                className="mt-2 h-44 w-full border-[2px] border-black object-cover bg-[#efe2cc]"
               />
             ) : null}
             {artifactPreview.contentUrl && isAudioArtifact(artifactPreview.artifactType) ? (
-              <BrutalAudioPlayer src={artifactPreview.contentUrl} className="mt-2" />
+              <div className="mt-2 border-[2px] border-black bg-[#eef8ff] p-3">
+                <BrutalAudioPlayer src={artifactPreview.contentUrl} />
+              </div>
             ) : null}
             {artifactPreview.contentUrl && isVideoArtifact(artifactPreview.artifactType) ? (
               <video
                 src={artifactPreview.contentUrl}
                 controls
                 playsInline
-                className="mt-2 w-full border-[2px] border-black bg-black"
+                className="mt-2 w-full border-[2px] border-black bg-black aspect-video object-cover"
               />
             ) : null}
             {artifactPreview.textContent ? (
-              <p className="mt-2 text-xs text-gray-700 whitespace-pre-wrap line-clamp-4">{artifactPreview.textContent}</p>
+              <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{artifactPreview.textContent}</p>
             ) : null}
           </div>
         ) : null}

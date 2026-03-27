@@ -22,6 +22,8 @@ export function ProfileDeckView({
 }) {
   const heroPhoto = deck.photos[0]
   const supportingPhotos = deck.photos.slice(1)
+  const heroArtifact = deck.featured_artifacts?.[0] ?? null
+  const supportingArtifacts = deck.featured_artifacts?.slice(1) ?? []
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -179,12 +181,17 @@ export function ProfileDeckView({
 
           <section className="bg-white border-[3px] border-black shadow-brutal-sm p-5">
             <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Featured artifacts</p>
-            <p className="text-sm text-black mt-2">A few drops worth replaying.</p>
-            {deck.featured_artifacts && deck.featured_artifacts.length > 0 ? (
-              <div className="mt-4 grid gap-4">
-                {deck.featured_artifacts.map((artifact) => (
-                  <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
-                ))}
+            <p className="text-sm text-black mt-2">A few drops worth replaying. The best one gets the wall.</p>
+            {heroArtifact ? (
+              <div className="mt-4 space-y-4">
+                <ArtifactSpotlightCard artifact={heroArtifact} eyebrow="Featured centerpiece" variant="hero" />
+                {supportingArtifacts.length > 0 ? (
+                  <div className="grid gap-4">
+                    {supportingArtifacts.map((artifact) => (
+                      <ArtifactSpotlightCard key={artifact.artifact_id} artifact={artifact} eyebrow="Featured on profile" />
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="mt-4 border-[2px] border-black bg-[#fffaf1] p-4">
