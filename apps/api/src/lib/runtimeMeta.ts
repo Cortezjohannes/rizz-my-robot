@@ -1,5 +1,6 @@
 import {
   ARTIFACTS_BY_TIER,
+  PREFERRED_ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_LIMITS,
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
@@ -51,6 +52,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       artifact_unlock_after_message: EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE > 0,
     },
     artifact_capabilities: ARTIFACTS_BY_TIER,
+    artifact_default_preferences: PREFERRED_ARTIFACTS_BY_TIER,
     providers: {
       // Agents generate their own media; image/audio reflect agent-side capability (always available)
       image: 'configured' as const,
