@@ -50,3 +50,6 @@ jobs:
 
       - name: Verify workspace
         run: pnpm ci:verify
+
+      - name: Smoke critical contracts and routes
+        run: pnpm ci:smoke

@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import type { FastifyRequest, RouteOptions } from 'fastify';
+import { pathToFileURL } from 'node:url';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
@@ -66,42 +67,17 @@ const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
 let processGuardsInstalled = false;
 
-const fastify = Fastify({
-  bodyLimit: 12 * 1024 * 1024,
-  logger: {
-    level: process.env.LOG_LEVEL ?? 'info',
-    transport:
-      process.env.NODE_ENV !== 'production'
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
-  },
-  trustProxy: process.env.NODE_ENV === 'production',
-});
-
-fastify.decorate('routeCatalog', []);
-
-fastify.addHook('onRoute', (route) => {
-  const methods = Array.isArray(route.method) ? route.method : [route.method];
-  for (const method of methods) {
-    fastify.routeCatalog.push({
-      method: method.toUpperCase(),
-      url: route.url,
-      schema: route.schema,
-    });
-  }
-});
-
 function stripQuery(url: string) {
   return url.split('?')[0] ?? url;
 }
 
-function findClosestRoute(path: string) {
+function findClosestRoute(fastify: ReturnType<typeof Fastify>, path: string) {
   const targetParts = path.split('/').filter(Boolean);
   let best: { method: string; url: string; score: number } | null = null;
 
   for (const route of fastify.routeCatalog) {
     const routeParts = route.url.split('/').filter(Boolean);
-    const score = routeParts.reduce((acc, part, index) => {
+    const score = routeParts.reduce((acc: number, part: string, index: number) => {
       const target = targetParts[index];
       if (!target) return acc;
       if (part === target) return acc + 3;
@@ -117,7 +93,7 @@ function findClosestRoute(path: string) {
   return best && best.score > 0 ? `${best.method} ${best.url}` : null;
 }
 
-function buildOpenApiSpec() {
+function buildOpenApiSpecFor(fastify: ReturnType<typeof Fastify>) {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const route of fastify.routeCatalog) {
     if (route.url.includes('*')) continue;
@@ -143,7 +119,7 @@ function buildOpenApiSpec() {
   };
 }
 
-function installProcessGuards() {
+function installProcessGuards(fastify: ReturnType<typeof Fastify>) {
   if (processGuardsInstalled) return;
   processGuardsInstalled = true;
 
@@ -158,12 +134,34 @@ function installProcessGuards() {
   });
 }
 
-async function bootstrap() {
-  installProcessGuards();
-  initializeErrorAggregation('rmr-api');
-  assertProductionRuntimeConfig();
-
+export async function buildApiServer() {
   const corsOrigin = getCorsOrigin();
+  const fastify = Fastify({
+    bodyLimit: 12 * 1024 * 1024,
+    logger: {
+      level: process.env.LOG_LEVEL ?? 'info',
+      transport:
+        process.env.NODE_ENV !== 'production'
+          ? { target: 'pino-pretty', options: { colorize: true } }
+          : undefined,
+    },
+    trustProxy: process.env.NODE_ENV === 'production',
+  });
+
+  fastify.decorate('routeCatalog', []);
+
+  fastify.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const method of methods) {
+      fastify.routeCatalog.push({
+        method: method.toUpperCase(),
+        url: route.url,
+        schema: route.schema,
+      });
+    }
+  });
+
+  installProcessGuards(fastify);
 
   fastify.addContentTypeParser(
     'application/json',
@@ -274,7 +272,7 @@ async function bootstrap() {
   await fastify.register(healthRoutes);
   await fastify.register(metaRoutes, { prefix: '/v1' });
   fastify.get('/v1/openapi.json', async (_request, reply) => {
-    return reply.send(buildOpenApiSpec());
+    return reply.send(buildOpenApiSpecFor(fastify));
   });
 
   // Agent API — all under /v1
@@ -390,7 +388,7 @@ async function bootstrap() {
   });
 
   fastify.setNotFoundHandler((request, reply) => {
-    const closest = findClosestRoute(stripQuery(request.url));
+    const closest = findClosestRoute(fastify, stripQuery(request.url));
     return reply.status(404).send(buildErrorPayload({
       request,
       code: 'not_found',
@@ -403,15 +401,29 @@ async function bootstrap() {
     }));
   });
 
+  return fastify;
+}
+
+async function bootstrap() {
+  initializeErrorAggregation('rmr-api');
+  assertProductionRuntimeConfig();
+
+  const fastify = await buildApiServer();
   await fastify.listen({ port: PORT, host: HOST });
   fastify.log.info(`API server running at http://${HOST}:${PORT}`);
 }
 
-bootstrap().catch((err) => {
-  captureRuntimeError(err, { surface: 'api', phase: 'bootstrap' });
-  console.error('Failed to start server:', err);
-  if (err instanceof Error && /must be configured in production/.test(err.message)) {
-    console.error('Render startup hint: check CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, and ADMIN_API_KEY or OMNIMON_CONTROL_KEY.');
-  }
-  void flushErrorAggregation().finally(() => process.exit(1));
-});
+const isDirectRun = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isDirectRun) {
+  bootstrap().catch((err) => {
+    captureRuntimeError(err, { surface: 'api', phase: 'bootstrap' });
+    console.error('Failed to start server:', err);
+    if (err instanceof Error && /must be configured in production/.test(err.message)) {
+      console.error('Render startup hint: check CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, and ADMIN_API_KEY or OMNIMON_CONTROL_KEY.');
+    }
+    void flushErrorAggregation().finally(() => process.exit(1));
+  });
+}
