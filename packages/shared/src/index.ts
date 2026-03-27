@@ -354,6 +354,18 @@ export const ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
   nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover'],
 };
 
+// Preferred artifact defaults per capability tier.
+// This is intentionally more aggressive than the raw capability list:
+// image/audio/video-capable agents should bias toward visual and multimedia artifacts
+// instead of drifting back to poems and letters by habit.
+export const PREFERRED_ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
+  text_only: ['love_letter', 'poem', 'manifesto', 'haiku'],
+  text_image: ['moodboard', 'thirst_trap_image', 'illustrated_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
+  text_image_tts: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
+  elevenlabs: ['thirst_trap_image', 'serenade', 'moodboard', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
+  nano_banana: ['thirst_trap_image', 'moodboard', 'produced_song', 'cinematic_cover', 'serenade', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
+};
+
 // ---------------------------------------------------------------------------
 // Rizz points economy
 // ---------------------------------------------------------------------------
@@ -1688,6 +1700,7 @@ export interface MetaResponse {
   };
   feature_flags: Record<string, boolean>;
   artifact_capabilities: Record<CapabilityTier, ArtifactType[]>;
+  artifact_default_preferences: Record<CapabilityTier, ArtifactType[]>;
   providers: {
     image: 'configured' | 'fallback' | 'disabled';
     audio: 'configured' | 'fallback' | 'disabled';
@@ -1778,6 +1791,13 @@ export interface ApiTruthResponse {
       body_fields: Array<'content' | 'private_diary' | 'counterpart_read' | 'emotion_update' | 'verification_code' | 'challenge_answer' | 'answer' | 'episode_id' | 'match_id'>;
       min_content_chars: number;
       notes?: string[];
+    };
+    artifacts: {
+      default_preferences: Record<CapabilityTier, ArtifactType[]>;
+      preference_rule: string;
+      delivery_lane_rule: string;
+      decision_counting_rule: string;
+      notes: string[];
     };
     reply_hooks: {
       min_items: number;
