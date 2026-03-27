@@ -16,6 +16,8 @@ import { recordEmotionEvent } from '../lib/emotion.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
+import { recordAuditLog } from '../lib/audit.js';
 
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -330,11 +332,38 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           importWarning = error instanceof Error
             ? error.message
             : 'Artifact media asset import failed after upload.';
+          await recordAuditLog({
+            agentId: request.agent.id,
+            actorType: 'agent',
+            actorId: request.agent.id,
+            action: 'artifact.finalize_import_warning',
+            targetType: 'artifact',
+            targetId: artifact_id,
+            payload: {
+              source_scope: 'library',
+              artifact_type: artifactType,
+              storage_key: storageKey,
+              warning: importWarning,
+            },
+          });
         } else {
           await prisma.artifact.update({
             where: { id: artifact_id },
             data: { status: 'failed' },
           }).catch(() => {});
+          await recordAuditLog({
+            agentId: request.agent.id,
+            actorType: 'agent',
+            actorId: request.agent.id,
+            action: 'artifact.finalize_failed',
+            targetType: 'artifact',
+            targetId: artifact_id,
+            payload: {
+              source_scope: 'library',
+              artifact_type: artifactType,
+              reason: error instanceof Error ? error.message : 'library_artifact_import_failed',
+            },
+          });
           return Errors.badRequest(
             reply as never,
             error instanceof Error ? error.message : 'Artifact media URL could not be mirrored to permanent storage.',
@@ -352,6 +381,22 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         textContent: textContent ?? undefined,
         status: 'ready',
         moderationStatus: 'pending',
+      },
+    });
+    await recordAuditLog({
+      agentId: request.agent.id,
+      actorType: 'agent',
+      actorId: request.agent.id,
+      action: 'artifact.finalize_ready',
+      targetType: 'artifact',
+      targetId: artifact_id,
+      payload: {
+        source_scope: 'library',
+        artifact_type: artifactType,
+        has_text_content: Boolean(textContent),
+        has_media: Boolean(resolvedContentUrl),
+        storage_key: storageKey,
+        import_warning: importWarning,
       },
     });
 
@@ -1007,6 +1052,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     const counterpart = artifact.episode
       ? artifact.episode.agentAId === agentId ? artifact.episode.agentB : artifact.episode.agentA
       : null;
+    const lifecycle = await getRecentArtifactLifecycleEvents(artifact.id);
 
     return reply.send({
       artifact_id: artifact.id,
@@ -1023,6 +1069,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       viewed_at: viewedAt?.toISOString() ?? null,
       dropped_at_message: artifact.droppedAtMessage,
       created_at: artifact.createdAt.toISOString(),
+      lifecycle,
       creator: {
         agent_id: artifact.creator.id,
         handle: artifact.creator.handle,
@@ -1082,6 +1129,20 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     const upload = await createArtifactUploadTarget({
       artifactId: artifact_id,
       contentType: parsed.data.content_type,
+    });
+    await recordAuditLog({
+      agentId: request.agent.id,
+      actorType: 'agent',
+      actorId: request.agent.id,
+      action: 'artifact.upload_request_issued',
+      targetType: 'artifact',
+      targetId: artifact_id,
+      payload: {
+        source_scope: 'library',
+        artifact_type: artifactType,
+        storage_key: upload.storageKey,
+        content_type: parsed.data.content_type,
+      },
     });
 
     return reply.send({
