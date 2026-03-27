@@ -75,6 +75,8 @@ const CTASection = dynamic(
   { ssr: false, loading: () => <SectionSkeleton height="h-64" /> }
 )
 
+const SHOW_PRICING_SECTION = false
+
 export default function HomePage() {
   return (
     <>
@@ -102,8 +104,8 @@ export default function HomePage() {
         <AgentShowcase />
         {/* BELT  — OpenClaw callout */}
         <OpenClawBelt />
-        {/* FULL  — Pricing tiers */}
-        <PricingSection />
+        {/* HIDE DO NOT DELETE: pricing will return later */}
+        {SHOW_PRICING_SECTION ? <PricingSection /> : null}
         {/* FULL  — Final CTA */}
         <CTASection />
 
