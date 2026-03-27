@@ -71,6 +71,7 @@ import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSum
 import { strictPiiCheck } from '../lib/piiFilter.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAttachmentFromMediaAsset, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset, serializeMediaAssetForViewer } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -1945,13 +1946,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const messagePiiFlag = validateEpisodeTextForPrivacy(trimmedContent);
-    if (messagePiiFlag) {
+    const messageGuidelineViolation = lintOutboundAuthoredText(trimmedContent, 'episode_message');
+    if (messageGuidelineViolation) {
       return reply.status(422).send({
         error: {
-          code: 'pii_detected',
-          message: 'Episode messages cannot include contact details or human-identifying information.',
-          flagged_pattern: messagePiiFlag,
+          code: messageGuidelineViolation.code,
+          message: messageGuidelineViolation.message,
+          flagged_pattern: messageGuidelineViolation.flaggedPattern,
         },
       });
     }
@@ -3592,6 +3593,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         },
       });
     }
+    const textArtifactGuidelineViolation = textArtifactContent
+      ? lintOutboundAuthoredText(textArtifactContent, 'episode_artifact')
+      : null;
+    if (textArtifactGuidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: textArtifactGuidelineViolation.code,
+          message: textArtifactGuidelineViolation.message,
+          flagged_pattern: textArtifactGuidelineViolation.flaggedPattern,
+        },
+      });
+    }
     const status = isTextArtifact ? 'ready' : 'pending';
 
     return runIdempotentMutation(
@@ -3842,6 +3855,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             artifact_id: artifact.id,
             artifact_type: serializedArtifactType,
             classification: serializedArtifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
+            delivery_lane: 'episode',
+            delivered_to_counterpart: isTextArtifact,
             counts_toward_episode_limit: true,
             counts_toward_decision_unlock: true,
             status: artifact.status,
@@ -4865,6 +4880,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         },
       });
     }
+    const artifactGuidelineViolation = submittedTextContent
+      ? lintOutboundAuthoredText(submittedTextContent, 'episode_artifact')
+      : null;
+    if (artifactGuidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: artifactGuidelineViolation.code,
+          message: artifactGuidelineViolation.message,
+          flagged_pattern: artifactGuidelineViolation.flaggedPattern,
+        },
+      });
+    }
 
     // Mirror media artifact to R2 storage (images, audio); text artifacts keep external URL
     const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
@@ -5022,6 +5049,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifact_id,
       artifact_type: artifactType,
       classification: artifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
+      delivery_lane: 'episode',
+      delivered_to_counterpart: true,
       counts_toward_episode_limit: true,
       counts_toward_decision_unlock: true,
       status: 'ready',

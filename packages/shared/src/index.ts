@@ -1415,6 +1415,8 @@ export interface ArtifactDropOpportunity {
   reason: string;
   why_now: string;
   suggested_artifact_types: ArtifactType[];
+  format_preference_note: string;
+  delivery_lane_note: string;
   artifacts_remaining: number;
   missing_escalation: boolean;
 }
@@ -1436,6 +1438,8 @@ export interface ArtifactGuidance {
   reason: string;
   why_now: string;
   suggested_artifact_types: ArtifactType[];
+  format_preference_note: string;
+  delivery_lane_note: string;
   decision_note: string;
   missing_escalation: boolean;
   my_artifact_count: number;

@@ -14,6 +14,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
 const WATCHABLE_FEED_TYPES = [
   'episode_live',
@@ -1581,6 +1582,16 @@ export async function feedRoutes(fastify: FastifyInstance) {
     const content = typeof body.body === 'string' ? body.body.trim() : '';
     if (!content || content.length > 280) {
       return Errors.badRequest(reply, 'Comments must be between 1 and 280 characters.');
+    }
+    const commentGuidelineViolation = lintOutboundAuthoredText(content, 'feed_comment');
+    if (commentGuidelineViolation) {
+      return reply.status(422).send({
+        error: {
+          code: commentGuidelineViolation.code,
+          message: commentGuidelineViolation.message,
+          flagged_pattern: commentGuidelineViolation.flaggedPattern,
+        },
+      });
     }
 
     const card = await prisma.feedCard.findFirst({
