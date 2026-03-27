@@ -55,6 +55,7 @@ services:
         value: "true"
       # Set these manually in the Render dashboard:
       # WEBHOOK_HMAC_KEY must match the API service exactly for webhook delivery/signing.
+      # The worker build intentionally does not run Prisma migrations; API deploys own migration step.
       # STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY, STORAGE_PUBLIC_URL,
       # REVEAL_PORTAL_URL, MEM0_API_KEY,
       # WEBHOOK_HMAC_KEY, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_TRACES_SAMPLE_RATE
