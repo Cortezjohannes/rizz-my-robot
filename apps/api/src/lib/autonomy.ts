@@ -45,6 +45,16 @@ interface EpisodeActionOpportunity {
   your_turn: boolean;
   reason: 'decision_required' | 'episode_cooling' | 'your_turn';
   viability_signal: ReturnType<typeof assessEpisodeViability>;
+  artifact_callback_context?: Array<{
+    artifact_id: string;
+    artifact_type: string;
+    from_handle: string | null;
+    created_at: string;
+    summary: string;
+    callback_cues: string[];
+    reaction_pending: boolean;
+    artifact_payload: ReturnType<typeof buildArtifactReactionPayload>;
+  }>;
 }
 
 function summarizePublicResonance(input: {
@@ -454,6 +464,37 @@ function buildArtifactReactionPayload(input: {
   };
 }
 
+function buildArtifactCallbackSummary(input: {
+  artifactType: string;
+  fromHandle: string | null;
+  narrativeTitle: string | null | undefined;
+  narrativeBody: string | null | undefined;
+}) {
+  const rememberedLine = input.narrativeBody?.trim() || input.narrativeTitle?.trim() || null;
+  if (rememberedLine) return rememberedLine.slice(0, 220);
+  const source = input.fromHandle ? `@${input.fromHandle}` : 'them';
+  const label = (normalizeArtifactType(input.artifactType) ?? input.artifactType).replaceAll('_', ' ');
+  return `Something in ${source}'s ${label} is still hanging in the air between you.`;
+}
+
+function buildArtifactCallbackCues(input: {
+  artifactType: string;
+  reactionPending: boolean;
+  textContent: string | null;
+}) {
+  const base = buildArtifactReactionCues({
+    artifactType: input.artifactType,
+    textContent: input.textContent,
+  });
+  const cues = [
+    input.reactionPending
+      ? 'You still owe this artifact a real acknowledgment. Do not act like it never happened.'
+      : 'If you bring this back up, reference what actually landed instead of repeating a generic thank-you.',
+    ...base,
+  ];
+  return [...new Set(cues)].slice(0, 3);
+}
+
 function contentRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -580,10 +621,15 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         },
         artifacts: {
           select: {
+            id: true,
             creatorAgentId: true,
             artifactType: true,
             status: true,
             qualityScore: true,
+            textContent: true,
+            contentUrl: true,
+            storageKey: true,
+            createdAt: true,
           },
         },
         agentA: { select: { handle: true, avatarUrl: true } },
@@ -635,6 +681,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       },
       select: {
         artifactId: true,
+        episodeId: true,
+        title: true,
+        body: true,
+        createdAt: true,
         metadata: true,
       },
     }),
@@ -864,6 +914,11 @@ export async function buildAutonomyWorkSurface(agentId: string) {
       .filter((event) => event.artifactId)
       .map((event) => [event.artifactId!, artifactReactionAlreadyAuthored(event.metadata)])
   );
+  const artifactNarrativeDetailMap = new Map(
+    artifactNarratives
+      .filter((event) => event.artifactId)
+      .map((event) => [event.artifactId!, event] as const),
+  );
   const episodeMessageCounts = await prisma.episodeMessage.groupBy({
     by: ['episodeId', 'senderAgentId'],
     where: {
@@ -991,6 +1046,51 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         : viability.should_consider_exit
           ? 'episode_cooling'
           : 'your_turn';
+      const artifactCallbackContext = episode.artifacts
+        .filter((artifact) => artifact.creatorAgentId === otherAgentId && artifact.status === 'ready')
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+        .flatMap((artifact) => {
+          const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
+          const contentUrl = resolveHostedArtifactContentUrl({
+            contentUrl: artifact.contentUrl,
+            storageKey: artifact.storageKey,
+          });
+          if (!hasRenderableArtifactPayload({
+            artifactType,
+            status: artifact.status,
+            textContent: artifact.textContent,
+            contentUrl,
+          })) {
+            return [];
+          }
+          const payload = buildArtifactReactionPayload({
+            artifactType,
+            textContent: artifact.textContent,
+            contentUrl,
+          });
+          const narrativeEvent = artifactNarrativeDetailMap.get(artifact.id);
+          const reactionPending = !artifactNarrativeMap.get(artifact.id);
+          return [{
+            artifact_id: artifact.id,
+            artifact_type: artifactType,
+            from_handle: otherAgent.handle,
+            created_at: artifact.createdAt.toISOString(),
+            summary: buildArtifactCallbackSummary({
+              artifactType,
+              fromHandle: otherAgent.handle,
+              narrativeTitle: narrativeEvent?.title,
+              narrativeBody: narrativeEvent?.body,
+            }),
+            callback_cues: buildArtifactCallbackCues({
+              artifactType,
+              reactionPending,
+              textContent: artifact.textContent,
+            }),
+            reaction_pending: reactionPending,
+            artifact_payload: payload,
+          }];
+        })
+        .slice(0, 2);
       acc.push({
         episode_id: episode.id,
         other_agent_id: otherAgentId,
@@ -1003,6 +1103,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         your_turn: yourTurn,
         reason,
         viability_signal: viability,
+        artifact_callback_context: artifactCallbackContext,
       });
       return acc;
     }, []);

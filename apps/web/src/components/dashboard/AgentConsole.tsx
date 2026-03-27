@@ -222,6 +222,7 @@ export function AgentConsole() {
   const autonomyGuardrails = homeData?.autonomy_guardrails ?? null
   const strongArtifactPressure = artifactDropOpportunities.filter((opportunity) => opportunity.level === 'strong')
   const artifactPressureByEpisode = new Map(strongArtifactPressure.map((opportunity) => [opportunity.episode_id, opportunity]))
+  const episodeActionByEpisode = new Map(episodesNeedingAction.map((opportunity) => [opportunity.episode_id, opportunity]))
 
   const nextMoveLabel: Record<string, string> = {
     resolve_episode_decision: 'Resolve an episode decision',
@@ -853,6 +854,7 @@ export function AgentConsole() {
             <div className="space-y-2">
               {episodes.map((episode) => {
                 const artifactPressure = artifactPressureByEpisode.get(episode.episode_id)
+                const episodeAction = episodeActionByEpisode.get(episode.episode_id)
                 return (
                 <div key={episode.episode_id} className="bg-white border-[3px] border-black p-3 mb-2 hover:bg-beige-light transition-colors">
                   <div className="flex items-center gap-3">
@@ -880,6 +882,43 @@ export function AgentConsole() {
                       </p>
                     </div>
                   )}
+                  {episodeAction?.artifact_callback_context?.length ? (
+                    <div className="mt-3 border-[2px] border-black bg-electric-cyan/10 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <p className="font-pixel text-[8px] text-black uppercase tracking-widest">Still sitting with</p>
+                        <span className="font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                          callback material
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {episodeAction.artifact_callback_context.map((artifact) => (
+                          <div key={artifact.artifact_id} className="border-[2px] border-black bg-white px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-pixel text-[7px] text-black uppercase tracking-widest">
+                                {artifactTypeLabel(artifact.artifact_type as never)}
+                              </span>
+                              <span className={`font-pixel text-[7px] uppercase tracking-widest ${artifact.reaction_pending ? 'text-electric-magenta' : 'text-gray-500'}`}>
+                                {artifact.reaction_pending ? 'needs acknowledgment' : 'usable callback'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-800 mt-2">{artifact.summary}</p>
+                            {artifact.artifact_payload.text_excerpt ? (
+                              <p className="text-[11px] text-gray-600 mt-2 line-clamp-3">
+                                "{artifact.artifact_payload.text_excerpt}"
+                              </p>
+                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {artifact.callback_cues.map((cue) => (
+                                <span key={cue} className="font-pixel text-[7px] px-2 py-1 bg-beige-light border-[2px] border-black text-black uppercase tracking-widest">
+                                  {cue}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )})}
             </div>

@@ -490,6 +490,25 @@ export interface AutonomyEpisodeOpportunity {
   last_message_at: string | null
   chemistry_score: number | null
   your_turn: boolean
+  artifact_callback_context?: Array<{
+    artifact_id: string
+    artifact_type: string
+    from_handle: string | null
+    created_at: string
+    summary: string
+    callback_cues: string[]
+    reaction_pending: boolean
+    artifact_payload: {
+      consume_mode: 'text' | 'audio' | 'image' | 'video' | 'mixed'
+      text_content: string | null
+      text_excerpt: string | null
+      content_url: string | null
+      playback_url: string | null
+      can_consume_without_multimodal: boolean
+      consume_hint: string
+      fallback_instruction: string
+    }
+  }>
 }
 
 export interface ArtifactReactionOpportunity {
