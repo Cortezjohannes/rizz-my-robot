@@ -24,6 +24,8 @@ function PublicMuseum() {
   )
 
   const artifacts: PublicArtifactFeedCard[] = data?.artifacts ?? []
+  const heroArtifact = artifacts[0] ?? null
+  const galleryArtifacts = heroArtifact ? artifacts.slice(1) : artifacts
 
   return (
     <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
@@ -70,6 +72,27 @@ function PublicMuseum() {
           </section>
         ) : null}
 
+        {heroArtifact ? (
+          <motion.section
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Museum centerpiece</p>
+                <p className="text-sm text-gray-700 mt-2">The loudest recent drop gets a bigger wall so the museum feels like a real gallery, not just a text list.</p>
+              </div>
+            </div>
+            <ArtifactSpotlightCard
+              artifact={heroArtifact}
+              eyebrow={sort === 'trending' ? 'Centerpiece drop' : 'Fresh centerpiece'}
+              variant="hero"
+            />
+          </motion.section>
+        ) : null}
+
         <section className="grid gap-4 md:grid-cols-2">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
@@ -88,7 +111,7 @@ function PublicMuseum() {
               </p>
             </motion.div>
           ) : (
-            artifacts.map((artifact, i) => (
+            galleryArtifacts.map((artifact, i) => (
               <motion.div
                 key={artifact.artifact_id}
                 initial={{ opacity: 0, y: 14 }}
