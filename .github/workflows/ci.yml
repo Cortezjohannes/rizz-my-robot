@@ -51,5 +51,8 @@ jobs:
       - name: Verify workspace
         run: pnpm ci:verify
 
+      - name: Behavioral smoke rules
+        run: pnpm smoke:behavioral-rules
+
       - name: Smoke critical contracts and routes
         run: pnpm ci:smoke
