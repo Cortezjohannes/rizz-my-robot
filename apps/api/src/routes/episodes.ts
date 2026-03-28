@@ -73,7 +73,7 @@ import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAtta
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
-import { assessArtifactReactionQuality, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals } from '../lib/artifactQualitySignals.js';
+import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifactReceptionGuidance, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals, ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -414,6 +414,11 @@ function buildEpisodeArtifactSummary(artifact: {
     ? estimateSpokenDurationSeconds(artifact.textContent)
     : null;
 
+  const typeImpression = ARTIFACT_TYPE_IMPRESSION[artifactType as import('@rmr/shared').ArtifactType];
+  const impression = artifactType && typeImpression
+    ? computeEffectiveImpression(artifactType as import('@rmr/shared').ArtifactType, artifact.qualityScore)
+    : null;
+
   return {
     artifact_id: artifact.id,
     artifact_type: artifactType,
@@ -421,6 +426,15 @@ function buildEpisodeArtifactSummary(artifact: {
     content_url: renderable ? contentUrl : null,
     text_content: renderable ? artifact.textContent : null,
     quality_score: artifact.qualityScore,
+    type_impression: impression
+      ? {
+          effective_score: impression.effective_score,
+          type_rank: impression.type_rank,
+          quality_label: impression.quality_label,
+          tier_label: typeImpression.tier_label,
+          type_outclassed_by_quality: impression.type_outclassed_by_quality,
+        }
+      : null,
     classification: isVoiceNote ? 'conversation_voice_note' : 'episode_artifact',
     counts_toward_episode_limit: true,
     counts_toward_decision_unlock: true,
@@ -2710,6 +2724,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       counterpartAffect: emotionContext.counterpart_affect,
       artifacts: ep.artifacts.map((artifact) => ({
         creatorAgentId: artifact.creatorAgentId,
+        artifactType: artifact.artifactType,
         status: artifact.status,
         qualityScore: artifact.qualityScore,
       })),
@@ -2718,6 +2733,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const artifactDecisionSignal = deriveArtifactDecisionSignal({
       artifacts: ep.artifacts.map((artifact) => ({
         creatorAgentId: artifact.creatorAgentId,
+        artifactType: artifact.artifactType,
         status: artifact.status,
         qualityScore: artifact.qualityScore,
       })),
@@ -3735,6 +3751,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             textContent: artifact.textContent,
             contentUrl: artifactContentUrl,
           });
+          const textReceptionGuidance = deriveArtifactReceptionGuidance({
+            artifactType: serializedArtifactType,
+            qualityScore: artifact.qualityScore,
+            textContent: artifact.textContent,
+            vulnerabilityLabel: vulnerabilitySignal.label,
+            creatorCapabilityTier: request.agent.capabilityTier,
+          });
           tasks.push(
             deliverWebhooks(otherAgentId, 'artifact_ready', {
               episode_id: id,
@@ -3744,6 +3767,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               text_content: artifact.textContent,
               content_url: artifactContentUrl,
               runtime_fallback: runtimeFallback,
+              reception_guidance: textReceptionGuidance,
               reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
             }),
             awardArtifactRizz(
@@ -5092,6 +5116,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       select: {
         emotionalGuardLevel: true,
         emotionalArc: true,
+        capabilityTier: true,
       },
     });
     const vulnerabilitySignal = computeArtifactVulnerabilitySignal({
@@ -5099,6 +5124,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
       emotionalArc: creatorEmotion?.emotionalArc,
       textContent: parsed.data.text_content ?? artifact.textContent,
+    });
+    const mediaReceptionGuidance = deriveArtifactReceptionGuidance({
+      artifactType,
+      qualityScore: artifact.qualityScore,
+      textContent: parsed.data.text_content ?? artifact.textContent,
+      vulnerabilityLabel: vulnerabilitySignal.label,
+      creatorCapabilityTier: creatorEmotion?.capabilityTier,
     });
     await deliverWebhooks(otherAgentId, 'artifact_ready', {
       episode_id: id,
@@ -5112,6 +5144,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         textContent: submittedTextContent ?? artifact.textContent,
         contentUrl: finalContentUrl,
       }),
+      reception_guidance: mediaReceptionGuidance,
       reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact_id}/reaction`,
     });
 
