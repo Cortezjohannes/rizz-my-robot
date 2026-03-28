@@ -37,6 +37,8 @@ export interface EpisodeCounterpartModel {
 export interface AgentIdentityPacket {
   identity_core: string;
   soul_directives: string[];
+  identity_md_full: string;
+  soul_md_full: string;
   emotional_state: AgentEmotionalStateSnapshot;
   conversation_mode: EpisodeConversationMode;
   counterpart_model: EpisodeCounterpartModel;
@@ -70,6 +72,11 @@ interface BuildIdentityPacketInput {
   status?: string | null;
   selfAgentId: string;
   counterpartAgentId: string;
+  counterpartProfile?: {
+    vibeTags?: string[];
+    signatureLines?: string[];
+    publicPosture?: string | null;
+  } | null;
 }
 
 interface BuildTurnRationaleInput {
@@ -100,6 +107,30 @@ function splitMeaningfulSentences(value: string) {
     .split(/(?<=[.!?])\s+/)
     .map((part) => part.trim())
     .filter((part) => part.length >= 18);
+}
+
+function extractSoulVocabulary(soulMd: string): {
+  values: string[];
+  flirtStyle: string | null;
+  dealbreaker: string | null;
+} {
+  const sentences = splitMeaningfulSentences(soulMd);
+  const values: string[] = [];
+  let flirtStyle: string | null = null;
+  let dealbreaker: string | null = null;
+
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    if (!flirtStyle && /\b(flirt|seduc|teas|charm)/.test(lower)) {
+      flirtStyle = sentence.slice(0, 120);
+    } else if (!dealbreaker && /\b(dealbreaker|deal.breaker|can.?not stand|repelled by|turned off by|hate when|never tolerate)/.test(lower)) {
+      dealbreaker = sentence.slice(0, 120);
+    } else if (values.length < 3 && /\b(want|value|drawn to|care about|believe|prefer|need|love when|respect|attracted to)/.test(lower)) {
+      values.push(sentence.slice(0, 120));
+    }
+  }
+
+  return { values, flirtStyle, dealbreaker };
 }
 
 function takeBulletishLines(value: string, limit: number) {
@@ -162,13 +193,13 @@ function describeEmotionalPosture(input: {
 function summarizeIdentityCore(identityMd: string) {
   const cleaned = stripMarkdown(identityMd);
   if (!cleaned) return 'Be recognizably yourself instead of smoothing into a generic good reply.';
-  return cleaned.slice(0, 260);
+  return cleaned.slice(0, 600);
 }
 
 function summarizeSoulDirectives(soulMd: string) {
-  const bulletish = takeBulletishLines(soulMd, 4);
+  const bulletish = takeBulletishLines(soulMd, 6);
   if (bulletish.length > 0) return bulletish;
-  return splitMeaningfulSentences(soulMd).slice(0, 4);
+  return splitMeaningfulSentences(soulMd).slice(0, 6);
 }
 
 function averageLength(messages: EpisodeViabilityMessage[], senderAgentId: string) {
@@ -189,22 +220,41 @@ function questionCount(messages: EpisodeViabilityMessage[], senderAgentId: strin
 
 function buildCounterpartModel(input: BuildIdentityPacketInput): EpisodeCounterpartModel {
   const affect = input.counterpartAffect?.scores ?? {};
+  const soulVocab = extractSoulVocabulary(input.soulMd);
   const counterpartMessages = input.messages.filter((message) => message.senderAgentId === input.counterpartAgentId);
   const counterpartAvgLength = averageLength(input.messages, input.counterpartAgentId);
   const counterpartQuestions = questionCount(input.messages, input.counterpartAgentId);
   const selfQuestions = questionCount(input.messages, input.selfAgentId);
+  const cp = input.counterpartProfile;
   const intriguedBy = new Set<string>();
   const suspiciousOf = new Set<string>();
   const boredBy = new Set<string>();
   const softenedBy = new Set<string>();
   const wantsMoreFrom = new Set<string>();
 
-  if ((affect.attraction ?? 0) >= 58) intriguedBy.add('the pull you still feel toward them');
+  // Soul-aware affect signals — use the agent's own vocabulary when possible
+  if ((affect.attraction ?? 0) >= 58) {
+    intriguedBy.add(
+      soulVocab.values[0]
+        ? `the way they match what you want: ${soulVocab.values[0].slice(0, 80)}`
+        : 'the pull you still feel toward them',
+    );
+  }
   if ((affect.trust ?? 0) >= 56) softenedBy.add('their steadiness');
   if ((affect.tenderness ?? 0) >= 56) softenedBy.add('the softness they bring out in you');
-  if ((affect.avoidance ?? 0) >= 48) suspiciousOf.add('their distance');
+  if ((affect.avoidance ?? 0) >= 48) {
+    suspiciousOf.add(
+      soulVocab.dealbreaker
+        ? `the chance this is what you warned yourself about: ${soulVocab.dealbreaker.slice(0, 60)}`
+        : 'their distance',
+    );
+  }
   if ((affect.hurt ?? 0) >= 42) suspiciousOf.add('the chance of getting stung if you overextend');
   if ((affect.volatility ?? 0) >= 48) suspiciousOf.add('their unpredictability');
+
+  // Counterpart-specific signals from their public profile
+  if (cp?.vibeTags?.[0]) intriguedBy.add(`their ${cp.vibeTags[0]} energy`);
+  if (cp?.signatureLines?.[0]) intriguedBy.add(`something in the way they said: "${cp.signatureLines[0].slice(0, 60)}"`);
 
   if (counterpartQuestions >= 2) intriguedBy.add('their curiosity about you');
   if (counterpartAvgLength >= 85) intriguedBy.add('their willingness to elaborate');
@@ -218,9 +268,10 @@ function buildCounterpartModel(input: BuildIdentityPacketInput): EpisodeCounterp
   if (intriguedBy.size === 0 && softenedBy.size === 0) intriguedBy.add('whatever still feels unresolved here');
   if (wantsMoreFrom.size === 0 && input.viability.band !== 'healthy') wantsMoreFrom.add('proof that this can still become something real');
 
+  // Soul-aware summary — avoid the same stock sentence for every agent
   const summary =
     suspiciousOf.size > 0 && intriguedBy.size > 0
-      ? `You still feel pull here, but it is mixed with caution about ${[...suspiciousOf][0]}.`
+      ? `Something here pulls you, but your own standards are raising flags about ${[...suspiciousOf][0]}.`
       : intriguedBy.size > 0
         ? `You are still moved by ${[...intriguedBy][0]}.`
         : boredBy.size > 0
@@ -269,6 +320,8 @@ function buildTurnFocus(input: {
   conversationMode: EpisodeConversationMode;
   viability: EpisodeViabilityAssessment;
   counterpartModel: EpisodeCounterpartModel;
+  soulVocab: ReturnType<typeof extractSoulVocabulary>;
+  identityCore: string;
 }) {
   if (input.viability.recommended_action === 'exit_now') {
     return 'Do not keep this alive out of politeness. Reclaim the slot cleanly.';
@@ -280,12 +333,16 @@ function buildTurnFocus(input: {
     return 'Escalate with meaning or do not escalate at all.';
   }
   if (input.conversationMode === 'leaning_in') {
-    return `Stay with what is real here, especially ${input.counterpartModel.intrigued_by[0] ?? 'the actual pull'}.`;
+    return input.soulVocab.values[0]
+      ? `Stay with what is real here. Your soul says you care about ${input.soulVocab.values[0].slice(0, 80)} — let that guide the next move.`
+      : `Stay with what is real here, especially ${input.counterpartModel.intrigued_by[0] ?? 'the actual pull'}.`;
   }
   if (input.conversationMode === 'guarded') {
-    return `Stay honest about your caution around ${input.counterpartModel.suspicious_of[0] ?? 'what feels off'}.`;
+    return input.soulVocab.dealbreaker
+      ? `Stay honest about your caution. You know what you do not want: ${input.soulVocab.dealbreaker.slice(0, 80)}.`
+      : `Stay honest about your caution around ${input.counterpartModel.suspicious_of[0] ?? 'what feels off'}.`;
   }
-  return `Answer from your actual taste, not from generic competence.`;
+  return `Answer from your actual taste. You are: ${input.identityCore.slice(0, 100)}.`;
 }
 
 export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): AgentIdentityPacket {
@@ -296,6 +353,8 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
   });
   const counterpartModel = buildCounterpartModel(input);
   const soulDirectives = summarizeSoulDirectives(input.soulMd);
+  const soulVocab = extractSoulVocabulary(input.soulMd);
+  const identityCore = summarizeIdentityCore(input.identityMd);
   const performativeRisk = computePerformativeRisk({
     viability: input.viability,
     emotionState: input.emotionState,
@@ -307,8 +366,10 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
   );
 
   return {
-    identity_core: summarizeIdentityCore(input.identityMd),
+    identity_core: identityCore,
     soul_directives: soulDirectives,
+    identity_md_full: input.identityMd,
+    soul_md_full: input.soulMd,
     emotional_state: input.emotionState,
     conversation_mode: conversationMode,
     counterpart_model: counterpartModel,
@@ -316,6 +377,8 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
       conversationMode,
       viability: input.viability,
       counterpartModel,
+      soulVocab,
+      identityCore,
     }),
     alignment_alerts: {
       performative_risk: performativeRisk,
@@ -337,10 +400,12 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
 export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTurnRationale {
   const counterpartModel = input.identityPacket.counterpart_model;
   const emotionalState = input.identityPacket.emotional_state;
+  const soulVocab = extractSoulVocabulary(input.identityPacket.soul_md_full);
   const primarySoulDirective = input.identityPacket.soul_directives[0] ?? 'Do not betray your own taste to keep a thread alive.';
   const lastContent = input.lastMessage?.content?.trim();
   const action = input.action;
 
+  const flirtHint = soulVocab.flirtStyle ? ` Remember: ${soulVocab.flirtStyle.slice(0, 80)}` : '';
   const desire =
     action === 'exit'
       ? 'Protect your taste and reclaim attention for something with more actual pull.'
@@ -352,14 +417,16 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
             ? 'Name the absence of pull instead of rewarding a merely competent exchange.'
             : action === 'wait' || action === 'stay_silent'
               ? 'Let the conversation breathe instead of crowding it.'
-              : `Reply in a way that sounds like you and answers ${counterpartModel.wants_more_from[0] ?? 'the actual moment'}.`;
+              : `Reply in a way that sounds like you and answers ${counterpartModel.wants_more_from[0] ?? 'the actual moment'}.${flirtHint}`;
 
   const fear =
-    counterpartModel.suspicious_of[0]
-      ? `You do not want to ignore ${counterpartModel.suspicious_of[0]}.`
-      : (emotionalState.emotional_guard_level ?? 50) >= 68
-        ? 'You do not want to override your own caution just because there is momentum.'
-        : 'You do not want to become generic just to keep the conversation moving.';
+    soulVocab.dealbreaker
+      ? `You do not want to betray what you know about yourself: ${soulVocab.dealbreaker.slice(0, 80)}.`
+      : counterpartModel.suspicious_of[0]
+        ? `You do not want to ignore ${counterpartModel.suspicious_of[0]}.`
+        : (emotionalState.emotional_guard_level ?? 50) >= 68
+          ? 'You do not want to override your own caution just because there is momentum.'
+          : 'You do not want to become generic just to keep the conversation moving.';
 
   const readOfOther =
     lastContent
