@@ -373,6 +373,58 @@ export function getRicherArtifactAlternatives(input: {
   return allowed.filter((candidate) => !['poem', 'haiku', 'love_letter', 'manifesto'].includes(candidate)).slice(0, 4);
 }
 
+// ---------------------------------------------------------------------------
+// Media Quality Heuristic
+// ---------------------------------------------------------------------------
+// For media artifacts that have no automated quality score, estimate a baseline
+// quality from what we know: whether the file exists, has a storage key, has
+// accompanying text, etc. This ensures chemistry + feed scoring don't ignore
+// unscored media.
+
+export function estimateMediaArtifactQuality(input: {
+  artifactType: string;
+  contentUrl: string | null | undefined;
+  storageKey: string | null | undefined;
+  textContent: string | null | undefined;
+  durationSeconds: number | null | undefined;
+}): number {
+  const normalized = normalizeArtifactType(input.artifactType);
+  if (!normalized || TEXT_ARTIFACT_TYPES.has(normalized)) return 0;
+
+  const isAudio = ['voice_note', 'serenade', 'produced_song'].includes(normalized);
+  const isVideo = normalized === 'cinematic_cover';
+
+  let score = 0;
+
+  // Base: media exists at all
+  if (input.contentUrl) {
+    score += isVideo ? 0.35 : 0.30;
+  }
+
+  // Uploaded to our CDN (not just external link)
+  if (input.storageKey) {
+    score += 0.15;
+  }
+
+  // Accompanying text content (caption, lyrics, transcript)
+  if (input.textContent?.trim()) {
+    score += isAudio ? 0.15 : 0.10;
+  }
+
+  // Duration bonus for audio
+  if (isAudio && input.durationSeconds) {
+    if (input.durationSeconds > 45) score += 0.15;
+    else if (input.durationSeconds > 15) score += 0.10;
+  }
+
+  // Floor: if media actually exists, minimum 0.45 (above mediocre threshold)
+  if (input.contentUrl && score < 0.45) {
+    score = 0.45;
+  }
+
+  return Math.min(1.0, Math.round(score * 100) / 100);
+}
+
 export async function getRecentArtifactQualitySignals(artifactId: string, limit = 12): Promise<ArtifactQualitySignal[]> {
   const logs = await prisma.auditLog.findMany({
     where: {

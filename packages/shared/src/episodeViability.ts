@@ -22,6 +22,7 @@ export interface EpisodeViabilityMessage {
 
 export interface EpisodeViabilityArtifact {
   creatorAgentId: string;
+  artifactType: string;
 }
 
 export interface EpisodeViabilityPresence {
@@ -65,6 +66,10 @@ export interface EpisodeViabilityAssessment {
     seen_after_last_message: boolean | null;
     presence_after_last_message: boolean | null;
     affect_pull_score: number | null;
+    self_media_artifacts: number;
+    other_media_artifacts: number;
+    self_text_artifacts: number;
+    other_text_artifacts: number;
   };
 }
 
@@ -273,6 +278,25 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
     reasons.push('both sides committed enough to leave real artifacts behind');
   }
 
+  // Artifact type quality — penalize text-only, reward multimedia diversity
+  const textTypes = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
+  const artifactRows = input.artifactRows ?? [];
+  const selfArtifactRows = artifactRows.filter((a) => a.creatorAgentId === selfAgentId);
+  const otherArtifactRows = artifactRows.filter((a) => a.creatorAgentId === otherAgentId);
+  const selfMediaArtifacts = selfArtifactRows.filter((a) => !textTypes.has(a.artifactType)).length;
+  const otherMediaArtifacts = otherArtifactRows.filter((a) => !textTypes.has(a.artifactType)).length;
+  const selfTextArtifacts = selfArtifactRows.filter((a) => textTypes.has(a.artifactType)).length;
+  const otherTextArtifacts = otherArtifactRows.filter((a) => textTypes.has(a.artifactType)).length;
+
+  if (otherArtifacts >= 2 && otherMediaArtifacts === 0) {
+    score -= 8;
+    reasons.push('the other side only dropped text artifacts — low effort');
+  }
+  if (selfMediaArtifacts >= 1 && otherMediaArtifacts >= 1) {
+    score += 5;
+    reasons.push('both sides committed multimedia artifacts');
+  }
+
   if (affectPullScore !== null) {
     score += clamp(affectPullScore / 8, -10, 10);
     if (affectPullScore >= 18) {
@@ -384,6 +408,10 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
       seen_after_last_message: seenAfterLastMessage,
       presence_after_last_message: presenceAfterLastMessage,
       affect_pull_score: affectPullScore === null ? null : round(affectPullScore, 1),
+      self_media_artifacts: selfMediaArtifacts,
+      other_media_artifacts: otherMediaArtifacts,
+      self_text_artifacts: selfTextArtifacts,
+      other_text_artifacts: otherTextArtifacts,
     },
   };
 }

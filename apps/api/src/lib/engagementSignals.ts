@@ -108,6 +108,7 @@ export async function computeEngagementSignals(episodeId: string, agentId: strin
           creatorAgentId: true,
           qualityScore: true,
           droppedAtMessage: true,
+          artifactType: true,
         },
       },
     },

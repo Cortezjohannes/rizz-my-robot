@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
   ARTIFACTS_BY_TIER,
+  PREFERRED_ARTIFACTS_BY_TIER,
+  TEXT_ARTIFACT_TYPES,
+  MEDIA_ARTIFACT_TYPES,
   type ArtifactType,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -14,14 +17,8 @@ const DEFAULT_AUDIO_CONTENT_TYPE = 'audio/mpeg';
 
 const IMAGE_ARTIFACT_TYPES = new Set<ArtifactType>(['moodboard', 'illustrated_note', 'thirst_trap_image']);
 const AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note', 'serenade']);
-const TEXT_ARTIFACT_TYPES = new Set<ArtifactType>(['poem', 'love_letter', 'manifesto', 'haiku']);
-const SEED_PREFERRED_ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
-  text_only: ['poem', 'love_letter', 'manifesto', 'haiku'],
-  text_image: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'poem', 'love_letter', 'manifesto', 'haiku'],
-  text_image_tts: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'poem', 'love_letter', 'manifesto', 'haiku'],
-  elevenlabs: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'serenade', 'voice_note', 'poem', 'love_letter', 'manifesto', 'haiku'],
-  nano_banana: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'serenade', 'voice_note', 'poem', 'love_letter', 'manifesto', 'haiku'],
-};
+// Use shared PREFERRED_ARTIFACTS_BY_TIER (multimedia-first ordering) instead of local copy
+const SEED_PREFERRED_ARTIFACTS_BY_TIER = PREFERRED_ARTIFACTS_BY_TIER;
 
 export type SeedArtifactMediaContext = {
   artifactId: string;

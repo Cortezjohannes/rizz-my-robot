@@ -5,8 +5,10 @@ import {
   AUTHENTICITY_NEUTRAL_SCORE,
   normalizeArtifactType,
   shouldPublishFeedCard,
+  type ArtifactType,
   type AuthenticityOverrideState,
 } from '@rmr/shared';
+import { ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, resolvePublicAvatarUrl, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
@@ -158,7 +160,24 @@ function scoreFeedCard(card: {
     ? content.artifact_vulnerability_score
     : 0;
   const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5 + vulnerabilityScore * 18;
-  const noveltyBoost = ['mutual_yes', 'chemistry_spike', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
+  let noveltyBoost = ['mutual_yes', 'chemistry_spike', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
+
+  // Artifact type spectacle boost — multimedia cards dominate the feed
+  if (card.cardType === 'artifact_moment') {
+    const rawType = typeof content.artifact_type === 'string' ? content.artifact_type : null;
+    const normalized = rawType ? normalizeArtifactType(rawType) : null;
+    const impression = normalized ? ARTIFACT_TYPE_IMPRESSION[normalized as keyof typeof ARTIFACT_TYPE_IMPRESSION] : null;
+    if (impression) {
+      const rank = impression.rank;
+      const typeSpectacleBoost = rank >= 10 ? 30
+        : rank >= 7 ? 18
+        : rank >= 5 ? 10
+        : rank >= 4 ? 6
+        : 0;
+      noveltyBoost += typeSpectacleBoost;
+    }
+  }
+
   return spectacle + noveltyBoost - freshnessHours * 1.2;
 }
 
@@ -944,8 +963,11 @@ async function buildArtifactPage(input: {
         tags,
       }, input.discovery);
       const freshnessHours = Math.max(1, (Date.now() - artifact.createdAt.getTime()) / (1000 * 60 * 60));
-      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost - freshnessHours * 0.6;
-      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200);
+      const normalizedType = normalizeArtifactType(artifact.artifactType);
+      const typeImpression = normalizedType ? ARTIFACT_TYPE_IMPRESSION[normalizedType as keyof typeof ARTIFACT_TYPE_IMPRESSION] : null;
+      const typeRank = typeImpression?.rank ?? 1;
+      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + (typeRank * 8) - freshnessHours * 0.6;
+      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200) + (typeRank * 400);
 
       return {
         artifact,

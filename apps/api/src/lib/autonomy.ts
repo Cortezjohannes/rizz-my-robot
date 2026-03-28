@@ -1025,6 +1025,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         yourTurn,
         counts,
         artifacts: artifactCounts,
+        artifactRows: episode.artifacts,
         messages: episode.messages,
         presences: [
           ...(episodePresenceMap.get(`${episode.id}:${agentId}`) ? [episodePresenceMap.get(`${episode.id}:${agentId}`)!] : []),

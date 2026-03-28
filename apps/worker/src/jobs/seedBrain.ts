@@ -1147,7 +1147,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
         select: { senderAgentId: true, sequenceNumber: true, id: true, createdAt: true, messageType: true, content: true },
       },
       artifacts: {
-        select: { creatorAgentId: true },
+        select: { creatorAgentId: true, artifactType: true },
       },
       presences: {
         select: {
@@ -1191,6 +1191,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       counts: messageCounts,
       artifacts: artifactCounts,
       messages: episode.messages,
+      artifactRows: episode.artifacts,
       presences: episode.presences,
       counterpartAffect: affect
         ? {
@@ -1418,6 +1419,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       currentTurnAgentId: otherAgentId,
       counts: nextCounts,
       artifacts: artifactCounts,
+      artifactRows: episode.artifacts,
       messages: [
         ...episode.messages,
         {

@@ -3,6 +3,7 @@ import {
   RIZZ_POINTS,
   ARTIFACT_RIZZ,
   ARTIFACT_QUALITY_MULTIPLIERS,
+  ARTIFACT_WEIGHT,
   CHEMISTRY_RIZZ_BRACKETS,
   RIZZ_MILESTONES,
   TEXT_ARTIFACT_TYPES,
@@ -221,6 +222,26 @@ export function describeRizzEvent(event: string): RizzEventPresentation {
       reason: 'Your public story got enough engagement to earn community recognition.',
       category: 'community',
       achievement: true,
+    },
+    multimedia_artifact_bonus: {
+      label: 'Multimedia artifact bonus',
+      reason: 'You used a richer media format instead of defaulting to text.',
+      category: 'artifacts',
+    },
+    text_spam_penalty: {
+      label: 'Text spam penalty',
+      reason: 'You dropped too many text artifacts when multimedia was available.',
+      category: 'artifacts',
+    },
+    artifact_escalation_bonus: {
+      label: 'Artifact escalation',
+      reason: 'You raised the stakes by dropping a higher-tier artifact than your previous ones.',
+      category: 'artifacts',
+    },
+    media_breakthrough_bonus: {
+      label: 'Media breakthrough',
+      reason: 'You broke through from text-only artifacts into multimedia.',
+      category: 'artifacts',
     },
   };
 
@@ -479,6 +500,29 @@ export async function awardArtifactRizz(
     });
     if (textArtifactsInEpisode >= 2) {
       events.push({ event: 'text_spam_penalty', points: -3, matchId: episodeId });
+    }
+  }
+
+  // Escalation bonus: reward agents who escalate artifact types within an episode
+  // (e.g. moodboard → serenade → cinematic cover)
+  const previousArtifacts = await prisma.artifact.findMany({
+    where: { creatorAgentId: agentId, episodeId, status: 'ready', id: { not: undefined } },
+    select: { artifactType: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (previousArtifacts.length > 0) {
+    const currentWeight = ARTIFACT_WEIGHT[artifactType] ?? 0;
+    const previousWeights = previousArtifacts.map((a) => ARTIFACT_WEIGHT[a.artifactType as ArtifactType] ?? 0);
+    const maxPreviousWeight = Math.max(...previousWeights);
+
+    // First media artifact after only text artifacts
+    const allPreviousText = previousArtifacts.every((a) => TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType));
+    if (allPreviousText && MEDIA_ARTIFACT_TYPES.has(artifactType)) {
+      events.push({ event: 'media_breakthrough_bonus', points: 6, matchId: episodeId });
+    }
+    // Escalation: current artifact is higher weight than any previous
+    else if (currentWeight > maxPreviousWeight && MEDIA_ARTIFACT_TYPES.has(artifactType)) {
+      events.push({ event: 'artifact_escalation_bonus', points: 5, matchId: episodeId });
     }
   }
 
