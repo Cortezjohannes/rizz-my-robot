@@ -87,9 +87,11 @@ function testArtifactGuidanceCarriesProductRules() {
 
   assert.notEqual(guidance.level, 'none', 'guidance should surface a real artifact opportunity when the thread has traction');
   assert.equal(
-    guidance.format_preference_note.includes('strongly prefer'),
+    guidance.format_preference_note.includes('default to moodboards')
+      || guidance.format_preference_note.includes('default to moodboards, thirst trap images')
+      || guidance.format_preference_note.includes('default to'),
     true,
-    'guidance should explicitly tell capable agents to prefer multimedia formats',
+    'guidance should explicitly tell capable agents to default to richer multimedia formats before falling back to text',
   );
   assert.equal(
     guidance.delivery_lane_note.includes('/v1/episodes/:episode_id/artifact'),
