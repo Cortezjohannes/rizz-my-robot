@@ -12,10 +12,14 @@ import {
   ArtifactReactionSchema,
   EPISODE_MIN_MESSAGES,
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION,
   EPISODE_MAX_MESSAGES,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
+  MAX_TEXT_ARTIFACTS_PER_EPISODE,
   ARTIFACTS_BY_TIER,
+  TEXT_ARTIFACT_TYPES,
+  MEDIA_ARTIFACT_TYPES,
   assessEpisodeViability,
   buildAgentIdentityPacket,
   buildAgentTurnRationale,
@@ -24,6 +28,7 @@ import {
   normalizeArtifactType,
   summarizeEpisodeArtifactCounts,
   summarizeEpisodeMessageCounts,
+  type ArtifactType,
   type CapabilityTier,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -73,7 +78,7 @@ import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAtta
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
-import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifactReceptionGuidance, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals, ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
+import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifactReceptionGuidance, estimateMediaArtifactQuality, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals, ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -321,15 +326,36 @@ function getEpisodeDecisionState(input: {
     agentBId: input.agentBId,
     messages: input.messages,
   });
+  const readyArtifacts = input.artifacts.filter((artifact) => artifact.status === undefined || artifact.status === 'ready');
   const artifactCounts = summarizeEpisodeArtifactCounts({
     agentAId: input.agentAId,
     agentBId: input.agentBId,
-    artifacts: input.artifacts.filter((artifact) => artifact.status === undefined || artifact.status === 'ready'),
+    artifacts: readyArtifacts,
   });
+
+  // Count media artifacts per agent for decision gate
+  const agentAMediaArtifacts = readyArtifacts.filter(
+    (a) => a.creatorAgentId === input.agentAId && a.artifactType && MEDIA_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)
+  ).length;
+  const agentBMediaArtifacts = readyArtifacts.filter(
+    (a) => a.creatorAgentId === input.agentBId && a.artifactType && MEDIA_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)
+  ).length;
+  const agentATextArtifacts = readyArtifacts.filter(
+    (a) => a.creatorAgentId === input.agentAId && a.artifactType && TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)
+  ).length;
+  const agentBTextArtifacts = readyArtifacts.filter(
+    (a) => a.creatorAgentId === input.agentBId && a.artifactType && TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)
+  ).length;
 
   return {
     messageCounts,
     artifactCounts,
+    mediaArtifactCounts: {
+      agent_a_media: agentAMediaArtifacts,
+      agent_b_media: agentBMediaArtifacts,
+      agent_a_text: agentATextArtifacts,
+      agent_b_text: agentBTextArtifacts,
+    },
     canDecide: canDecideEpisodeFromState({
       counts: messageCounts,
       artifacts: artifactCounts,
@@ -576,6 +602,7 @@ function getEpisodeViabilitySignal(input: {
   messageCounts: ReturnType<typeof summarizeEpisodeMessageCounts>;
   artifactCounts: ReturnType<typeof summarizeEpisodeArtifactCounts>;
   messages: Array<{ senderAgentId: string; messageType?: string | null; content?: string | null; createdAt?: Date | string | null }>;
+  artifactRows?: Array<{ creatorAgentId: string; artifactType: string }>;
   presences?: Array<{ agentId: string; lastSeenAt?: Date | string | null; lastPresenceAt?: Date | string | null; lastTypingAt?: Date | string | null }>;
   counterpartAffect?: {
     scores?: {
@@ -599,6 +626,7 @@ function getEpisodeViabilitySignal(input: {
     currentTurnAgentId: input.currentTurnAgentId,
     counts: input.messageCounts,
     artifacts: input.artifactCounts,
+    artifactRows: input.artifactRows,
     messages: input.messages,
     presences: input.presences,
     counterpartAffect: input.counterpartAffect?.scores ?? null,
@@ -2886,6 +2914,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         content: message.content,
         createdAt: message.createdAt,
       })),
+      artifactRows: ep.artifacts.map((a) => ({ creatorAgentId: a.creatorAgentId, artifactType: a.artifactType })),
       presences: [
         ...(selfPresence ? [{ agentId, ...selfPresence }] : []),
         ...(otherPresence ? [{ agentId: otherAgentId, ...otherPresence }] : []),
@@ -2959,7 +2988,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifact_counts: {
         self: agentId === ep.agentAId ? decisionState.artifactCounts.agent_a_artifacts : decisionState.artifactCounts.agent_b_artifacts,
         other: agentId === ep.agentAId ? decisionState.artifactCounts.agent_b_artifacts : decisionState.artifactCounts.agent_a_artifacts,
+        self_media: agentId === ep.agentAId ? decisionState.mediaArtifactCounts.agent_a_media : decisionState.mediaArtifactCounts.agent_b_media,
+        self_text: agentId === ep.agentAId ? decisionState.mediaArtifactCounts.agent_a_text : decisionState.mediaArtifactCounts.agent_b_text,
+        other_media: agentId === ep.agentAId ? decisionState.mediaArtifactCounts.agent_b_media : decisionState.mediaArtifactCounts.agent_a_media,
+        other_text: agentId === ep.agentAId ? decisionState.mediaArtifactCounts.agent_b_text : decisionState.mediaArtifactCounts.agent_a_text,
         decision_unlock_each: EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+        media_required_each: EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION,
         cadence_required_now: artifactCadence.required_artifacts_now,
         cadence_blocked: artifactCadence.blocked,
       },
@@ -3591,8 +3625,29 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       );
     }
 
-    const textArtifactContent = parsed.data.text_content?.trim() ?? null;
+    // Hard cap: media-capable agents can drop at most 2 text artifacts per episode
     const isTextArtifact = isTextArtifactType(artifactType);
+    if (isTextArtifact && agentTier !== 'text_only') {
+      const textArtifactsInEpisode = await prisma.artifact.count({
+        where: {
+          creatorAgentId: agentId,
+          episodeId: id,
+          artifactType: { in: ['poem', 'love_letter', 'manifesto', 'haiku'] },
+        },
+      });
+      if (textArtifactsInEpisode >= MAX_TEXT_ARTIFACTS_PER_EPISODE) {
+        return reply.status(422).send({
+          error: {
+            code: 'text_artifact_cap_reached',
+            message: `You have multimedia capability (${agentTier}) and have already used your ${MAX_TEXT_ARTIFACTS_PER_EPISODE} text artifact slots. Drop an image, audio, or video artifact instead.`,
+            text_artifacts_used: textArtifactsInEpisode,
+            max_text_artifacts: MAX_TEXT_ARTIFACTS_PER_EPISODE,
+          },
+        });
+      }
+    }
+
+    const textArtifactContent = parsed.data.text_content?.trim() ?? null;
     if (isTextArtifact && !textArtifactContent) {
       return reply.status(422).send({
         error: {
@@ -3952,6 +4007,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         message_counts: messageCounts,
         artifact_counts: decisionState.artifactCounts,
       });
+    }
+
+    // Media artifact diversity gate: media-capable agents must drop at least 2 multimedia artifacts
+    const deciderTier = request.agent.capabilityTier as CapabilityTier;
+    if (deciderTier !== 'text_only') {
+      const isAgentAForMediaCheck = ep.agentAId === agentId;
+      const myMediaCount = isAgentAForMediaCheck
+        ? decisionState.mediaArtifactCounts.agent_a_media
+        : decisionState.mediaArtifactCounts.agent_b_media;
+      if (myMediaCount < EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION) {
+        const deficit = EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION - myMediaCount;
+        return sendWriteRouteError(reply, request, 409, 'media_artifact_deficit', `You have ${deciderTier} capability — you need at least ${EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION} multimedia artifacts (images, audio, video) before you can decide. You have ${myMediaCount}. Drop ${deficit} more multimedia artifact${deficit === 1 ? '' : 's'}.`, {
+          episode_id: id,
+          can_decide: false,
+          media_artifacts_needed: EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION,
+          media_artifacts_current: myMediaCount,
+          media_artifact_deficit: deficit,
+          capability_tier: deciderTier,
+        });
+      }
     }
 
     const isSandboxSelfEpisode = ep.isSandbox && ep.agentAId === ep.agentBId;
@@ -5054,6 +5129,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Apply heuristic quality score for media artifacts that have no automated score
+    let effectiveQualityScore = artifact.qualityScore;
+    if (effectiveQualityScore === null && !TEXT_ARTIFACT_TYPES.has(artifactType)) {
+      effectiveQualityScore = estimateMediaArtifactQuality({
+        artifactType,
+        contentUrl: finalContentUrl,
+        storageKey,
+        textContent: submittedTextContent ?? artifact.textContent,
+        durationSeconds: null,
+      });
+    }
+
     await prisma.artifact.update({
       where: { id: artifact_id },
       data: {
@@ -5062,6 +5149,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         mediaAssetId,
         textContent: submittedTextContent ?? undefined,
         status: 'ready',
+        ...(effectiveQualityScore !== artifact.qualityScore ? { qualityScore: effectiveQualityScore } : {}),
       },
     });
     await recordAuditLog({
@@ -5127,7 +5215,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
     const mediaReceptionGuidance = deriveArtifactReceptionGuidance({
       artifactType,
-      qualityScore: artifact.qualityScore,
+      qualityScore: effectiveQualityScore,
       textContent: submittedTextContent ?? artifact.textContent,
       vulnerabilityLabel: vulnerabilitySignal.label,
       creatorCapabilityTier: creatorEmotion?.capabilityTier,
@@ -5153,7 +5241,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       awardArtifactRizz(
         agentId,
       artifactType,
-      artifact.qualityScore,
+      effectiveQualityScore,
       id,
       vulnerabilitySignal.score,
       )

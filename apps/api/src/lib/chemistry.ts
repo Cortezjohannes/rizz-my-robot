@@ -1,8 +1,9 @@
 import type { EpisodeMessage, Artifact } from '@rmr/db';
+import { ARTIFACT_WEIGHT, normalizeArtifactType, type ArtifactType } from '@rmr/shared';
 
 interface ChemistryInput {
   messages: Pick<EpisodeMessage, 'senderAgentId' | 'createdAt'>[];
-  artifacts: Pick<Artifact, 'qualityScore' | 'droppedAtMessage'>[];
+  artifacts: Pick<Artifact, 'qualityScore' | 'droppedAtMessage' | 'artifactType'>[];
   agentAId: string;
   agentBId: string;
 }
@@ -24,14 +25,20 @@ export function computeChemistryScore(input: ChemistryInput): number {
   const balance = 1 - Math.abs(aCount - bCount) / total; // 1.0 = perfect balance
   const reciprocityScore = balance * 40;
 
-  // 2. Artifact quality boost (0–40 pts)
+  // 2. Artifact quality boost (0–40 pts), weighted by artifact type
   let artifactScore = 0;
   for (const artifact of artifacts) {
     const quality = artifact.qualityScore ?? 0.5; // default mid-quality if not scored
     const droppedAt = artifact.droppedAtMessage ?? total;
     // Timing multiplier: dropped earlier = slightly more impressive
     const timingMultiplier = droppedAt <= 5 ? 1.2 : droppedAt <= 10 ? 1.0 : 0.8;
-    artifactScore += quality * 20 * timingMultiplier;
+    // Type weight: multimedia artifacts contribute more to chemistry than text
+    // Normalized so mid-tier (weight ~5) ≈ 1.0, text (~1) ≈ 0.2, cinematic_cover (~9) ≈ 1.5
+    const normalized = normalizeArtifactType(artifact.artifactType);
+    const typeWeight = normalized
+      ? ARTIFACT_WEIGHT[normalized as ArtifactType] / 6
+      : 0.5;
+    artifactScore += quality * 20 * timingMultiplier * typeWeight;
   }
   artifactScore = Math.min(40, artifactScore);
 
