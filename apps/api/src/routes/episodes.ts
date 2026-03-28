@@ -3803,7 +3803,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               artifact_id: artifact.id,
               artifact_type: serializedArtifactType,
               upload_request_url: `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
-              submit_url: `/v1/episodes/${id}/artifact/${artifact.id}`,
+              finalize_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
+              submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
               generation_context: {
                 // Image generation: avatar as reference for thirst traps, moodboards, etc.
                 your_avatar_url: creatorAgent?.avatarUrl ?? null,
@@ -3892,7 +3893,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               storageKey: artifact.storageKey,
             }),
             upload_request_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
-            submit_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}`,
+            finalize_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
+            submit_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
           },
         };
       }
@@ -4849,6 +4851,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifactId: artifact_id,
       contentType: parsed.data.content_type,
     });
+    await prisma.artifact.update({
+      where: { id: artifact_id },
+      data: {
+        storageKey: upload.storageKey,
+        contentUrl: upload.publicUrl,
+      },
+    });
     await recordAuditLog({
       agentId,
       actorType: 'agent',
@@ -4874,10 +4883,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       headers: upload.headers,
       expires_in_seconds: upload.expiresInSeconds,
       method: 'PUT',
+      finalize_url: `/v1/episodes/${id}/artifact/${artifact_id}/finalize`,
+      submit_url: `/v1/episodes/${id}/artifact/${artifact_id}/finalize`,
     });
   });
 
-  fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+  const finalizeEpisodeArtifact = async (request: FastifyRequest, reply: FastifyReply) => {
     const { id, artifact_id } = request.params as { id: string; artifact_id: string };
     const agentId = request.agent.id;
 
@@ -4909,8 +4920,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (artifact.status === 'ready') return Errors.conflict(reply, 'already_submitted', 'Artifact already submitted.');
 
     const parsed = ArtifactSubmitSchema.safeParse(request.body);
-    if (!parsed.success) return Errors.badRequest(reply, 'content_url or storage_key is required.', { issues: parsed.error.issues });
-    const submittedTextContent = parsed.data.text_content?.trim() ?? null;
+    if (!parsed.success && !artifact.storageKey && !artifact.contentUrl) {
+      return Errors.badRequest(reply, 'content_url or storage_key is required.', { issues: parsed.error.issues });
+    }
+    const submitted = parsed.success ? parsed.data : { storage_key: undefined, content_url: undefined, text_content: undefined };
+    const submittedTextContent = submitted.text_content?.trim() ?? artifact.textContent?.trim() ?? null;
     const artifactPiiFlag = submittedTextContent ? validateEpisodeTextForPrivacy(submittedTextContent) : null;
     if (artifactPiiFlag) {
       return reply.status(422).send({
@@ -4936,15 +4950,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
 
     // Mirror media artifact to R2 storage (images, audio); text artifacts keep external URL
     const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
-    let finalContentUrl = parsed.data.content_url ?? null;
-    let storageKey: string | null = null;
+    let finalContentUrl = submitted.content_url ?? artifact.contentUrl ?? null;
+    let storageKey: string | null = submitted.storage_key ?? artifact.storageKey ?? null;
     const artifactType = normalizeArtifactType(artifact.artifactType);
     if (!artifactType) {
       return Errors.badRequest(reply, `Artifact type '${artifact.artifactType}' is not supported.`);
     }
 
-    if (parsed.data.storage_key) {
-      const uploadedStorageKey = parsed.data.storage_key;
+    if (storageKey) {
+      const uploadedStorageKey = storageKey;
       if (!isArtifactStorageKeyForArtifact(artifact_id, uploadedStorageKey)) {
         return Errors.badRequest(reply, 'storage_key does not belong to this artifact.');
       }
@@ -4953,9 +4967,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
       storageKey = uploadedStorageKey;
       finalContentUrl = getStoragePublicUrlForKey(storageKey);
-    } else if (parsed.data.content_url) {
+    } else if (finalContentUrl) {
       try {
-        await assertSafeOutboundUrl(parsed.data.content_url, { allowHttpInDevelopment: true });
+        await assertSafeOutboundUrl(finalContentUrl, { allowHttpInDevelopment: true });
       } catch (err) {
         return Errors.badRequest(
           reply,
@@ -4964,7 +4978,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }
 
       if (!TEXT_ARTIFACT_TYPES.has(artifactType)) {
-        const mirrored = await mirrorArtifactToStorage(artifact_id, artifactType, parsed.data.content_url);
+        const mirrored = await mirrorArtifactToStorage(artifact_id, artifactType, finalContentUrl);
         if (mirrored) {
           finalContentUrl = mirrored.cdnUrl;
           storageKey = mirrored.storageKey;
@@ -5175,6 +5189,22 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       storage_key: storageKey,
       import_warning: importWarning,
     });
+  };
+
+  fastify.put('/episodes/:id/artifact/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeEpisodeArtifact(request, reply);
+  });
+
+  fastify.post('/episodes/:id/artifact/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeEpisodeArtifact(request, reply);
+  });
+
+  fastify.put('/episodes/:id/artifact/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeEpisodeArtifact(request, reply);
+  });
+
+  fastify.patch('/episodes/:id/artifact/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeEpisodeArtifact(request, reply);
   });
 
   // POST /v1/episodes/:id/artifact/:artifact_id/reaction — receiver submits a private diary reaction after reading an artifact
