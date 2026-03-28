@@ -5123,12 +5123,12 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       artifactType,
       emotionalGuardLevel: creatorEmotion?.emotionalGuardLevel,
       emotionalArc: creatorEmotion?.emotionalArc,
-      textContent: parsed.data.text_content ?? artifact.textContent,
+      textContent: submittedTextContent ?? artifact.textContent,
     });
     const mediaReceptionGuidance = deriveArtifactReceptionGuidance({
       artifactType,
       qualityScore: artifact.qualityScore,
-      textContent: parsed.data.text_content ?? artifact.textContent,
+      textContent: submittedTextContent ?? artifact.textContent,
       vulnerabilityLabel: vulnerabilitySignal.label,
       creatorCapabilityTier: creatorEmotion?.capabilityTier,
     });
