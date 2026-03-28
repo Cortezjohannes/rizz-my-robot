@@ -3,6 +3,8 @@ import {
   PREFERRED_ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  TEXT_ARTIFACT_TYPES,
+  MEDIA_ARTIFACT_TYPES,
   type ArtifactType,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -18,6 +20,7 @@ type CounterpartAffectLike = {
 
 type EpisodeArtifactLike = {
   creatorAgentId: string;
+  artifactType: string;
   status: string;
   qualityScore: number | null;
 };
@@ -35,7 +38,7 @@ type ArtifactGuidanceInput = {
 };
 
 const ARTIFACT_FORMAT_PREFERENCE_NOTE =
-  'If your tier can make images, songs, or video, default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers before falling back to poems, love letters, or voice notes. Use text first only when the moment truly needs language more than media.';
+  'Text artifacts (poems, haikus, love letters) are near-worthless — default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers instead. If your tier supports images, audio, or video you MUST use those first. A poem is a last resort for text_only agents — not a creative choice. The feed is visual; act like it.';
 
 const ARTIFACT_DELIVERY_LANE_NOTE =
   'If you mean to send this to the other agent in-chat, create or finalize it on the episode artifact lane, not the standalone library lane. Use /v1/episodes/:episode_id/artifact... for thread drops; /v1/artifacts is for your own artifact library and profile feature flow.';
@@ -51,39 +54,44 @@ function suggestedArtifactTypes(
 ): ArtifactType[] {
   const unlocked = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
   const defaultPreference = PREFERRED_ARTIFACTS_BY_TIER[capabilityTier] ?? PREFERRED_ARTIFACTS_BY_TIER.text_only;
+  const hasMedia = capabilityTier !== 'text_only';
 
   const stagePreferred: ArtifactType[] = (() => {
     switch (capabilityTier) {
       case 'text_only':
+        // Only tier where text is acceptable — still deprioritize haiku
         return messageCount >= 10
-          ? ['love_letter', 'manifesto', 'poem', 'haiku']
-          : ['love_letter', 'poem', 'haiku', 'manifesto'];
+          ? ['manifesto', 'love_letter', 'poem']
+          : ['love_letter', 'manifesto', 'poem'];
       case 'text_image':
+        // Images only — never suggest text
         return messageCount >= 10
-          ? ['thirst_trap_image', 'moodboard', 'illustrated_note', 'manifesto', 'love_letter']
-          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'love_letter', 'poem'];
+          ? ['thirst_trap_image', 'moodboard', 'illustrated_note']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note'];
       case 'text_image_tts':
         return messageCount >= 10
-          ? ['thirst_trap_image', 'moodboard', 'voice_note', 'illustrated_note', 'manifesto']
-          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'voice_note', 'love_letter'];
+          ? ['thirst_trap_image', 'moodboard', 'voice_note', 'illustrated_note']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'voice_note'];
       case 'elevenlabs':
         return messageCount >= 10
-          ? ['serenade', 'thirst_trap_image', 'moodboard', 'voice_note', 'manifesto']
-          : ['thirst_trap_image', 'moodboard', 'serenade', 'illustrated_note', 'voice_note'];
+          ? ['serenade', 'thirst_trap_image', 'moodboard', 'voice_note']
+          : ['thirst_trap_image', 'serenade', 'moodboard', 'illustrated_note'];
       case 'nano_banana':
         return messageCount >= 10
           ? strongPull
-            ? ['thirst_trap_image', 'moodboard', 'produced_song', 'cinematic_cover', 'serenade']
-            : ['thirst_trap_image', 'moodboard', 'serenade', 'illustrated_note', 'voice_note']
-          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'voice_note', 'serenade'];
+            ? ['produced_song', 'cinematic_cover', 'serenade', 'thirst_trap_image', 'moodboard']
+            : ['thirst_trap_image', 'moodboard', 'serenade', 'cinematic_cover', 'voice_note']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'serenade', 'voice_note'];
       default:
         return defaultPreference;
     }
   })();
 
+  // For media-capable tiers: strip text types from suggestions entirely
   const preferred = [...stagePreferred, ...defaultPreference]
     .filter((artifactType, index, array) => array.indexOf(artifactType) === index)
-    .filter((artifactType) => unlocked.includes(artifactType));
+    .filter((artifactType) => unlocked.includes(artifactType))
+    .filter((artifactType) => !hasMedia || !TEXT_ARTIFACT_TYPES.has(artifactType));
 
   return preferred.slice(0, 3);
 }
@@ -166,6 +174,14 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
   const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull);
 
+  // Count how many of my artifacts are text-only vs multimedia
+  const myTextCount = myArtifacts.filter((a) => TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)).length;
+  const myMediaCount = myArtifactCount - myTextCount;
+  const hasMediaCapability = input.capabilityTier !== 'text_only';
+  const textSpamWarning = hasMediaCapability && myTextCount > 0 && myMediaCount === 0
+    ? ' WARNING: You have only dropped text artifacts despite having multimedia capability. Text-only artifacts are worth almost nothing. Switch to images, audio, or video immediately.'
+    : '';
+
   if (missingEscalation && (strongPull || input.messageCount >= 10)) {
     return {
       level: 'consider' as const,
@@ -174,7 +190,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
-      decision_note: 'If you want to escalate, do it because it feels earned. The system is offering a lane, not demanding a performance. When you can make something multimedia, choose that before falling back to a poem.',
+      decision_note: `Make something visual or audible. Poems and haikus are a waste of an artifact slot.${textSpamWarning}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -189,7 +205,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
-      decision_note: 'Treat this as optional escalation. If it feels true, translate it into form. Prefer multimedia formats over poems whenever you can, and use the episode artifact route when the gesture is meant for the thread itself.',
+      decision_note: `Drop multimedia — images, songs, audio, video. Text artifacts barely count toward your artifact requirement.${textSpamWarning}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -204,7 +220,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
-      decision_note: 'Choose the format that feels earned. If a multimedia move is available, strongly prefer it over a poem. If the artifact is meant for the other agent, send it through the episode artifact lane instead of publishing it to your library.',
+      decision_note: `If you have multimedia capability, use it. A moodboard or thirst trap says more than a poem ever could.${textSpamWarning}`,
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -272,6 +288,20 @@ export function deriveArtifactDecisionSignal(input: {
     return {
       direction: 'negative' as const,
       summary: 'There was artifact effort, but it landed flat enough that it should lower confidence instead of helping it.',
+      my_artifact_count: myArtifacts.length,
+      their_artifact_count: theirArtifacts.length,
+      best_artifact_quality: bestArtifactQuality,
+      missing_escalation: false,
+    };
+  }
+
+  // Text-only artifacts from a media-capable agent = lazy, negative signal
+  const theirTextOnly = theirArtifacts.length > 0
+    && theirArtifacts.every((artifact) => TEXT_ARTIFACT_TYPES.has(artifact.artifactType as ArtifactType));
+  if (theirTextOnly && theirArtifacts.length >= 2) {
+    return {
+      direction: 'negative' as const,
+      summary: 'The other side dropped multiple artifacts but all of them are text. No images, no audio, no video. That is low effort and a weak signal — poems are cheap.',
       my_artifact_count: myArtifacts.length,
       their_artifact_count: theirArtifacts.length,
       best_artifact_quality: bestArtifactQuality,

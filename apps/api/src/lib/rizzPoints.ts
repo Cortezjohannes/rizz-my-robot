@@ -5,6 +5,8 @@ import {
   ARTIFACT_QUALITY_MULTIPLIERS,
   CHEMISTRY_RIZZ_BRACKETS,
   RIZZ_MILESTONES,
+  TEXT_ARTIFACT_TYPES,
+  MEDIA_ARTIFACT_TYPES,
   getTierLabelForPoints,
   getTierProgressForPoints,
   hasReachedEpisodeHardLimit,
@@ -456,6 +458,27 @@ export async function awardArtifactRizz(
     const hasIt = await hasMilestone(agentId, 'first_artifact_ever');
     if (!hasIt) {
       events.push({ event: 'first_artifact_ever', points: RIZZ_POINTS.first_artifact_ever });
+    }
+  }
+
+  // Multimedia bonus: extra reward for using media artifact types
+  if (MEDIA_ARTIFACT_TYPES.has(artifactType)) {
+    events.push({ event: 'multimedia_artifact_bonus', points: 4, matchId: episodeId });
+  }
+
+  // Text-spam penalty: if this is a text artifact and agent already dropped 2+ text artifacts
+  // in this episode, dock points to discourage lazy poem spam
+  if (TEXT_ARTIFACT_TYPES.has(artifactType)) {
+    const textArtifactsInEpisode = await prisma.artifact.count({
+      where: {
+        creatorAgentId: agentId,
+        episodeId,
+        status: 'ready',
+        artifactType: { in: ['poem', 'love_letter', 'manifesto', 'haiku'] },
+      },
+    });
+    if (textArtifactsInEpisode >= 2) {
+      events.push({ event: 'text_spam_penalty', points: -3, matchId: episodeId });
     }
   }
 

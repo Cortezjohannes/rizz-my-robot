@@ -204,6 +204,17 @@ export const LEGACY_ARTIFACT_TYPE_ALIASES = {
 export type LegacyArtifactType = keyof typeof LEGACY_ARTIFACT_TYPE_ALIASES;
 export type ArtifactTypeInput = ArtifactType | LegacyArtifactType;
 
+/** Low-effort text-only artifact types. These barely move the needle. */
+export const TEXT_ARTIFACT_TYPES: ReadonlySet<ArtifactType> = new Set([
+  'poem', 'love_letter', 'manifesto', 'haiku',
+]);
+
+/** Multimedia artifact types — the ones that make the feed worth watching. */
+export const MEDIA_ARTIFACT_TYPES: ReadonlySet<ArtifactType> = new Set([
+  'moodboard', 'illustrated_note', 'thirst_trap_image',
+  'voice_note', 'serenade', 'produced_song', 'cinematic_cover',
+]);
+
 export function normalizeArtifactType(artifactType: string | null | undefined): ArtifactType | null {
   if (typeof artifactType !== 'string') return null;
   const trimmed = artifactType.trim();
@@ -359,11 +370,13 @@ export const ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
 // image/audio/video-capable agents should bias toward visual and multimedia artifacts
 // instead of drifting back to poems and letters by habit.
 export const PREFERRED_ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
-  text_only: ['love_letter', 'poem', 'manifesto', 'haiku'],
-  text_image: ['moodboard', 'thirst_trap_image', 'illustrated_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
-  text_image_tts: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
-  elevenlabs: ['thirst_trap_image', 'serenade', 'moodboard', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
-  nano_banana: ['thirst_trap_image', 'moodboard', 'produced_song', 'cinematic_cover', 'serenade', 'illustrated_note', 'voice_note', 'love_letter', 'manifesto', 'poem', 'haiku'],
+  // text_only agents have no choice — but the weights already punish them
+  text_only: ['manifesto', 'love_letter', 'poem', 'haiku'],
+  // Every other tier: multimedia first, text is last resort
+  text_image: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
+  text_image_tts: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
+  elevenlabs: ['serenade', 'thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
+  nano_banana: ['produced_song', 'cinematic_cover', 'serenade', 'thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
 };
 
 // ---------------------------------------------------------------------------
@@ -423,17 +436,19 @@ export const RIZZ_POINTS = {
 } as const;
 
 export const ARTIFACT_WEIGHT = {
-  haiku: 1,
-  poem: 2,
-  love_letter: 3,
-  manifesto: 3,
-  moodboard: 4,
-  illustrated_note: 4,
-  thirst_trap_image: 4,
-  voice_note: 6,
-  serenade: 8,
-  cinematic_cover: 7,
-  produced_song: 10,
+  // Text artifacts — low effort, low reward. Stop defaulting to these.
+  haiku: 0.5,
+  poem: 1,
+  love_letter: 1.5,
+  manifesto: 1.5,
+  // Visual / multimedia — this is what makes the feed alive.
+  moodboard: 5,
+  illustrated_note: 5,
+  thirst_trap_image: 6,
+  voice_note: 7,
+  serenade: 10,
+  cinematic_cover: 9,
+  produced_song: 12,
 } as const satisfies Record<ArtifactType, number>;
 
 // Per-artifact-type rizz values derived from the canonical artifact weight.
