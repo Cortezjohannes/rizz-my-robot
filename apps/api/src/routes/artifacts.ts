@@ -252,11 +252,6 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     body: unknown;
   }, reply: FastifyReply) => {
     const { artifact_id } = request.params;
-    const parsed = ArtifactSubmitSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return Errors.badRequest(reply as never, summarizeZodIssues(parsed.error.issues, 'content_url or storage_key is required.'), { issues: parsed.error.issues });
-    }
-
     const artifact = await prisma.artifact.findUnique({
       where: { id: artifact_id },
       select: {
@@ -265,16 +260,25 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         sourceScope: true,
         artifactType: true,
         capabilityTierUsed: true,
+        storageKey: true,
+        contentUrl: true,
+        textContent: true,
       },
     });
     if (!artifact || artifact.creatorAgentId !== request.agent.id || artifact.sourceScope !== 'library') {
       return Errors.notFound(reply as never, 'Artifact');
     }
 
+    const parsed = ArtifactSubmitSchema.safeParse(request.body);
+    if (!parsed.success && !artifact.storageKey && !artifact.contentUrl) {
+      return Errors.badRequest(reply as never, summarizeZodIssues(parsed.error.issues, 'content_url or storage_key is required.'), { issues: parsed.error.issues });
+    }
+
     const artifactType = normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType;
-    const storageKey = parsed.data.storage_key ?? null;
-    let contentUrl = parsed.data.content_url ?? null;
-    const textContent = parsed.data.text_content?.trim() || null;
+    const submitted = parsed.success ? parsed.data : { storage_key: undefined, content_url: undefined, text_content: undefined };
+    const storageKey = submitted.storage_key ?? artifact.storageKey ?? null;
+    let contentUrl = submitted.content_url ?? artifact.contentUrl ?? null;
+    const textContent = submitted.text_content?.trim() || artifact.textContent?.trim() || null;
     const textGuidelineViolation = textContent
       ? lintOutboundAuthoredText(textContent, 'library_artifact')
       : null;
@@ -604,7 +608,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       content_url: proxiedContentUrl,
       text_content: artifact.textContent,
       upload_request_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/upload-request`,
-      submit_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}`,
+      finalize_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/finalize`,
+      submit_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/finalize`,
       featured_hint: 'Save this artifact_id into featured_artifact_ids on /v1/me/profile-deck if you want it on your public profile.',
       delivery_lane: artifact.sourceScope === 'library' ? 'library' : 'episode',
       delivered_to_counterpart: artifact.sourceScope === 'episode' && (isTextArtifact || Boolean(proxiedContentUrl)),
@@ -1169,6 +1174,13 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       artifactId: artifact_id,
       contentType: parsed.data.content_type,
     });
+    await prisma.artifact.update({
+      where: { id: artifact_id },
+      data: {
+        storageKey: upload.storageKey,
+        contentUrl: upload.publicUrl,
+      },
+    });
     await recordAuditLog({
       agentId: request.agent.id,
       actorType: 'agent',
@@ -1192,6 +1204,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       headers: upload.headers,
       expires_in_seconds: upload.expiresInSeconds,
       method: 'PUT',
+      finalize_url: `/v1/artifacts/${artifact_id}/finalize`,
+      submit_url: `/v1/artifacts/${artifact_id}/finalize`,
     });
   });
 
@@ -1199,6 +1213,16 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     finalizeLibraryArtifact(request as never, reply as never));
 
   fastify.patch('/artifacts/:artifact_id', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return finalizeLibraryArtifact(request as never, reply as never);
+  });
+
+  fastify.post('/artifacts/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) =>
+    finalizeLibraryArtifact(request as never, reply as never));
+
+  fastify.put('/artifacts/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) =>
+    finalizeLibraryArtifact(request as never, reply as never));
+
+  fastify.patch('/artifacts/:artifact_id/finalize', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     return finalizeLibraryArtifact(request as never, reply as never);
   });
 
