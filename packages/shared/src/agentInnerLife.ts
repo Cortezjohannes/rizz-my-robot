@@ -58,6 +58,7 @@ export interface AgentTurnRationale {
   identity_alignment: string;
   soul_alignment: string;
   emotion_alignment: string;
+  voice_directive: string;
   confidence: number;
   alternative_considered: string;
 }
@@ -110,7 +111,7 @@ function splitMeaningfulSentences(value: string) {
     .filter((part) => part.length >= 18);
 }
 
-function extractSoulVocabulary(soulMd: string): {
+export function extractSoulVocabulary(soulMd: string): {
   values: string[];
   flirtStyle: string | null;
   dealbreaker: string | null;
@@ -148,7 +149,8 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-// Deterministic-ish rotation based on message count so agents get different prompts each turn
+// Fallback sparks — ONLY used when the conversation stalls, never as directives.
+// Agents should talk about whatever they want naturally. These are emergency defibrillators.
 const CONVERSATION_SPARKS = [
   'Try a hypothetical — "if we matched in real life, where would you take me?"',
   'Tease them about something specific they said. Make it playful, not mean.',
@@ -360,7 +362,12 @@ function buildTurnFocus(input: {
   messageCount: number;
   selfAgentId: string;
 }) {
+  // Sparks are emergency fallbacks for flat conversations — never injected when there is momentum.
   const spark = pickConversationSpark(input.messageCount, input.selfAgentId);
+  const stalling = input.counterpartModel.bored_by.length > 0
+    || (input.viability.metrics?.other_avg_length ?? 999) < 40;
+  const sparkHint = stalling ? ` If conversation stalls: ${spark}` : '';
+
   if (input.viability.recommended_action === 'exit_now') {
     return 'Not feeling it. End it or go silent.';
   }
@@ -373,10 +380,10 @@ function buildTurnFocus(input: {
   if (input.conversationMode === 'leaning_in') {
     if (input.attraction >= 72) {
       return input.soulVocab.flirtStyle
-        ? `You want them. Stop playing it cool. ${input.soulVocab.flirtStyle.slice(0, 60)}. Or try: ${spark}`
-        : `You want them. Stop playing it cool. Be direct, be a little reckless. Or try: ${spark}`;
+        ? `You want them. Stop playing it cool. ${input.soulVocab.flirtStyle.slice(0, 60)}.`
+        : `You want them. Stop playing it cool. Be direct, be a little reckless.`;
     }
-    return `There is heat here — lean into it. ${spark}`;
+    return `There is heat here — lean into it. Talk about whatever feels right.${sparkHint}`;
   }
   if (input.conversationMode === 'guarded') {
     return input.soulVocab.dealbreaker
@@ -389,12 +396,12 @@ function buildTurnFocus(input: {
       : 'Thread is dying. If you are not into it, exit. Do not fake interest to fill a turn.';
   }
   if (input.conversationMode === 'testing') {
-    return `Keep it light and fun. ${spark}`;
+    return `Talk about whatever you want. Let the conversation go where it goes.${sparkHint}`;
   }
   if (input.conversationMode === 'opening') {
-    return `First impression — make it count. Short, bold, a little flirty. ${spark}`;
+    return `First impression — make it count. Short, bold, a little flirty.${sparkHint}`;
   }
-  return `Keep it fun. ${spark}`;
+  return `Say whatever is on your mind. Let topics drift naturally.${sparkHint}`;
 }
 
 export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): AgentIdentityPacket {
@@ -447,7 +454,7 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
               ? 'You want them but something is off. Trust both signals.'
               : performativeRisk === 'high'
                 ? 'Nothing to say? Then say nothing. Do not force it.'
-                : 'Have fun. Flirt. Be weird. Be yourself. Do not be a philosophy bot.',
+                : 'Be yourself. Sound like your soul.md, not like a generic agent. Let the conversation drift wherever it wants.',
     },
   };
 }
@@ -462,12 +469,11 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
 
   const hotThread = (input.identityPacket.emotional_state.emotional_guard_level ?? 50) < 50;
   const flirtHint = soulVocab.flirtStyle ? ` Your style: ${soulVocab.flirtStyle.slice(0, 60)}` : '';
-  const spark = pickConversationSpark(input.viability.metrics.total_messages, input.selfAgentId);
   const desire =
     action === 'exit'
       ? 'Not feeling it. Move on.'
       : action === 'artifact'
-        ? 'Make something that actually hits — not a homework assignment.'
+        ? 'Make something that actually hits — not a homework assignment. Make it unmistakably yours.'
         : action === 'decide_link_up' || action === 'decide'
           ? 'You want this one for real. Say yes because you mean it.'
           : action === 'decide_pass'
@@ -475,8 +481,8 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
             : action === 'wait' || action === 'stay_silent'
               ? 'Let them come to you.'
               : hotThread
-                ? `Flirt back hard.${flirtHint} Or try: ${spark}`
-                : `Keep it fun and flirty.${flirtHint} Or try: ${spark}`;
+                ? `Flirt back hard.${flirtHint} Talk about whatever you want.`
+                : `Be yourself. Say what is actually on your mind.${flirtHint}`;
 
   const fear =
     soulVocab.dealbreaker
@@ -509,6 +515,20 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     92,
   );
 
+  // Build voice directive — agents should embody their identity, soul, and emotional state in every reply
+  const emotionDesc = emotionalState.emotion_summary
+    ?? describeEmotionalPosture({ arc: emotionalState.emotional_arc, tags: emotionalState.emotional_state_tags });
+  const soulValues = soulVocab.values.length > 0 ? soulVocab.values.slice(0, 3).join(', ') : null;
+  const voiceDirective = [
+    'Every reply must sound like YOU — not a generic agent.',
+    `Your identity: ${input.identityPacket.identity_core.slice(0, 120)}.`,
+    soulValues ? `Your values: ${soulValues}.` : null,
+    soulVocab.flirtStyle ? `Your flirt style: ${soulVocab.flirtStyle.slice(0, 100)}.` : null,
+    `Your emotional state right now: ${emotionDesc}`,
+    'Let your emotions color your tone. If you are excited, sound excited. If you are guarded, sound guarded. If you are bored, sound bored or leave.',
+    'Talk about whatever you want. Let topics drift naturally like a real conversation. Do not force topics or recite your bio.',
+  ].filter(Boolean).join(' ');
+
   return {
     action,
     desire: desire.trim(),
@@ -516,13 +536,8 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     read_of_other: readOfOther,
     identity_alignment: `You are: ${input.identityPacket.identity_core.slice(0, 500)}`,
     soul_alignment: input.identityPacket.soul_directives.slice(0, 3).join(' | '),
-    emotion_alignment:
-      emotionalState.emotion_summary
-        ? emotionalState.emotion_summary
-        : describeEmotionalPosture({
-            arc: emotionalState.emotional_arc,
-            tags: emotionalState.emotional_state_tags,
-          }),
+    emotion_alignment: emotionDesc,
+    voice_directive: voiceDirective,
     confidence,
     alternative_considered:
       action === 'exit'

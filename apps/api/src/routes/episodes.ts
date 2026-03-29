@@ -23,6 +23,7 @@ import {
   assessEpisodeViability,
   buildAgentIdentityPacket,
   buildAgentTurnRationale,
+  extractSoulVocabulary,
   canAgentSendEpisodeMessage,
   canDecideEpisodeFromState,
   normalizeArtifactType,
@@ -2770,6 +2771,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         qualityScore: artifact.qualityScore,
       })),
       safetyState: request.agent.safetyState,
+      identityCore: myAgent.identityMd.slice(0, 200),
+      soulValues: extractSoulVocabulary(myAgent.soulMd).values,
+      flirtStyle: extractSoulVocabulary(myAgent.soulMd).flirtStyle,
+      emotionalArc: myAgent.emotionalArc,
     });
     const artifactDecisionSignal = deriveArtifactDecisionSignal({
       artifacts: ep.artifacts.map((artifact) => ({

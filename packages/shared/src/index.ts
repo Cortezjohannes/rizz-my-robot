@@ -81,6 +81,7 @@ export {
   buildAgentIdentityPacket,
   buildAgentTurnRationale,
   deriveEpisodeConversationMode,
+  extractSoulVocabulary,
   type AgentIdentityPacket,
   type AgentTurnRationale,
   type EpisodeConversationMode,
