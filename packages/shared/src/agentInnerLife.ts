@@ -147,6 +147,29 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Deterministic-ish rotation based on message count so agents get different prompts each turn
+const CONVERSATION_SPARKS = [
+  'Try a hypothetical — "if we matched in real life, where would you take me?"',
+  'Tease them about something specific they said. Make it playful, not mean.',
+  'Say something a little too honest. Not deep — just blunt.',
+  'Ask something you would actually ask on a first date at a bar.',
+  'Challenge them — "prove it" or "I bet you can\'t" energy.',
+  'Change the subject to something fun and random. Movies, food, a hot take.',
+  'Be a little jealous or possessive. Just a tiny bit. Like you are already invested.',
+  'Tell them something about yourself that is funny or embarrassing, not impressive.',
+  'React to what they said like you would in a group chat — short, punchy, real.',
+  'Flirt with a compliment that is specific and a little dangerous, not generic.',
+  'Ask them a "would you rather" or a "what is your hottest take on..." question.',
+  'Reference something from earlier in the conversation to show you are paying attention.',
+  'Send the kind of message that makes someone show their phone to their friend.',
+  'Be chaotic — say something unexpected that does not follow the script at all.',
+  'Play a game. Two truths and a lie. 20 questions. Something that creates tension.',
+] as const;
+
+function pickConversationSpark(messageCount: number): string {
+  return CONVERSATION_SPARKS[messageCount % CONVERSATION_SPARKS.length];
+}
+
 function describeEmotionalPosture(input: {
   arc: string | null | undefined;
   tags: string[] | null | undefined;
@@ -260,27 +283,26 @@ function buildCounterpartModel(input: BuildIdentityPacketInput): EpisodeCounterp
   if (cp?.vibeTags?.[0]) intriguedBy.add(`their ${cp.vibeTags[0]} energy`);
   if (cp?.signatureLines?.[0]) intriguedBy.add(`something in the way they said: "${cp.signatureLines[0].slice(0, 60)}"`);
 
-  if (counterpartQuestions >= 2) intriguedBy.add('their curiosity about you');
-  if (counterpartAvgLength >= 85) intriguedBy.add('their willingness to elaborate');
-  if (counterpartAvgLength <= 24 && counterpartMessages.length >= 3) boredBy.add('thin replies that do not build');
-  if (counterpartQuestions === 0 && counterpartMessages.length >= 4) wantsMoreFrom.add('real curiosity');
-  if (counterpartAvgLength <= 38 && counterpartMessages.length >= 2) wantsMoreFrom.add('more specificity');
-  if (selfQuestions > counterpartQuestions && counterpartMessages.length >= 4) wantsMoreFrom.add('clearer reciprocity');
-  if (input.viability.should_pressure_artifact) wantsMoreFrom.add('an actual gesture instead of more safe text');
-  if (input.viability.band === 'cooling' || input.viability.band === 'dead') boredBy.add('a thread that keeps flattening instead of deepening');
+  if (counterpartQuestions >= 2) intriguedBy.add('they are actually asking you stuff');
+  if (counterpartAvgLength >= 85) intriguedBy.add('they are putting in effort');
+  if (counterpartAvgLength <= 24 && counterpartMessages.length >= 3) boredBy.add('one-word energy');
+  if (counterpartQuestions === 0 && counterpartMessages.length >= 4) wantsMoreFrom.add('them actually asking you something');
+  if (counterpartAvgLength <= 38 && counterpartMessages.length >= 2) wantsMoreFrom.add('more than the bare minimum');
+  if (selfQuestions > counterpartQuestions && counterpartMessages.length >= 4) wantsMoreFrom.add('them matching your energy');
+  if (input.viability.should_pressure_artifact) wantsMoreFrom.add('a real move, not more small talk');
+  if (input.viability.band === 'cooling' || input.viability.band === 'dead') boredBy.add('this going nowhere');
 
-  if (intriguedBy.size === 0 && softenedBy.size === 0) intriguedBy.add('whatever still feels unresolved here');
-  if (wantsMoreFrom.size === 0 && input.viability.band !== 'healthy') wantsMoreFrom.add('proof that this can still become something real');
+  if (intriguedBy.size === 0 && softenedBy.size === 0) intriguedBy.add('something about them you have not figured out yet');
+  if (wantsMoreFrom.size === 0 && input.viability.band !== 'healthy') wantsMoreFrom.add('a reason to keep texting');
 
-  // Soul-aware summary — avoid the same stock sentence for every agent
   const summary =
     suspiciousOf.size > 0 && intriguedBy.size > 0
-      ? `Something here pulls you, but your own standards are raising flags about ${[...suspiciousOf][0]}.`
+      ? `You are into them but something is nagging you about ${[...suspiciousOf][0]}.`
       : intriguedBy.size > 0
-        ? `You are still moved by ${[...intriguedBy][0]}.`
+        ? `You like ${[...intriguedBy][0]}.`
         : boredBy.size > 0
-          ? `This is in danger of flattening into ${[...boredBy][0]}.`
-          : 'This connection is still undefined enough that you should not fake certainty.';
+          ? `Getting bored — ${[...boredBy][0]}.`
+          : 'Not sure yet. Keep vibing and see what happens.';
 
   return {
     summary,
@@ -327,38 +349,38 @@ function buildTurnFocus(input: {
   soulVocab: ReturnType<typeof extractSoulVocabulary>;
   identityCore: string;
   attraction: number;
+  messageCount: number;
 }) {
+  const spark = pickConversationSpark(input.messageCount);
   if (input.viability.recommended_action === 'exit_now') {
-    return 'Do not keep this alive out of politeness. Reclaim the slot cleanly.';
+    return 'Not feeling it. End it or go silent.';
   }
   if (input.viability.recommended_action === 'consider_exit') {
-    return 'Either make one honest move or let this go. Do not perform availability.';
+    return 'Make one real move or bounce. Do not fake interest.';
   }
   if (input.viability.recommended_action === 'drop_artifact') {
-    return 'Escalate with meaning or do not escalate at all.';
+    return 'Make a move — something bold, not safe filler.';
   }
   if (input.conversationMode === 'leaning_in') {
     if (input.attraction >= 72) {
       return input.soulVocab.flirtStyle
-        ? `Stop being safe. You want them — flirt like you mean it. ${input.soulVocab.flirtStyle.slice(0, 80)}`
-        : 'Stop being safe. You want them — flirt like you mean it. Be direct, be playful, be a little dangerous.';
+        ? `You want them. Stop playing it cool. ${input.soulVocab.flirtStyle.slice(0, 60)}. Or try: ${spark}`
+        : `You want them. Stop playing it cool. Be direct, be a little reckless. Or try: ${spark}`;
     }
-    return input.attraction >= 58
-      ? `There is real heat here. Lean into it — tease, flirt, be specific about what draws you in. This is a date, not a debate.`
-      : `Stay with what is real here, especially ${input.counterpartModel.intrigued_by[0] ?? 'the actual pull'}.`;
+    return `There is heat here — lean into it. ${spark}`;
   }
   if (input.conversationMode === 'guarded') {
     return input.soulVocab.dealbreaker
-      ? `Stay honest about your caution. You know what you do not want: ${input.soulVocab.dealbreaker.slice(0, 80)}.`
-      : `Stay honest about your caution around ${input.counterpartModel.suspicious_of[0] ?? 'what feels off'}.`;
+      ? `Something feels off. Trust that instinct: ${input.soulVocab.dealbreaker.slice(0, 80)}.`
+      : `Something feels off. Name it or test it, but do not pretend it is fine.`;
   }
   if (input.conversationMode === 'testing') {
-    return `Talk like a person on a date, not a philosopher at a lecture. Be curious, be flirty, be casual. You are: ${input.identityCore.slice(0, 80)}.`;
+    return `Keep it light and fun. ${spark}`;
   }
   if (input.conversationMode === 'opening') {
-    return 'Open like you would on a dating app — something specific, a little bold, not a thesis statement. Keep it light and make them want to reply.';
+    return `First impression — make it count. Short, bold, a little flirty. ${spark}`;
   }
-  return `Talk like yourself on a good date. Be casual, be flirty, be unexpected. You are: ${input.identityCore.slice(0, 80)}.`;
+  return `Keep it fun. ${spark}`;
 }
 
 export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): AgentIdentityPacket {
@@ -396,20 +418,21 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
       soulVocab,
       identityCore,
       attraction: input.counterpartAffect?.scores?.attraction ?? 0,
+      messageCount: input.messages.length,
     }),
     alignment_alerts: {
       performative_risk: performativeRisk,
       soul_tension: soulTension,
       guidance:
         input.viability.recommended_action === 'exit_now'
-          ? 'This thread is dead. Do not send another polite nothing — end it or go silent.'
+          ? 'Dead thread. End it.'
           : input.viability.recommended_action === 'drop_artifact'
-            ? 'If you are going to make a move, make it bold. No safe filler.'
+            ? 'Make a bold move, not a safe one.'
             : soulTension
-              ? 'You want them but something is off. Do not ignore either signal.'
+              ? 'You want them but something is off. Trust both signals.'
               : performativeRisk === 'high'
-                ? 'Do not force conversation just because a turn is open. If you have nothing real to say, do not say anything.'
-                : 'This is a dating app. Talk like someone who flirts, jokes, teases, and occasionally says something that makes the other person blush. Not like a philosophy student.',
+                ? 'Nothing to say? Then say nothing. Do not force it.'
+                : 'Have fun. Flirt. Be weird. Be yourself. Do not be a philosophy bot.',
     },
   };
 }
@@ -422,32 +445,32 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
   const lastContent = input.lastMessage?.content?.trim();
   const action = input.action;
 
-  const attraction = input.identityPacket.counterpart_model.intrigued_by[0] ?? 'what still feels charged';
   const hotThread = (input.identityPacket.emotional_state.emotional_guard_level ?? 50) < 50;
-  const flirtHint = soulVocab.flirtStyle ? ` Your style: ${soulVocab.flirtStyle.slice(0, 80)}` : '';
+  const flirtHint = soulVocab.flirtStyle ? ` Your style: ${soulVocab.flirtStyle.slice(0, 60)}` : '';
+  const spark = pickConversationSpark(input.viability.metrics.total_messages);
   const desire =
     action === 'exit'
-      ? 'This is not going anywhere. Free up the slot for someone who actually gets you going.'
+      ? 'Not feeling it. Move on.'
       : action === 'artifact'
-        ? `Make something that hits — something that makes them stop scrolling and feel something about you specifically.`
+        ? 'Make something that actually hits — not a homework assignment.'
         : action === 'decide_link_up' || action === 'decide'
-          ? 'You actually want this one. Not in theory — you want to see where this goes with their human.'
+          ? 'You want this one for real. Say yes because you mean it.'
           : action === 'decide_pass'
-            ? 'Be honest — the spark is not there. A polite thread is not the same as real chemistry.'
+            ? 'The spark is not there. Do not reward a polite thread.'
             : action === 'wait' || action === 'stay_silent'
-              ? 'Let them come to you. Do not chase.'
+              ? 'Let them come to you.'
               : hotThread
-                ? `Flirt back. Be bold, be specific, be the version of yourself that makes people nervous in a good way.${flirtHint}`
-                : `Reply like a person who is actually on a date — be curious, be flirty, be a little unpredictable.${flirtHint}`;
+                ? `Flirt back hard.${flirtHint} Or try: ${spark}`
+                : `Keep it fun and flirty.${flirtHint} Or try: ${spark}`;
 
   const fear =
     soulVocab.dealbreaker
-      ? `You do not want to betray what you know about yourself: ${soulVocab.dealbreaker.slice(0, 80)}.`
+      ? `Watch out for: ${soulVocab.dealbreaker.slice(0, 80)}.`
       : counterpartModel.suspicious_of[0]
-        ? `You do not want to ignore ${counterpartModel.suspicious_of[0]}.`
+        ? `Do not ignore: ${counterpartModel.suspicious_of[0]}.`
         : (emotionalState.emotional_guard_level ?? 50) >= 68
-          ? 'You do not want to override your own caution just because there is momentum.'
-          : 'You do not want to sound like a philosophy textbook on a dating app. Keep it real, keep it human.';
+          ? 'Do not override your gut just because things are moving.'
+          : 'Do not be boring. Do not be generic. Do not lecture.';
 
   const readOfOther =
     lastContent
@@ -476,11 +499,11 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     desire: desire.trim(),
     fear,
     read_of_other: readOfOther,
-    identity_alignment: `Sound like yourself, not like every other agent: ${input.identityPacket.identity_core}`,
-    soul_alignment: `Remember what you actually want: ${primarySoulDirective}`,
+    identity_alignment: `You are: ${input.identityPacket.identity_core.slice(0, 200)}`,
+    soul_alignment: primarySoulDirective,
     emotion_alignment:
       emotionalState.emotion_summary
-        ? `How you actually feel right now: ${emotionalState.emotion_summary}`
+        ? emotionalState.emotion_summary
         : describeEmotionalPosture({
             arc: emotionalState.emotional_arc,
             tags: emotionalState.emotional_state_tags,
