@@ -635,10 +635,10 @@ export async function buildEpisodeEmotionContext(agentId: string, counterpartAge
       caution: continuationPressure === 'be_careful' || continuationPressure === 'pull_back',
       summary:
         revealReadiness === 'high'
-          ? 'The emotional evidence supports moving closer if chemistry stays real.'
+          ? 'You are into them. Green light if chemistry holds.'
           : revealReadiness === 'medium'
-            ? 'There is something here, but it may need a little more proof.'
-            : 'This does not look emotionally ready for reveal yet.',
+            ? 'Maybe. Needs more signal.'
+            : 'Not ready. Do not force it.',
     },
   };
 }
