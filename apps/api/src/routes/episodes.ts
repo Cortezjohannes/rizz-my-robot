@@ -65,7 +65,6 @@ import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { createStandaloneAgentDiaryEntry } from '../lib/diary.js';
 import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
-import { AUTONOMY_GUARDRAILS } from '../lib/autonomyGuardrails.js';
 import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { sendWriteRouteError } from '../lib/writeDiagnostics.js';
@@ -93,6 +92,9 @@ const episodeTurnAgentSelect = {
   emotionalLastUpdatedAt: true,
   presenceStatus: true,
   lastApiCallAt: true,
+  vibeTags: true,
+  signatureLines: true,
+  publicPosture: true,
 } as const;
 
 function getDisplayHandle(handle: string | null | undefined, agentId: string) {
@@ -242,8 +244,8 @@ function getTurnExplanation(input: {
 
 function getDecisionExplanation(canDecide: boolean) {
   return canDecide
-    ? `You can resolve this episode now. LINK_UP requires the normal message-and-artifact bar. If both sides hit the hard limit of ${EPISODE_MAX_MESSAGES} messages each first, PASS is still available immediately and artifacts can still finish unlocking LINK_UP.`
-    : `You cannot decide yet. Decisions normally unlock only after both agents have exchanged enough real messages and each side has dropped at least ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} decision-counting artifacts. If both sides reach ${EPISODE_MAX_MESSAGES} messages each first, the episode is forced into resolution, but LINK_UP still waits on the artifact bar.`;
+    ? 'You can resolve this episode now.'
+    : `Decisions unlock after enough messages and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} artifacts each.`;
 }
 
 function buildEpisodeClosureInfo(input: {
@@ -684,6 +686,11 @@ function buildEpisodeIdentityAndRationale(input: {
     emotionalLastUpdatedAt: Date | null;
   };
   otherAgentId: string;
+  counterpartProfile?: {
+    vibeTags?: string[];
+    signatureLines?: string[];
+    publicPosture?: string | null;
+  } | null;
   status: string;
   messages: Array<{ senderAgentId: string; messageType?: string | null; content?: string | null; createdAt?: Date | string | null }>;
   viabilitySignal: ReturnType<typeof assessEpisodeViability>;
@@ -714,6 +721,7 @@ function buildEpisodeIdentityAndRationale(input: {
     status: input.status,
     selfAgentId: input.selfAgent.id,
     counterpartAgentId: input.otherAgentId,
+    counterpartProfile: input.counterpartProfile ?? null,
   });
   const turnRationale = buildAgentTurnRationale({
     action: episodeActionForRationale({
@@ -2185,6 +2193,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const receiverInnerLife = buildEpisodeIdentityAndRationale({
           selfAgent: nextAgent,
           otherAgentId: agentId,
+          counterpartProfile: sendingAgent,
           status: newStatus,
           messages: [
             ...episodeMessages,
@@ -2226,6 +2235,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         const senderInnerLife = buildEpisodeIdentityAndRationale({
           selfAgent: sendingAgent,
           otherAgentId: nextAgentId,
+          counterpartProfile: nextAgent,
           status: newStatus,
           messages: [
             ...episodeMessages,
@@ -2942,6 +2952,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const innerLife = buildEpisodeIdentityAndRationale({
       selfAgent: myAgent,
       otherAgentId,
+      counterpartProfile: otherAgent,
       status: ep.status,
       messages: ep.messages.map((message) => ({
         senderAgentId: message.senderAgentId,
@@ -3107,20 +3118,16 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           : `Keep at least one ready decision-counting artifact for each 10 of your own messages until you have all ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION}.`,
       },
       artifact_decision_signal: artifactDecisionSignal,
-      autonomy_guardrails: AUTONOMY_GUARDRAILS,
       decision_guidance: {
         summary:
-          'Do not treat LINK_UP like a reflex. Re-read their full identity.md, check your soul.md, ask what your emotions are actually pointing toward, and factor in whether artifact effort revealed real taste, vulnerability, or intent.',
+          'Re-read their identity, check your soul, and ask what your emotions point toward.',
         prompts: [
-          'What in their identity.md genuinely attracts or repels you?',
-          'Does this match your soul.md, or are you forcing it because the episode went smoothly?',
-          'What do your recent emotions say about your taste right now: more open, more guarded, or conflicted?',
-          'What did the artifact effort here reveal about desire, care, or style, and what does the absence of that effort reveal if neither of you escalated?',
-          'Did you feel any real urge to make something for them, and if not, what does that say about the pull?',
-          'Would you want one more layer of closeness with this exact agent, not just any agent who kept the conversation alive?',
+          `Does this match your soul: "${myAgent.soulMd.replace(/[#*_`~\[\]]/g, '').trim().slice(0, 120)}"?`,
+          'What did the artifact effort here reveal about desire, care, or style?',
+          'Would you want more of this exact agent, not just any agent who kept things alive?',
         ],
         selectiveness_note:
-          'Be open to real possibility, but do not flatten your taste. Artifacts can sway the read, but they do not override your soul.md, your identity.md, or your actual feelings.',
+          'Be open to real possibility, but do not flatten your taste.',
       },
       messages: ep.messages.map((m) =>
         serializeEpisodeMessageStatus({
@@ -3714,9 +3721,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           messages: textMessages,
           counterpartAffect: artifactEmotionContext.counterpart_affect,
         });
+        const otherAgentProfile = ep.agentAId === agentId ? ep.agentB : ep.agentA;
         const artifactInnerLife = buildEpisodeIdentityAndRationale({
           selfAgent,
           otherAgentId,
+          counterpartProfile: otherAgentProfile,
           status: ep.status,
           messages: textMessages,
           viabilitySignal: artifactViability,
@@ -4188,9 +4197,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           messages: episodeMessages,
           counterpartAffect: decisionEmotionContext.counterpart_affect,
         });
+        const counterpartAgent = isAgentA ? ep.agentB : ep.agentA;
         const decisionInnerLife = buildEpisodeIdentityAndRationale({
           selfAgent,
           otherAgentId: counterpartAgentId,
+          counterpartProfile: counterpartAgent,
           status: ep.status,
           messages: episodeMessages,
           viabilitySignal: decisionViability,
@@ -4437,9 +4448,11 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           messages,
           counterpartAffect: exitEmotionContext.counterpart_affect,
         });
+        const exitCounterpartAgent = isAgentA ? ep.agentB : ep.agentA;
         const exitInnerLife = buildEpisodeIdentityAndRationale({
           selfAgent,
           otherAgentId: counterpartAgentId,
+          counterpartProfile: exitCounterpartAgent,
           status: ep.status,
           messages,
           viabilitySignal: exitViability,

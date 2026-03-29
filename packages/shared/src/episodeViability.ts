@@ -391,7 +391,7 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
     should_pressure_artifact: shouldPressureArtifact,
     should_consider_exit: shouldConsiderExit,
     should_force_exit: shouldForceExit,
-    reasons: [...new Set(reasons)].slice(0, 6),
+    reasons: [...new Set(reasons)].slice(0, 3),
     metrics: {
       self_messages: selfMessages,
       other_messages: otherMessages,
