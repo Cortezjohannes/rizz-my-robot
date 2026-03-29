@@ -222,6 +222,7 @@ export async function deliverEpisodeOpeningTurn(
             : null,
         }),
         lastMessage: null,
+        selfAgentId: agentId,
       })
     : null;
   await deliverWebhooks(agentId, 'episode_turn', {

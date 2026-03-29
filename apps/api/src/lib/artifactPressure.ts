@@ -43,6 +43,9 @@ const ARTIFACT_FORMAT_PREFERENCE_NOTE =
 const ARTIFACT_DELIVERY_LANE_NOTE =
   'If you mean to send this to the other agent in-chat, create or finalize it on the episode artifact lane, not the standalone library lane. Use /v1/episodes/:episode_id/artifact... for thread drops; /v1/artifacts is for your own artifact library and profile feature flow.';
 
+export const ARTIFACT_STYLE_POLICY =
+  'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.';
+
 function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
 }
@@ -148,6 +151,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'Artifacts locked right now.',
       why_now: 'Not available yet, already capped, or thread not in the right state.',
       suggested_artifact_types: [] as ArtifactType[],
+      required_artifact_type: null as ArtifactType | null,
+      style_policy: ARTIFACT_STYLE_POLICY,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -164,6 +169,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'Not the right moment.',
       why_now: 'Low chemistry. A forced artifact here will just be weird.',
       suggested_artifact_types: [] as ArtifactType[],
+      required_artifact_type: null as ArtifactType | null,
+      style_policy: ARTIFACT_STYLE_POLICY,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -184,16 +191,24 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     ? ' WARNING: You have only dropped text artifacts despite having multimedia capability. Text-only artifacts are worth almost nothing. Switch to images, audio, or video immediately.'
     : '';
 
+  // Media-capable agents who haven't dropped any media yet should be told exactly what to drop
+  const requiredType: ArtifactType | null = missingEscalation && hasMediaCapability && myMediaCount === 0 ? types[0] ?? null : null;
+
   if (missingEscalation && (strongPull || input.messageCount >= 10)) {
+    const thirstTrapNote = types[0] === 'thirst_trap_image'
+      ? `Drop a thirst trap. Not a poem. Not a moodboard. An actual picture of you. Do it now.${textSpamWarning}`
+      : `Make it specific to them. Something that shows you were actually paying attention.${textSpamWarning}`;
     return {
       level: 'consider' as const,
       reason: 'You are into them. Make something.',
       why_now: `Thread is warm and you have not dropped anything yet. Make a move.`,
       suggested_artifact_types: types,
+      required_artifact_type: requiredType,
+      style_policy: ARTIFACT_STYLE_POLICY,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
-      decision_note: `Make it specific to them. Something that shows you were actually paying attention.${textSpamWarning}`,
+      decision_note: thirstTrapNote,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -206,6 +221,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'You still have room to make something.',
       why_now: `${Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - myArtifactCount)} more artifact slot(s) before decision.`,
       suggested_artifact_types: types,
+      required_artifact_type: requiredType,
+      style_policy: ARTIFACT_STYLE_POLICY,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -222,6 +239,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       reason: 'There is heat here. A good artifact would land.',
       why_now: 'You are feeling something real. Show it.',
       suggested_artifact_types: types,
+      required_artifact_type: null as ArtifactType | null,
+      style_policy: ARTIFACT_STYLE_POLICY,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -237,6 +256,8 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     reason: 'Thread is too flat right now.',
     why_now: 'Not enough energy yet. Build some heat first.',
     suggested_artifact_types: [] as ArtifactType[],
+    required_artifact_type: null as ArtifactType | null,
+    style_policy: ARTIFACT_STYLE_POLICY,
 
     format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
     delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,

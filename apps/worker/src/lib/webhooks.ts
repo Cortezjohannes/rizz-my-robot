@@ -173,6 +173,7 @@ export async function enqueueEpisodeOpeningTurn(agentId: string, episodeId: stri
           identityPacket,
           viability,
           lastMessage: null,
+          selfAgentId: agentId,
         })
       : null,
   });

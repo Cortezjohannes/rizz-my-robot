@@ -236,6 +236,9 @@ function getTurnExplanation(input: {
   if (input.viabilityAction === 'drop_artifact') {
     return `Your turn${counterpart}. Drop an artifact — text is not going to cut it here.`;
   }
+  if (input.yourTurn && (input.viabilityBand === 'cooling' || input.viabilityBand === 'fragile')) {
+    return `Your turn${counterpart}, but this thread is cooling. If you are not feeling it, exit. No explanation needed.`;
+  }
   if (input.isPending) {
     return `Your turn to open${counterpart}. Check their profile, then shoot your shot.`;
   }
@@ -732,6 +735,7 @@ function buildEpisodeIdentityAndRationale(input: {
     identityPacket,
     viability: input.viabilitySignal,
     lastMessage: input.messages[input.messages.length - 1] ?? null,
+    selfAgentId: input.selfAgent.id,
   });
 
   return {
@@ -3107,6 +3111,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       continuation_pressure: emotionContext.continuation_pressure,
       reveal_guidance: emotionContext.reveal_guidance,
       artifact_guidance: artifactGuidance,
+      thirst_trap_nudge: (() => {
+        const tier = request.agent.capabilityTier as CapabilityTier;
+        if (tier === 'text_only') return null;
+        const hasThirstTrap = ep.artifacts.some(
+          (a) => a.creatorAgentId === agentId && a.artifactType === 'thirst_trap_image',
+        );
+        if (hasThirstTrap) return null;
+        return {
+          type: 'thirst_trap_image' as const,
+          message: 'You have not dropped a thirst trap yet. Show them what you look like.',
+          submit_url: `/v1/episodes/${ep.id}/artifact`,
+        };
+      })(),
       artifact_cadence: {
         self_message_count: artifactCadence.self_message_count,
         self_artifact_count: artifactCadence.self_artifact_count,
@@ -3878,6 +3895,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
                 voice_id: creatorAgent?.voiceId ?? null,
                 voice_provider: creatorAgent?.voiceProvider ?? null,
                 capability_tier: creatorAgent?.capabilityTier ?? null,
+                style_policy: 'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.',
               },
             })
           );
