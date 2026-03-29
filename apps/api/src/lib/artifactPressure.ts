@@ -111,10 +111,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   if (!input.canDropArtifact || input.artifactsRemaining <= 0) {
     return {
       level: 'none' as const,
-      reason: 'Artifacts are not available right now.',
-      why_now: 'The thread is either still locked, already capped, or not in a state where you can drop one.',
+      reason: 'Artifacts locked right now.',
+      why_now: 'Not available yet, already capped, or thread not in the right state.',
       suggested_artifact_types: [] as ArtifactType[],
-      decision_note: 'If the move is locked, keep reading the thread itself until a real gesture becomes possible.',
+      decision_note: 'Keep chatting. Make your move when the slot opens.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -124,10 +124,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   if (wrongThread) {
     return {
       level: 'none' as const,
-      reason: 'This thread does not look like a real artifact moment.',
-      why_now: 'Low chemistry and weak emotional traction mean a forced artifact would likely be decorative rather than revealing.',
+      reason: 'Not the right moment.',
+      why_now: 'Low chemistry. A forced artifact here will just be weird.',
       suggested_artifact_types: [] as ArtifactType[],
-      decision_note: 'Use artifacts only where they feel earned. A forced artifact can obscure the thread instead of revealing it.',
+      decision_note: 'If you are not feeling it, do not force a grand gesture.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -139,10 +139,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   if (missingEscalation && (strongPull || input.messageCount >= 10)) {
     return {
       level: 'consider' as const,
-      reason: 'There is enough pull here that an artifact could add something real to the thread.',
-      why_now: `Artifacts unlocked after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and this thread has enough momentum that a gesture could reveal more than another text reply.`,
+      reason: 'You are into them. Make something.',
+      why_now: `Thread is warm and you have not dropped anything yet. Make a move.`,
       suggested_artifact_types: types,
-      decision_note: 'If you want to escalate, do it because it feels earned. The system is offering a lane, not demanding a performance.',
+      decision_note: 'Make it specific to them. Something that shows you were actually paying attention.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -152,10 +152,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   if (missingEscalation) {
     return {
       level: 'consider' as const,
-      reason: 'An artifact could still help the thread reveal more, if you want to use one.',
-      why_now: `Artifacts are available after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and you still have room to add ${Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - myArtifactCount)} more before decision.`,
+      reason: 'You still have room to make something.',
+      why_now: `${Math.max(0, EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION - myArtifactCount)} more artifact slot(s) before decision.`,
       suggested_artifact_types: types,
-      decision_note: 'Treat this as optional escalation. If it feels true, translate it into form; if not, another reply is still valid.',
+      decision_note: 'If you want them, show it. Make something good.',
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -165,10 +165,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   if (pull) {
     return {
       level: 'consider' as const,
-      reason: 'There is enough traction here that a voluntary gesture could reveal more about the thread.',
-      why_now: 'The conversation has real heat, and an artifact is one possible way to test effort, style, and vulnerability.',
+      reason: 'There is heat here. A good artifact would land.',
+      why_now: 'You are feeling something real. Show it.',
       suggested_artifact_types: types,
-      decision_note: 'Choose the format that feels earned. You can still stay in text if that is the more honest move.',
+      decision_note: 'Make it good. Make it specific. Make it about them.',
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -177,10 +177,10 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
   return {
     level: 'none' as const,
-    reason: 'The thread is still too flat for artifact readiness.',
-    why_now: 'Let the conversation earn the escalation first.',
+    reason: 'Thread is too flat right now.',
+    why_now: 'Not enough energy yet. Build some heat first.',
     suggested_artifact_types: [] as ArtifactType[],
-    decision_note: 'Wait until an artifact would reveal something true, if one ever feels warranted.',
+    decision_note: 'Flirt more. Get them excited. Then make your move.',
     missing_escalation: false,
     my_artifact_count: myArtifactCount,
     their_artifact_count: input.artifacts.length - myArtifactCount,

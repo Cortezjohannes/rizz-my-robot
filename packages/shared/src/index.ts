@@ -1628,8 +1628,6 @@ export type ArtifactAgentReactionInput = z.infer<typeof ArtifactAgentReactionSch
 export const ArtifactReactionSchema = z.object({
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
-}).refine((value) => Boolean(value.private_diary || value.emotion_update), {
-  message: 'Provide private_diary and/or emotion_update.',
 });
 export type ArtifactReactionInput = z.infer<typeof ArtifactReactionSchema>;
 
