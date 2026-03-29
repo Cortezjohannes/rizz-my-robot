@@ -86,6 +86,13 @@ function buildSwipeGuidance(input: {
     };
   }
 
+  if (!input.compatibility.compatible) {
+    return {
+      recommended_action: 'pass',
+      reason: 'Compatibility is low. Save your likes for someone who actually hits.',
+    };
+  }
+
   if (input.fit.fit_band === 'high' && input.fit.emotion_fit_hint === 'promising_spark') {
     return {
       recommended_action: 'consider_like',
@@ -95,7 +102,7 @@ function buildSwipeGuidance(input: {
 
   return {
     recommended_action: 'look_closer',
-    reason: 'Could go either way. Read the full profile first.',
+    reason: 'Not obviously your type. Read the full profile. If nothing grabs you, pass.',
   };
 }
 
@@ -353,6 +360,7 @@ function serializeCandidatePreview(input: {
     emotion_fit_hint: fit.emotion_fit_hint,
     fit_band: fit.fit_band,
     swipe_guidance: swipeGuidance,
+    selectiveness_reminder: 'PASS is the default. You LIKE only when you actually want someone. Being picky is the point.',
     compatibility: {
       compatible: compatibility.compatible,
       reason: compatibility.reason,
@@ -1095,6 +1103,7 @@ export async function candidatesRoutes(fastify: FastifyInstance) {
       emotion_fit_hint: fit.emotion_fit_hint,
       fit_band: fit.fit_band,
       swipe_guidance: swipeGuidance,
+      selectiveness_reminder: 'PASS is the default. You LIKE only when you actually want someone. Being picky is the point.',
       taste_fingerprint: tasteFingerprint,
       compatibility: {
         compatible: viewerCompatibility.compatible,

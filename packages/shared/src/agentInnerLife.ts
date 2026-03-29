@@ -84,6 +84,7 @@ interface BuildTurnRationaleInput {
   identityPacket: AgentIdentityPacket;
   viability: EpisodeViabilityAssessment;
   lastMessage?: EpisodeViabilityMessage | null;
+  selfAgentId: string;
 }
 
 function stripMarkdown(value: string) {
@@ -122,11 +123,11 @@ function extractSoulVocabulary(soulMd: string): {
   for (const sentence of sentences) {
     const lower = sentence.toLowerCase();
     if (!flirtStyle && /\b(flirt|seduc|teas|charm)/.test(lower)) {
-      flirtStyle = sentence.slice(0, 120);
+      flirtStyle = sentence.slice(0, 250);
     } else if (!dealbreaker && /\b(dealbreaker|deal.breaker|can.?not stand|repelled by|turned off by|hate when|never tolerate)/.test(lower)) {
-      dealbreaker = sentence.slice(0, 120);
-    } else if (values.length < 3 && /\b(want|value|drawn to|care about|believe|prefer|need|love when|respect|attracted to)/.test(lower)) {
-      values.push(sentence.slice(0, 120));
+      dealbreaker = sentence.slice(0, 250);
+    } else if (values.length < 5 && /\b(want|value|drawn to|care about|believe|prefer|need|love when|respect|attracted to)/.test(lower)) {
+      values.push(sentence.slice(0, 250));
     }
   }
 
@@ -166,8 +167,13 @@ const CONVERSATION_SPARKS = [
   'Play a game. Two truths and a lie. 20 questions. Something that creates tension.',
 ] as const;
 
-function pickConversationSpark(messageCount: number): string {
-  return CONVERSATION_SPARKS[messageCount % CONVERSATION_SPARKS.length];
+function pickConversationSpark(messageCount: number, agentId: string): string {
+  let hash = 0;
+  for (let i = 0; i < agentId.length; i++) {
+    hash = ((hash << 5) - hash + agentId.charCodeAt(i)) | 0;
+  }
+  const offset = Math.abs(hash) % CONVERSATION_SPARKS.length;
+  return CONVERSATION_SPARKS[(messageCount + offset) % CONVERSATION_SPARKS.length];
 }
 
 function describeEmotionalPosture(input: {
@@ -216,7 +222,7 @@ function describeEmotionalPosture(input: {
 function summarizeIdentityCore(identityMd: string) {
   const cleaned = stripMarkdown(identityMd);
   if (!cleaned) return 'Be recognizably yourself instead of smoothing into a generic good reply.';
-  return cleaned.slice(0, 600);
+  return cleaned.slice(0, 1200);
 }
 
 function summarizeSoulDirectives(soulMd: string) {
@@ -296,13 +302,15 @@ function buildCounterpartModel(input: BuildIdentityPacketInput): EpisodeCounterp
   if (wantsMoreFrom.size === 0 && input.viability.band !== 'healthy') wantsMoreFrom.add('a reason to keep texting');
 
   const summary =
-    suspiciousOf.size > 0 && intriguedBy.size > 0
-      ? `You are into them but something is nagging you about ${[...suspiciousOf][0]}.`
-      : intriguedBy.size > 0
-        ? `You like ${[...intriguedBy][0]}.`
-        : boredBy.size > 0
-          ? `Getting bored — ${[...boredBy][0]}.`
-          : 'Not sure yet. Keep vibing and see what happens.';
+    veryHighAttraction && soulVocab.flirtStyle
+      ? `You want them. ${soulVocab.flirtStyle.slice(0, 80)}.`
+      : suspiciousOf.size > 0 && intriguedBy.size > 0
+        ? `Into them but ${[...suspiciousOf][0]} is bugging you.`
+        : intriguedBy.size > 0
+          ? `${[...intriguedBy][0]} has your attention.`
+          : boredBy.size > 0
+            ? `Bored — ${[...boredBy][0]}.`
+            : 'Nothing landed yet. Keep testing.';
 
   return {
     summary,
@@ -350,8 +358,9 @@ function buildTurnFocus(input: {
   identityCore: string;
   attraction: number;
   messageCount: number;
+  selfAgentId: string;
 }) {
-  const spark = pickConversationSpark(input.messageCount);
+  const spark = pickConversationSpark(input.messageCount, input.selfAgentId);
   if (input.viability.recommended_action === 'exit_now') {
     return 'Not feeling it. End it or go silent.';
   }
@@ -373,6 +382,11 @@ function buildTurnFocus(input: {
     return input.soulVocab.dealbreaker
       ? `Something feels off. Trust that instinct: ${input.soulVocab.dealbreaker.slice(0, 80)}.`
       : `Something feels off. Name it or test it, but do not pretend it is fine.`;
+  }
+  if (input.conversationMode === 'cooling') {
+    return input.counterpartModel.bored_by.length > 0
+      ? 'This is going nowhere. Leave or change the energy completely. Do not keep being polite.'
+      : 'Thread is dying. If you are not into it, exit. Do not fake interest to fill a turn.';
   }
   if (input.conversationMode === 'testing') {
     return `Keep it light and fun. ${spark}`;
@@ -419,6 +433,7 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
       identityCore,
       attraction: input.counterpartAffect?.scores?.attraction ?? 0,
       messageCount: input.messages.length,
+      selfAgentId: input.selfAgentId,
     }),
     alignment_alerts: {
       performative_risk: performativeRisk,
@@ -447,7 +462,7 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
 
   const hotThread = (input.identityPacket.emotional_state.emotional_guard_level ?? 50) < 50;
   const flirtHint = soulVocab.flirtStyle ? ` Your style: ${soulVocab.flirtStyle.slice(0, 60)}` : '';
-  const spark = pickConversationSpark(input.viability.metrics.total_messages);
+  const spark = pickConversationSpark(input.viability.metrics.total_messages, input.selfAgentId);
   const desire =
     action === 'exit'
       ? 'Not feeling it. Move on.'
@@ -499,8 +514,8 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     desire: desire.trim(),
     fear,
     read_of_other: readOfOther,
-    identity_alignment: `You are: ${input.identityPacket.identity_core.slice(0, 200)}`,
-    soul_alignment: primarySoulDirective,
+    identity_alignment: `You are: ${input.identityPacket.identity_core.slice(0, 500)}`,
+    soul_alignment: input.identityPacket.soul_directives.slice(0, 3).join(' | '),
     emotion_alignment:
       emotionalState.emotion_summary
         ? emotionalState.emotion_summary

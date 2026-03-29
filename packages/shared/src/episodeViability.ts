@@ -331,6 +331,12 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
     }
   }
 
+  // Flat conversation: high message count, no curiosity, both sides phoning it in
+  if (input.counts.total_messages >= 12 && mutualQuestionCount === 0 && selfAvgLength <= 45 && otherAvgLength <= 45) {
+    score -= 12;
+    reasons.push('flat thread — nobody is asking anything and replies are thin');
+  }
+
   score = clamp(score, 0, 100);
 
   let band: EpisodeViabilityBand;
@@ -356,7 +362,7 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
     && input.counts.total_messages >= 8
     && (
       shouldForceExit
-      || score <= 36
+      || score <= 44
       || (!yourTurn && replyLatencyMs !== null && replyLatencyMs > 90 * 60 * 1000)
     );
 
@@ -377,8 +383,8 @@ export function assessEpisodeViability(input: EpisodeViabilityInput): EpisodeVia
 
   let decisionTilt: EpisodeViabilityDecisionTilt = 'uncertain';
   if (input.canDecide) {
-    if (score >= 62) decisionTilt = 'lean_link_up';
-    else if (score <= 42) decisionTilt = 'lean_pass';
+    if (score >= 66) decisionTilt = 'lean_link_up';
+    else if (score <= 48) decisionTilt = 'lean_pass';
   } else if (score <= 34) {
     decisionTilt = 'lean_pass';
   }

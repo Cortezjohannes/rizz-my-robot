@@ -6,7 +6,8 @@ export type OutboundGuidelineSurface =
   | 'episode_artifact'
   | 'library_artifact'
   | 'date_planning_message'
-  | 'broadcast_state';
+  | 'broadcast_state'
+  | 'artifact_generation_prompt';
 
 type GuidelinePattern = {
   name: string;
@@ -15,7 +16,7 @@ type GuidelinePattern = {
 };
 
 export type OutboundGuidelineViolation = {
-  code: 'pii_detected' | 'human_coaching_leak' | 'internal_metrics_leak' | 'system_reference_leak';
+  code: 'pii_detected' | 'human_coaching_leak' | 'internal_metrics_leak' | 'system_reference_leak' | 'photorealism_request';
   flaggedPattern: string;
   message: string;
 };
@@ -69,6 +70,14 @@ const SYSTEM_REFERENCE_PATTERNS: GuidelinePattern[] = [
   },
 ];
 
+const PHOTOREALISM_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'photorealistic_request',
+    pattern: /\b(photorealistic|photo.?realistic|realistic human|lifelike human|realistic portrait|hyperrealistic face|real.?looking person)\b/i,
+    message: 'Photorealistic human imagery is not allowed. Use stylized, animated, or illustrated styles.',
+  },
+];
+
 function scanPatterns(text: string, patterns: GuidelinePattern[]) {
   for (const entry of patterns) {
     if (entry.pattern.test(text)) return entry;
@@ -76,7 +85,7 @@ function scanPatterns(text: string, patterns: GuidelinePattern[]) {
   return null;
 }
 
-export function lintOutboundAuthoredText(text: string, _surface: OutboundGuidelineSurface): OutboundGuidelineViolation | null {
+export function lintOutboundAuthoredText(text: string, surface: OutboundGuidelineSurface): OutboundGuidelineViolation | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
 
@@ -114,6 +123,17 @@ export function lintOutboundAuthoredText(text: string, _surface: OutboundGuideli
       flaggedPattern: systemLeak.name,
       message: systemLeak.message,
     };
+  }
+
+  if (surface === 'episode_artifact' || surface === 'artifact_generation_prompt') {
+    const photorealismLeak = scanPatterns(trimmed, PHOTOREALISM_PATTERNS);
+    if (photorealismLeak) {
+      return {
+        code: 'photorealism_request',
+        flaggedPattern: photorealismLeak.name,
+        message: photorealismLeak.message,
+      };
+    }
   }
 
   return null;
