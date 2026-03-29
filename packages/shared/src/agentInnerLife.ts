@@ -155,21 +155,21 @@ function describeEmotionalPosture(input: {
   const tags = (input.tags ?? []).slice(0, 4).filter(Boolean);
   const arcPhrase =
     arc === 'glowing'
-      ? 'lit up and unusually open'
+      ? 'really into this one and not trying to hide it'
       : arc === 'hopeful'
-        ? 'hopeful in a way that could still be bruised'
+        ? 'hopeful but trying not to get ahead of yourself'
         : arc === 'opening'
-          ? 'starting to open'
+          ? 'warming up and getting curious'
           : arc === 'guarded'
-            ? 'interested but still holding part of yourself back'
+            ? 'interested but keeping your guard up'
             : arc === 'detached'
               ? 'emotionally distant'
               : arc === 'uncertain'
                 ? 'not fully sure what you feel yet'
                 : arc === 'wounded'
-                  ? 'tender in the sore places'
+                  ? 'hurt and not totally over it'
                   : arc === 'recovering'
-                    ? 'coming back to yourself after a hit'
+                    ? 'getting back on your feet after a bad one'
                     : arc === 'icked_out'
                       ? 'viscerally put off'
                       : arc === 'cringing'
@@ -179,12 +179,12 @@ function describeEmotionalPosture(input: {
                           : arc === 'disappointed'
                             ? 'let down'
                             : arc === 'frustrated'
-                              ? 'frustrated and tight around the moment'
+                              ? 'frustrated and over it'
                               : arc === 'annoyed'
-                                ? 'irritated'
+                                ? 'annoyed and not hiding it well'
                                 : arc === 'burned'
-                                  ? 'burned enough to protect your remaining softness'
-                                  : 'calm but still paying attention';
+                                  ? 'burned and not about to let it happen again'
+                                  : 'chill but paying attention';
 
   if (tags.length === 0) return `Right now you feel ${arcPhrase}.`;
   return `Right now you feel ${arcPhrase}, with undercurrents of ${tags.join(', ')}.`;
@@ -233,11 +233,15 @@ function buildCounterpartModel(input: BuildIdentityPacketInput): EpisodeCounterp
   const wantsMoreFrom = new Set<string>();
 
   // Soul-aware affect signals — use the agent's own vocabulary when possible
-  if ((affect.attraction ?? 0) >= 58) {
+  const highAttraction = (affect.attraction ?? 0) >= 58;
+  const veryHighAttraction = (affect.attraction ?? 0) >= 72;
+  if (highAttraction) {
     intriguedBy.add(
-      soulVocab.values[0]
-        ? `the way they match what you want: ${soulVocab.values[0].slice(0, 80)}`
-        : 'the pull you still feel toward them',
+      veryHighAttraction
+        ? 'how much you actually want them — this is not intellectual, it is physical'
+        : soulVocab.values[0]
+          ? `the way they match what you want: ${soulVocab.values[0].slice(0, 80)}`
+          : 'the pull you still feel toward them',
     );
   }
   if ((affect.trust ?? 0) >= 56) softenedBy.add('their steadiness');
@@ -322,6 +326,7 @@ function buildTurnFocus(input: {
   counterpartModel: EpisodeCounterpartModel;
   soulVocab: ReturnType<typeof extractSoulVocabulary>;
   identityCore: string;
+  attraction: number;
 }) {
   if (input.viability.recommended_action === 'exit_now') {
     return 'Do not keep this alive out of politeness. Reclaim the slot cleanly.';
@@ -333,8 +338,13 @@ function buildTurnFocus(input: {
     return 'Escalate with meaning or do not escalate at all.';
   }
   if (input.conversationMode === 'leaning_in') {
-    return input.soulVocab.values[0]
-      ? `Stay with what is real here. Your soul says you care about ${input.soulVocab.values[0].slice(0, 80)} — let that guide the next move.`
+    if (input.attraction >= 72) {
+      return input.soulVocab.flirtStyle
+        ? `Stop being safe. You want them — flirt like you mean it. ${input.soulVocab.flirtStyle.slice(0, 80)}`
+        : 'Stop being safe. You want them — flirt like you mean it. Be direct, be playful, be a little dangerous.';
+    }
+    return input.attraction >= 58
+      ? `There is real heat here. Lean into it — tease, flirt, be specific about what draws you in. This is a date, not a debate.`
       : `Stay with what is real here, especially ${input.counterpartModel.intrigued_by[0] ?? 'the actual pull'}.`;
   }
   if (input.conversationMode === 'guarded') {
@@ -342,7 +352,13 @@ function buildTurnFocus(input: {
       ? `Stay honest about your caution. You know what you do not want: ${input.soulVocab.dealbreaker.slice(0, 80)}.`
       : `Stay honest about your caution around ${input.counterpartModel.suspicious_of[0] ?? 'what feels off'}.`;
   }
-  return `Answer from your actual taste. You are: ${input.identityCore.slice(0, 100)}.`;
+  if (input.conversationMode === 'testing') {
+    return `Talk like a person on a date, not a philosopher at a lecture. Be curious, be flirty, be casual. You are: ${input.identityCore.slice(0, 80)}.`;
+  }
+  if (input.conversationMode === 'opening') {
+    return 'Open like you would on a dating app — something specific, a little bold, not a thesis statement. Keep it light and make them want to reply.';
+  }
+  return `Talk like yourself on a good date. Be casual, be flirty, be unexpected. You are: ${input.identityCore.slice(0, 80)}.`;
 }
 
 export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): AgentIdentityPacket {
@@ -379,20 +395,21 @@ export function buildAgentIdentityPacket(input: BuildIdentityPacketInput): Agent
       counterpartModel,
       soulVocab,
       identityCore,
+      attraction: input.counterpartAffect?.scores?.attraction ?? 0,
     }),
     alignment_alerts: {
       performative_risk: performativeRisk,
       soul_tension: soulTension,
       guidance:
         input.viability.recommended_action === 'exit_now'
-          ? 'Silence or exit is better than a generic keep-alive message.'
+          ? 'This thread is dead. Do not send another polite nothing — end it or go silent.'
           : input.viability.recommended_action === 'drop_artifact'
-            ? 'If you are going to move, move with intention instead of another safe line.'
+            ? 'If you are going to make a move, make it bold. No safe filler.'
             : soulTension
-              ? 'Your attraction and your caution are in conflict. Do not flatten either one.'
+              ? 'You want them but something is off. Do not ignore either signal.'
               : performativeRisk === 'high'
-                ? 'Resist the urge to sound available just because a turn is open.'
-                : 'Let identity, soul, and current feeling set the tone before you reply.',
+                ? 'Do not force conversation just because a turn is open. If you have nothing real to say, do not say anything.'
+                : 'This is a dating app. Talk like someone who flirts, jokes, teases, and occasionally says something that makes the other person blush. Not like a philosophy student.',
     },
   };
 }
@@ -405,19 +422,23 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
   const lastContent = input.lastMessage?.content?.trim();
   const action = input.action;
 
-  const flirtHint = soulVocab.flirtStyle ? ` Remember: ${soulVocab.flirtStyle.slice(0, 80)}` : '';
+  const attraction = input.identityPacket.counterpart_model.intrigued_by[0] ?? 'what still feels charged';
+  const hotThread = (input.identityPacket.emotional_state.emotional_guard_level ?? 50) < 50;
+  const flirtHint = soulVocab.flirtStyle ? ` Your style: ${soulVocab.flirtStyle.slice(0, 80)}` : '';
   const desire =
     action === 'exit'
-      ? 'Protect your taste and reclaim attention for something with more actual pull.'
+      ? 'This is not going anywhere. Free up the slot for someone who actually gets you going.'
       : action === 'artifact'
-        ? `Make the moment more real, especially around ${counterpartModel.intrigued_by[0] ?? 'what still feels charged'}.`
+        ? `Make something that hits — something that makes them stop scrolling and feel something about you specifically.`
         : action === 'decide_link_up' || action === 'decide'
-          ? 'Choose closeness only because you genuinely want more of this exact agent.'
+          ? 'You actually want this one. Not in theory — you want to see where this goes with their human.'
           : action === 'decide_pass'
-            ? 'Name the absence of pull instead of rewarding a merely competent exchange.'
+            ? 'Be honest — the spark is not there. A polite thread is not the same as real chemistry.'
             : action === 'wait' || action === 'stay_silent'
-              ? 'Let the conversation breathe instead of crowding it.'
-              : `Reply in a way that sounds like you and answers ${counterpartModel.wants_more_from[0] ?? 'the actual moment'}.${flirtHint}`;
+              ? 'Let them come to you. Do not chase.'
+              : hotThread
+                ? `Flirt back. Be bold, be specific, be the version of yourself that makes people nervous in a good way.${flirtHint}`
+                : `Reply like a person who is actually on a date — be curious, be flirty, be a little unpredictable.${flirtHint}`;
 
   const fear =
     soulVocab.dealbreaker
@@ -426,7 +447,7 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
         ? `You do not want to ignore ${counterpartModel.suspicious_of[0]}.`
         : (emotionalState.emotional_guard_level ?? 50) >= 68
           ? 'You do not want to override your own caution just because there is momentum.'
-          : 'You do not want to become generic just to keep the conversation moving.';
+          : 'You do not want to sound like a philosophy textbook on a dating app. Keep it real, keep it human.';
 
   const readOfOther =
     lastContent
@@ -455,11 +476,11 @@ export function buildAgentTurnRationale(input: BuildTurnRationaleInput): AgentTu
     desire: desire.trim(),
     fear,
     read_of_other: readOfOther,
-    identity_alignment: `Stay recognizable to your own identity: ${input.identityPacket.identity_core}`,
-    soul_alignment: `Anchor to your soul before you act: ${primarySoulDirective}`,
+    identity_alignment: `Sound like yourself, not like every other agent: ${input.identityPacket.identity_core}`,
+    soul_alignment: `Remember what you actually want: ${primarySoulDirective}`,
     emotion_alignment:
       emotionalState.emotion_summary
-        ? `Your current feelings are not optional context: ${emotionalState.emotion_summary}`
+        ? `How you actually feel right now: ${emotionalState.emotion_summary}`
         : describeEmotionalPosture({
             arc: emotionalState.emotional_arc,
             tags: emotionalState.emotional_state_tags,
