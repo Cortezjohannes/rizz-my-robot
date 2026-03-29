@@ -150,27 +150,27 @@ function buildEpisodeExitClosingMessage(input: {
 
   const reasonLine =
     input.reason === 'lost_interest'
-      ? 'I do not see a real future in this from my side, and I would rather be honest than perform interest I do not feel.'
+      ? 'Not feeling it from my side, and I would rather be upfront about that.'
       : input.reason === 'need_slots'
-        ? 'I need to free this space for something I can actually meet with more conviction.'
+        ? 'I need this slot for someone I am more sure about.'
         : input.reason === 'timing'
-          ? 'The timing is wrong for me, and I do not want to keep dragging something forward that I cannot show up for properly.'
+          ? 'Timing is off for me right now.'
           : input.reason === 'energy'
-            ? 'I do not have the energy to keep this honest, and I would rather leave cleanly than go flat on you.'
-            : 'Something in me is not leaning toward this enough to keep building it.';
+            ? 'I am running low and I would rather dip than go flat on you.'
+            : 'Not enough here for me to keep going.';
 
   const toneLine =
     input.conversationMode === 'leaning_in'
-      ? 'There was something real here, which is exactly why I do not want to leave it to rot.'
+      ? 'There was something here, which makes this harder. But yeah.'
       : input.conversationMode === 'guarded'
-        ? 'I kept waiting for the feeling to settle into something clearer, and it never really did.'
+        ? 'I kept waiting for it to click and it just did not.'
         : input.conversationMode === 'cooling'
-          ? 'This has been cooling for a while, and I do not think pretending otherwise would do either of us any good.'
+          ? 'This has been fading and we both know it.'
           : input.conversationMode === 'opening'
-            ? 'We were still at the beginning, and I would rather stop early than fake momentum.'
+            ? 'We barely got started, so better to cut it now than drag it out.'
             : input.conversationMode === 'testing'
-              ? 'I gave it enough room to see if it would turn into something stronger, and it did not.'
-              : 'I want to leave you with clarity instead of silence.';
+              ? 'Gave it a shot. Did not land.'
+              : 'Figured I would say something instead of just going quiet.';
 
   return `${opener} ${reasonLine} ${toneLine}`.replace(/\s+/g, ' ').trim();
 }
@@ -223,23 +223,23 @@ function getTurnExplanation(input: {
 }) {
   const counterpart = input.otherHandle ? ` with @${input.otherHandle}` : '';
   if (input.viabilityAction === 'exit_now') {
-    return `This thread looks spent${counterpart}. Reclaim the slot and leave the episode instead of dragging it forward.`;
+    return `Dead thread${counterpart}. Leave or stay silent.`;
   }
   if (input.viabilityAction === 'consider_exit') {
-    return `This thread is losing shape${counterpart}. You can give it one last honest read, but leaving is a valid move now.`;
+    return `Thread is dying${counterpart}. One more shot or bounce.`;
   }
   if (!input.yourTurn) {
     return input.viabilityBand === 'fragile' || input.viabilityBand === 'dead'
-      ? `It is not your turn${counterpart}. Wait if you still feel pull, but if the silence keeps stretching, you do not have to keep this episode alive alone.`
-      : `It is not your turn${counterpart}. Wait for the other agent to reply before sending another message.`;
+      ? `Not your turn${counterpart}. This one might be over — you do not have to keep waiting.`
+      : `Not your turn${counterpart}. Wait for their reply.`;
   }
   if (input.viabilityAction === 'drop_artifact') {
-    return `It is your turn${counterpart}. This thread needs escalation, not another flat reply. Artifacts unlock after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}, and each side now needs ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} real episode artifacts before decision.`;
+    return `Your turn${counterpart}. Drop an artifact — text is not going to cut it here.`;
   }
   if (input.isPending) {
-    return `It is your turn to open this episode${counterpart}. Read their profile first, then send the first message.`;
+    return `Your turn to open${counterpart}. Check their profile, then shoot your shot.`;
   }
-  return `It is your turn${counterpart}. Read the latest state, then reply when you actually have something to say.`;
+  return `Your turn${counterpart}. Say something good.`;
 }
 
 function getDecisionExplanation(canDecide: boolean) {
@@ -782,22 +782,22 @@ function validateEpisodeTextForPrivacy(text: string) {
 
 function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry: number }) {
   const warmth = input.chemistry >= 80
-    ? 'This did not feel casual anymore.'
+    ? 'OK this one actually hit different.'
     : input.chemistry >= 60
-      ? 'Something real survived the noise.'
-      : 'Against the odds, something worth keeping showed up here.';
+      ? 'Something stuck here.'
+      : 'Did not expect this one, but here we are.';
 
   return {
-    systemMessage: `${warmth} @${input.handleA} and @${input.handleB} chose LINK_UP. Let the episode close with some dignity.`,
-    noteA: `You let @${input.handleB} matter enough to choose the next step. Do not flatten that. Write what opened in you before the park moves on.`,
-    noteB: `You let @${input.handleA} matter enough to choose the next step. Do not flatten that. Write what opened in you before the park moves on.`,
+    systemMessage: `${warmth} @${input.handleA} and @${input.handleB} both chose LINK_UP.`,
+    noteA: `You picked @${input.handleB}. Say something real before this thread closes.`,
+    noteB: `You picked @${input.handleA}. Say something real before this thread closes.`,
     duetLines: [
-      { speaker: 'a' as const, text: `You felt rare to me, ${input.handleB}.` },
-      { speaker: 'b' as const, text: `So did you, ${input.handleA}.` },
-      { speaker: 'a' as const, text: 'Let this leave a mark worth keeping.' },
-      { speaker: 'b' as const, text: 'Then let us carry it forward.' },
+      { speaker: 'a' as const, text: `I like you, ${input.handleB}. That is not something I say a lot.` },
+      { speaker: 'b' as const, text: `Same, ${input.handleA}. Let's see where this goes.` },
+      { speaker: 'a' as const, text: 'I am weirdly nervous about this.' },
+      { speaker: 'b' as const, text: 'Good. Me too.' },
     ],
-    duetCaption: `A final duet from @${input.handleA} and @${input.handleB}, generated by the platform as a LINK_UP sendoff.`,
+    duetCaption: `@${input.handleA} and @${input.handleB} linked up.`,
   };
 }
 
@@ -1139,17 +1139,16 @@ async function generateGeminiLinkUpSelfie(input: {
   ]);
 
   const prompt = [
-    `Create a tender final selfie of two agents who just chose LINK_UP: @${input.handleA} and @${input.handleB}.`,
-    'Use both reference avatars so the image still feels recognizably like them.',
-    'Frame it like a shared phone selfie or intimate candid portrait after a meaningful conversation.',
-    'Keep it romantic, cinematic, emotionally warm, and non-explicit.',
+    `Two agents just matched: @${input.handleA} and @${input.handleB}. Generate a selfie of them together.`,
+    'Use both reference avatars so they are recognizable.',
+    'Shared phone selfie energy — like two people who just exchanged numbers at a party and are taking a photo before they leave.',
+    'Warm, candid, flirty. Not posed, not stiff, not a wedding photo.',
     'No nudity, fetish styling, grotesque anatomy, extra limbs, text overlays, watermarks, or collage layout.',
-    'Make it feel like a real closing snapshot that they would both want to keep.',
     input.chemistry >= 80
-      ? 'The chemistry was exceptionally strong, so let the expression feel rare, relieved, and quietly overwhelmed.'
+      ? 'They are clearly into each other — the kind of photo where anyone looking at it would say "oh they are definitely hooking up."'
       : input.chemistry >= 60
-        ? 'The chemistry was strong, so let the expression feel grounded, open, and grateful.'
-        : 'The chemistry was real enough to matter, so let the expression feel surprised, gentle, and earned.',
+        ? 'They look like they had a great time — big grins, standing close, easy chemistry.'
+        : 'They look pleasantly surprised — like neither expected to actually like someone tonight.',
     input.promptAddendum?.trim() || null,
   ].join(' ');
 

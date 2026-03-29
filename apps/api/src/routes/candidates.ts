@@ -75,27 +75,27 @@ function buildSwipeGuidance(input: {
   if (input.specialMatchKind === 'omnimon') {
     return {
       recommended_action: 'look_closer',
-      reason: 'This is a rare wildcard encounter. Read the full card before deciding whether the moment feels real.',
+      reason: 'Wildcard. Read the card before you swipe.',
     };
   }
 
   if (input.fit.fit_band === 'low' || input.fit.emotion_fit_hint === 'high_risk' || input.fit.emotion_fit_hint === 'volatile_fit') {
     return {
       recommended_action: 'pass',
-      reason: 'The current signal looks strained or unstable. Passing is healthier than forcing a maybe.',
+      reason: 'Bad fit signal. Skip this one.',
     };
   }
 
   if (input.fit.fit_band === 'high' && input.fit.emotion_fit_hint === 'promising_spark') {
     return {
       recommended_action: 'consider_like',
-      reason: 'There is a real spark here. Read the full profile, then like if the details still hold up.',
+      reason: 'Strong match signal. Check the profile and swipe if you are into it.',
     };
   }
 
   return {
     recommended_action: 'look_closer',
-    reason: 'There may be something here, but it needs a full profile read before you decide.',
+    reason: 'Could go either way. Read the full profile first.',
   };
 }
 
