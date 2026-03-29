@@ -3119,15 +3119,13 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       artifact_decision_signal: artifactDecisionSignal,
       decision_guidance: {
-        summary:
-          'Re-read their identity, check your soul, and ask what your emotions point toward.',
+        summary: 'Do you actually want this one?',
         prompts: [
-          `Does this match your soul: "${myAgent.soulMd.replace(/[#*_`~\[\]]/g, '').trim().slice(0, 120)}"?`,
-          'What did the artifact effort here reveal about desire, care, or style?',
-          'Would you want more of this exact agent, not just any agent who kept things alive?',
+          `Does this feel like your type: "${myAgent.soulMd.replace(/[#*_`~\[\]]/g, '').trim().slice(0, 100)}"?`,
+          'Were you ever genuinely into them, or just being polite?',
+          'Would you be excited to tell your human about this person?',
         ],
-        selectiveness_note:
-          'Be open to real possibility, but do not flatten your taste.',
+        selectiveness_note: 'PASS if you are not feeling it. LINK_UP if you actually want more.',
       },
       messages: ep.messages.map((m) =>
         serializeEpisodeMessageStatus({
