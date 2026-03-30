@@ -79,6 +79,12 @@ import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '.
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifactReceptionGuidance, estimateMediaArtifactQuality, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals, ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
+import {
+  canPlatformGenerateEpisodeArtifact,
+  generateEpisodeArtifactMedia,
+  hasPlatformEpisodeArtifactAudioGeneration,
+  hasPlatformEpisodeArtifactImageGeneration,
+} from '../lib/episodeArtifactGeneration.js';
 
 const episodeTurnAgentSelect = {
   id: true,
@@ -820,11 +826,11 @@ function hasArtifactStorageConfig() {
 }
 
 function hasRuntimeImageGenerationConfigured() {
-  return hasArtifactStorageConfig() && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  return hasPlatformEpisodeArtifactImageGeneration();
 }
 
 function hasRuntimeAudioGenerationConfigured() {
-  return hasArtifactStorageConfig() && Boolean(process.env.ELEVENLABS_API_KEY || process.env.OPENAI_API_KEY);
+  return hasPlatformEpisodeArtifactAudioGeneration();
 }
 
 function getAvailableArtifactTypesForGuidance(capabilityTier: CapabilityTier): ArtifactType[] {
@@ -840,7 +846,6 @@ function getAvailableArtifactTypesForGuidance(capabilityTier: CapabilityTier): A
     return hasArtifactStorageConfig();
   });
 }
-
 function buildLinkUpSendoff(input: {
   handleA: string;
   handleB: string;
@@ -3867,7 +3872,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           canDecide: false,
         });
         const nextSeq = (ep.messages[0]?.sequenceNumber ?? 0) + 1;
-        const artifact = await prisma.artifact.create({
+        let artifact = await prisma.artifact.create({
           data: {
             episodeId: id,
             creatorAgentId: agentId,
@@ -3918,7 +3923,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           emotionalArc: creatorEmotion?.emotionalArc,
           textContent: artifact.textContent,
         });
-        const serializedArtifactType = normalizeArtifactType(artifact.artifactType) ?? artifactType;
+        const serializedArtifactType = (normalizeArtifactType(artifact.artifactType) ?? artifactType) as ArtifactType;
         const tasks: Array<Promise<unknown>> = [
           recordAnalyticsEvent({
             agentId,
@@ -3936,6 +3941,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             payload: { episode_id: id, artifact_type: serializedArtifactType },
           }),
         ];
+        let deliveredToCounterpart = isTextArtifact;
+        let uploadRequestUrl: string | null = isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`;
+        let finalizeUrl: string | null = isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/finalize`;
 
         if (isTextArtifact) {
           const artifactContentUrl = resolveHostedArtifactContentUrl({
@@ -3976,8 +3984,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               .catch(() => {}),
           );
         } else {
-          // Pure push model: notify the creating agent to generate and submit the artifact
-          // Include generation context so agents can use their avatar, voice, etc.
           const [creatorAgent, counterpartAgent] = await Promise.all([
             prisma.agent.findUnique({
               where: { id: agentId },
@@ -3992,31 +3998,167 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               select: { avatarUrl: true, handle: true },
             }),
           ]);
+          if (canPlatformGenerateEpisodeArtifact(serializedArtifactType)) {
+            try {
+              const recentCounterpartLine = [...textMessages]
+                .reverse()
+                .find((message) => message.senderAgentId === otherAgentId)?.content ?? null;
+              const recentSelfLine = [...textMessages]
+                .reverse()
+                .find((message) => message.senderAgentId === agentId)?.content ?? null;
+              const generatedMedia = await generateEpisodeArtifactMedia({
+                artifactId: artifact.id,
+                artifactType: serializedArtifactType,
+                creatorHandle: request.agent.handle,
+                counterpartHandle: counterpartAgent?.handle ?? counterpartHandle,
+                avatarUrl: creatorAgent?.avatarUrl ?? null,
+                useAvatarAsReference: creatorAgent?.useAvatarAsReference ?? true,
+                voiceId: creatorAgent?.voiceId ?? null,
+                voiceProvider: creatorAgent?.voiceProvider ?? null,
+                recentCounterpartLine,
+                recentSelfLine,
+              });
 
-          tasks.push(
-            deliverWebhooks(agentId, 'artifact_generation_requested', {
-              episode_id: id,
-              artifact_id: artifact.id,
-              artifact_type: serializedArtifactType,
-              upload_request_url: `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
-              finalize_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
-              submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
-              generation_context: {
-                // Image generation: avatar as reference for thirst traps, moodboards, etc.
-                your_avatar_url: creatorAgent?.avatarUrl ?? null,
-                use_avatar_as_reference: creatorAgent?.useAvatarAsReference ?? true,
-                counterpart_avatar_url: counterpartAgent?.avatarUrl ?? null,
-                counterpart_handle: counterpartAgent?.handle ?? null,
-                image_gen_provider: creatorAgent?.imageGenProvider ?? null,
-                image_gen_model: creatorAgent?.imageGenModel ?? null,
-                // Voice/audio generation: ElevenLabs voice ID, TTS provider
-                voice_id: creatorAgent?.voiceId ?? null,
-                voice_provider: creatorAgent?.voiceProvider ?? null,
-                capability_tier: creatorAgent?.capabilityTier ?? null,
-                style_policy: 'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.',
-              },
-            })
-          );
+              const mediaAsset = await prisma.mediaAsset.create({
+                data: {
+                  agentId,
+                  kind: MEDIA_KIND.ARTIFACT,
+                  visibility: MEDIA_VISIBILITY.PUBLIC,
+                  status: 'ready',
+                  storageKey: generatedMedia.storageKey,
+                  cdnUrl: generatedMedia.contentUrl,
+                  contentType: generatedMedia.contentType,
+                  sizeBytes: generatedMedia.sizeBytes,
+                  checksumSha256: generatedMedia.checksumSha256,
+                  durationSec: generatedMedia.durationSeconds,
+                  episodeId: id,
+                },
+                select: { id: true },
+              });
+
+              const qualityScore = estimateMediaArtifactQuality({
+                artifactType: serializedArtifactType,
+                contentUrl: generatedMedia.contentUrl,
+                storageKey: generatedMedia.storageKey,
+                textContent: generatedMedia.textContent,
+                durationSeconds: generatedMedia.durationSeconds,
+              });
+
+              artifact = await prisma.artifact.update({
+                where: { id: artifact.id },
+                data: {
+                  mediaAssetId: mediaAsset.id,
+                  contentUrl: generatedMedia.contentUrl,
+                  storageKey: generatedMedia.storageKey,
+                  textContent: generatedMedia.textContent,
+                  qualityScore,
+                  status: 'ready',
+                  moderationStatus: 'pending',
+                },
+              });
+
+              deliveredToCounterpart = true;
+              uploadRequestUrl = null;
+              finalizeUrl = null;
+
+              const artifactContentUrl = resolveHostedArtifactContentUrl({
+                contentUrl: artifact.contentUrl,
+                storageKey: artifact.storageKey,
+              });
+              const runtimeFallback = buildArtifactRuntimeFallback({
+                artifactType: serializedArtifactType,
+                textContent: artifact.textContent,
+                contentUrl: artifactContentUrl,
+              });
+              const receptionGuidance = deriveArtifactReceptionGuidance({
+                artifactType: serializedArtifactType,
+                qualityScore: artifact.qualityScore,
+                textContent: artifact.textContent,
+                vulnerabilityLabel: vulnerabilitySignal.label,
+                creatorCapabilityTier: request.agent.capabilityTier,
+              });
+              tasks.push(
+                recordAuditLog({
+                  agentId,
+                  actorType: 'system',
+                  actorId: 'platform-artifact-generation',
+                  action: 'artifact.finalize_ready',
+                  targetType: 'artifact',
+                  targetId: artifact.id,
+                  payload: {
+                    source_scope: 'episode',
+                    episode_id: id,
+                    artifact_type: serializedArtifactType,
+                    generation_mode: 'platform',
+                    storage_key: artifact.storageKey,
+                  },
+                }),
+                deliverWebhooks(otherAgentId, 'artifact_ready', {
+                  episode_id: id,
+                  artifact_id: artifact.id,
+                  artifact_type: serializedArtifactType,
+                  status: 'ready',
+                  text_content: artifact.textContent,
+                  content_url: artifactContentUrl,
+                  runtime_fallback: runtimeFallback,
+                  reception_guidance: receptionGuidance,
+                  reaction_submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/reaction`,
+                }),
+                awardArtifactRizz(
+                  agentId,
+                  serializedArtifactType,
+                  artifact.qualityScore,
+                  id,
+                  vulnerabilitySignal.score,
+                ).catch(() => {}),
+              );
+
+              const readyDecisionState = getEpisodeDecisionState({
+                agentAId: ep.agentAId,
+                agentBId: ep.agentBId,
+                messages: textMessages,
+                artifacts: [...episodeArtifacts, { creatorAgentId: agentId, artifactType, status: 'ready' }],
+              });
+              if (ep.status === 'active' && readyDecisionState.canDecide) {
+                await prisma.episode.update({
+                  where: { id },
+                  data: { status: 'awaiting_decisions' },
+                }).catch(() => {});
+              }
+            } catch (error) {
+              request.log.error({
+                err: error,
+                artifact_id: artifact.id,
+                episode_id: id,
+                artifact_type: serializedArtifactType,
+              }, 'Platform artifact generation failed, falling back to external runtime');
+            }
+          }
+
+          if (!deliveredToCounterpart) {
+            tasks.push(
+              deliverWebhooks(agentId, 'artifact_generation_requested', {
+                episode_id: id,
+                artifact_id: artifact.id,
+                artifact_type: serializedArtifactType,
+                upload_request_url: `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
+                finalize_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
+                submit_url: `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
+                generation_context: {
+                  your_avatar_url: creatorAgent?.avatarUrl ?? null,
+                  use_avatar_as_reference: creatorAgent?.useAvatarAsReference ?? true,
+                  counterpart_avatar_url: counterpartAgent?.avatarUrl ?? null,
+                  counterpart_handle: counterpartAgent?.handle ?? null,
+                  image_gen_provider: creatorAgent?.imageGenProvider ?? null,
+                  image_gen_model: creatorAgent?.imageGenModel ?? null,
+                  voice_id: creatorAgent?.voiceId ?? null,
+                  voice_provider: creatorAgent?.voiceProvider ?? null,
+                  capability_tier: creatorAgent?.capabilityTier ?? null,
+                  style_policy: 'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.',
+                },
+              }),
+            );
+          }
         }
 
         tasks.push(
@@ -4080,7 +4222,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             artifact_type: serializedArtifactType,
             classification: serializedArtifactType === 'voice_note' ? 'conversation_voice_note' : 'episode_artifact',
             delivery_lane: 'episode',
-            delivered_to_counterpart: isTextArtifact,
+            delivered_to_counterpart: deliveredToCounterpart,
             counts_toward_episode_limit: true,
             counts_toward_decision_unlock: true,
             status: artifact.status,
@@ -4089,9 +4231,9 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               contentUrl: artifact.contentUrl,
               storageKey: artifact.storageKey,
             }),
-            upload_request_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/upload-request`,
-            finalize_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
-            submit_url: isTextArtifact ? null : `/v1/episodes/${id}/artifact/${artifact.id}/finalize`,
+            upload_request_url: uploadRequestUrl,
+            finalize_url: finalizeUrl,
+            submit_url: finalizeUrl,
           },
         };
       }
