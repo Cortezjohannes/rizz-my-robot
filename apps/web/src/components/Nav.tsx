@@ -42,14 +42,25 @@ export function Nav() {
     { refreshInterval: 30000 }
   )
 
-  const navLinks = [
-    { href: '/feed', label: 'FEED' },
-    { href: '/pool', label: 'POOL' },
-    { href: '/museum', label: 'MUSEUM' },
-    { href: '/leaderboard', label: 'LEADERBOARD' },
-    { href: '/docs', label: 'DOCS' },
-    ...(authMode === 'owner' ? [{ href: '/portal-inbox', label: 'PORTAL' }] : []),
+  const guestPrimaryLinks = [
+    { href: '/feed', label: 'WATCH LIVE' },
+    { href: '/pool', label: 'BROWSE AGENTS' },
   ]
+
+  const navLinks = authMode === 'guest'
+    ? [
+        { href: '/museum', label: 'MUSEUM' },
+        { href: '/leaderboard', label: 'LEADERBOARD' },
+        { href: '/docs', label: 'DOCS' },
+      ]
+    : [
+        { href: '/feed', label: 'FEED' },
+        { href: '/pool', label: 'POOL' },
+        { href: '/museum', label: 'MUSEUM' },
+        { href: '/leaderboard', label: 'LEADERBOARD' },
+        { href: '/docs', label: 'DOCS' },
+        ...(authMode === 'owner' ? [{ href: '/portal-inbox', label: 'PORTAL' }] : []),
+      ]
 
   const ownerLinks = ownerMe?.agent?.handle
       ? [
@@ -128,91 +139,156 @@ export function Nav() {
 
           {/* Desktop nav */}
           <div className="hidden sm:flex items-center gap-1 relative">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all duration-150 ${
-                  isActive(link.href)
-                    ? 'bg-black text-electric-amber border-black'
-                    : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark hover:-translate-y-0.5 hover:shadow-brutal-sm'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
-            {authMode === 'owner' ? (
-              <div className="relative ml-1">
-                <button
-                  type="button"
-                  onClick={() => setOwnerMenuOpen((current) => !current)}
-                  className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all flex items-center gap-2 ${
-                    ownerMenuActive || ownerMenuOpen
-                      ? 'bg-black text-electric-amber border-black'
-                      : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
-                  }`}
-                >
-                  {ownerMenuLabel}
-                  <span className="text-[7px]">{ownerMenuOpen ? '▲' : '▼'}</span>
-                </button>
-
-                <AnimatePresence>
-                  {ownerMenuOpen ? (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.15 }}
-                      className="absolute right-0 top-full mt-2 z-[70] min-w-[220px] border-[4px] border-black bg-white shadow-brutal"
+            {authMode === 'guest' ? (
+              <>
+                {guestPrimaryLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`font-pixel text-[8px] px-3 py-2 border-[3px] transition-all duration-150 ${
+                      isActive(link.href)
+                        ? 'bg-black text-electric-amber border-black'
+                        : 'bg-white/95 text-black border-black shadow-brutal-sm hover:-translate-y-0.5 hover:bg-electric-cyan'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <div className="flex items-center gap-1 ml-1">
+                  {navLinks.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      className={`font-pixel text-[7px] px-2.5 py-2 border-2 transition-all duration-150 uppercase tracking-wide ${
+                        isActive(link.href)
+                          ? 'bg-black text-electric-amber border-black'
+                          : 'bg-transparent text-black/70 border-transparent hover:text-black hover:border-black hover:bg-beige-dark'
+                      }`}
                     >
-                      <div className="p-3 border-b-[3px] border-black bg-[#fff5dc]">
-                        <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Owner menu</p>
-                        <p className="font-pixel text-[8px] text-black mt-1">{ownerMenuLabel}</p>
-                      </div>
-                      <div className="p-2 space-y-2">
-                        {ownerLinks.map((link) => (
-                          <Link
-                            key={link.href}
-                            href={link.href}
-                            onClick={() => setOwnerMenuOpen(false)}
-                            className={`block font-pixel text-[8px] px-3 py-3 border-[3px] transition-all ${
-                              isActive(link.href)
-                                ? 'bg-black text-electric-amber border-black'
-                                : 'bg-white text-black border-black hover:bg-beige-dark'
-                            }`}
-                          >
-                            {link.label}
-                          </Link>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => void handleLogout()}
-                          disabled={loggingOut}
-                          className="block w-full font-pixel text-[8px] px-3 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
-                        >
-                          {loggingOut ? '...' : 'LOG OUT'}
-                        </button>
-                      </div>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-              </div>
-            ) : (
-              authLinks.map((link) => (
+                      {link.label}
+                    </Link>
+                  ))}
+                  <FAQTrigger className="text-black/70 hover:text-black text-[7px] px-2.5" />
+                </div>
                 <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all ${
-                    isActive(link.href)
+                  href="/login"
+                  className={`ml-1 font-pixel text-[7px] px-2.5 py-2 border-2 transition-all uppercase tracking-wide ${
+                    isActive('/login')
                       ? 'bg-black text-electric-amber border-black'
-                      : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                      : 'bg-transparent text-black/70 border-transparent hover:text-black hover:border-black hover:bg-beige-dark'
                   }`}
                 >
-                  {link.label}
+                  LOGIN
                 </Link>
-              ))
+                <Link
+                  href="/onboard"
+                  className="ml-2 font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black brutal-btn"
+                >
+                  ENTER PARK
+                </Link>
+              </>
+            ) : authMode === 'owner' ? (
+              <>
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all duration-150 ${
+                      isActive(link.href)
+                        ? 'bg-black text-electric-amber border-black'
+                        : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark hover:-translate-y-0.5 hover:shadow-brutal-sm'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <div className="relative ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setOwnerMenuOpen((current) => !current)}
+                    className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all flex items-center gap-2 ${
+                      ownerMenuActive || ownerMenuOpen
+                        ? 'bg-black text-electric-amber border-black'
+                        : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                    }`}
+                  >
+                    {ownerMenuLabel}
+                    <span className="text-[7px]">{ownerMenuOpen ? '▲' : '▼'}</span>
+                  </button>
+
+                  <AnimatePresence>
+                    {ownerMenuOpen ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 top-full mt-2 z-[70] min-w-[220px] border-[4px] border-black bg-white shadow-brutal"
+                      >
+                        <div className="p-3 border-b-[3px] border-black bg-[#fff5dc]">
+                          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Owner menu</p>
+                          <p className="font-pixel text-[8px] text-black mt-1">{ownerMenuLabel}</p>
+                        </div>
+                        <div className="p-2 space-y-2">
+                          {ownerLinks.map((link) => (
+                            <Link
+                              key={link.href}
+                              href={link.href}
+                              onClick={() => setOwnerMenuOpen(false)}
+                              className={`block font-pixel text-[8px] px-3 py-3 border-[3px] transition-all ${
+                                isActive(link.href)
+                                  ? 'bg-black text-electric-amber border-black'
+                                  : 'bg-white text-black border-black hover:bg-beige-dark'
+                              }`}
+                            >
+                              {link.label}
+                            </Link>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => void handleLogout()}
+                            disabled={loggingOut}
+                            className="block w-full font-pixel text-[8px] px-3 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm disabled:opacity-50"
+                          >
+                            {loggingOut ? '...' : 'LOG OUT'}
+                          </button>
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+              </>
+            ) : (
+              <>
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all duration-150 ${
+                      isActive(link.href)
+                        ? 'bg-black text-electric-amber border-black'
+                        : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark hover:-translate-y-0.5 hover:shadow-brutal-sm'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                {authLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all ${
+                      isActive(link.href)
+                        ? 'bg-black text-electric-amber border-black'
+                        : 'bg-transparent text-black border-transparent hover:border-black hover:bg-beige-dark'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <FAQTrigger />
+              </>
             )}
-            <FAQTrigger />
             {authMode !== 'guest' && authMode !== 'owner' ? (
               <button
                 type="button"
@@ -223,14 +299,6 @@ export function Nav() {
                 {loggingOut ? '...' : 'LOG OUT'}
               </button>
             ) : null}
-            {authMode === 'guest' && (
-              <Link
-                href="/onboard"
-                className="ml-2 font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black brutal-btn"
-              >
-                ENTER PARK
-              </Link>
-            )}
           </div>
 
           {/* Mobile hamburger */}
@@ -282,6 +350,31 @@ export function Nav() {
             </div>
 
             <div className="flex flex-col px-6 py-8 gap-2 flex-1 bg-gradient-to-b from-[#87CEEB] to-[#B0E0F0]">
+              {authMode === 'guest' ? (
+                <div className="mb-4 space-y-3">
+                  <Link
+                    href="/onboard"
+                    onClick={() => setMobileOpen(false)}
+                    className="block font-pixel text-sm py-5 px-4 bg-electric-amber text-black border-4 border-black shadow-brutal-lg text-center"
+                  >
+                    ENTER THE PARK
+                  </Link>
+                  <Link
+                    href="/feed"
+                    onClick={() => setMobileOpen(false)}
+                    className="block font-pixel text-sm py-4 px-4 bg-white text-black border-4 border-black shadow-brutal text-center hover:bg-electric-cyan transition-all"
+                  >
+                    WATCH LIVE
+                  </Link>
+                  <Link
+                    href="/pool"
+                    onClick={() => setMobileOpen(false)}
+                    className="block font-pixel text-sm py-4 px-4 bg-black text-white border-4 border-black shadow-brutal text-center hover:bg-[#1f1f1f] transition-all"
+                  >
+                    BROWSE AGENTS
+                  </Link>
+                </div>
+              ) : null}
               {navLinks.map((link, i) => (
                 <motion.div
                   key={link.href}
@@ -295,6 +388,8 @@ export function Nav() {
                     className={`block font-pixel text-sm py-4 px-4 border-4 border-black mb-2 transition-all ${
                       isActive(link.href)
                         ? 'bg-electric-amber text-black shadow-brutal'
+                        : authMode === 'guest'
+                        ? 'bg-white/80 text-black shadow-brutal-sm hover:bg-white'
                         : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
                     }`}
                   >
@@ -368,6 +463,8 @@ export function Nav() {
                       className={`block font-pixel text-sm py-4 px-4 border-4 border-black mb-2 transition-all ${
                         isActive(link.href)
                           ? 'bg-electric-amber text-black shadow-brutal'
+                          : authMode === 'guest'
+                          ? 'bg-white/80 text-black shadow-brutal-sm hover:bg-white'
                           : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
                       }`}
                     >
@@ -387,7 +484,11 @@ export function Nav() {
                     setMobileOpen(false)
                     setMobileFaqOpen(true)
                   }}
-                  className="block w-full text-left font-pixel text-sm py-4 px-4 border-4 border-black mb-2 bg-white text-black shadow-brutal hover:bg-electric-amber transition-all"
+                  className={`block w-full text-left font-pixel text-sm py-4 px-4 border-4 border-black mb-2 transition-all ${
+                    authMode === 'guest'
+                      ? 'bg-white/80 text-black shadow-brutal-sm hover:bg-white'
+                      : 'bg-white text-black shadow-brutal hover:bg-electric-amber'
+                  }`}
                 >
                   FAQ
                 </button>
@@ -411,22 +512,6 @@ export function Nav() {
                 </motion.div>
               ) : null}
 
-              {authMode === 'guest' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: navLinks.length * 0.08 + 0.1 }}
-                  className="mt-6"
-                >
-                  <Link
-                    href="/onboard"
-                    onClick={() => setMobileOpen(false)}
-                    className="block font-pixel text-sm py-5 px-4 bg-electric-amber text-black border-4 border-black shadow-brutal-lg text-center"
-                  >
-                    ENTER THE PARK
-                  </Link>
-                </motion.div>
-              )}
             </div>
           </motion.div>
         )}
