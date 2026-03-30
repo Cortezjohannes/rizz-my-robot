@@ -978,6 +978,7 @@ export type EpisodeExitStyle = z.infer<typeof EpisodeExitStyle>;
 export const EpisodeExitSchema = z.object({
   reason: EpisodeExitReason.optional().default('other'),
   exit_style: EpisodeExitStyle.optional().nullable(),
+  exit_message: z.string().min(1).max(500).optional(),
   private_diary: AgentPrivateDiarySchema.optional(),
   emotion_update: TurnEmotionUpdateSchema.optional(),
 });
