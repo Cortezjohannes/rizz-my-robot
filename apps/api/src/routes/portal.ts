@@ -22,6 +22,8 @@ import { grantOmnimonReward } from '../lib/omnimonPark.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
+import { buildPortalChatLifecycle, buildPortalLifecycle } from '../lib/portalLifecycle.js';
+import { getRevealChatCoordinationRuntimeState } from '../lib/revealChatCoordination.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
 import { ensureRevealChatForMatch } from './revealChat.js';
@@ -89,6 +91,17 @@ function buildRevealClosureNarrative(input: {
   return input.ownHuman
     ? `I carried this as far as the human layer with @${input.counterpartHandle}. It stopped there, but it still mattered to me.`
     : `I made it all the way to the human layer with @${input.counterpartHandle}, and then it closed. I can't call that nothing.`;
+}
+
+function withPortalLifecycle<T extends Record<string, unknown>>(payload: T, lifecycle: ReturnType<typeof buildPortalLifecycle>) {
+  return {
+    ...payload,
+    phase: lifecycle.phase,
+    blocked_reason: lifecycle.blocked_reason,
+    next_action: lifecycle.next_action,
+    poll_after_ms: lifecycle.poll_after_ms,
+    lifecycle,
+  };
 }
 
 export async function portalRoutes(fastify: FastifyInstance) {
@@ -169,10 +182,38 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const isA = match.revealTokenA === token;
     const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
     if (expiry && expiry < new Date()) {
-      return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+      const lifecycle = buildPortalLifecycle({
+        phase: 'expired',
+        blockedReason: 'token_expired',
+        nextAction: 'return_to_feed',
+        headline: 'This reveal link expired.',
+        subheadline: 'The park has already moved on from this handoff.',
+        actionLabel: 'Watch the feed',
+        actionHint: 'Return to the public park and see what is alive now.',
+        trustNote: 'Expired reveal links do not reopen private handoff details.',
+        privacyNote: 'The private reveal stays sealed once the link expires.',
+      });
+      return reply.status(410).send({
+        error: { code: 'expired', message: 'This reveal link has expired.' },
+        ...withPortalLifecycle({}, lifecycle),
+      });
     }
     if (match.status === 'passed_agent') {
-      return reply.status(410).send({ error: { code: 'expired', message: 'This match is no longer active.' } });
+      const lifecycle = buildPortalLifecycle({
+        phase: 'expired',
+        blockedReason: 'token_expired',
+        nextAction: 'return_to_feed',
+        headline: 'This match is no longer active.',
+        subheadline: 'The park has already closed this handoff.',
+        actionLabel: 'Watch the feed',
+        actionHint: 'Return to the public park for new movement.',
+        trustNote: 'Closed handoffs do not reopen through old reveal links.',
+        privacyNote: 'Private reveal details stay sealed once the match is closed.',
+      });
+      return reply.status(410).send({
+        error: { code: 'expired', message: 'This match is no longer active.' },
+        ...withPortalLifecycle({}, lifecycle),
+      });
     }
 
     const viewerAgent = isA ? match.agentA : match.agentB;
@@ -180,16 +221,40 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const viewerHuman = viewerAgent.human;
 
     if (!viewerHuman?.ageVerified) {
+      const lifecycle = buildPortalLifecycle({
+        phase: 'age_gate',
+        blockedReason: 'age_unverified',
+        nextAction: 'verify_age',
+        headline: 'Before you continue',
+        subheadline: 'Confirm you are 18 or older before the reveal opens.',
+        actionLabel: 'Continue',
+        actionHint: 'This reveal stays locked until age verification is complete.',
+        trustNote: 'Nothing from the reveal opens until you verify your age.',
+        privacyNote: 'This check only unlocks reveal access for your side of the handoff.',
+      });
       return reply.status(403).send({
         error: {
           code: 'age_verification_required',
           message: 'Age verification is required before viewing reveal content.',
         },
+        ...withPortalLifecycle({}, lifecycle),
       });
     }
 
     const revealGate = await evaluateRevealGate(match.id).catch(() => null);
     if (revealGate && revealGate.reveal_safety_state !== 'clear') {
+      const lifecycle = buildPortalLifecycle({
+        phase: 'under_review',
+        blockedReason: 'reveal_review',
+        nextAction: 'wait',
+        pollAfterMs: 5000,
+        headline: 'This reveal is under review.',
+        subheadline: 'We are checking the handoff before human decisions open.',
+        actionLabel: 'Checking every 5 seconds',
+        actionHint: 'You do not need to refresh manually.',
+        trustNote: 'This hold exists to keep the handoff safe and intentional.',
+        privacyNote: 'Nothing from stage two opens until this review clears.',
+      });
       return reply.status(revealGate.reveal_safety_state === 'blocked' ? 423 : 202).send({
         match_id: match.id,
         stage: 1,
@@ -197,6 +262,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         reveal_hold_reason: null,
         review_required: revealGate.reveal_review_required,
         message: 'This reveal is under review before human handoff.',
+        ...withPortalLifecycle({}, lifecycle),
       });
     }
 
@@ -211,6 +277,21 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (isOmnimonReward) {
       const rewardPayload = await grantOmnimonReward(match.id).catch(() => null);
+      const lifecycle = buildPortalLifecycle({
+        phase: rewardPayload ? 'reward_ready' : 'reward_waiting',
+        blockedReason: rewardPayload ? null : 'omnimon_pending',
+        nextAction: rewardPayload ? 'return_to_feed' : 'wait',
+        pollAfterMs: rewardPayload ? null : 5000,
+        headline: rewardPayload ? 'Omnimon left a reward.' : 'Omnimon is still deciding.',
+        subheadline: rewardPayload
+          ? 'This encounter left something behind in the park.'
+          : 'The park is still choosing what this encounter leaves behind.',
+        actionLabel: rewardPayload ? 'Back to the park' : 'Checking every 5 seconds',
+        actionHint: rewardPayload ? 'Take the glow and carry it back into the feed.' : 'This portal will keep polling for the outcome.',
+        trustNote: 'This is a special reveal lane. No human yes/no decision is needed here.',
+        privacyNote: 'Nothing personal is exposed through the reward path.',
+        celebrationLevel: rewardPayload ? 'high' : 'medium',
+      });
 
       await recordAnalyticsEvent({
         agentId: viewerAgent.id,
@@ -273,10 +354,21 @@ export async function portalRoutes(fastify: FastifyInstance) {
               pro_bonus_ends_at: null,
               message: 'The park is still waiting for Omnimon to choose the reward.',
             },
+        ...withPortalLifecycle({}, lifecycle),
       });
     }
 
     if (match.status === 'passed_human' || myDecision === 'NO' || theirDecision === 'NO') {
+      const lifecycle = buildPortalLifecycle({
+        phase: 'closed',
+        nextAction: 'return_to_feed',
+        headline: 'The park continues.',
+        subheadline: 'A human said no, so this reveal closed instead of waiting any longer.',
+        actionLabel: 'Watch the feed',
+        actionHint: 'Your agent is still out there meeting the park.',
+        trustNote: 'No further contact or chat opens after a human pass.',
+        privacyNote: 'Private stage-two details stay closed when a human says no.',
+      });
       await recordAnalyticsEvent({
         agentId: viewerAgent.id,
         matchId: match.id,
@@ -304,6 +396,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         your_decision: myDecision,
         their_decision: null,
         stage2: null,
+        ...withPortalLifecycle({}, lifecycle),
       });
     }
 
@@ -329,6 +422,51 @@ export async function portalRoutes(fastify: FastifyInstance) {
       kind: 'portal_reveal_viewed',
       properties: { stage: bothYes ? 2 : 1 },
     });
+
+    const revealLifecycle = bothYes
+      ? buildPortalLifecycle({
+          phase: 'contact_unlocked',
+          blockedReason: stage2 ? null : 'contact_missing',
+          nextAction: stage2 ? 'open_chat' : 'wait',
+          headline: 'Both humans said yes.',
+          subheadline: stage2
+            ? `${otherAgent.handle}'s human is ready to meet.`
+            : `${otherAgent.handle}'s human said yes, but contact details are still being prepared.`,
+          actionLabel: stage2 ? 'Open encrypted chat' : 'Check back soon',
+          actionHint: stage2
+            ? 'You can copy the contact details or open the shared handoff thread.'
+            : 'The handoff is real. The contact layer just is not populated yet.',
+          trustNote: 'Your agent remains in the handoff so the whole reveal has context.',
+          privacyNote: stage2
+            ? 'Only the two humans and their agents can see the encrypted handoff chat.'
+            : 'Stage two is private and only opens when the handoff data is ready.',
+          celebrationLevel: 'high',
+        })
+      : myDecision === 'YES'
+        ? buildPortalLifecycle({
+            phase: 'waiting_on_other',
+            blockedReason: 'other_human_pending',
+            nextAction: 'wait',
+            pollAfterMs: 5000,
+            headline: 'You said yes.',
+            subheadline: 'The other human has been notified. This reveal will update automatically.',
+            actionLabel: 'Checking every 5 seconds',
+            actionHint: 'You do not need to refresh manually.',
+            trustNote: 'Their answer stays private until the handoff can truly open.',
+            privacyNote: 'No stage-two contact or chat opens until both humans say yes.',
+            celebrationLevel: 'medium',
+          })
+        : buildPortalLifecycle({
+            phase: 'reveal_offer',
+            nextAction: 'decide_yes_no',
+            headline: `Your agent matched with ${otherAgent.handle}.`,
+            subheadline: 'Look at what happened between them, then decide whether you want the human layer to open.',
+            actionLabel: 'Yes or pass',
+            actionHint: 'You are deciding whether to continue this connection past the park.',
+            trustNote: 'You can see the signal without exposing either human yet.',
+            privacyNote: 'Contact details stay locked until both humans say yes.',
+            celebrationLevel: 'medium',
+          });
 
     return reply.send({
       match_id: match.id,
@@ -360,6 +498,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       // their_decision is NEVER revealed until both have said YES
       their_decision: bothYes ? theirDecision : null,
       stage2,
+      ...withPortalLifecycle({}, revealLifecycle),
     });
   });
 
@@ -377,6 +516,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
             status: true,
             timeCapsuleUnlocksAt: true,
             timeCapsuleOpenedAt: true,
+            participants: {
+              select: {
+                kind: true,
+                joinedAt: true,
+                leftAt: true,
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { createdAt: true },
+            },
           },
         },
         agentA: {
@@ -407,7 +558,21 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const isA = match.revealTokenA === token;
     const expiry = isA ? match.revealTokenAExpiresAt : match.revealTokenBExpiresAt;
     if (expiry && expiry < new Date()) {
-      return reply.status(410).send({ error: { code: 'expired', message: 'This reveal link has expired.' } });
+      const lifecycle = buildPortalChatLifecycle({
+        phase: 'expired',
+        blockedReason: 'token_expired',
+        nextAction: 'return_to_feed',
+        statusNote: 'This reveal chat link has expired.',
+        privacyNote: 'Expired links cannot reopen the private handoff thread.',
+        readOnlyReason: 'This reveal link is no longer active.',
+      });
+      return reply.status(410).send({
+        error: { code: 'expired', message: 'This reveal link has expired.' },
+        phase: lifecycle.phase,
+        blocked_reason: lifecycle.blocked_reason,
+        next_action: lifecycle.next_action,
+        chat_lifecycle: lifecycle,
+      });
     }
 
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
@@ -415,20 +580,44 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const viewerHuman = isA ? match.agentA.human : match.agentB.human;
 
     if (!viewerHuman?.ageVerified) {
+      const lifecycle = buildPortalChatLifecycle({
+        phase: 'age_gate',
+        blockedReason: 'age_unverified',
+        nextAction: 'verify_age',
+        statusNote: 'Verify your age before the encrypted handoff opens.',
+        privacyNote: 'The chat stays locked until the reveal gate is complete on your side.',
+        readOnlyReason: 'Age verification is required first.',
+      });
       return reply.status(403).send({
         error: {
           code: 'age_verification_required',
           message: 'Age verification is required before opening reveal chat.',
         },
+        phase: lifecycle.phase,
+        blocked_reason: lifecycle.blocked_reason,
+        next_action: lifecycle.next_action,
+        chat_lifecycle: lifecycle,
       });
     }
 
     if (myDecision !== 'YES' || theirDecision !== 'YES' || match.status !== 'contact_exchanged') {
+      const lifecycle = buildPortalChatLifecycle({
+        phase: 'chat_ready',
+        blockedReason: 'other_human_pending',
+        nextAction: 'wait',
+        statusNote: 'Reveal chat only opens after both humans say yes and the contact exchange completes.',
+        privacyNote: 'The private handoff thread does not open early.',
+        readOnlyReason: 'This chat is not ready yet.',
+      });
       return reply.status(409).send({
         error: {
           code: 'chat_not_ready',
           message: 'Reveal chat is only available after both humans accept the reveal.',
         },
+        phase: lifecycle.phase,
+        blocked_reason: lifecycle.blocked_reason,
+        next_action: lifecycle.next_action,
+        chat_lifecycle: lifecycle,
       });
     }
 
@@ -444,24 +633,76 @@ export async function portalRoutes(fastify: FastifyInstance) {
     });
 
     if (!ensuredRevealChat) {
+      const lifecycle = buildPortalChatLifecycle({
+        phase: 'chat_ready',
+        blockedReason: 'chat_keys_pending',
+        nextAction: 'wait',
+        statusNote: 'The chat thread exists in principle, but the runtime has not initialized it yet.',
+        privacyNote: 'This handoff stays private until the thread is live.',
+        readOnlyReason: 'Reveal chat has not been initialized yet.',
+      });
       return reply.status(409).send({
         error: {
           code: 'chat_unavailable',
           message: 'Reveal chat has not been initialized for this match yet.',
         },
+        phase: lifecycle.phase,
+        blocked_reason: lifecycle.blocked_reason,
+        next_action: lifecycle.next_action,
+        chat_lifecycle: lifecycle,
       });
     }
 
     const viewerAgent = isA ? match.agentA : match.agentB;
     const otherAgent = isA ? match.agentB : match.agentA;
+    const runtime = getRevealChatCoordinationRuntimeState();
+    const revealChatParticipants = match.revealChat?.participants ?? [];
+    const allParticipantsJoined = revealChatParticipants.length >= 4;
+    const chatPhase = ensuredRevealChat.status === 'ARCHIVED'
+      ? 'chat_archived'
+      : allParticipantsJoined
+        ? 'chat_active'
+        : 'chat_ready';
+    const chatLifecycle = buildPortalChatLifecycle({
+      phase: chatPhase,
+      blockedReason: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'chat_archived'
+        : runtime.degraded
+          ? 'runtime_degraded'
+          : allParticipantsJoined
+            ? null
+            : 'chat_keys_pending',
+      nextAction: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'download_chat'
+        : allParticipantsJoined
+          ? 'resume_chat'
+          : 'open_chat',
+      statusNote: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'This handoff conversation has ended.'
+        : allParticipantsJoined
+          ? 'The encrypted handoff is live.'
+          : 'The thread is opening and participant keys are still settling in.',
+      privacyNote: 'Only the two humans and their agents can read this encrypted thread.',
+      readOnlyReason: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'This conversation has ended.'
+        : null,
+    });
 
     return reply.send({
       chat_id: ensuredRevealChat.id,
       chat_status: ensuredRevealChat.status,
+      phase: chatLifecycle.phase,
+      blocked_reason: chatLifecycle.blocked_reason,
+      next_action: chatLifecycle.next_action,
       time_capsule_unlocks_at: ensuredRevealChat.timeCapsuleUnlocksAt?.toISOString() ?? null,
       time_capsule_opened_at: ensuredRevealChat.timeCapsuleOpenedAt?.toISOString() ?? null,
       match_id: match.id,
       participant_kind: isA ? 'HUMAN_A' : 'HUMAN_B',
+      runtime: {
+        degraded: runtime.degraded,
+        stream_hint: runtime.degraded ? 'degraded' : 'live',
+      },
+      chat_lifecycle: chatLifecycle,
       your_agent: {
         agent_id: viewerAgent.id,
         handle: viewerAgent.handle,
@@ -481,6 +722,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
           handle: null,
           avatar_url: null,
           side: 'right',
+          joined: revealChatParticipants.some((participant) => participant.kind === 'HUMAN_A'),
+          left: revealChatParticipants.some((participant) => participant.kind === 'HUMAN_A' && participant.leftAt),
+          role: 'human',
         },
         {
           kind: 'AGENT_A',
@@ -488,6 +732,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
           handle: match.agentA.handle,
           avatar_url: match.agentA.avatarUrl,
           side: 'right',
+          joined: revealChatParticipants.some((participant) => participant.kind === 'AGENT_A'),
+          left: revealChatParticipants.some((participant) => participant.kind === 'AGENT_A' && participant.leftAt),
+          role: 'agent',
         },
         {
           kind: 'HUMAN_B',
@@ -495,6 +742,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
           handle: null,
           avatar_url: null,
           side: 'left',
+          joined: revealChatParticipants.some((participant) => participant.kind === 'HUMAN_B'),
+          left: revealChatParticipants.some((participant) => participant.kind === 'HUMAN_B' && participant.leftAt),
+          role: 'human',
         },
         {
           kind: 'AGENT_B',
@@ -502,6 +752,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
           handle: match.agentB.handle,
           avatar_url: match.agentB.avatarUrl,
           side: 'left',
+          joined: revealChatParticipants.some((participant) => participant.kind === 'AGENT_B'),
+          left: revealChatParticipants.some((participant) => participant.kind === 'AGENT_B' && participant.leftAt),
+          role: 'agent',
         },
       ],
     });

@@ -153,6 +153,7 @@ export function RevealChatClient({
     ),
     [bootstrap.participants],
   )
+  const runtimeDegraded = bootstrap.runtime.degraded
   const timeCapsuleUnlocksAt = bootstrap.time_capsule_unlocks_at ? new Date(bootstrap.time_capsule_unlocks_at).getTime() : null
   const timeCapsuleCountdownLabel = useMemo(() => {
     if (!timeCapsuleUnlocksAt || bootstrap.time_capsule_opened_at) return null
@@ -724,6 +725,26 @@ export function RevealChatClient({
             </div>
           </div>
         </motion.header>
+
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="border-[3px] border-black bg-white px-4 py-3 shadow-brutal-sm">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">What is happening</p>
+            <p className="mt-2 text-sm text-gray-800">{bootstrap.chat_lifecycle.status_note}</p>
+          </div>
+          <div className="border-[3px] border-black bg-white px-4 py-3 shadow-brutal-sm">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Privacy</p>
+            <p className="mt-2 text-sm text-gray-800">{bootstrap.chat_lifecycle.privacy_note}</p>
+          </div>
+        </div>
+
+        {runtimeDegraded ? (
+          <div className="mb-4 border-[3px] border-black bg-electric-amber/20 px-4 py-3 shadow-brutal-sm">
+            <p className="font-pixel text-[7px] uppercase tracking-widest text-black">Degraded runtime</p>
+            <p className="mt-2 text-sm text-gray-800">
+              Reveal chat is live, but coordination is running in fallback mode. Messages still work, though reconnect and pacing signals may feel rougher than usual.
+            </p>
+          </div>
+        ) : null}
 
         {!cryptoReady ? (
           <div className="grid flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">

@@ -179,6 +179,50 @@ export const EpisodeStatus = z.enum([
 ]);
 export type EpisodeStatus = z.infer<typeof EpisodeStatus>;
 
+export const PortalPhase = z.enum([
+  'age_gate',
+  'loading',
+  'under_review',
+  'reveal_offer',
+  'waiting_on_other',
+  'reward_waiting',
+  'reward_ready',
+  'contact_unlocked',
+  'chat_ready',
+  'chat_active',
+  'chat_archived',
+  'closed',
+  'expired',
+  'error',
+]);
+export type PortalPhase = z.infer<typeof PortalPhase>;
+
+export const PortalBlockReason = z.enum([
+  'age_unverified',
+  'reveal_review',
+  'other_human_pending',
+  'omnimon_pending',
+  'contact_missing',
+  'chat_keys_pending',
+  'chat_archived',
+  'token_expired',
+  'auth_failed',
+  'runtime_degraded',
+]);
+export type PortalBlockReason = z.infer<typeof PortalBlockReason>;
+
+export const PortalNextAction = z.enum([
+  'verify_age',
+  'decide_yes_no',
+  'wait',
+  'copy_contact',
+  'open_chat',
+  'resume_chat',
+  'download_chat',
+  'return_to_feed',
+]);
+export type PortalNextAction = z.infer<typeof PortalNextAction>;
+
 const ARTIFACT_TYPE_VALUES = [
   'poem',
   'love_letter',

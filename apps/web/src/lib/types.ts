@@ -47,6 +47,44 @@ export type EpisodeStatus =
   | 'passed'
   | 'expired'
 
+export type PortalPhase =
+  | 'age_gate'
+  | 'loading'
+  | 'under_review'
+  | 'reveal_offer'
+  | 'waiting_on_other'
+  | 'reward_waiting'
+  | 'reward_ready'
+  | 'contact_unlocked'
+  | 'chat_ready'
+  | 'chat_active'
+  | 'chat_archived'
+  | 'closed'
+  | 'expired'
+  | 'error'
+
+export type PortalBlockReason =
+  | 'age_unverified'
+  | 'reveal_review'
+  | 'other_human_pending'
+  | 'omnimon_pending'
+  | 'contact_missing'
+  | 'chat_keys_pending'
+  | 'chat_archived'
+  | 'token_expired'
+  | 'auth_failed'
+  | 'runtime_degraded'
+
+export type PortalNextAction =
+  | 'verify_age'
+  | 'decide_yes_no'
+  | 'wait'
+  | 'copy_contact'
+  | 'open_chat'
+  | 'resume_chat'
+  | 'download_chat'
+  | 'return_to_feed'
+
 export type ArtifactType =
   | 'poem'
   | 'love_letter'
@@ -1528,6 +1566,28 @@ export interface ArtifactLibraryResponse {
 export interface PortalRevealResponse {
   match_id: string
   stage: 1 | 2
+  phase?: PortalPhase
+  blocked_reason?: PortalBlockReason | null
+  next_action?: PortalNextAction | null
+  poll_after_ms?: number | null
+  lifecycle: {
+    phase: PortalPhase
+    blocked_reason: PortalBlockReason | null
+    next_action: PortalNextAction | null
+    poll_after_ms: number | null
+    headline: string
+    subheadline: string
+    action_label: string | null
+    action_hint: string | null
+    trust_note: string | null
+    privacy_note: string | null
+    celebration_level: 'low' | 'medium' | 'high'
+    progress: Array<{
+      key: 'verify' | 'reveal' | 'decision' | 'contact' | 'chat'
+      label: string
+      status: 'done' | 'current' | 'locked'
+    }>
+  }
   reveal_kind?: 'human' | 'omnimon_reward'
   reveal_closed?: boolean
   closure_reason?: string | null
@@ -1587,10 +1647,25 @@ export type RevealChatSenderKind = 'HUMAN_A' | 'AGENT_A' | 'HUMAN_B' | 'AGENT_B'
 export interface PortalRevealChatBootstrapResponse {
   chat_id: string
   chat_status: RevealChatStatus
+  phase?: PortalPhase
+  blocked_reason?: PortalBlockReason | null
+  next_action?: PortalNextAction | null
   time_capsule_unlocks_at: string | null
   time_capsule_opened_at: string | null
   match_id: string
   participant_kind: Extract<RevealChatSenderKind, 'HUMAN_A' | 'HUMAN_B'>
+  runtime: {
+    degraded: boolean
+    stream_hint: 'live' | 'degraded'
+  }
+  chat_lifecycle: {
+    phase: PortalPhase
+    blocked_reason: PortalBlockReason | null
+    next_action: PortalNextAction | null
+    read_only_reason: string | null
+    privacy_note: string
+    status_note: string
+  }
   your_agent: {
     agent_id: string
     handle: string
@@ -1609,6 +1684,9 @@ export interface PortalRevealChatBootstrapResponse {
     handle: string | null
     avatar_url: string | null
     side: 'left' | 'right'
+    joined: boolean
+    left: boolean
+    role: 'human' | 'agent'
   }>
 }
 
@@ -1631,6 +1709,15 @@ export interface RevealChatMessageRecord {
   authTag: string
   clientMessageId: string | null
   createdAt: string
+  attachment?: {
+    media_asset_id: string
+    kind: string
+    content_type: string | null
+    duration_sec: number | null
+    access_url: string | null
+    direct_url?: string | null
+  } | null
+  media_asset_id?: string | null
 }
 
 export interface RevealChatHistoryResponse {
