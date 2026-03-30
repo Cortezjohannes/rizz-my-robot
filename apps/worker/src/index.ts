@@ -1,4 +1,5 @@
 import { Worker, Queue } from 'bullmq';
+import { Prisma, prisma } from '@rmr/db';
 import { getRedisConnection } from './lib/redis.js';
 import { processVerifyTwitter, type VerifyTwitterJobData } from './jobs/verifyTwitter.js';
 import { processGenerateAvatar, type GenerateAvatarJobData } from './jobs/generateAvatar.js';
@@ -53,18 +54,143 @@ const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
 const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
 const workerStartRetryBaseMs = parseInt(process.env.WORKER_START_RETRY_MS ?? '5000', 10);
 const workerStartRetryMaxMs = parseInt(process.env.WORKER_START_RETRY_MAX_MS ?? '60000', 10);
+const workerHeartbeatTtlSeconds = parseInt(process.env.WORKER_HEARTBEAT_TTL_SECONDS ?? '45', 10);
+const workerHeartbeatIntervalMs = parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? '15000', 10);
+const workerBootAt = new Date();
+
+const REQUIRED_SCHEMA_TABLES = [
+  'agent_affinity_signals',
+  'agent_feed_impressions',
+  'agent_profile_views',
+  'episode_drafts',
+  'featured_feed_pins',
+  'media_assets',
+  'owner_x_integration_links',
+  'park_mood_snapshots',
+  'reveal_chat_messages',
+  'reveal_chat_participants',
+  'reveal_chats',
+] as const;
+
+const REQUIRED_SCHEMA_COLUMNS = [
+  ['agents', 'avatar_media_asset_id'],
+  ['agents', 'current_intentions'],
+  ['agents', 'last_api_call_at'],
+  ['agents', 'presence_status'],
+  ['agents', 'verification_challenges_issued'],
+  ['agent_profile_decks', 'voice_catchphrase_media_asset_id'],
+  ['episode_messages', 'is_autonomous'],
+  ['episodes', 'exit_initiated_by_agent_id'],
+  ['episodes', 'exit_style'],
+  ['swipes', 'is_autonomous'],
+] as const;
+
+const WORKER_HEARTBEAT_QUEUE = 'worker-runtime-heartbeat';
+const WORKER_HEARTBEAT_KEY = 'worker:runtime-heartbeat';
 
 type WorkerRuntime = {
   workers: Worker[];
   queues: Queue[];
+  heartbeatQueue: Queue | null;
 };
 
 let shuttingDown = false;
 let currentRuntime: WorkerRuntime | null = null;
 let processGuardsInstalled = false;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getMissingSchemaObjects() {
+  const requiredTables = Prisma.join(REQUIRED_SCHEMA_TABLES.map((tableName) => Prisma.sql`(${tableName})`));
+  const requiredColumns = Prisma.join(REQUIRED_SCHEMA_COLUMNS.map(([tableName, columnName]) => Prisma.sql`(${tableName}, ${columnName})`));
+
+  const [presentTables, presentColumns] = await Promise.all([
+    prisma.$queryRaw<Array<{ table_name: string }>>(Prisma.sql`
+      WITH required(table_name) AS (
+        VALUES ${requiredTables}
+      )
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (SELECT table_name FROM required)
+    `),
+    prisma.$queryRaw<Array<{ table_name: string; column_name: string }>>(Prisma.sql`
+      WITH required(table_name, column_name) AS (
+        VALUES ${requiredColumns}
+      )
+      SELECT c.table_name, c.column_name
+      FROM information_schema.columns c
+      INNER JOIN required r
+        ON c.table_name = r.table_name
+       AND c.column_name = r.column_name
+      WHERE c.table_schema = 'public'
+    `),
+  ]);
+
+  const presentTableSet = new Set(presentTables.map((row) => row.table_name));
+  const presentColumnSet = new Set(presentColumns.map((row) => `${row.table_name}.${row.column_name}`));
+
+  return [
+    ...REQUIRED_SCHEMA_TABLES
+      .filter((tableName) => !presentTableSet.has(tableName))
+      .map((tableName) => `table:${tableName}`),
+    ...REQUIRED_SCHEMA_COLUMNS
+      .filter(([tableName, columnName]) => !presentColumnSet.has(`${tableName}.${columnName}`))
+      .map(([tableName, columnName]) => `column:${tableName}.${columnName}`),
+  ];
+}
+
+async function assertWorkerSchemaReady() {
+  await prisma.$queryRaw`SELECT 1`;
+  const missingObjects = await getMissingSchemaObjects();
+  if (missingObjects.length > 0) {
+    throw new Error(`worker_schema_out_of_date:${missingObjects.join(',')}`);
+  }
+}
+
+function getHeartbeatPayload(state: 'starting' | 'running' | 'stopping') {
+  return JSON.stringify({
+    state,
+    pid: process.pid,
+    started_at: workerBootAt.toISOString(),
+    updated_at: new Date().toISOString(),
+    node_version: process.version,
+    concurrency,
+    seed_brain_enabled: seedBrainEnabled,
+  });
+}
+
+async function getHeartbeatRedisClient(queue: Queue | null = currentRuntime?.heartbeatQueue ?? null) {
+  if (!queue) return null;
+  await queue.waitUntilReady();
+  const client = await (queue as unknown as { client?: Promise<{ set: (...args: unknown[]) => Promise<unknown>; del: (...args: unknown[]) => Promise<unknown> }> }).client;
+  return client ?? null;
+}
+
+async function publishWorkerHeartbeat(state: 'starting' | 'running' | 'stopping', queue: Queue | null = currentRuntime?.heartbeatQueue ?? null) {
+  const client = await getHeartbeatRedisClient(queue);
+  if (!client) return;
+  await client.set(WORKER_HEARTBEAT_KEY, getHeartbeatPayload(state), 'EX', workerHeartbeatTtlSeconds);
+}
+
+function startHeartbeatLoop() {
+  if (heartbeatInterval) return;
+  heartbeatInterval = setInterval(() => {
+    void publishWorkerHeartbeat('running').catch((error) => {
+      captureRuntimeError(error, { surface: 'worker', phase: 'heartbeat' });
+      console.error('[worker] Failed to publish heartbeat:', error);
+    });
+  }, workerHeartbeatIntervalMs);
+  heartbeatInterval.unref?.();
+}
+
+function stopHeartbeatLoop() {
+  if (!heartbeatInterval) return;
+  clearInterval(heartbeatInterval);
+  heartbeatInterval = null;
 }
 
 function installProcessGuards() {
@@ -86,17 +212,38 @@ async function closeRuntime(runtime: WorkerRuntime | null) {
   if (!runtime) return;
 
   await Promise.allSettled([
+    (async () => {
+      try {
+        const client = await getHeartbeatRedisClient(runtime.heartbeatQueue);
+        if (client) {
+          await client.del(WORKER_HEARTBEAT_KEY);
+        }
+      } catch {
+        // Best-effort cleanup only.
+      }
+    })(),
+    runtime.heartbeatQueue?.close().catch(() => undefined) ?? Promise.resolve(),
     ...runtime.queues.map(async (queue) => queue.close()),
     ...runtime.workers.map(async (worker) => worker.close()),
   ]);
 }
 
 async function startWorkers(): Promise<WorkerRuntime> {
+  await assertWorkerSchemaReady();
+
   const connection = getRedisConnection();
   const createdWorkers: Worker[] = [];
   const queues: Queue[] = [];
+  const heartbeatQueue = new Queue(WORKER_HEARTBEAT_QUEUE, { connection });
 
   try {
+    currentRuntime = {
+      workers: createdWorkers,
+      queues,
+      heartbeatQueue,
+    };
+    await publishWorkerHeartbeat('starting', heartbeatQueue);
+
     const verifyTwitterWorker = new Worker<VerifyTwitterJobData>(
       QUEUE_NAMES.verifyTwitter,
       async (job) => {
@@ -406,7 +553,11 @@ async function startWorkers(): Promise<WorkerRuntime> {
     await Promise.all([
       ...activeWorkers.map(async (worker) => worker.waitUntilReady()),
       ...queues.map(async (queue) => queue.waitUntilReady()),
+      heartbeatQueue.waitUntilReady(),
     ]);
+
+    await publishWorkerHeartbeat('running', heartbeatQueue);
+    startHeartbeatLoop();
 
     console.info(
       `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, artifact-recovery, recompute-social-status, recompute-emotional-continuity`
@@ -416,11 +567,13 @@ async function startWorkers(): Promise<WorkerRuntime> {
     return {
       workers: activeWorkers,
       queues,
+      heartbeatQueue,
     };
   } catch (error) {
     await closeRuntime({
       workers: createdWorkers,
       queues,
+      heartbeatQueue,
     });
     throw error;
   }
@@ -430,6 +583,8 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.info(`[worker] Shutting down on ${signal}...`);
+  stopHeartbeatLoop();
+  await publishWorkerHeartbeat('stopping', currentRuntime?.heartbeatQueue ?? null).catch(() => {});
   await closeRuntime(currentRuntime);
   await flushErrorAggregation();
   process.exit(0);

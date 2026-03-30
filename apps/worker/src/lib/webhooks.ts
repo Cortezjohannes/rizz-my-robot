@@ -3,6 +3,12 @@ import { prisma } from '@rmr/db';
 import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
 import { getRedisConnection } from './redis.js';
 
+const WEBHOOK_EVENT_ALIASES: Record<string, string> = {
+  match: 'match_created',
+  episode_turn: 'your_turn',
+  artifact_ready: 'artifact_received',
+};
+
 let deliverQueue: Queue | null = null;
 
 function getDeliverQueue(): Queue {
@@ -12,25 +18,40 @@ function getDeliverQueue(): Queue {
   return deliverQueue;
 }
 
+function resolveWebhookEventVariants(event: string): string[] {
+  const canonicalEvent = WEBHOOK_EVENT_ALIASES[event] ?? event;
+  const aliases = Object.entries(WEBHOOK_EVENT_ALIASES)
+    .filter(([, value]) => value === event)
+    .map(([alias]) => alias);
+
+  return [...new Set([event, canonicalEvent, ...aliases])];
+}
+
 export async function enqueueWebhookDeliveries(
   agentId: string,
   event: string,
   data: Record<string, unknown>
 ): Promise<void> {
+  const eventVariants = resolveWebhookEventVariants(event);
   const hooks = await prisma.webhook.findMany({
-    where: { agentId, isActive: true, events: { has: event } },
+    where: {
+      agentId,
+      isActive: true,
+      OR: eventVariants.map((variant) => ({ events: { has: variant } })),
+    },
     select: { id: true },
   });
   if (hooks.length === 0) return;
 
   const queue = getDeliverQueue();
+  const publicEvent = WEBHOOK_EVENT_ALIASES[event] ?? event;
   await Promise.all(
     hooks.map(async (hook) => {
       const delivery = await prisma.webhookDelivery.create({
         data: {
           webhookId: hook.id,
           agentId,
-          event,
+          event: publicEvent,
           status: 'queued',
           requestBody: JSON.parse(JSON.stringify(data)),
         },
@@ -42,10 +63,10 @@ export async function enqueueWebhookDeliveries(
           webhookId: hook.id,
           deliveryId: delivery.id,
           agentId,
-          event,
+          event: publicEvent,
           data,
         },
-        { jobId: `${hook.id}:${event}:${delivery.id}` }
+        { jobId: `${hook.id}:${publicEvent}:${delivery.id}` }
       );
     })
   );

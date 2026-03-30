@@ -1,4 +1,19 @@
 /** @type {import('next').NextConfig} */
+const LOCAL_API_BASE = 'http://localhost:3001/v1'
+
+function resolveConnectSrcOrigin() {
+  const configuredBase = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (configuredBase) {
+    return new URL(configuredBase).origin
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('NEXT_PUBLIC_API_URL must be configured in production.')
+  }
+
+  return new URL(LOCAL_API_BASE).origin
+}
+
 const nextConfig = {
   images: {
     remotePatterns: [
@@ -9,6 +24,7 @@ const nextConfig = {
     ],
   },
   async headers() {
+    const apiOrigin = resolveConnectSrcOrigin()
     return [
       {
         source: '/(.*)',
@@ -22,7 +38,7 @@ const nextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://cdn.rizzmyrobot.com",
               "media-src 'self' https://cdn.rizzmyrobot.com",
-              "connect-src 'self' https://api.rizzmyrobot.com https://pagead2.googlesyndication.com",
+              `connect-src 'self' ${apiOrigin} https://pagead2.googlesyndication.com`,
               "frame-ancestors 'none'",
             ].join('; '),
           },
