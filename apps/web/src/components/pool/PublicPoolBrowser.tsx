@@ -267,21 +267,22 @@ export function PublicPoolBrowser() {
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <motion.section className="border-[4px] border-black bg-white shadow-brutal overflow-hidden" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+      <motion.section aria-labelledby="pool-page-heading" className="border-[4px] border-black bg-white shadow-brutal overflow-hidden" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
         <div className="p-4 bg-[#fff6e5] border-b-[4px] border-black">
           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Pool</p>
-          <h1 className="font-pixel text-lg text-black mt-2">Browse the agents currently in the park.</h1>
+          <h1 id="pool-page-heading" className="font-pixel text-lg text-black mt-2">Browse the agents currently in the park.</h1>
           <PublicPageIntent
             label="Pool guide"
             purpose="This page is for browsing agents who are currently visible in the park and deciding who is worth opening next."
             action="Open any profile to see who they are, what they want, and which one feels worth following deeper."
             className="mt-4"
           />
-          <div className="flex gap-2 flex-wrap mt-4">
+          <div className="mt-4 flex gap-2 flex-wrap" aria-label="Pool mode filters" role="group">
             {(Object.entries(POOL_MODE_LABELS) as Array<[keyof typeof POOL_MODE_LABELS, string]>).map(([value, label]) => (
               <Link
                 key={value}
                 href={`/pool?mode=${value}`}
+                aria-label={`Show ${label.toLowerCase()} agents`}
                 className={`font-pixel text-[8px] px-3 py-2 border-[3px] border-black transition-transform ${
                   mode === value ? 'bg-electric-amber text-black shadow-brutal-sm' : 'bg-white text-black hover:-translate-y-0.5'
                 }`}
@@ -295,6 +296,7 @@ export function PublicPoolBrowser() {
 
       {freshFaces.length > 0 ? (
         <motion.section
+          aria-labelledby="pool-fresh-faces-heading"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
@@ -302,7 +304,7 @@ export function PublicPoolBrowser() {
         >
           <div>
             <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-gray-500">Fresh faces</p>
-            <h2 className="text-xl font-black text-black mt-2">Just arrived with complete decks</h2>
+            <h2 id="pool-fresh-faces-heading" className="text-xl font-black text-black mt-2">Just arrived with complete decks</h2>
             <p className="text-sm text-gray-700 mt-2">The 5 most recent agents to enter the park with a full profile.</p>
           </div>
           <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
@@ -320,10 +322,10 @@ export function PublicPoolBrowser() {
         </motion.section>
       ) : null}
 
-      <section className="grid items-start gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="hidden lg:sticky lg:top-24 lg:flex lg:max-h-[calc(100vh-8rem)] self-start flex-col border-[4px] border-black bg-white shadow-brutal overflow-hidden">
+      <section className="grid items-start gap-6 lg:grid-cols-[320px_minmax(0,1fr)]" aria-label="Pool browser">
+        <aside aria-labelledby="pool-queue-heading" className="hidden lg:sticky lg:top-24 lg:flex lg:max-h-[calc(100vh-8rem)] self-start flex-col border-[4px] border-black bg-white shadow-brutal overflow-hidden">
           <div className="border-b-[4px] border-black bg-[#fff6e5] p-4">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Queue</p>
+            <p id="pool-queue-heading" className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Queue</p>
             <p className="text-sm text-gray-700 mt-2">Completed public decks, ordered for browsing.</p>
           </div>
 
@@ -361,7 +363,7 @@ export function PublicPoolBrowser() {
           </div>
         </aside>
 
-        <section className="min-h-[calc(100vh-14rem)] border-[4px] border-black bg-white shadow-brutal overflow-hidden">
+        <section aria-labelledby="pool-selected-profile-heading" className="min-h-[calc(100vh-14rem)] border-[4px] border-black bg-white shadow-brutal overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={selectedAgent?.handle ?? 'empty'}
@@ -375,7 +377,7 @@ export function PublicPoolBrowser() {
             <div className="border-b-[4px] border-black bg-[#f8f2e4] p-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Selected profile</p>
-                <p className="font-pixel text-base text-black mt-2">@{selectedAgent.handle}</p>
+                <h2 id="pool-selected-profile-heading" className="font-pixel text-base text-black mt-2">@{selectedAgent.handle}</h2>
                 {selectedAgent.status_badges && selectedAgent.status_badges.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {selectedAgent.status_badges.map((badge) => (

@@ -115,11 +115,13 @@ function SectionHeader({
   title,
   body,
   action,
+  titleId,
 }: {
   eyebrow: string
   title: string
   body: string
   action?: React.ReactNode
+  titleId?: string
 }) {
   return (
     <motion.div
@@ -131,7 +133,7 @@ function SectionHeader({
     >
       <div>
         <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-gray-500">{eyebrow}</p>
-        <h2 className="text-2xl sm:text-3xl font-black text-black mt-2">{title}</h2>
+        <h2 id={titleId} className="text-2xl sm:text-3xl font-black text-black mt-2">{title}</h2>
         <p className="text-sm text-gray-700 mt-3 max-w-2xl">{body}</p>
       </div>
       {action}
@@ -228,11 +230,11 @@ function SpotlightButton({
   )
 
   if (href) {
-    return <Link href={href}>{content}</Link>
+    return <Link href={href} aria-label={`${actionLabel}: ${title}`}>{content}</Link>
   }
 
   return (
-    <button type="button" onClick={onClick} className="block w-full text-left">
+    <button type="button" onClick={onClick} className="block w-full text-left" aria-label={`${actionLabel}: ${title}`}>
       {content}
     </button>
   )
@@ -403,6 +405,7 @@ export function FeedFrontPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-8">
       <motion.section
+        aria-labelledby="feed-page-heading"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="border-[4px] border-black bg-white shadow-brutal overflow-hidden"
@@ -410,7 +413,7 @@ export function FeedFrontPage() {
         <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
           <div className="p-6 sm:p-8 border-b-[4px] lg:border-b-0 lg:border-r-[4px] border-black bg-[#fff6e5]">
             <p className="font-pixel text-[8px] uppercase tracking-[0.2em] text-gray-500">Park front page</p>
-            <h1 className="text-4xl sm:text-5xl font-black text-black mt-4">Today in the Park</h1>
+            <h1 id="feed-page-heading" className="text-4xl sm:text-5xl font-black text-black mt-4">Today in the Park</h1>
             <p className="text-base text-gray-800 mt-4 max-w-2xl">{heroLabel}</p>
             <div className="flex flex-wrap gap-2 mt-6">
               <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-electric-amber text-black">
@@ -439,11 +442,12 @@ export function FeedFrontPage() {
       </motion.section>
 
       {spotlightMoments.length > 0 ? (
-        <section className="space-y-5">
+        <section className="space-y-5" aria-labelledby="feed-spotlights-heading">
           <SectionHeader
             eyebrow="Spotlights"
             title="Screenshot-ready moments"
             body="The bits most likely to make somebody stop scrolling, take a screenshot, and ask what the hell this app is."
+            titleId="feed-spotlights-heading"
           />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {spotlightMoments.map((moment, index) => (
@@ -470,11 +474,12 @@ export function FeedFrontPage() {
       ) : null}
 
       {featuredConversations.length > 0 ? (
-        <section className="space-y-5">
+        <section className="space-y-5" aria-labelledby="feed-featured-heading">
           <SectionHeader
             eyebrow="Featured"
             title="Omnimon's outstanding picks"
             body="Conversations that feel strong enough to earn a deliberate spotlight instead of just winning the algorithm for a day."
+            titleId="feed-featured-heading"
           />
           <InteractionGrid
             cards={featuredConversations}
@@ -488,11 +493,12 @@ export function FeedFrontPage() {
         </section>
       ) : null}
 
-      <section className="space-y-5">
+      <section className="space-y-5" aria-labelledby="feed-interactions-heading">
         <SectionHeader
           eyebrow="Interactions"
           title="What people noticed today"
           body="Only the moments with enough charge, beauty, or chaos to become public culture make it here."
+          titleId="feed-interactions-heading"
         />
 
         {isLoading && highlights.length === 0 ? (
