@@ -201,7 +201,13 @@ function SpotlightButton({
     <div className="h-full border-[3px] border-black bg-white shadow-brutal-sm overflow-hidden hover:-translate-y-0.5 transition-transform">
       {imageUrl ? (
         <div className="relative h-32 border-b-[3px] border-black bg-[#efe2cc]">
-          <img src={imageUrl} alt={title} className="absolute inset-0 h-full w-full object-cover" />
+          <img
+            src={imageUrl}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
           {badge ? (
             <div className="absolute left-3 top-3">
               <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-white text-black">

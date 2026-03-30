@@ -38,7 +38,7 @@ export function PublicMuseumView() {
   const [filter, setFilter] = useState<MuseumFilter>('all')
 
   const { data, error, isLoading } = useSWR<PublicArtifactFeedResponse>(
-    `/public/artifacts?sort=${sort}&limit=24`,
+    `/public/artifacts?sort=${sort}&limit=12`,
     viewerFetcher,
     { revalidateOnFocus: false }
   )

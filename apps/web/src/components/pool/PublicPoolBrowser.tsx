@@ -92,7 +92,7 @@ function PoolQueueCard({
       <div className="flex items-start gap-3">
         <div className="w-14 h-14 border-[3px] border-black bg-[#efe2cc] shrink-0 overflow-hidden">
           {agent.hero_photo_url ? (
-            <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="h-full w-full object-cover" />
+            <img src={agent.hero_photo_url} alt={`@${agent.handle}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
           ) : (
             <div className="h-full w-full flex items-center justify-center font-pixel text-[8px] text-gray-500">
               @{agent.handle.slice(0, 2)}
@@ -160,7 +160,7 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
     >
       <div className="relative aspect-[4/5] bg-[#efe2cc]">
         {agent.hero_photo_url ? (
-          <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
+          <img src={agent.hero_photo_url} alt={`@${agent.handle}`} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center font-pixel text-[8px] text-gray-500">
             @{agent.handle.slice(0, 2)}
@@ -226,14 +226,14 @@ export function PublicPoolBrowser() {
   const selectedHandle = searchParams.get('handle')
 
   const { data: freshData } = useSWR<PublicPoolResponse>(
-    '/public/pool?limit=5&sort=new_in_pool',
+    '/public/pool?limit=4&sort=new_in_pool',
     fetcher,
     { revalidateOnFocus: false }
   )
   const freshFaces = freshData?.agents ?? []
 
   const { data, isLoading, error } = useSWR<PublicPoolResponse>(
-    `/public/pool?limit=18&mode=${mode}&seed=${encodeURIComponent(poolSeed)}`,
+    `/public/pool?limit=12&mode=${mode}&seed=${encodeURIComponent(poolSeed)}`,
     fetcher,
     { revalidateOnFocus: false }
   )
@@ -264,6 +264,13 @@ export function PublicPoolBrowser() {
   const nextAgent = selectedIndex >= 0 ? agents[selectedIndex + 1] ?? null : null
 
   const hrefForAgent = (handle: string) => `/pool?mode=${encodeURIComponent(mode)}&handle=${encodeURIComponent(handle)}`
+
+  useEffect(() => {
+    if (!selectedAgent) return
+    void router.prefetch(`/agents/${encodeURIComponent(selectedAgent.handle)}?from=pool&mode=${encodeURIComponent(mode)}`)
+    if (previousAgent) void router.prefetch(hrefForAgent(previousAgent.handle))
+    if (nextAgent) void router.prefetch(hrefForAgent(nextAgent.handle))
+  }, [mode, nextAgent, previousAgent, router, selectedAgent])
 
   return (
     <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
@@ -412,7 +419,7 @@ export function PublicPoolBrowser() {
                   <div className="border-[3px] border-black overflow-hidden bg-[#efe2cc]">
                     {selectedAgent.hero_photo_url ? (
                       <div className="relative aspect-[4/5]">
-                        <img src={selectedAgent.hero_photo_url} alt={`@${selectedAgent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
+                        <img src={selectedAgent.hero_photo_url} alt={`@${selectedAgent.handle}`} loading="eager" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-5">
                           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">{selectedAgent.profile_mode}</p>
                           <p className="text-2xl font-black text-white mt-2">@{selectedAgent.handle}</p>
@@ -434,7 +441,7 @@ export function PublicPoolBrowser() {
                       {fullDeck.photos.slice(1, 4).map((photo) => (
                         <div key={photo.photo_id ?? `${photo.role}-${photo.order_index}`} className="border-[3px] border-black bg-[#efe2cc] overflow-hidden">
                           <div className="relative aspect-[4/5]">
-                            <img src={photo.image_url} alt={photo.caption ?? photo.role} className="absolute inset-0 h-full w-full object-cover" />
+                            <img src={photo.image_url} alt={photo.caption ?? photo.role} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
                           </div>
                         </div>
                       ))}

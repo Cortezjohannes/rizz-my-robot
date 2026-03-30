@@ -159,6 +159,8 @@ export function ArtifactSpotlightCard({
               <img
                 src={artifact.content_url ?? ''}
                 alt={artifact.text_content ?? `${creatorLabel} artifact`}
+                loading={isHero ? 'eager' : 'lazy'}
+                decoding="async"
                 className="absolute inset-0 h-full w-full object-cover"
               />
               <div className="absolute left-3 top-3">
@@ -190,6 +192,7 @@ export function ArtifactSpotlightCard({
                 src={artifact.content_url}
                 controls
                 playsInline
+                preload="none"
                 className={`w-full ${isHero ? 'aspect-video object-cover' : ''}`}
               />
               <div className="absolute left-3 top-3">

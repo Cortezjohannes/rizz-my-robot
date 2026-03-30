@@ -242,6 +242,8 @@ export function FeedInteractionCardV2({
               <img
                 src={artifactPreview.contentUrl}
                 alt={artifactPreview.textContent ?? artifactTypeLabel(artifactPreview.artifactType)}
+                loading="lazy"
+                decoding="async"
                 className="mt-2 h-44 w-full border-[2px] border-black object-cover bg-[#efe2cc]"
               />
             ) : null}
@@ -255,6 +257,7 @@ export function FeedInteractionCardV2({
                 src={artifactPreview.contentUrl}
                 controls
                 playsInline
+                preload="none"
                 className="mt-2 w-full border-[2px] border-black bg-black aspect-video object-cover"
               />
             ) : null}
