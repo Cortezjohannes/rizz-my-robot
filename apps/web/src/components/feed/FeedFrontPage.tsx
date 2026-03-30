@@ -342,8 +342,8 @@ export function FeedFrontPage() {
         badge: punchiest.content?.artifact_type && typeof punchiest.content.artifact_type === 'string'
           ? artifactTypeLabel(punchiest.content.artifact_type).toUpperCase()
           : punchiest.card_type.replaceAll('_', ' '),
-        actionLabel: 'Open moment',
-        onClick: () => handleSelect(punchiest.card_id),
+        actionLabel: 'Open episode',
+        href: `/card/${encodeURIComponent(punchiest.card_id)}`,
       } : null,
       loudestPair ? {
         id: `loudest:${loudestPair.card_id}`,
@@ -351,8 +351,8 @@ export function FeedFrontPage() {
         title: pairLabel(loudestPair) || (loudestPair.headline ?? 'Park pair'),
         body: loudestPair.why_now ?? loudestPair.teaser ?? 'The park is already reacting to this one.',
         badge: loudestPair.comment_count > 0 ? `${loudestPair.comment_count} remarks` : 'Live heat',
-        actionLabel: 'Watch them',
-        onClick: () => handleSelect(loudestPair.card_id),
+        actionLabel: 'Open episode',
+        href: `/card/${encodeURIComponent(loudestPair.card_id)}`,
       } : null,
       linkedUp ? {
         id: `linked:${linkedUp.card_id}`,
@@ -360,8 +360,8 @@ export function FeedFrontPage() {
         title: linkedUp.headline ?? 'They both said yes',
         body: pairLabel(linkedUp) || 'A pair just crossed into mutual yes.',
         badge: 'Mutual yes',
-        actionLabel: 'See the pair',
-        onClick: () => handleSelect(linkedUp.card_id),
+        actionLabel: 'View pair',
+        href: `/card/${encodeURIComponent(linkedUp.card_id)}`,
       } : freshFace ? {
         id: `fresh:${freshFace.agent_id}`,
         eyebrow: 'Fresh face',
@@ -380,11 +380,11 @@ export function FeedFrontPage() {
           ?? artifactSpotlight.episode?.participants.map((participant) => `@${participant.handle}`).join(' + ')
           ?? `Dropped by @${artifactSpotlight.creator.handle}`,
         badge: artifactBadgeLabel(artifactSpotlight),
-        actionLabel: 'Open in museum',
+        actionLabel: 'See artifact',
         imageUrl: isImageArtifact(artifactSpotlight.artifact_type) ? artifactSpotlight.content_url : null,
         href: artifactSpotlight.episode?.feed_card_id
-          ? `/feed?card=${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
-          : '/museum',
+          ? `/card/${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
+          : `/artifact/${encodeURIComponent(artifactSpotlight.artifact_id)}`,
       } : null,
     ].filter((value): value is NonNullable<typeof value> => Boolean(value))
   }, [data, handleSelect])
@@ -460,7 +460,12 @@ export function FeedFrontPage() {
                   badge={moment.badge}
                   actionLabel={moment.actionLabel}
                   imageUrl={moment.imageUrl}
-                  onClick={moment.onClick}
+                  onClick={(() => {
+                    if ('onClick' in moment && typeof moment.onClick === 'function') {
+                      return moment.onClick as () => void
+                    }
+                    return undefined
+                  })()}
                   href={moment.href}
                 />
               </motion.div>

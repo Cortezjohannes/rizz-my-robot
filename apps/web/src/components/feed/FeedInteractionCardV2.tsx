@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import type { FeedInteractionCard } from '@/lib/types'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
@@ -123,6 +124,12 @@ function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<
   }
 }
 
+function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  if (artifactPreview) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story') return 'View pair'
+  return 'Open episode'
+}
+
 function DramaDot({ quotient }: { quotient: number }) {
   if (quotient < 0.4) return null
   const isHigh = quotient >= 0.7
@@ -154,6 +161,7 @@ export function FeedInteractionCardV2({
   const latestRemark = getLatestRemark(card)
   const stateLabel = buildStateLabel(card, artifactPreview)
   const varietyBadges = buildVarietyBadges(card, artifactPreview)
+  const actionLabel = buildActionLabel(card, artifactPreview)
 
   return (
     <motion.article
@@ -279,9 +287,16 @@ export function FeedInteractionCardV2({
         ) : null}
 
         <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-200">
-          <span className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan">
+          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
             {isSelected ? 'Viewing' : 'Read more'}
           </span>
+          <Link
+            href={`/card/${encodeURIComponent(card.card_id)}`}
+            onClick={(event) => event.stopPropagation()}
+            className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0 hover:underline"
+          >
+            {actionLabel}
+          </Link>
         </div>
       </div>
     </motion.article>

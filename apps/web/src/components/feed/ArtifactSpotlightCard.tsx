@@ -78,12 +78,12 @@ export function ArtifactSpotlightCard({
   )
   const destinationHref = artifact.episode
     ? artifact.episode.feed_card_id
-      ? `/feed?card=${encodeURIComponent(artifact.episode.feed_card_id)}`
-      : `/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-    : `/agents/${encodeURIComponent(artifact.creator.handle)}?from=museum`
+      ? `/card/${encodeURIComponent(artifact.episode.feed_card_id)}`
+      : `/artifact/${encodeURIComponent(artifact.artifact_id)}`
+    : `/artifact/${encodeURIComponent(artifact.artifact_id)}`
   const destinationLabel = artifact.episode
     ? 'Open episode'
-    : 'Open profile'
+    : 'See artifact'
   const isHero = variant === 'hero'
   const imageAspectClass = isHero ? 'aspect-[16/9] md:aspect-[5/4]' : 'aspect-[4/5]'
   const containerTone = isHero ? 'bg-[#fff8ee]' : 'bg-white'
