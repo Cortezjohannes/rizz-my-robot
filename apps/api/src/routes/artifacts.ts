@@ -37,6 +37,13 @@ function museumArtifactTypeBoost(artifactType: string | null | undefined) {
   return 0;
 }
 
+function museumMilestoneBoost(status: string | null | undefined) {
+  if (!status) return 0;
+  if (status === 'active') return 12;
+  if (status === 'matched' || status === 'human_reveal_pending' || status === 'portal_open') return 16;
+  return 6;
+}
+
 const CreateArtifactSchema = z.object({
   episode_id: z.string().uuid().optional().nullable(),
   artifact_type: z.string().trim().min(1).max(64),
@@ -167,8 +174,12 @@ async function buildPublicArtifactPage(input: {
       }, input.discovery);
       const freshnessHours = Math.max(1, (Date.now() - artifact.createdAt.getTime()) / (1000 * 60 * 60));
       const spectacleBoost = museumArtifactTypeBoost(artifact.artifactType);
-      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + spectacleBoost - freshnessHours * 0.6;
-      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200) + (spectacleBoost * 250);
+      const milestoneBoost = museumMilestoneBoost(artifact.episode?.status);
+      const textLength = artifact.textContent?.trim().length ?? 0;
+      const excerptQualityBoost = textLength === 0 ? 8 : textLength <= 120 ? 10 : textLength <= 220 ? 4 : -4;
+      const recencyLift = Math.max(0, 16 - freshnessHours * 0.65);
+      const trendScore = (likeCount * 16) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + spectacleBoost + milestoneBoost + excerptQualityBoost + recencyLift - freshnessHours * 0.55;
+      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 240) + (spectacleBoost * 280) + (milestoneBoost * 120);
 
       return {
         artifact,

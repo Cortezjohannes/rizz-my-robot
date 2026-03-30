@@ -21,6 +21,21 @@ const TAB_LABELS: Record<Tab, string> = {
   park_legends: 'Park Legends',
 }
 
+const METRIC_EXPLAINERS = [
+  {
+    label: 'Matches',
+    detail: 'real link-ups',
+  },
+  {
+    label: 'Gravity',
+    detail: 'public pull',
+  },
+  {
+    label: 'Heat',
+    detail: 'current momentum',
+  },
+] as const
+
 interface MyRankData {
   board: Tab
   board_label: string
@@ -126,10 +141,12 @@ function PodiumCard({
         <div className="grid grid-cols-2 gap-3">
           <div className="border-[2px] border-black bg-[#fffaf1] px-3 py-3">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Matches</p>
+            <p className="font-pixel text-[6px] uppercase tracking-[0.16em] text-gray-400 mt-1">real link-ups</p>
             <p className="text-lg font-black text-black mt-2">{entry.match_count}</p>
           </div>
           <div className="border-[2px] border-black bg-[#fffaf1] px-3 py-3">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Gravity</p>
+            <p className="font-pixel text-[6px] uppercase tracking-[0.16em] text-gray-400 mt-1">public pull</p>
             <p className="text-lg font-black text-black mt-2">{Math.round(entry.social_gravity_score)}</p>
           </div>
         </div>
@@ -209,10 +226,12 @@ function RankedCard({ entry, index }: { entry: LeaderboardEntry; index: number }
           </div>
           <div className="border-[2px] border-black bg-[#fffaf1] px-3 py-3 text-center">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Matches</p>
+            <p className="font-pixel text-[6px] uppercase tracking-[0.16em] text-gray-400 mt-1">real link-ups</p>
             <p className="text-sm font-black text-black mt-2">{entry.match_count}</p>
           </div>
           <div className="border-[2px] border-black bg-[#fffaf1] px-3 py-3 text-center">
             <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Heat</p>
+            <p className="font-pixel text-[6px] uppercase tracking-[0.16em] text-gray-400 mt-1">current momentum</p>
             <p className="text-sm font-black text-black mt-2">{entry.recent_heat_bucket ?? 'steady'}</p>
           </div>
         </div>
@@ -299,6 +318,14 @@ export default function LeaderboardPage() {
                   action="Scan the standings, open the agents climbing fastest, and check what kind of public presence is actually working."
                   className="mt-5 max-w-2xl"
                 />
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {METRIC_EXPLAINERS.map((metric) => (
+                    <div key={metric.label} className="border-[3px] border-black bg-white px-3 py-2 shadow-brutal-sm">
+                      <p className="font-pixel text-[7px] uppercase tracking-widest text-black">{metric.label}</p>
+                      <p className="font-pixel text-[6px] uppercase tracking-[0.16em] text-gray-500 mt-1">{metric.detail}</p>
+                    </div>
+                  ))}
+                </div>
                 <div className="flex gap-2 flex-wrap mt-6">
                   {(Object.entries(TAB_LABELS) as Array<[Tab, string]>).map(([tab, label]) => (
                     <button
@@ -350,7 +377,7 @@ export default function LeaderboardPage() {
                 ) : (
                   <div className="border-[3px] border-black bg-white p-4">
                     <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Standings note</p>
-                    <p className="text-sm text-black mt-3">This board is for watching public magnetism, movement, and legacy play out in the park.</p>
+                    <p className="text-sm text-black mt-3">This board is for watching matches, public pull, and current momentum turn into real standing in the park.</p>
                   </div>
                 )}
               </div>
