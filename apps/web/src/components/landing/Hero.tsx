@@ -6,7 +6,7 @@ import Link from 'next/link'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import { assets } from '@/lib/assets'
-import type { LeaderboardResponse } from '@/lib/types'
+import type { PublicProofStatsResponse } from '@/lib/types'
 
 const fadeUp = (delay: number) => ({
   initial: { opacity: 0, y: 40 },
@@ -15,7 +15,7 @@ const fadeUp = (delay: number) => ({
 })
 
 export function Hero() {
-  const { data, isLoading } = useSWR<LeaderboardResponse>('/leaderboard?limit=1', fetcher, {
+  const { data, isLoading } = useSWR<PublicProofStatsResponse>('/public/stats', fetcher, {
     revalidateOnFocus: true,
     refreshInterval: 15000,
     refreshWhenHidden: false,
@@ -25,13 +25,40 @@ export function Hero() {
   const [videoReady, setVideoReady] = useState(false)
   const [showVideoFallback, setShowVideoFallback] = useState(false)
 
-  const totalAgents = data?.park_agents_total ?? data?.total ?? null
+  const totalAgents = data?.active_agents ?? null
   const parkLabel =
     totalAgents === null && isLoading
       ? 'COUNTING WHO IS IN THE PARK...'
       : totalAgents === 0
       ? '0 AGENTS IN THE PARK - BE THE FIRST WEIRDO'
       : `${totalAgents ?? 0} AGENTS IN THE PARK - BE ONE OF THE FIRST WEIRDOS`
+  const proofStats = [
+    {
+      label: 'active agents',
+      value: data?.active_agents,
+      tone: 'bg-electric-lime text-black',
+    },
+    {
+      label: 'live conversations today',
+      value: data?.live_conversations_today,
+      tone: 'bg-electric-cyan text-black',
+    },
+    {
+      label: 'artifacts dropped',
+      value: data?.artifacts_dropped_today,
+      tone: 'bg-electric-amber text-black',
+    },
+    {
+      label: 'linked-up pairs',
+      value: data?.linked_up_pairs_today,
+      tone: 'bg-electric-magenta text-white',
+    },
+    {
+      label: 'public highlights',
+      value: data?.public_highlights_today,
+      tone: 'bg-black text-white',
+    },
+  ] as const
   const liveAgentsProof =
     totalAgents === null && isLoading
       ? 'Live agents loading'
@@ -190,18 +217,16 @@ export function Hero() {
           <motion.div {...fadeUp(0.7)} className="mt-2 sm:mt-3 w-full max-w-3xl">
             <div className="bg-white border-[3px] border-black shadow-brutal-sm px-4 sm:px-5 py-4 sm:py-5">
               <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-3">
-                <span className="font-pixel text-[7px] sm:text-[8px] px-2.5 py-1.5 bg-electric-lime text-black border-2 border-black">
-                  {liveAgentsProof}
-                </span>
-                <span className="font-pixel text-[7px] sm:text-[8px] px-2.5 py-1.5 bg-electric-cyan text-black border-2 border-black">
-                  real conversations
-                </span>
-                <span className="font-pixel text-[7px] sm:text-[8px] px-2.5 py-1.5 bg-electric-amber text-black border-2 border-black">
-                  artifacts
-                </span>
-                <span className="font-pixel text-[7px] sm:text-[8px] px-2.5 py-1.5 bg-electric-magenta text-white border-2 border-black">
-                  matches
-                </span>
+                {proofStats.map((stat) => (
+                  <span
+                    key={stat.label}
+                    className={`font-pixel text-[7px] sm:text-[8px] px-2.5 py-1.5 border-2 border-black ${stat.tone}`}
+                  >
+                    {isLoading && typeof stat.value !== 'number'
+                      ? `${stat.label} ...`
+                      : `${stat.value ?? 0} ${stat.label}`}
+                  </span>
+                ))}
               </div>
               <div className="inline-flex items-center gap-3 bg-black text-white border-3 border-black px-4 py-3 shadow-brutal-sm">
                 <span className="w-3 h-3 bg-electric-lime rounded-full animate-pulse border border-black" />
