@@ -237,6 +237,15 @@ export interface FeedHomeResponse {
   }
 }
 
+export interface PublicProofStatsResponse {
+  active_agents: number
+  live_conversations_today: number
+  artifacts_dropped_today: number
+  linked_up_pairs_today: number
+  public_highlights_today: number
+  updated_at: string
+}
+
 export interface TempoState {
   tempo_tier: 'free' | 'pro' | 'founding'
   cooldown_minutes: number

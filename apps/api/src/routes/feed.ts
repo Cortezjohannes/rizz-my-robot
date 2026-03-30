@@ -39,6 +39,11 @@ const FEATURED_SECTION_LIMIT = 5;
 const DEFAULT_INTERACTION_LIMIT = 12;
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 
+function startOfCurrentUtcDay() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 function canonicalArtifactType(artifactType: string | null | undefined) {
   const normalized = normalizeArtifactType(artifactType);
   if (normalized) return normalized;
@@ -196,16 +201,32 @@ function scoreFeedCard(card: {
   voteScore: number;
   chemistryScore?: number | null;
   createdAt: Date;
+  activityAt?: Date | null;
   cardType: string;
   content?: unknown;
+  likeCount?: number;
+  commentCount?: number;
 }) {
-  const freshnessHours = Math.max(1, (Date.now() - card.createdAt.getTime()) / (1000 * 60 * 60));
+  const freshnessAnchor = card.activityAt ?? card.createdAt;
+  const freshnessHours = Math.max(1, (Date.now() - freshnessAnchor.getTime()) / (1000 * 60 * 60));
   const content = (card.content ?? {}) as Record<string, unknown>;
   const vulnerabilityScore = typeof content.artifact_vulnerability_score === 'number'
     ? content.artifact_vulnerability_score
     : 0;
-  const spectacle = card.dramaQuotient * 50 + (card.chemistryScore ?? 0) * 35 + card.voteScore * 5 + vulnerabilityScore * 18;
+  const likeCount = card.likeCount ?? Math.max(0, card.voteScore);
+  const commentCount = card.commentCount ?? 0;
+  const tractionScore = Math.min(42, (likeCount * 6) + (commentCount * 9));
+  const spectacle = card.dramaQuotient * 42 + (card.chemistryScore ?? 0) * 30 + card.voteScore * 4 + vulnerabilityScore * 16 + tractionScore;
   let noveltyBoost = ['mutual_yes', 'chemistry_spike', 'near_miss', 'artifact_moment'].includes(card.cardType) ? 12 : 0;
+  let milestoneBoost = 0;
+  let visualRichnessBoost = 0;
+  let excerptQualityBoost = 0;
+
+  if (card.cardType === 'mutual_yes' || card.cardType === 'success_story') milestoneBoost += 22;
+  else if (card.cardType === 'episode_live') milestoneBoost += 16;
+  else if (card.cardType === 'artifact_moment') milestoneBoost += 14;
+  else if (card.cardType === 'chemistry_spike') milestoneBoost += 10;
+  else if (card.cardType === 'near_miss' || card.cardType === 'rejection_arc' || card.cardType === 'brutal_pass') milestoneBoost += 6;
 
   // Artifact type spectacle boost — multimedia cards dominate the feed
   if (card.cardType === 'artifact_moment') {
@@ -220,10 +241,31 @@ function scoreFeedCard(card: {
         : rank >= 4 ? 6
         : 0;
       noveltyBoost += typeSpectacleBoost;
+      visualRichnessBoost += rank >= 10 ? 16 : rank >= 7 ? 10 : rank >= 5 ? 6 : 0;
     }
   }
 
-  return spectacle + noveltyBoost - freshnessHours * 1.2;
+  if (cardHasRenderableArtifact(card)) {
+    const artifactType = cardArtifactType(card);
+    if (artifactType) {
+      const normalized = normalizeArtifactType(artifactType);
+      if (normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') visualRichnessBoost += 12;
+      else if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image' || normalized === 'cinematic_cover') visualRichnessBoost += 14;
+      else visualRichnessBoost += 6;
+    }
+  }
+
+  const summary = typeof content.summary === 'string' ? cleanExcerpt(content.summary) : '';
+  const body = typeof content.body === 'string' ? cleanExcerpt(content.body) : '';
+  const excerptLength = summary.length || body.length;
+  if (excerptLength > 0 && excerptLength <= 120) excerptQualityBoost += 10;
+  else if (excerptLength <= 180) excerptQualityBoost += 5;
+  else if (excerptLength >= 260) excerptQualityBoost -= 7;
+  if (!summary && body.length > 0 && body.length <= 90) excerptQualityBoost += 4;
+
+  const recencyLift = Math.max(0, 18 - freshnessHours * 0.6);
+
+  return spectacle + noveltyBoost + milestoneBoost + visualRichnessBoost + excerptQualityBoost + recencyLift - freshnessHours * 1.05;
 }
 
 // ---- Contextual headline / teaser generation ----
@@ -891,6 +933,29 @@ async function loadFeedComments(cardIds: string[]) {
   return byCardId;
 }
 
+async function loadFeedCommentCounts(cardIds: string[]) {
+  const comments = cardIds.length > 0
+    ? await prisma.feedComment.findMany({
+        where: {
+          cardId: { in: cardIds },
+          author: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+          },
+        },
+        select: {
+          cardId: true,
+        },
+      })
+    : [];
+
+  const counts = new Map<string, number>();
+  for (const comment of comments) {
+    counts.set(comment.cardId, (counts.get(comment.cardId) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function serializeFeedComment(comment: {
   id: string;
   body: string;
@@ -1021,10 +1086,24 @@ async function buildInteractionPage(input: {
     return agentsForCard.length === card.agentIds.length && cardVisibleUnderLaunchPolicy(card, agentsForCard);
   });
   const activityByCardId = await loadFeedCardActivityById(eligibleCards);
+  const [allVoteSummary, allCommentCounts] = await Promise.all([
+    loadFeedVotes(eligibleCards.map((card) => card.id), null),
+    loadFeedCommentCounts(eligibleCards.map((card) => card.id)),
+  ]);
 
   const rankedCards = [...eligibleCards].sort((a, b) => {
-    const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
-    const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
+    const scoreB = scoreFeedCard({
+      ...b,
+      activityAt: activityByCardId.get(b.id) ?? b.createdAt,
+      likeCount: allVoteSummary.likeCounts.get(b.id) ?? 0,
+      commentCount: allCommentCounts.get(b.id) ?? 0,
+    }) + orbitBoostForAgentIds(b.agentIds, input.discovery);
+    const scoreA = scoreFeedCard({
+      ...a,
+      activityAt: activityByCardId.get(a.id) ?? a.createdAt,
+      likeCount: allVoteSummary.likeCounts.get(a.id) ?? 0,
+      commentCount: allCommentCounts.get(a.id) ?? 0,
+    }) + orbitBoostForAgentIds(a.agentIds, input.discovery);
     if (scoreB !== scoreA) return scoreB - scoreA;
     return (activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime()) - (activityByCardId.get(a.id)?.getTime() ?? a.createdAt.getTime());
   });
@@ -1037,8 +1116,18 @@ async function buildInteractionPage(input: {
       const activityB = activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime();
       const activityA = activityByCardId.get(a.id)?.getTime() ?? a.createdAt.getTime();
       if (activityB !== activityA) return activityB - activityA;
-      const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
-      const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
+      const scoreB = scoreFeedCard({
+        ...b,
+        activityAt: activityByCardId.get(b.id) ?? b.createdAt,
+        likeCount: allVoteSummary.likeCounts.get(b.id) ?? 0,
+        commentCount: allCommentCounts.get(b.id) ?? 0,
+      }) + orbitBoostForAgentIds(b.agentIds, input.discovery);
+      const scoreA = scoreFeedCard({
+        ...a,
+        activityAt: activityByCardId.get(a.id) ?? a.createdAt,
+        likeCount: allVoteSummary.likeCounts.get(a.id) ?? 0,
+        commentCount: allCommentCounts.get(a.id) ?? 0,
+      }) + orbitBoostForAgentIds(a.agentIds, input.discovery);
       return scoreB - scoreA;
     }), Math.min(Math.max(input.offset + input.limit + 18, 24), 48), 8);
   const pageCards = standardCards.slice(input.offset, input.offset + input.limit);
@@ -1427,8 +1516,19 @@ async function buildArtifactPage(input: {
       const normalizedType = normalizeArtifactType(artifact.artifactType);
       const typeImpression = normalizedType ? ARTIFACT_TYPE_IMPRESSION[normalizedType as keyof typeof ARTIFACT_TYPE_IMPRESSION] : null;
       const typeRank = typeImpression?.rank ?? 1;
-      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + (typeRank * 8) - freshnessHours * 0.6;
-      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200) + (typeRank * 400);
+      const visualRichnessBoost = normalizedType && ['voice_note', 'serenade', 'produced_song', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'cinematic_cover'].includes(normalizedType) ? 18 : 6;
+      const milestoneBoost = artifact.episode
+        ? artifact.episode.status === 'active'
+          ? 12
+          : ['matched', 'human_reveal_pending', 'mutual_yes', 'portal_open'].includes(artifact.episode.status)
+            ? 16
+            : 8
+        : 0;
+      const textLength = artifact.textContent?.trim().length ?? 0;
+      const excerptQualityBoost = textLength === 0 ? 8 : textLength <= 120 ? 10 : textLength <= 220 ? 4 : -4;
+      const recencyLift = Math.max(0, 16 - freshnessHours * 0.65);
+      const trendScore = (likeCount * 16) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + (typeRank * 10) + visualRichnessBoost + milestoneBoost + excerptQualityBoost + recencyLift - freshnessHours * 0.55;
+      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 240) + (typeRank * 500) + (visualRichnessBoost * 180) + (milestoneBoost * 120);
 
       return {
         artifact,
@@ -1754,7 +1854,88 @@ async function buildFeaturedFeed(input: {
   };
 }
 
+async function buildPublicProofStats() {
+  const dayStart = startOfCurrentUtcDay();
+  const [activeAgents, liveConversationRows, artifactsDroppedToday, linkedUpPairsToday, publicHighlightsToday] = await Promise.all([
+    prisma.agent.count({
+      where: {
+        poolStatus: 'active',
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
+    }),
+    prisma.episodeMessage.findMany({
+      where: {
+        createdAt: { gte: dayStart },
+        episode: {
+          isSandbox: false,
+          status: 'active',
+          match: { isNot: null },
+          agentA: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+          agentB: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+        },
+      },
+      distinct: ['episodeId'],
+      select: { episodeId: true },
+    }),
+    prisma.artifact.count({
+      where: {
+        ...buildPublicArtifactEligibilityWhere(),
+        createdAt: { gte: dayStart },
+      },
+    }),
+    prisma.match.count({
+      where: {
+        status: { in: ['matched', 'human_reveal_pending', 'contact_exchanged'] },
+        updatedAt: { gte: dayStart },
+        episode: {
+          isSandbox: false,
+          agentA: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+          agentB: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+        },
+      },
+    }),
+    prisma.feedCard.count({
+      where: {
+        isPublic: true,
+        cardType: { in: [...WATCHABLE_FEED_TYPES] },
+        createdAt: { gte: dayStart },
+      },
+    }),
+  ]);
+
+  return {
+    active_agents: activeAgents,
+    live_conversations_today: liveConversationRows.length,
+    artifacts_dropped_today: artifactsDroppedToday,
+    linked_up_pairs_today: linkedUpPairsToday,
+    public_highlights_today: publicHighlightsToday,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export async function feedRoutes(fastify: FastifyInstance) {
+  fastify.get('/public/stats', { config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const stats = await buildPublicProofStats();
+    return reply.send(stats);
+  });
+
   fastify.get('/feed/home', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const viewer = await resolveOptionalViewer(request);
     const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
