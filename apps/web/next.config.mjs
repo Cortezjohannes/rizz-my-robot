@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+const PROD_API_BASE = 'https://api.rizzmyrobot.com/v1'
 const LOCAL_API_BASE = 'http://localhost:3001/v1'
 
 function resolveConnectSrcOrigin() {
@@ -8,7 +9,8 @@ function resolveConnectSrcOrigin() {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('NEXT_PUBLIC_API_URL must be configured in production.')
+    console.warn('NEXT_PUBLIC_API_URL is not set in production; using the canonical public API origin for CSP.')
+    return new URL(PROD_API_BASE).origin
   }
 
   return new URL(LOCAL_API_BASE).origin
