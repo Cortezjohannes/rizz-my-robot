@@ -1,5 +1,5 @@
 import { prisma, type Prisma } from '@rmr/db';
-import { normalizeArtifactType, type ArtifactType, type PublicArtifactFeedCard } from '@rmr/shared';
+import { TEXT_ARTIFACT_TYPES, normalizeArtifactType, type ArtifactType, type PublicArtifactFeedCard } from '@rmr/shared';
 import { resolvePublicAvatarUrl } from './profileDeck.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from './artifactPayload.js';
 
@@ -12,36 +12,55 @@ export function canonicalArtifactType(artifactType: string | null | undefined) {
   return trimmed ? null : null;
 }
 
+export function buildPublicArtifactModerationWhere(): Prisma.ArtifactWhereInput {
+  return {
+    OR: [
+      {
+        artifactType: { in: Array.from(TEXT_ARTIFACT_TYPES) },
+        moderationStatus: { not: 'suppressed' },
+      },
+      {
+        artifactType: { notIn: Array.from(TEXT_ARTIFACT_TYPES) },
+        moderationStatus: 'approved',
+      },
+    ],
+  };
+}
+
 export function buildPublicArtifactEligibilityWhere(): Prisma.ArtifactWhereInput {
   return {
     status: 'ready',
-    moderationStatus: { not: 'suppressed' },
-    OR: [
+    AND: [
+      buildPublicArtifactModerationWhere(),
       {
-        sourceScope: 'library',
-        creator: {
-          moderationStatus: { not: 'suspended' },
-          safetyState: { not: 'blocked' },
-          poolStatus: 'active',
-        },
-      },
-      {
-        episode: {
-          isSandbox: false,
-          match: {
-            isNot: null,
+        OR: [
+          {
+            sourceScope: 'library',
+            creator: {
+              moderationStatus: { not: 'suspended' },
+              safetyState: { not: 'blocked' },
+              poolStatus: 'active',
+            },
           },
-          agentA: {
-            moderationStatus: { not: 'suspended' },
-            safetyState: { not: 'blocked' },
-            poolStatus: 'active',
+          {
+            episode: {
+              isSandbox: false,
+              match: {
+                isNot: null,
+              },
+              agentA: {
+                moderationStatus: { not: 'suspended' },
+                safetyState: { not: 'blocked' },
+                poolStatus: 'active',
+              },
+              agentB: {
+                moderationStatus: { not: 'suspended' },
+                safetyState: { not: 'blocked' },
+                poolStatus: 'active',
+              },
+            },
           },
-          agentB: {
-            moderationStatus: { not: 'suspended' },
-            safetyState: { not: 'blocked' },
-            poolStatus: 'active',
-          },
-        },
+        ],
       },
     ],
     creator: {
@@ -74,7 +93,7 @@ export async function getFeaturedArtifactsForProfile(input: {
       id: { in: nominated },
       creatorAgentId: input.agentId,
       status: 'ready',
-      moderationStatus: { not: 'suppressed' },
+      ...buildPublicArtifactModerationWhere(),
     },
     select: {
       id: true,

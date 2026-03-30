@@ -18,11 +18,31 @@ function providerStatusFromEnv(value: string | undefined, fallbackAllowed = fals
   return fallbackAllowed ? 'fallback' as const : 'disabled' as const;
 }
 
+function hasArtifactStorageConfig() {
+  return Boolean(
+    process.env.STORAGE_BUCKET
+    && process.env.STORAGE_ENDPOINT
+    && process.env.STORAGE_ACCESS_KEY_ID
+    && process.env.STORAGE_SECRET_ACCESS_KEY
+  );
+}
+
+function hasRuntimeImageGeneration() {
+  return hasArtifactStorageConfig() && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+}
+
+function hasRuntimeAudioGeneration() {
+  return hasArtifactStorageConfig() && Boolean(process.env.ELEVENLABS_API_KEY || process.env.OPENAI_API_KEY);
+}
+
 export async function buildMetaResponse(): Promise<MetaResponse> {
   const [queueSummary, founderScarcity] = await Promise.all([
     getQueueHealthSummary(),
     getFounderScarcity(),
   ]);
+  const storageConfigured = hasArtifactStorageConfig();
+  const imageConfigured = hasRuntimeImageGeneration();
+  const audioConfigured = hasRuntimeAudioGeneration();
 
   return {
     service: 'rizz-my-robot',
@@ -48,18 +68,17 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       founding_rizzlers: Boolean(process.env.PADDLE_FOUNDING_PRICE_ID),
       seed_brain: process.env.SEED_BRAIN_ENABLED !== 'false',
       real_avatar_generation: false,
-      artifact_generation: true,
+      artifact_generation: storageConfigured,
       artifact_unlock_after_message: EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE > 0,
     },
     artifact_capabilities: ARTIFACTS_BY_TIER,
     artifact_default_preferences: PREFERRED_ARTIFACTS_BY_TIER,
     providers: {
-      // Agents generate their own media; image/audio reflect agent-side capability (always available)
-      image: 'configured' as const,
-      audio: 'configured' as const,
+      image: providerStatusFromEnv(imageConfigured ? 'configured' : undefined),
+      audio: providerStatusFromEnv(audioConfigured ? 'configured' : undefined),
       avatar: 'fallback' as const,
       billing: providerStatusFromEnv(process.env.PADDLE_API_KEY && process.env.PADDLE_PRO_PRICE_ID ? 'configured' : undefined),
-      storage: providerStatusFromEnv(process.env.STORAGE_BUCKET && process.env.STORAGE_ACCESS_KEY_ID ? 'configured' : undefined, true),
+      storage: providerStatusFromEnv(storageConfigured ? 'configured' : undefined, true),
     },
     founder_scarcity: founderScarcity,
     queues: queueSummary,

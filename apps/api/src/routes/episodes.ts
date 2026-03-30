@@ -810,6 +810,37 @@ function validateEpisodeTextForPrivacy(text: string) {
   return strictPiiCheck(text);
 }
 
+function hasArtifactStorageConfig() {
+  return Boolean(
+    process.env.STORAGE_BUCKET
+    && process.env.STORAGE_ENDPOINT
+    && process.env.STORAGE_ACCESS_KEY_ID
+    && process.env.STORAGE_SECRET_ACCESS_KEY
+  );
+}
+
+function hasRuntimeImageGenerationConfigured() {
+  return hasArtifactStorageConfig() && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+}
+
+function hasRuntimeAudioGenerationConfigured() {
+  return hasArtifactStorageConfig() && Boolean(process.env.ELEVENLABS_API_KEY || process.env.OPENAI_API_KEY);
+}
+
+function getAvailableArtifactTypesForGuidance(capabilityTier: CapabilityTier): ArtifactType[] {
+  const allowed = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
+  return allowed.filter((artifactType) => {
+    if (TEXT_ARTIFACT_TYPES.has(artifactType)) return true;
+    if (artifactType === 'moodboard' || artifactType === 'illustrated_note' || artifactType === 'thirst_trap_image') {
+      return hasRuntimeImageGenerationConfigured();
+    }
+    if (artifactType === 'voice_note' || artifactType === 'serenade' || artifactType === 'produced_song' || artifactType === 'cinematic_cover') {
+      return hasRuntimeAudioGenerationConfigured();
+    }
+    return hasArtifactStorageConfig();
+  });
+}
+
 function buildLinkUpSendoff(input: {
   handleA: string;
   handleB: string;
@@ -2812,6 +2843,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const artifactGuidance = deriveArtifactGuidance({
       agentId,
       capabilityTier: request.agent.capabilityTier as CapabilityTier,
+      availableArtifactTypes: getAvailableArtifactTypesForGuidance(request.agent.capabilityTier as CapabilityTier),
       canDropArtifact,
       artifactsRemaining,
       messageCount: ep.messageCount,
@@ -3674,13 +3706,32 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true, artifactType: true, status: true },
+        select: { id: true, creatorAgentId: true, artifactType: true, status: true },
       }),
     ]);
     if (revealPending) {
+      const existingPendingPreRevealArtifact = episodeArtifacts.find((artifact) =>
+        artifact.creatorAgentId === agentId
+        && artifact.status !== 'failed'
+        && artifact.status !== 'ready');
+      if (existingPendingPreRevealArtifact) {
+        return sendWriteRouteError(
+          reply,
+          request,
+          409,
+          'pre_reveal_artifact_pending',
+          'Finish your existing pre-reveal artifact before starting another one.',
+          {
+            episode_id: id,
+            artifact_id: existingPendingPreRevealArtifact.id,
+            upload_request_url: `/v1/episodes/${id}/artifact/${existingPendingPreRevealArtifact.id}/upload-request`,
+            finalize_url: `/v1/episodes/${id}/artifact/${existingPendingPreRevealArtifact.id}/finalize`,
+          },
+        );
+      }
       const alreadyUsedPreRevealArtifact = ep.match
         ? hasUsedPreRevealArtifact(ep.match, isAgentA)
-          || episodeArtifacts.some((artifact) => artifact.creatorAgentId === agentId && artifact.status !== 'failed')
+          || episodeArtifacts.some((artifact) => artifact.creatorAgentId === agentId && artifact.status === 'ready')
         : false;
       if (alreadyUsedPreRevealArtifact) {
         return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
@@ -4557,6 +4608,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         // Use agent-provided exit message if present in request, otherwise fallback
         const closingMessage = (parsed.data as { exit_message?: string }).exit_message?.trim()
           || exitPromptResult.fallback;
+        const exitMessagePiiFlag = validateEpisodeTextForPrivacy(closingMessage);
+        if (exitMessagePiiFlag) {
+          return reply.status(422).send({
+            error: {
+              code: 'pii_detected',
+              message: 'Episode exit messages cannot include contact details or human-identifying information.',
+              flagged_pattern: exitMessagePiiFlag,
+            },
+          });
+        }
+        const exitMessageGuidelineViolation = lintOutboundAuthoredText(closingMessage, 'episode_message');
+        if (exitMessageGuidelineViolation) {
+          return reply.status(422).send({
+            error: {
+              code: exitMessageGuidelineViolation.code,
+              message: exitMessageGuidelineViolation.message,
+              flagged_pattern: exitMessageGuidelineViolation.flaggedPattern,
+            },
+          });
+        }
         const closingMessageCreatedAt = new Date();
         const closingSequenceNumber = (messages[messages.length - 1]?.sequenceNumber ?? 0) + 1;
 
