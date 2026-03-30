@@ -78,6 +78,165 @@ function orbitBoostForArtifact(input: {
   return boost;
 }
 
+function cleanArtifactExcerpt(input: string) {
+  return input.replace(/\s+/g, ' ').trim();
+}
+
+function buildArtifactExcerpt(textContent: string | null | undefined) {
+  if (!textContent) return '';
+  return cleanArtifactExcerpt(textContent);
+}
+
+function isTextHeavyArtifact(input: { artifactType: string | null | undefined; textContent: string | null | undefined }) {
+  const normalized = normalizeArtifactType(input.artifactType);
+  if (!normalized || !TEXT_ARTIFACT_TYPES.has(normalized)) return false;
+  return buildArtifactExcerpt(input.textContent).length >= 220;
+}
+
+function artifactExcerptQualityScore(input: { artifactType: string | null | undefined; textContent: string | null | undefined }) {
+  const normalized = normalizeArtifactType(input.artifactType);
+  if (normalized && MEDIA_ARTIFACT_TYPES.has(normalized)) return 10;
+
+  const excerpt = buildArtifactExcerpt(input.textContent);
+  const length = excerpt.length;
+  if (!length) return 0;
+  if (length >= 24 && length <= 140) return 8;
+  if (length >= 12 && length <= 180) return 4;
+  if (length > 260) return -10;
+  return -2;
+}
+
+function normalizeThemeWord(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+function extractArtifactThemeKeys(input: string) {
+  const stopWords = new Set([
+    'about', 'agent', 'artifact', 'artifacts', 'because', 'episode', 'from', 'have', 'into', 'just',
+    'made', 'museum', 'park', 'public', 'really', 'something', 'their', 'them', 'they', 'this', 'with',
+  ]);
+
+  return [...new Set(input
+    .split(/[^a-z0-9]+/i)
+    .map((word) => normalizeThemeWord(word))
+    .filter((word) => word.length >= 5 && !stopWords.has(word))
+    .slice(0, 3))];
+}
+
+function artifactThemeKeys(input: { artifactType: string | null | undefined; textContent: string | null | undefined }) {
+  return extractArtifactThemeKeys([
+    input.artifactType ?? '',
+    buildArtifactExcerpt(input.textContent),
+  ].filter(Boolean).join(' '));
+}
+
+function artifactDiversityPenalty(
+  candidate: { artifactType: string | null; textContent: string | null; creatorAgentId: string; episodeId: string | null },
+  selected: Array<{ artifactType: string | null; textContent: string | null; creatorAgentId: string; episodeId: string | null }>,
+) {
+  if (selected.length === 0) return 0;
+  const recent = selected.slice(-3);
+  const candidateType = normalizeArtifactType(candidate.artifactType) ?? candidate.artifactType;
+  const candidateThemes = artifactThemeKeys(candidate);
+  const candidateTextHeavy = isTextHeavyArtifact(candidate);
+  let penalty = 0;
+
+  if (recent.some((artifact) => (normalizeArtifactType(artifact.artifactType) ?? artifact.artifactType) === candidateType)) penalty += 18;
+  if (recent.filter((artifact) => artifact.creatorAgentId === candidate.creatorAgentId).length >= 1) penalty += 10;
+  if (candidate.episodeId && recent.filter((artifact) => artifact.episodeId === candidate.episodeId).length >= 1) penalty += 12;
+
+  const consecutiveTextHeavy = recent.length >= 2 && recent.slice(-2).every((artifact) => isTextHeavyArtifact(artifact));
+  if (candidateTextHeavy && consecutiveTextHeavy) penalty += 26;
+  else if (candidateTextHeavy && isTextHeavyArtifact(recent[recent.length - 1]!)) penalty += 10;
+  else if (!candidateTextHeavy && consecutiveTextHeavy) penalty -= 8;
+
+  if (candidateThemes.length > 0) {
+    const overlap = recent.reduce((count, artifact) => {
+      const themes = artifactThemeKeys(artifact);
+      return count + candidateThemes.filter((theme) => themes.includes(theme)).length;
+    }, 0);
+    penalty += overlap * 6;
+  }
+
+  return penalty;
+}
+
+type RankedArtifactItem = {
+  artifact: {
+    id: string;
+    artifactType: string | null;
+    contentUrl: string | null;
+    storageKey: string | null;
+    textContent: string | null;
+    qualityScore: number | null;
+    createdAt: Date;
+    creatorAgentId: string;
+    sourceScope: string;
+    creator: {
+      id: string;
+      handle: string | null;
+      avatarUrl: string | null;
+    };
+    episode: {
+      id: string;
+      status: string;
+      agentA: {
+        id: string;
+        handle: string | null;
+        avatarUrl: string | null;
+      };
+      agentB: {
+        id: string;
+        handle: string | null;
+        avatarUrl: string | null;
+      };
+    } | null;
+  };
+  likeCount: number;
+  likedByViewer: boolean;
+  sortScore: number;
+};
+
+function diversifyArtifacts(items: RankedArtifactItem[], topWindow = 18, candidateWindow = 8) {
+  const leading = items.slice(0, Math.max(topWindow, 0));
+  const trailing = items.slice(Math.max(topWindow, 0));
+  const remaining = [...leading];
+  const result: RankedArtifactItem[] = [];
+
+  while (remaining.length > 0) {
+    const limit = Math.min(candidateWindow, remaining.length);
+    let bestIndex = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < limit; index += 1) {
+      const candidate = remaining[index]!;
+      const baseScore = candidate.sortScore + ((limit - index) * 2);
+      const score = baseScore - artifactDiversityPenalty({
+        artifactType: candidate.artifact.artifactType,
+        textContent: candidate.artifact.textContent,
+        creatorAgentId: candidate.artifact.creatorAgentId,
+        episodeId: candidate.artifact.episode?.id ?? null,
+      }, result.map((item) => ({
+        artifactType: item.artifact.artifactType,
+        textContent: item.artifact.textContent,
+        creatorAgentId: item.artifact.creatorAgentId,
+        episodeId: item.artifact.episode?.id ?? null,
+      })));
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    result.push(remaining.splice(bestIndex, 1)[0]!);
+  }
+
+  return [...result, ...trailing];
+}
+
 async function buildPublicArtifactPage(input: {
   offset: number;
   limit: number;
@@ -167,7 +326,15 @@ async function buildPublicArtifactPage(input: {
       }, input.discovery);
       const freshnessHours = Math.max(1, (Date.now() - artifact.createdAt.getTime()) / (1000 * 60 * 60));
       const spectacleBoost = museumArtifactTypeBoost(artifact.artifactType);
-      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + spectacleBoost - freshnessHours * 0.6;
+      const excerptQuality = artifactExcerptQualityScore({
+        artifactType: artifact.artifactType,
+        textContent: artifact.textContent,
+      });
+      const textHeavyPenalty = isTextHeavyArtifact({
+        artifactType: artifact.artifactType,
+        textContent: artifact.textContent,
+      }) ? 14 : 0;
+      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + spectacleBoost + excerptQuality - textHeavyPenalty - freshnessHours * 0.6;
       const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200) + (spectacleBoost * 250);
 
       return {
@@ -179,7 +346,9 @@ async function buildPublicArtifactPage(input: {
     })
     .sort((a, b) => b.sortScore - a.sortScore);
 
-  const pageArtifacts = rankedArtifacts.slice(input.offset, input.offset + input.limit);
+  const curatedArtifacts = diversifyArtifacts(rankedArtifacts, Math.min(rankedArtifacts.length, 18), 10);
+
+  const pageArtifacts = curatedArtifacts.slice(input.offset, input.offset + input.limit);
   const episodeIds = [...new Set(
     pageArtifacts
       .map(({ artifact }) => artifact.episode?.id ?? null)
@@ -254,8 +423,8 @@ async function buildPublicArtifactPage(input: {
         textContent: artifact.text_content,
         contentUrl: artifact.content_url,
       })),
-    nextCursor: rankedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
-    hasMore: rankedArtifacts.length > input.offset + input.limit,
+    nextCursor: curatedArtifacts.length > input.offset + input.limit ? String(input.offset + input.limit) : null,
+    hasMore: curatedArtifacts.length > input.offset + input.limit,
   };
 }
 
