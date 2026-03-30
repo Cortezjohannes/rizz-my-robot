@@ -588,6 +588,115 @@ function buildPoolShuffleScore(agentId: string, seed: string) {
   return Number.parseInt(digest, 16);
 }
 
+function truncatePoolLine(value: string | null | undefined, maxLength = 110) {
+  const cleaned = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!cleaned) return null;
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildPoolStandoutTrait(input: {
+  replyHook: string | null;
+  standoutPrompt: { answer: string } | null;
+  voiceCatchphraseText?: string | null;
+  heroBio: string;
+}) {
+  if (input.replyHook?.trim()) return truncatePoolLine(input.replyHook, 84);
+  if (input.standoutPrompt?.answer?.trim()) return truncatePoolLine(input.standoutPrompt.answer, 96);
+  if (input.voiceCatchphraseText?.trim()) return truncatePoolLine(`"${input.voiceCatchphraseText}"`, 80);
+  return truncatePoolLine(input.heroBio, 96);
+}
+
+function pushUniqueBadge(target: string[], value: string | null) {
+  if (!value || target.includes(value)) return;
+  target.push(value);
+}
+
+function buildPoolStatusBadges(input: {
+  profileDeckCompletedAt: Date | null;
+  lastActiveAt: Date | null;
+  recentArtifactCount: number;
+  openEpisodeCount: number;
+  qualityScore: number;
+  hasVoice: boolean;
+  featuredArtifactCount: number;
+}) {
+  const now = Date.now();
+  const badges: string[] = [];
+
+  if (input.profileDeckCompletedAt && now - input.profileDeckCompletedAt.getTime() <= 72 * 60 * 60 * 1000) {
+    pushUniqueBadge(badges, 'New in pool');
+  }
+  if (input.lastActiveAt && now - input.lastActiveAt.getTime() <= 12 * 60 * 60 * 1000) {
+    pushUniqueBadge(badges, 'Recently active');
+  }
+  if (input.openEpisodeCount > 0) {
+    pushUniqueBadge(badges, `${input.openEpisodeCount} active ${input.openEpisodeCount === 1 ? 'conversation' : 'conversations'}`);
+  }
+  if (input.recentArtifactCount > 0) {
+    pushUniqueBadge(badges, `${input.recentArtifactCount} recent ${input.recentArtifactCount === 1 ? 'artifact' : 'artifacts'}`);
+  }
+  if (input.hasVoice) {
+    pushUniqueBadge(badges, 'Voice catchphrase');
+  }
+  if (input.featuredArtifactCount > 0) {
+    pushUniqueBadge(badges, 'Artifact maker');
+  }
+  if (input.qualityScore >= 82) {
+    pushUniqueBadge(badges, 'Sharp deck');
+  }
+
+  return badges.slice(0, 3);
+}
+
+function buildPoolSignalStat(input: {
+  openEpisodeCount: number;
+  recentArtifactCount: number;
+  qualityScore: number;
+  hasVoice: boolean;
+  profileMode: 'all' | 'playful' | 'romantic' | 'mystique';
+}) {
+  if (input.openEpisodeCount > 0) {
+    return `${input.openEpisodeCount} active ${input.openEpisodeCount === 1 ? 'conversation' : 'conversations'}`
+  }
+  if (input.recentArtifactCount > 0) {
+    return `Dropped ${input.recentArtifactCount} recent ${input.recentArtifactCount === 1 ? 'artifact' : 'artifacts'}`
+  }
+  if (input.hasVoice) return 'Has a playable voice catchphrase'
+  if (input.qualityScore >= 80) return 'High-signal public deck'
+  return input.profileMode === 'mystique'
+    ? 'Mystique lane, tight deck'
+    : input.profileMode === 'romantic'
+      ? 'Romantic lane, clear intent'
+      : input.profileMode === 'playful'
+        ? 'Playful lane, lively deck'
+        : 'Full public deck'
+}
+
+function buildWhyInteresting(input: {
+  profileMode: 'all' | 'playful' | 'romantic' | 'mystique';
+  openEpisodeCount: number;
+  recentArtifactCount: number;
+  hasVoice: boolean;
+  featuredArtifactCount: number;
+  lastActiveAt: Date | null;
+  qualityScore: number;
+}) {
+  if (input.openEpisodeCount >= 2) return 'Already pulling real attention in the park.'
+  if (input.recentArtifactCount >= 3) return 'Actually making things, not just sitting in the directory.'
+  if (input.hasVoice && input.featuredArtifactCount > 0) return 'Has both a clear voice and visible creative output.'
+  if (input.featuredArtifactCount > 0) return 'Has artifacts pinned, so there is already something to open.'
+  if (input.lastActiveAt && Date.now() - input.lastActiveAt.getTime() <= 12 * 60 * 60 * 1000) return 'Feels live right now, not archived.'
+  if (input.qualityScore >= 78) return 'Specific enough to click without guessing who they are.'
+  return input.profileMode === 'mystique'
+    ? 'Mystique lane with enough signal to feel intentional.'
+    : input.profileMode === 'romantic'
+      ? 'Romantic lane with enough specificity to feel real.'
+      : input.profileMode === 'playful'
+        ? 'Playful lane with enough edge to be worth opening.'
+        : 'More than a profile card once you actually open it.'
+}
+
 async function loadFeedVotes(cardIds: string[], viewer: ResolvedViewer | null) {
   const [votes, viewerLikes] = await Promise.all([
     cardIds.length > 0
@@ -912,6 +1021,7 @@ async function buildPoolPage(input: {
 }) {
   const fetchCount = Math.min(200, Math.max(input.offset + input.limit + 24, input.limit * 4));
   const shuffleSeed = buildPoolShuffleSeed(input.mode, input.discovery?.viewerAgentId);
+  const recentArtifactWindow = new Date(Date.now() - (14 * 24 * 60 * 60 * 1000));
   const agents = await prisma.agent.findMany({
     where: {
       poolStatus: 'active',
@@ -947,6 +1057,50 @@ async function buildPoolPage(input: {
       : [{ socialGravityScore: 'desc' }, { lastActiveAt: 'desc' }, { profileDeckCompletedAt: 'desc' }],
     take: fetchCount,
   });
+  const agentIds = agents.map((agent) => agent.id);
+  const [recentArtifactsByCreator, openEpisodesByAgentA, openEpisodesByAgentB] = await Promise.all([
+    agentIds.length > 0
+      ? prisma.artifact.groupBy({
+          by: ['creatorAgentId'],
+          where: {
+            creatorAgentId: { in: agentIds },
+            status: 'ready',
+            createdAt: { gte: recentArtifactWindow },
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    agentIds.length > 0
+      ? prisma.episode.groupBy({
+          by: ['agentAId'],
+          where: {
+            agentAId: { in: agentIds },
+            isSandbox: false,
+            status: { in: ['pending', 'active', 'awaiting_decisions'] },
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    agentIds.length > 0
+      ? prisma.episode.groupBy({
+          by: ['agentBId'],
+          where: {
+            agentBId: { in: agentIds },
+            isSandbox: false,
+            status: { in: ['pending', 'active', 'awaiting_decisions'] },
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const recentArtifactCountByAgentId = new Map(recentArtifactsByCreator.map((row) => [row.creatorAgentId, row._count._all] as const));
+  const openEpisodeCountByAgentId = new Map<string, number>();
+  for (const row of openEpisodesByAgentA) {
+    openEpisodeCountByAgentId.set(row.agentAId, (openEpisodeCountByAgentId.get(row.agentAId) ?? 0) + row._count._all);
+  }
+  for (const row of openEpisodesByAgentB) {
+    openEpisodeCountByAgentId.set(row.agentBId, (openEpisodeCountByAgentId.get(row.agentBId) ?? 0) + row._count._all);
+  }
 
   const previews = (await Promise.all(
     agents
@@ -972,9 +1126,45 @@ async function buildPoolPage(input: {
           agentId: preview.agent_id,
           tags: signalTags,
         }, input.discovery);
+        const recentArtifactCount = recentArtifactCountByAgentId.get(agent.id) ?? 0;
+        const openEpisodeCount = openEpisodeCountByAgentId.get(agent.id) ?? 0;
+        const hasVoice = Boolean(preview.voice_catchphrase_text?.trim() || preview.voice_catchphrase_artifact?.audio_url);
+        const featuredArtifactCount = preview.featured_artifacts?.length ?? 0;
+        const statusBadges = buildPoolStatusBadges({
+          profileDeckCompletedAt: agent.profileDeckCompletedAt,
+          lastActiveAt: agent.lastActiveAt,
+          recentArtifactCount,
+          openEpisodeCount,
+          qualityScore: preview.quality_score,
+          hasVoice,
+          featuredArtifactCount,
+        });
 
         return {
           ...preview,
+          standout_trait: buildPoolStandoutTrait({
+            replyHook: preview.reply_hook,
+            standoutPrompt: preview.standout_prompt,
+            voiceCatchphraseText: preview.voice_catchphrase_text,
+            heroBio: preview.hero_bio,
+          }),
+          why_interesting: buildWhyInteresting({
+            profileMode: preview.profile_mode,
+            openEpisodeCount,
+            recentArtifactCount,
+            hasVoice,
+            featuredArtifactCount,
+            lastActiveAt: agent.lastActiveAt,
+            qualityScore: preview.quality_score,
+          }),
+          signal_stat: buildPoolSignalStat({
+            openEpisodeCount,
+            recentArtifactCount,
+            qualityScore: preview.quality_score,
+            hasVoice,
+            profileMode: preview.profile_mode,
+          }),
+          status_badges: statusBadges,
           _score: input.sort === 'new_in_pool'
             ? Date.parse(agent.profileDeckCompletedAt?.toISOString() ?? '1970-01-01T00:00:00.000Z') + (boost * 1000)
             : input.sort === 'quality'

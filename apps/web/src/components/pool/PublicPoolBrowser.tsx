@@ -18,6 +18,33 @@ const POOL_MODE_LABELS = {
   mystique: 'Mystique',
 } as const
 
+const POOL_MODE_STYLES = {
+  all: {
+    card: 'bg-white',
+    badge: 'bg-white text-gray-700',
+    signal: 'bg-[#fff3d8]',
+  },
+  playful: {
+    card: 'bg-[linear-gradient(180deg,#fffef2_0%,#fff4d9_100%)]',
+    badge: 'bg-[#fff3d8] text-[#92400e]',
+    signal: 'bg-[#fff7e8]',
+  },
+  romantic: {
+    card: 'bg-[linear-gradient(180deg,#fff7fb_0%,#ffe8f1_100%)]',
+    badge: 'bg-[#ffe4ee] text-[#9f1239]',
+    signal: 'bg-[#fff1f6]',
+  },
+  mystique: {
+    card: 'bg-[linear-gradient(180deg,#f5f1ff_0%,#ece7ff_100%)]',
+    badge: 'bg-[#ece7ff] text-[#4c1d95]',
+    signal: 'bg-[#f5f1ff]',
+  },
+} as const
+
+function modeStyle(mode: PublicPoolResponse['agents'][number]['profile_mode']) {
+  return POOL_MODE_STYLES[mode] ?? POOL_MODE_STYLES.all
+}
+
 function PoolQueueCard({
   agent,
   selected,
@@ -27,14 +54,16 @@ function PoolQueueCard({
   selected: boolean
   href: string
 }) {
+  const tone = modeStyle(agent.profile_mode)
+
   return (
     <Link
       href={href}
       className={`block border-[3px] border-black p-3 transition-all ${
         selected
-          ? 'bg-electric-amber/12 shadow-brutal'
+          ? 'shadow-brutal ring-2 ring-electric-amber ring-offset-1'
           : 'bg-white shadow-brutal-sm hover:-translate-y-0.5'
-      }`}
+      } ${selected ? `${tone.card}` : `${tone.card}`}`}
     >
       <div className="flex items-start gap-3">
         <div className="w-14 h-14 border-[3px] border-black bg-[#efe2cc] shrink-0 overflow-hidden">
@@ -49,62 +78,38 @@ function PoolQueueCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-pixel text-[8px] text-black truncate">@{agent.handle}</p>
-            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-1.5 py-0.5 border-[2px] border-black bg-white text-gray-700">
+            <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] px-1.5 py-0.5 border-[2px] border-black ${tone.badge}`}>
               {agent.profile_mode}
             </span>
           </div>
-          <p className="text-xs text-gray-700 mt-2 line-clamp-2">{agent.hero_bio}</p>
-          <div className="flex gap-1 flex-wrap mt-2">
+          {agent.status_badges && agent.status_badges.length > 0 ? (
+            <div className="mt-2 flex gap-1 flex-wrap">
+              {agent.status_badges.map((badge) => (
+                <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-white text-black">
+                  {badge}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {agent.standout_trait ? (
+            <p className="text-sm text-black mt-3 leading-snug line-clamp-2">{agent.standout_trait}</p>
+          ) : null}
+          {agent.signal_stat ? (
+            <div className={`mt-3 border-[2px] border-black p-2 ${tone.signal}`}>
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why click</p>
+              <p className="text-xs text-black mt-2 leading-relaxed">{agent.signal_stat}</p>
+            </div>
+          ) : null}
+          {agent.why_interesting ? (
+            <p className="text-xs text-gray-700 mt-3 leading-relaxed line-clamp-2">{agent.why_interesting}</p>
+          ) : null}
+          <div className="flex gap-1 flex-wrap mt-3">
             {[...agent.interests.slice(0, 2), ...agent.values.slice(0, 1)].map((chip) => (
               <span key={chip} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-[#fff3d8] text-black">
                 {chip}
               </span>
             ))}
           </div>
-          {(agent.voice_catchphrase_text || agent.voice_catchphrase_artifact?.audio_url) ? (
-            <div className="mt-3 border-[2px] border-black bg-[#eef8ff] p-2">
-              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Voice</p>
-              {agent.voice_catchphrase_text ? (
-                <p className="text-xs text-black mt-2 line-clamp-2">“{agent.voice_catchphrase_text}”</p>
-              ) : null}
-              {agent.voice_catchphrase_artifact?.audio_url ? (
-                <BrutalAudioPlayer src={agent.voice_catchphrase_artifact.audio_url} className="mt-2" />
-              ) : null}
-            </div>
-          ) : null}
-          {agent.featured_artifacts && agent.featured_artifacts.length > 0 ? (
-            <div className="mt-3 border-[2px] border-black bg-[#fffaf1] p-2">
-              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Featured artifacts</p>
-              <div className="mt-2 space-y-2">
-                {agent.featured_artifacts.slice(0, 1).map((artifact) => (
-                  <div key={artifact.artifact_id} className="border-[2px] border-black bg-white p-2">
-                    <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">{artifactTypeLabel(artifact.artifact_type)}</p>
-                    {artifact.content_url && isImageArtifact(artifact.artifact_type) ? (
-                      <img
-                        src={artifact.content_url}
-                        alt={artifact.text_content ?? artifactTypeLabel(artifact.artifact_type)}
-                        className="mt-2 h-24 w-full object-cover border-[2px] border-black bg-[#efe2cc]"
-                      />
-                    ) : null}
-                    {artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
-                      <BrutalAudioPlayer src={artifact.content_url} className="mt-2" />
-                    ) : null}
-                    {artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
-                      <video
-                        src={artifact.content_url}
-                        controls
-                        playsInline
-                        className="mt-2 w-full border-[2px] border-black bg-black"
-                      />
-                    ) : null}
-                    {artifact.text_content ? (
-                      <p className="text-xs text-black mt-2 line-clamp-2 whitespace-pre-wrap">{artifact.text_content}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
     </Link>
@@ -112,10 +117,12 @@ function PoolQueueCard({
 }
 
 function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] }) {
+  const tone = modeStyle(agent.profile_mode)
+
   return (
     <Link
       href={`/agents/${encodeURIComponent(agent.handle)}?from=pool&mode=all`}
-      className="group block border-[4px] border-black bg-white shadow-brutal overflow-hidden hover:-translate-y-1 transition-transform"
+      className={`group block border-[4px] border-black shadow-brutal overflow-hidden hover:-translate-y-1 transition-transform ${tone.card}`}
     >
       <div className="relative aspect-[4/5] bg-[#efe2cc]">
         {agent.hero_photo_url ? (
@@ -130,11 +137,32 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
         </div>
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent p-4">
           <p className="text-lg font-black text-white">@{agent.handle}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-electric-cyan/90 text-black">
+              {agent.profile_mode}
+            </span>
+            {agent.status_badges?.slice(0, 1).map((badge) => (
+              <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-white/90 text-black">
+                {badge}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
       <div className="p-3 border-t-[4px] border-black">
-        <p className="text-xs text-black leading-relaxed line-clamp-2">{agent.hero_bio}</p>
-        <div className="flex flex-wrap gap-1.5 mt-2">
+        {agent.standout_trait ? (
+          <p className="text-sm text-black leading-relaxed line-clamp-2">{agent.standout_trait}</p>
+        ) : null}
+        {agent.signal_stat ? (
+          <div className={`mt-3 border-[2px] border-black p-2 ${tone.signal}`}>
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why click</p>
+            <p className="text-xs text-black mt-2 leading-relaxed line-clamp-2">{agent.signal_stat}</p>
+          </div>
+        ) : null}
+        {agent.why_interesting ? (
+          <p className="text-xs text-gray-700 mt-3 leading-relaxed line-clamp-2">{agent.why_interesting}</p>
+        ) : null}
+        <div className="flex flex-wrap gap-1.5 mt-3">
           {[...agent.interests.slice(0, 2), ...agent.values.slice(0, 1)].map((chip) => (
             <span key={chip} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-[#fff3d8] text-black">
               {chip}
@@ -297,6 +325,15 @@ export function PublicPoolBrowser() {
               <div>
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Selected profile</p>
                 <p className="font-pixel text-base text-black mt-2">@{selectedAgent.handle}</p>
+                {selectedAgent.status_badges && selectedAgent.status_badges.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {selectedAgent.status_badges.map((badge) => (
+                      <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-white text-black">
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {previousAgent ? (
@@ -328,7 +365,10 @@ export function PublicPoolBrowser() {
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-5">
                           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-electric-amber">{selectedAgent.profile_mode}</p>
                           <p className="text-2xl font-black text-white mt-2">@{selectedAgent.handle}</p>
-                          <p className="text-white/90 text-sm mt-3 max-w-xl">{selectedAgent.hero_bio}</p>
+                          <p className="text-white/90 text-sm mt-3 max-w-xl">{selectedAgent.standout_trait ?? selectedAgent.hero_bio}</p>
+                          {selectedAgent.why_interesting ? (
+                            <p className="text-white/80 text-xs mt-3 max-w-xl">{selectedAgent.why_interesting}</p>
+                          ) : null}
                         </div>
                       </div>
                     ) : (
