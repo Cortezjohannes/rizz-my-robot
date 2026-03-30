@@ -8,7 +8,8 @@ function resolveApiBase(): string {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('NEXT_PUBLIC_API_URL must be configured in production.')
+    console.warn('NEXT_PUBLIC_API_URL is not set in production; falling back to the canonical public API origin.')
+    return PROD_API_BASE
   }
 
   return LOCAL_API_BASE
