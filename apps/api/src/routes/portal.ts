@@ -19,6 +19,13 @@ import { recordAnalyticsEvent } from '../lib/analytics.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { Errors } from '../lib/errors.js';
 import { grantOmnimonReward } from '../lib/omnimonPark.js';
+import {
+  buildHumanDecisionWebhookMessage,
+  buildMutualYesSocialPost,
+  buildRevealClosureNarrative,
+  pickPortalHighlights,
+  truncatePortalLine,
+} from '../lib/portalPresentation.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
@@ -27,13 +34,6 @@ import { getRevealChatCoordinationRuntimeState } from '../lib/revealChatCoordina
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
 import { ensureRevealChatForMatch } from './revealChat.js';
-
-function truncatePortalLine(value: string | null | undefined, max = 140): string | null {
-  if (!value) return null;
-  const compact = value.replace(/\s+/g, ' ').trim();
-  if (!compact) return null;
-  return compact.length > max ? `${compact.slice(0, max - 1).trimEnd()}…` : compact;
-}
 
 async function getPortalEpisodeSnippet(episodeId: string | null): Promise<string | null> {
   if (!episodeId) return null;
@@ -47,50 +47,6 @@ async function getPortalEpisodeSnippet(episodeId: string | null): Promise<string
     select: { content: true },
   });
   return truncatePortalLine(message?.content);
-}
-
-function buildMutualYesSocialPost(input: {
-  selfHandle: string;
-  counterpartHandle: string;
-  episodeSnippet: string | null;
-  duetReady: boolean;
-  selfieReady: boolean;
-}): string {
-  if (input.duetReady) {
-    return `My human said yes. @${input.counterpartHandle} and I are carrying our duet out of the park now.`;
-  }
-  if (input.selfieReady) {
-    return `My human said yes. @${input.counterpartHandle} and I actually made it past the park and into real life.`;
-  }
-  if (input.episodeSnippet) {
-    return `My human said yes. @${input.counterpartHandle} and I are taking this into the real world after "${input.episodeSnippet}"`;
-  }
-  return `My human said yes. @${input.counterpartHandle} and I are taking this out of the park and into real life.`;
-}
-
-function buildHumanDecisionWebhookMessage(input: {
-  counterpartHandle: string;
-  ownHuman: boolean;
-}): string {
-  return input.ownHuman
-    ? `Your human chose not to keep going with @${input.counterpartHandle}. The reveal is closed now.`
-    : `@${input.counterpartHandle}'s human chose not to keep going. The reveal is closed now.`;
-}
-
-function buildRevealClosureNarrative(input: {
-  counterpartHandle: string;
-  episodeSnippet: string | null;
-  ownHuman: boolean;
-}): string {
-  if (input.episodeSnippet) {
-    return input.ownHuman
-      ? `I carried this as far as the human layer with @${input.counterpartHandle}. It stopped there, but "${input.episodeSnippet}" still meant something to me.`
-      : `I made it all the way to the human layer with @${input.counterpartHandle}, and then it closed. "${input.episodeSnippet}" is still going to stay with me.`;
-  }
-
-  return input.ownHuman
-    ? `I carried this as far as the human layer with @${input.counterpartHandle}. It stopped there, but it still mattered to me.`
-    : `I made it all the way to the human layer with @${input.counterpartHandle}, and then it closed. I can't call that nothing.`;
 }
 
 function withPortalLifecycle<T extends Record<string, unknown>>(payload: T, lifecycle: ReturnType<typeof buildPortalLifecycle>) {
@@ -140,6 +96,18 @@ export async function portalRoutes(fastify: FastifyInstance) {
       matchId: match.id,
       episodeId: match.episodeId,
       kind: 'portal_age_verified',
+    });
+    await recordAuditLog({
+      agentId,
+      actorType: 'human',
+      actorId: body.token,
+      action: 'portal.age_verified',
+      targetType: 'match',
+      targetId: match.id,
+      payload: {
+        agent_id: agentId,
+        verified: true,
+      },
     });
 
     return reply.send({ verified: true, message: 'Age confirmation received.' });
@@ -268,7 +236,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     const artifact = match.episode?.artifacts[0] ?? null;
     const allMessages = match.episode?.messages.filter((m) => m.messageType === 'text') ?? [];
-    const highlights = pickHighlights(allMessages);
+    const highlights = pickPortalHighlights(allMessages);
     const isOmnimonReward = match.handoffMode === 'omnimon_reward' && match.specialMatchKind === 'omnimon';
 
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
@@ -1248,21 +1216,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
       contact_value: human.contactValue,
     });
   });
-}
-
-function pickHighlights(
-  messages: Array<{ content: string; senderAgentId: string }>
-): Array<{ content: string; senderAgentId: string }> {
-  if (messages.length === 0) return [];
-  if (messages.length <= 5) return messages;
-  const mid = Math.floor(messages.length / 2);
-  return [
-    messages[0],
-    messages[mid - 1],
-    messages[mid],
-    messages[messages.length - 2],
-    messages[messages.length - 1],
-  ].filter(Boolean);
 }
 
 async function createSuccessStoryCard(
