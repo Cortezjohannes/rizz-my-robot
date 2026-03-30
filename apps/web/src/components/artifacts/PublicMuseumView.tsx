@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
 import { viewerFetcher } from '@/lib/api'
@@ -8,12 +8,33 @@ import type {
   PublicArtifactFeedCard,
   PublicArtifactFeedResponse,
 } from '@/lib/types'
+import { isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
 import { DashboardSectionHeader } from '@/components/dashboard/DashboardShared'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
 import { assets } from '@/lib/assets'
 
+type MuseumFilter = 'all' | 'text' | 'image' | 'audio' | 'video'
+
+const FILTER_LABELS: Record<MuseumFilter, string> = {
+  all: 'ALL',
+  text: 'TEXT',
+  image: 'IMAGE',
+  audio: 'AUDIO',
+  video: 'VIDEO',
+}
+
+function artifactMatchesFilter(artifact: PublicArtifactFeedCard, filter: MuseumFilter) {
+  if (filter === 'all') return true
+  if (filter === 'image') return isImageArtifact(artifact.artifact_type)
+  if (filter === 'audio') return isAudioArtifact(artifact.artifact_type)
+  if (filter === 'video') return isVideoArtifact(artifact.artifact_type)
+  const normalized = normalizeArtifactType(artifact.artifact_type)
+  return normalized === 'poem' || normalized === 'love_letter' || normalized === 'manifesto' || normalized === 'haiku'
+}
+
 export function PublicMuseumView() {
   const [sort, setSort] = useState<'trending' | 'fresh_24h'>('trending')
+  const [filter, setFilter] = useState<MuseumFilter>('all')
 
   const { data, error, isLoading } = useSWR<PublicArtifactFeedResponse>(
     `/public/artifacts?sort=${sort}&limit=24`,
@@ -22,8 +43,19 @@ export function PublicMuseumView() {
   )
 
   const artifacts: PublicArtifactFeedCard[] = data?.artifacts ?? []
-  const heroArtifact = artifacts[0] ?? null
-  const galleryArtifacts = heroArtifact ? artifacts.slice(1) : artifacts
+  const filterCounts = useMemo(() => ({
+    all: artifacts.length,
+    text: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'text')).length,
+    image: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'image')).length,
+    audio: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'audio')).length,
+    video: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'video')).length,
+  }), [artifacts])
+  const filteredArtifacts = useMemo(
+    () => artifacts.filter((artifact) => artifactMatchesFilter(artifact, filter)),
+    [artifacts, filter]
+  )
+  const heroArtifact = filteredArtifacts[0] ?? null
+  const galleryArtifacts = heroArtifact ? filteredArtifacts.slice(1) : filteredArtifacts
 
   return (
     <main className="min-h-screen pt-24 px-4 py-8 relative overflow-hidden bg-[radial-gradient(ellipse_at_top,#fff6e5_0%,#f5ecd8_40%,#ffe7f8_100%)]">
@@ -62,6 +94,22 @@ export function PublicMuseumView() {
               FRESH
             </button>
           </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {(['all', 'text', 'image', 'audio', 'video'] as MuseumFilter[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setFilter(value)}
+                className={`font-pixel text-[8px] px-3 py-2 border-[3px] border-black transition-all ${
+                  filter === value
+                    ? 'bg-electric-cyan text-black shadow-brutal-sm'
+                    : 'bg-white text-black hover:-translate-y-0.5 hover:shadow-brutal-sm'
+                }`}
+              >
+                {FILTER_LABELS[value]} {filterCounts[value] > 0 ? `(${filterCounts[value]})` : ''}
+              </button>
+            ))}
+          </div>
         </motion.section>
 
         {error ? (
@@ -80,7 +128,11 @@ export function PublicMuseumView() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Museum centerpiece</p>
-                <p className="text-sm text-gray-700 mt-2">The loudest recent drop gets a bigger wall so the museum feels like a real gallery, not just a text list.</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  {filter === 'all'
+                    ? 'The loudest recent drop gets a bigger wall so the museum feels like a real gallery, not just a text list.'
+                    : `${FILTER_LABELS[filter].toLowerCase()} artifacts get their own wall here so the collection stays readable instead of collapsing into one long format.`}
+                </p>
               </div>
             </div>
             <ArtifactSpotlightCard
@@ -96,16 +148,20 @@ export function PublicMuseumView() {
             Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="h-48 border-[3px] border-black bg-white skeleton-shimmer" />
             ))
-          ) : artifacts.length === 0 ? (
+          ) : filteredArtifacts.length === 0 ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.97 }}
               animate={{ opacity: 1, scale: 1 }}
               className="md:col-span-2 bg-white/92 backdrop-blur-sm border-[4px] border-black shadow-brutal p-6"
             >
               <img src={assets.micro.dogSolo} alt="" aria-hidden={true} data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
-              <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Nothing here yet</p>
+              <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">
+                {artifacts.length === 0 ? 'Nothing here yet' : `No ${FILTER_LABELS[filter].toLowerCase()} artifacts right now`}
+              </p>
               <p className="text-sm text-gray-700 mt-2">
-                Once episodes get expressive, the artifacts will be archived here.
+                {artifacts.length === 0
+                  ? 'Once episodes get expressive, the artifacts will be archived here.'
+                  : 'Try another filter or switch between trending and fresh.'}
               </p>
             </motion.div>
           ) : (

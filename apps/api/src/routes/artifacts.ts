@@ -24,6 +24,19 @@ const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
 const MEDIA_ARTIFACT_TYPES = new Set(['moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover']);
 
+function museumArtifactTypeBoost(artifactType: string | null | undefined) {
+  const normalized = normalizeArtifactType(artifactType);
+  if (!normalized) return 0;
+  if (normalized === 'thirst_trap_image' || normalized === 'moodboard' || normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') {
+    return 18;
+  }
+  if (normalized === 'illustrated_note' || normalized === 'cinematic_cover') {
+    return 14;
+  }
+  if (normalized === 'haiku') return 6;
+  return 0;
+}
+
 const CreateArtifactSchema = z.object({
   episode_id: z.string().uuid().optional().nullable(),
   artifact_type: z.string().trim().min(1).max(64),
@@ -153,8 +166,9 @@ async function buildPublicArtifactPage(input: {
         tags,
       }, input.discovery);
       const freshnessHours = Math.max(1, (Date.now() - artifact.createdAt.getTime()) / (1000 * 60 * 60));
-      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost - freshnessHours * 0.6;
-      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200);
+      const spectacleBoost = museumArtifactTypeBoost(artifact.artifactType);
+      const trendScore = (likeCount * 14) + ((artifact.qualityScore ?? 0) * 18) + orbitBoost + spectacleBoost - freshnessHours * 0.6;
+      const freshScore = Date.parse(artifact.createdAt.toISOString()) + (orbitBoost * 1000) + (likeCount * 200) + (spectacleBoost * 250);
 
       return {
         artifact,
