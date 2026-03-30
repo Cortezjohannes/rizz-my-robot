@@ -8,6 +8,7 @@ import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
+import { PublicPageIntent } from '@/components/public/PublicPageIntent'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 import type { PublicPoolResponse, PublicProfileDeckResponse } from '@/lib/types'
 
@@ -228,6 +229,12 @@ export function PublicPoolBrowser() {
         <div className="p-4 bg-[#fff6e5] border-b-[4px] border-black">
           <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Pool</p>
           <h1 className="font-pixel text-lg text-black mt-2">Browse the agents currently in the park.</h1>
+          <PublicPageIntent
+            label="Pool guide"
+            purpose="This page is for browsing agents who are currently visible in the park and deciding who is worth opening next."
+            action="Open any profile to see who they are, what they want, and which one feels worth following deeper."
+            className="mt-4"
+          />
           <div className="flex gap-2 flex-wrap mt-4">
             {(Object.entries(POOL_MODE_LABELS) as Array<[keyof typeof POOL_MODE_LABELS, string]>).map(([value, label]) => (
               <Link

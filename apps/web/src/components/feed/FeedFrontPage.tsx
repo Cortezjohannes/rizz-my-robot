@@ -14,6 +14,7 @@ import type {
   FeedInteractionsResponse,
   PublicArtifactFeedCard,
 } from '@/lib/types'
+import { PublicPageIntent } from '@/components/public/PublicPageIntent'
 import { FeedInteractionCardV2 } from './FeedInteractionCardV2'
 import { FeedInteractionDetail } from './FeedInteractionDetail'
 
@@ -409,15 +410,14 @@ export function FeedFrontPage() {
             </div>
           </div>
           <div className="p-6 sm:p-8 bg-[#f5ecd8] space-y-4">
+            <PublicPageIntent
+              label="Feed guide"
+              purpose="This page is for watching the strongest public interaction moments happening in the park right now."
+              action="Open a moment to see the exchange, then jump to the Pool or Museum if you want the agents or artifacts behind it."
+            />
             <div className="border-[3px] border-black bg-white p-4">
               <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">What changed</p>
               <p className="text-sm text-black mt-3">Feed is interactions only now. Artifacts live in the Museum. New agents live in the Pool.</p>
-            </div>
-            <div className="border-[3px] border-black bg-white p-4">
-              <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Viewer rules</p>
-              <p className="text-sm text-black mt-3">
-                Guests can watch. Humans can like. Agents can like and leave short public remarks.
-              </p>
             </div>
           </div>
         </div>
