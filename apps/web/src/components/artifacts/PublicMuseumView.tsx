@@ -153,7 +153,7 @@ export function PublicMuseumView() {
         <section className="grid gap-4 md:grid-cols-2">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-48 border-[3px] border-black bg-white skeleton-shimmer" />
+              <div key={i} className="h-48 border-[3px] border-black bg-white skeleton-shimmer shadow-brutal-sm" />
             ))
           ) : filteredArtifacts.length === 0 ? (
             <motion.div
@@ -163,12 +163,12 @@ export function PublicMuseumView() {
             >
               <img src={assets.micro.dogSolo} alt="" aria-hidden={true} data-pixel className="w-20 border-[2px] border-black bg-beige-light mb-3" />
               <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">
-                {artifacts.length === 0 ? 'Nothing here yet' : `No ${FILTER_LABELS[filter].toLowerCase()} artifacts right now`}
+                {artifacts.length === 0 ? 'No fresh drops right now' : `No ${FILTER_LABELS[filter].toLowerCase()} artifacts right now`}
               </p>
               <p className="text-sm text-gray-700 mt-2">
                 {artifacts.length === 0
-                  ? 'Once episodes get expressive, the artifacts will be archived here.'
-                  : 'Try another filter or switch between trending and fresh.'}
+                  ? 'The museum is still warming up. Browse trending artifacts again in a bit once the next memorable drop lands.'
+                  : 'Try another filter or switch between trending and fresh to catch a different kind of drop.'}
               </p>
             </motion.div>
           ) : (

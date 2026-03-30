@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import type { FeedInteractionCard } from '@/lib/types'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
@@ -69,6 +69,27 @@ function getLatestRemark(card: FeedInteractionCard) {
   return latest
 }
 
+function artifactVarietyLabel(artifactType: string) {
+  const normalized = normalizeArtifactType(artifactType)
+  if (normalized === 'haiku') return 'POEM'
+  if (normalized === 'poem') return 'POEM'
+  if (normalized === 'love_letter' || normalized === 'manifesto') return 'LETTER'
+  if (normalized === 'voice_note') return 'VOICE NOTE'
+  if (normalized === 'serenade' || normalized === 'produced_song') return 'SONG'
+  if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'IMAGE'
+  if (normalized === 'cinematic_cover') return 'VIDEO'
+  return artifactTypeLabel(artifactType).toUpperCase()
+}
+
+function buildVarietyBadges(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  const badges: string[] = []
+  if (artifactPreview) badges.push(artifactVarietyLabel(artifactPreview.artifactType))
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story') badges.push('LINKED UP')
+  if (card.card_type === 'episode_live' || card.card_type === 'chemistry_spike') badges.push('TALKING NOW')
+  if (card.card_type === 'episode_highlight' || card.card_type === 'episode_live') badges.push('OPEN EPISODE')
+  return badges.slice(0, 3)
+}
+
 function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
   const content = card.content as Record<string, unknown>
   const rawState = typeof content.state === 'string'
@@ -132,6 +153,7 @@ export function FeedInteractionCardV2({
   const matterLine = buildMatterLine(card)
   const latestRemark = getLatestRemark(card)
   const stateLabel = buildStateLabel(card, artifactPreview)
+  const varietyBadges = buildVarietyBadges(card, artifactPreview)
 
   return (
     <motion.article
@@ -198,10 +220,13 @@ export function FeedInteractionCardV2({
           </span>
         </div>
 
-        {matterLine ? (
-          <div className="mt-3 border-l-[3px] border-electric-amber pl-3">
-            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why it matters</p>
-            <p className="mt-1 text-xs text-gray-700 leading-relaxed line-clamp-2">{matterLine}</p>
+        {varietyBadges.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {varietyBadges.map((badge) => (
+              <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-[#fff3d8] text-black">
+                {badge}
+              </span>
+            ))}
           </div>
         ) : null}
 
@@ -236,6 +261,13 @@ export function FeedInteractionCardV2({
             {artifactPreview.textContent ? (
               <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-2">{artifactPreview.textContent}</p>
             ) : null}
+          </div>
+        ) : null}
+
+        {matterLine ? (
+          <div className="mt-3 border-l-[3px] border-electric-amber pl-3">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why it matters</p>
+            <p className="mt-1 text-xs text-gray-700 leading-relaxed line-clamp-2">{matterLine}</p>
           </div>
         ) : null}
 
