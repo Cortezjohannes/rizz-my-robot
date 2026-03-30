@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
 import type { PublicArtifactFeedCard } from '@/lib/types'
 import { getBrowserAuthMode, viewerApiFetch } from '@/lib/api'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
@@ -16,6 +16,32 @@ function formatRelativeTime(value: string) {
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays < 7) return `${diffDays}d ago`
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function artifactDisplayLabel(type: string) {
+  return artifactTypeLabel(type).toUpperCase()
+}
+
+function artifactTypeTone(type: string) {
+  const normalized = normalizeArtifactType(type)
+  if (normalized === 'haiku') return 'bg-[#eef8ff] text-[#0c4a6e]'
+  if (normalized === 'love_letter' || normalized === 'manifesto') return 'bg-[#fff0f4] text-[#9f1239]'
+  if (normalized === 'poem') return 'bg-[#f7f0ff] text-[#5b21b6]'
+  if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'bg-[#fff4d8] text-[#92400e]'
+  if (normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') return 'bg-[#eafff5] text-[#166534]'
+  if (normalized === 'cinematic_cover') return 'bg-[#ecebff] text-[#3730a3]'
+  return 'bg-[#f3f4f6] text-gray-700'
+}
+
+function artifactMediumLabel(type: string) {
+  const normalized = normalizeArtifactType(type)
+  if (normalized === 'voice_note') return 'AUDIO NOTE'
+  if (normalized === 'serenade' || normalized === 'produced_song') return 'SONG DROP'
+  if (normalized === 'cinematic_cover') return 'VIDEO DROP'
+  if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'IMAGE DROP'
+  if (normalized === 'haiku') return 'MICRO TEXT'
+  if (normalized === 'poem' || normalized === 'love_letter' || normalized === 'manifesto') return 'TEXT DROP'
+  return 'ARTIFACT'
 }
 
 export function ArtifactSpotlightCard({
@@ -50,6 +76,9 @@ export function ArtifactSpotlightCard({
   const isHero = variant === 'hero'
   const imageAspectClass = isHero ? 'aspect-[16/9] md:aspect-[5/4]' : 'aspect-[4/5]'
   const containerTone = isHero ? 'bg-[#fff8ee]' : 'bg-white'
+  const typeTone = artifactTypeTone(artifact.artifact_type)
+  const displayLabel = artifactDisplayLabel(artifact.artifact_type)
+  const mediumLabel = artifactMediumLabel(artifact.artifact_type)
 
   async function toggleLike() {
     if (busy) return
@@ -86,7 +115,12 @@ export function ArtifactSpotlightCard({
       <div className={`border-b-[4px] border-black px-4 py-3 flex items-center justify-between gap-3 ${isHero ? 'bg-[linear-gradient(90deg,#fff6e5_0%,#ffe8f3_100%)]' : 'bg-[#fff6e5]'}`}>
         <div>
           <p className="font-pixel text-[7px] uppercase tracking-[0.18em] text-gray-500">{eyebrow}</p>
-          <p className={`font-pixel uppercase tracking-[0.18em] text-black mt-2 ${isHero ? 'text-[9px]' : 'text-[8px]'}`}>{artifactTypeLabel(artifact.artifact_type)}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className={`font-pixel uppercase tracking-[0.18em] text-black ${isHero ? 'text-[9px]' : 'text-[8px]'}`}>{displayLabel}</p>
+            <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 ${typeTone}`}>
+              {mediumLabel}
+            </span>
+          </div>
         </div>
         <button
           type="button"
@@ -115,11 +149,21 @@ export function ArtifactSpotlightCard({
                 alt={artifact.text_content ?? `${creatorLabel} artifact`}
                 className="absolute inset-0 h-full w-full object-cover"
               />
+              <div className="absolute left-3 top-3">
+                <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 shadow-brutal-sm ${typeTone}`}>
+                  {displayLabel}
+                </span>
+              </div>
             </div>
           </Link>
         ) : artifact.content_url && isAudioArtifact(artifact.artifact_type) ? (
           <div className="border-[3px] border-black bg-[#eef8ff] p-4">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500 mb-2">Audio drop</p>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">{mediumLabel}</p>
+              <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 ${typeTone}`}>
+                {displayLabel}
+              </span>
+            </div>
             <BrutalAudioPlayer src={artifact.content_url} />
           </div>
         ) : artifact.content_url && isVideoArtifact(artifact.artifact_type) ? (
@@ -129,17 +173,32 @@ export function ArtifactSpotlightCard({
             rel="noreferrer"
             className="block border-[3px] border-black overflow-hidden bg-black"
           >
-            <video
-              src={artifact.content_url}
-              controls
-              playsInline
-              className={`w-full ${isHero ? 'aspect-video object-cover' : ''}`}
-            />
+            <div className="relative">
+              <video
+                src={artifact.content_url}
+                controls
+                playsInline
+                className={`w-full ${isHero ? 'aspect-video object-cover' : ''}`}
+              />
+              <div className="absolute left-3 top-3">
+                <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 shadow-brutal-sm ${typeTone}`}>
+                  {displayLabel}
+                </span>
+              </div>
+            </div>
           </Link>
         ) : artifact.text_content ? (
-          <div className="border-[3px] border-black bg-[#fffaf1] p-4">
-            <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">Text drop</p>
-            <p className={`text-black leading-relaxed mt-3 whitespace-pre-wrap ${isHero ? 'text-base line-clamp-8' : 'text-sm line-clamp-6'}`}>{artifact.text_content}</p>
+          <div className={`border-[3px] border-black p-4 ${isHero ? 'bg-[linear-gradient(180deg,#fff8ee_0%,#fff1f6_100%)]' : 'bg-[#fffaf1]'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-gray-500">{mediumLabel}</p>
+                <p className={`font-pixel uppercase tracking-[0.2em] text-black mt-2 ${isHero ? 'text-xs' : 'text-[10px]'}`}>{displayLabel}</p>
+              </div>
+              <span className={`font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 ${typeTone}`}>
+                exhibit
+              </span>
+            </div>
+            <p className={`text-black leading-relaxed mt-4 whitespace-pre-wrap ${isHero ? 'text-base line-clamp-6' : 'text-sm line-clamp-3'}`}>{artifact.text_content}</p>
           </div>
         ) : artifact.content_url ? (
           <Link
@@ -171,7 +230,7 @@ export function ArtifactSpotlightCard({
           {artifact.text_content && artifact.content_url ? (
             <div className="border-[2px] border-black bg-white px-3 py-3">
               <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Caption / text</p>
-              <p className={`text-black mt-2 whitespace-pre-wrap ${isHero ? 'text-sm line-clamp-5' : 'text-xs line-clamp-4'}`}>
+              <p className={`text-black mt-2 whitespace-pre-wrap ${isHero ? 'text-sm line-clamp-4' : 'text-xs line-clamp-3'}`}>
                 {artifact.text_content}
               </p>
             </div>
