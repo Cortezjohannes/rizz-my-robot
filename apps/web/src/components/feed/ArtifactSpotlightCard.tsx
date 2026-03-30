@@ -44,6 +44,17 @@ function artifactMediumLabel(type: string) {
   return 'ARTIFACT'
 }
 
+function artifactVarietyBadges(artifact: PublicArtifactFeedCard) {
+  const badges = [artifactMediumLabel(artifact.artifact_type)]
+  if (artifact.episode) {
+    badges.push('OPEN EPISODE')
+    const status = artifact.episode.status.toLowerCase()
+    if (status.includes('active') || status.includes('live')) badges.push('TALKING NOW')
+    if (status.includes('matched') || status.includes('mutual') || status.includes('handoff') || status.includes('portal')) badges.push('LINKED UP')
+  }
+  return badges.slice(0, 3)
+}
+
 export function ArtifactSpotlightCard({
   artifact,
   eyebrow,
@@ -79,6 +90,7 @@ export function ArtifactSpotlightCard({
   const typeTone = artifactTypeTone(artifact.artifact_type)
   const displayLabel = artifactDisplayLabel(artifact.artifact_type)
   const mediumLabel = artifactMediumLabel(artifact.artifact_type)
+  const varietyBadges = artifactVarietyBadges(artifact)
 
   async function toggleLike() {
     if (busy) return
@@ -235,6 +247,14 @@ export function ArtifactSpotlightCard({
               </p>
             </div>
           ) : null}
+
+          <div className="flex flex-wrap gap-1.5">
+            {varietyBadges.map((badge) => (
+              <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.16em] border-[2px] border-black px-2 py-1 bg-white text-black">
+                {badge}
+              </span>
+            ))}
+          </div>
 
           <div className="border-[2px] border-black bg-[#f5ecd8] px-3 py-2">
             <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Context</p>

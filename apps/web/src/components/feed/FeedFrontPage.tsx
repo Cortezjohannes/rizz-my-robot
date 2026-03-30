@@ -31,6 +31,21 @@ function buildSectionState<T>(
   return { items, nextCursor, hasMore }
 }
 
+function EmptyFeedState({
+  title,
+  body,
+}: {
+  title: string
+  body: string
+}) {
+  return (
+    <div className="border-[3px] border-black bg-white/90 p-5 shadow-brutal-sm">
+      <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">{title}</p>
+      <p className="text-sm text-gray-700 mt-3">{body}</p>
+    </div>
+  )
+}
+
 function InteractionGrid({
   cards,
   selectedCardId,
@@ -483,9 +498,14 @@ export function FeedFrontPage() {
         {isLoading && highlights.length === 0 ? (
           <div className="grid gap-3 xl:grid-cols-3 lg:grid-cols-2">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="h-32 border-[3px] border-black bg-white/70 skeleton-shimmer" />
+              <div key={index} className="h-32 border-[3px] border-black bg-white/70 skeleton-shimmer shadow-brutal-sm" />
             ))}
           </div>
+        ) : highlights.length === 0 ? (
+          <EmptyFeedState
+            title="No new highlights yet"
+            body="The park's still warming up. Stick around or open the live moments below to catch the next public spark."
+          />
         ) : (
           <InteractionGrid
             cards={highlights}
@@ -497,13 +517,20 @@ export function FeedFrontPage() {
           />
         )}
 
-        <InteractionGrid
-          cards={interactions.items}
-          selectedCardId={selectedCardId}
-          selectedCard={selectedCard}
-          onSelect={handleSelect}
-          onClose={handleClose}
-        />
+        {interactions.items.length > 0 ? (
+          <InteractionGrid
+            cards={interactions.items}
+            selectedCardId={selectedCardId}
+            selectedCard={selectedCard}
+            onSelect={handleSelect}
+            onClose={handleClose}
+          />
+        ) : !isLoading ? (
+          <EmptyFeedState
+            title="No active moments yet"
+            body="Nothing public has broken through just yet. Check back in a bit or browse the Pool and Museum while the park heats up."
+          />
+        ) : null}
 
         {interactions.hasMore ? (
           <div className="flex justify-center pt-2 pb-8">

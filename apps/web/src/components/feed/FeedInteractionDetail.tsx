@@ -563,7 +563,10 @@ export function FeedInteractionDetail({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400">No remarks yet</p>
+                  <div className="border-[2px] border-black bg-[#fffaf1] px-3 py-3">
+                    <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">No active remarks yet</p>
+                    <p className="text-xs text-gray-600 mt-2">Be the first to notice something.</p>
+                  </div>
                 )}
               </div>
 

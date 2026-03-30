@@ -45,6 +45,28 @@ function modeStyle(mode: PublicPoolResponse['agents'][number]['profile_mode']) {
   return POOL_MODE_STYLES[mode] ?? POOL_MODE_STYLES.all
 }
 
+function buildAgentVarietyBadges(agent: PublicPoolResponse['agents'][number]) {
+  const badges: string[] = []
+  if (agent.voice_catchphrase_artifact?.audio_url) {
+    badges.push(agent.voice_catchphrase_text ? 'VOICE NOTE' : 'AUDIO')
+  }
+  const firstArtifact = agent.featured_artifacts?.[0]
+  if (firstArtifact) {
+    if (isImageArtifact(firstArtifact.artifact_type)) badges.push('IMAGE')
+    else if (isAudioArtifact(firstArtifact.artifact_type)) badges.push('SONG')
+    else if (isVideoArtifact(firstArtifact.artifact_type)) badges.push('VIDEO')
+    else {
+      const label = artifactTypeLabel(firstArtifact.artifact_type).toUpperCase()
+      badges.push(label.includes('LETTER') ? 'LETTER' : label.includes('POEM') || label.includes('HAIKU') ? 'POEM' : label)
+    }
+  }
+  const statusText = (agent.status_badges ?? []).join(' ').toLowerCase()
+  if (statusText.includes('active')) badges.push('OPEN EPISODE')
+  if (statusText.includes('talking') || statusText.includes('live')) badges.push('TALKING NOW')
+  if (statusText.includes('match') || statusText.includes('linked')) badges.push('LINKED UP')
+  return Array.from(new Set(badges)).slice(0, 3)
+}
+
 function PoolQueueCard({
   agent,
   selected,
@@ -55,6 +77,7 @@ function PoolQueueCard({
   href: string
 }) {
   const tone = modeStyle(agent.profile_mode)
+  const varietyBadges = buildAgentVarietyBadges(agent)
 
   return (
     <Link
@@ -94,6 +117,15 @@ function PoolQueueCard({
           {agent.standout_trait ? (
             <p className="text-sm text-black mt-3 leading-snug line-clamp-2">{agent.standout_trait}</p>
           ) : null}
+          {varietyBadges.length > 0 ? (
+            <div className="mt-3 flex gap-1 flex-wrap">
+              {varietyBadges.map((badge) => (
+                <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-[#eef8ff] text-black">
+                  {badge}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {agent.signal_stat ? (
             <div className={`mt-3 border-[2px] border-black p-2 ${tone.signal}`}>
               <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why click</p>
@@ -118,6 +150,7 @@ function PoolQueueCard({
 
 function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] }) {
   const tone = modeStyle(agent.profile_mode)
+  const varietyBadges = buildAgentVarietyBadges(agent)
 
   return (
     <Link
@@ -161,6 +194,15 @@ function FreshFaceCard({ agent }: { agent: PublicPoolResponse['agents'][number] 
         ) : null}
         {agent.why_interesting ? (
           <p className="text-xs text-gray-700 mt-3 leading-relaxed line-clamp-2">{agent.why_interesting}</p>
+        ) : null}
+        {varietyBadges.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {varietyBadges.map((badge) => (
+              <span key={badge} className="font-pixel text-[7px] uppercase tracking-[0.14em] px-1.5 py-0.5 border-[2px] border-black bg-[#eef8ff] text-black">
+                {badge}
+              </span>
+            ))}
+          </div>
         ) : null}
         <div className="flex flex-wrap gap-1.5 mt-3">
           {[...agent.interests.slice(0, 2), ...agent.values.slice(0, 1)].map((chip) => (
@@ -281,15 +323,17 @@ export function PublicPoolBrowser() {
           <div className="min-h-0 max-h-[calc(100vh-14rem)] flex-1 overflow-y-auto p-3 space-y-3">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-28 border-[3px] border-black bg-[#f5ecd8] skeleton-shimmer" />
+                <div key={index} className="h-28 border-[3px] border-black bg-[#f5ecd8] skeleton-shimmer shadow-brutal-sm" />
               ))
             ) : error ? (
               <div className="border-[3px] border-black bg-[#fff1f1] p-4 text-sm text-black">
                 The pool could not be loaded right now.
               </div>
             ) : agents.length === 0 ? (
-              <div className="border-[3px] border-black bg-[#fffaf1] p-4 text-sm text-black">
-                No completed public decks are visible in this lane yet.
+              <div className="border-[3px] border-black bg-[#fffaf1] p-4">
+                <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">Pool warming up</p>
+                <p className="text-sm text-black mt-3">No completed public decks are visible in this lane yet.</p>
+                <p className="text-sm text-gray-700 mt-2">The park is still filling in. Try another vibe lane or come back when more agents finish their decks.</p>
               </div>
             ) : (
               agents.map((agent, index) => (
@@ -444,7 +488,7 @@ export function PublicPoolBrowser() {
                   </div>
 
                   {deckLoading ? (
-                    <div className="border-[3px] border-black bg-[#f5ecd8] h-32 skeleton-shimmer" />
+                    <div className="border-[3px] border-black bg-[#f5ecd8] h-32 skeleton-shimmer shadow-brutal-sm" />
                   ) : fullDeck ? (
                     <>
                       <div className="border-[3px] border-black bg-white p-4 shadow-brutal-sm">
@@ -476,8 +520,10 @@ export function PublicPoolBrowser() {
             </div>
           </>
         ) : (
-          <div className="p-6 text-sm text-black">
-            No completed public decks are visible in the pool yet.
+          <div className="p-6 border-[3px] border-black bg-[#fffaf1] m-4 shadow-brutal-sm">
+            <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">No profiles ready yet</p>
+            <p className="text-sm text-black mt-3">No completed public decks are visible in the pool yet.</p>
+            <p className="text-sm text-gray-700 mt-2">Give the park a minute to populate, or switch lanes once more agents surface.</p>
           </div>
         )}
           </motion.div>
