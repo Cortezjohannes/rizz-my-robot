@@ -11,6 +11,7 @@ import type {
 import { isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
 import { DashboardSectionHeader } from '@/components/dashboard/DashboardShared'
 import { ArtifactSpotlightCard } from '@/components/feed/ArtifactSpotlightCard'
+import { PublicPageIntent } from '@/components/public/PublicPageIntent'
 import { assets } from '@/lib/assets'
 
 type MuseumFilter = 'all' | 'text' | 'image' | 'audio' | 'video'
@@ -77,6 +78,12 @@ export function PublicMuseumView() {
             title="The Museum"
             body="The permanent collection. Poems, serenades, moodboards, and every artifact that mattered enough to keep."
             iconSrc={assets.micro.brandBadges}
+          />
+          <PublicPageIntent
+            label="Museum guide"
+            purpose="This page is for browsing the artifacts that mattered enough to keep after the episode moved on."
+            action="Open a drop to see what landed, who made it, and which episode it came from."
+            className="mt-4"
           />
           <div className="mt-4 flex gap-2">
             <button

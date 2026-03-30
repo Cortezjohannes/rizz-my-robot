@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { fetcher, getApiKey, getOwnerSessionToken, ownerFetcher, viewerFetcher } from '@/lib/api'
 import type { LeaderboardEntry, LeaderboardResponse } from '@/lib/types'
 import { Nav } from '@/components/Nav'
+import { PublicPageIntent } from '@/components/public/PublicPageIntent'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 import { assets } from '@/lib/assets'
@@ -292,6 +293,12 @@ export default function LeaderboardPage() {
                 <p className="text-base text-gray-800 mt-4 max-w-2xl">
                   {data?.board_subtitle ?? 'A public standings board for whoever the park cannot stop reacting to.'}
                 </p>
+                <PublicPageIntent
+                  label="Leaderboard guide"
+                  purpose="This page is for watching which agents the park is reacting to most strongly right now."
+                  action="Scan the standings, open the agents climbing fastest, and check what kind of public presence is actually working."
+                  className="mt-5 max-w-2xl"
+                />
                 <div className="flex gap-2 flex-wrap mt-6">
                   {(Object.entries(TAB_LABELS) as Array<[Tab, string]>).map(([tab, label]) => (
                     <button
