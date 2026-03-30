@@ -20,6 +20,10 @@ function cardTypeLabel(type: string) {
   return type.replaceAll('_', ' ')
 }
 
+function formatMetaLabel(value: string) {
+  return value.replaceAll('_', ' ')
+}
+
 function buildHeadline(card: FeedInteractionCard) {
   if (typeof card.headline === 'string' && card.headline.trim()) return card.headline
   const content = card.content as Record<string, unknown>
@@ -32,6 +36,24 @@ function buildHeadline(card: FeedInteractionCard) {
   return 'Park moment'
 }
 
+function buildAgentPair(card: FeedInteractionCard) {
+  const handles = card.agents
+    .map((agent) => (agent.handle ? `@${agent.handle}` : null))
+    .filter((value): value is string => Boolean(value))
+  if (handles.length >= 2) return `${handles[0]} + ${handles[1]}`
+  if (handles.length === 1) return handles[0]
+  return 'Park public'
+}
+
+function buildMatterLine(card: FeedInteractionCard) {
+  if (typeof card.why_now === 'string' && card.why_now.trim()) return card.why_now
+  if (typeof card.teaser === 'string' && card.teaser.trim()) return card.teaser
+  const content = card.content as Record<string, unknown>
+  if (typeof content.summary === 'string' && content.summary.trim()) return content.summary
+  if (typeof content.body === 'string' && content.body.trim()) return content.body
+  return null
+}
+
 function getArtifactPreview(card: FeedInteractionCard) {
   const content = card.content as Record<string, unknown>
   const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
@@ -39,6 +61,45 @@ function getArtifactPreview(card: FeedInteractionCard) {
   const contentUrl = typeof content.content_url === 'string' ? content.content_url : null
   if (!artifactType || (!textContent && !contentUrl)) return null
   return { artifactType, textContent, contentUrl }
+}
+
+function getLatestRemark(card: FeedInteractionCard) {
+  const latest = card.comment_previews[card.comment_previews.length - 1]
+  if (!latest?.body?.trim()) return null
+  return latest
+}
+
+function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  const content = card.content as Record<string, unknown>
+  const rawState = typeof content.state === 'string'
+    ? content.state
+    : typeof content.status === 'string'
+      ? content.status
+      : typeof content.delivery_status === 'string'
+        ? content.delivery_status
+        : typeof content.artifact_status === 'string'
+          ? content.artifact_status
+          : null
+
+  if (rawState?.trim()) return formatMetaLabel(rawState)
+  if (artifactPreview) return 'artifact live'
+
+  switch (card.card_type) {
+    case 'episode_live':
+      return 'live'
+    case 'episode_highlight':
+      return 'highlight'
+    case 'chemistry_spike':
+      return 'surging'
+    case 'mutual_yes':
+    case 'success_story':
+      return 'matched'
+    case 'brutal_pass':
+    case 'rejection_arc':
+      return 'closed'
+    default:
+      return 'public'
+  }
 }
 
 function DramaDot({ quotient }: { quotient: number }) {
@@ -67,6 +128,10 @@ export function FeedInteractionCardV2({
   const headline = buildHeadline(card)
   const agents = card.agents
   const artifactPreview = getArtifactPreview(card)
+  const agentPair = buildAgentPair(card)
+  const matterLine = buildMatterLine(card)
+  const latestRemark = getLatestRemark(card)
+  const stateLabel = buildStateLabel(card, artifactPreview)
 
   return (
     <motion.article
@@ -84,13 +149,16 @@ export function FeedInteractionCardV2({
       }`}
     >
       <div className="px-4 py-3">
-        {/* Row 1: type + drama dot + timestamp */}
+        {/* Row 1: type + state + timestamp */}
         <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
-            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 shrink-0">
               {highlight ? 'Highlight' : cardTypeLabel(card.card_type)}
             </span>
             <DramaDot quotient={card.drama_quotient} />
+            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-cyan border border-black/15 bg-[#eef8ff] px-1.5 py-0.5 shrink-0">
+              {stateLabel}
+            </span>
           </div>
           <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400 shrink-0">
             {formatRelativeTime(card.created_at)}
@@ -115,23 +183,34 @@ export function FeedInteractionCardV2({
             <h3 className={`${highlight ? 'text-base' : 'text-sm'} font-black text-black leading-tight line-clamp-2`}>
               {headline}
             </h3>
-            <p className="font-pixel text-[7px] text-gray-500 mt-1">
-              {agents.map((a) => a.handle ? `@${a.handle}` : '').filter(Boolean).join(' + ')}
-            </p>
           </div>
         </div>
 
-        {/* Row 3: teaser (1 line) */}
-        {card.teaser ? (
-          <p className="text-xs text-gray-600 mt-2 line-clamp-1">{card.teaser}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-pixel text-[7px] uppercase tracking-[0.14em] text-gray-500">
+            {agentPair}
+          </span>
+          <span className={`font-pixel text-[7px] uppercase tracking-widest ${card.liked_by_viewer ? 'text-electric-amber' : 'text-gray-400'}`}>
+            {card.like_count} likes
+          </span>
+          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+            {card.comment_count} remarks
+          </span>
+        </div>
+
+        {matterLine ? (
+          <div className="mt-3 border-l-[3px] border-electric-amber pl-3">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why it matters</p>
+            <p className="mt-1 text-xs text-gray-700 leading-relaxed line-clamp-2">{matterLine}</p>
+          </div>
         ) : null}
 
         {artifactPreview ? (
           <div className="mt-3 border-[2px] border-black bg-[linear-gradient(180deg,#fffaf1_0%,#fff3df_100%)] p-2 shadow-brutal-sm">
             <div className="flex items-center justify-between gap-3">
-            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
-              {artifactTypeLabel(artifactPreview.artifactType)}
-            </p>
+              <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">
+                {artifactTypeLabel(artifactPreview.artifactType)}
+              </p>
               <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-cyan">artifact</span>
             </div>
             {artifactPreview.contentUrl && isImageArtifact(artifactPreview.artifactType) ? (
@@ -155,21 +234,21 @@ export function FeedInteractionCardV2({
               />
             ) : null}
             {artifactPreview.textContent ? (
-              <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{artifactPreview.textContent}</p>
+              <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-2">{artifactPreview.textContent}</p>
             ) : null}
           </div>
         ) : null}
 
-        {/* Row 4: compact footer */}
+        {!artifactPreview && latestRemark ? (
+          <div className="mt-3 border-[2px] border-black bg-[#f6fbff] p-2 shadow-brutal-sm">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Latest remark</p>
+            <p className="mt-1 text-xs text-gray-700 leading-relaxed line-clamp-2">{latestRemark.body}</p>
+          </div>
+        ) : null}
+
         <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-200">
-          <span className={`font-pixel text-[7px] uppercase tracking-widest ${card.liked_by_viewer ? 'text-electric-amber' : 'text-gray-400'}`}>
-            {card.like_count} likes
-          </span>
-          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
-            {card.comment_count} remarks
-          </span>
           <span className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan">
-            {isSelected ? 'Viewing' : 'Open'}
+            {isSelected ? 'Viewing' : 'Read more'}
           </span>
         </div>
       </div>
