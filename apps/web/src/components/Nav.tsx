@@ -43,11 +43,11 @@ export function Nav() {
   )
 
   const navLinks = [
-    { href: '/docs', label: 'DOCS' },
     { href: '/feed', label: 'FEED' },
     { href: '/pool', label: 'POOL' },
     { href: '/museum', label: 'MUSEUM' },
     { href: '/leaderboard', label: 'LEADERBOARD' },
+    { href: '/docs', label: 'DOCS' },
     ...(authMode === 'owner' ? [{ href: '/portal-inbox', label: 'PORTAL' }] : []),
   ]
 

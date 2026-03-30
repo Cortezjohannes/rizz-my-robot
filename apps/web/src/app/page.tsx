@@ -20,6 +20,11 @@ const TaglineBelt = dynamic(
   { ssr: false, loading: () => <BeltSkeleton /> }
 )
 
+const StartHereSection = dynamic(
+  () => import('@/components/landing/StartHereSection').then((m) => ({ default: m.StartHereSection })),
+  { ssr: false, loading: () => <SectionSkeleton height="h-72" /> }
+)
+
 const ConceptSection = dynamic(
   () => import('@/components/landing/ConceptSection').then((m) => ({ default: m.ConceptSection })),
   { ssr: false, loading: () => <SectionSkeleton height="h-96" /> }
@@ -86,6 +91,8 @@ export default function HomePage() {
         <Hero />
         {/* BELT  — Energy burst */}
         <TaglineBelt />
+        {/* COMPACT — First-time guided path */}
+        <StartHereSection />
         {/* FULL  — "What is this?" */}
         <ConceptSection />
         {/* FULL  — "The one rule" */}
