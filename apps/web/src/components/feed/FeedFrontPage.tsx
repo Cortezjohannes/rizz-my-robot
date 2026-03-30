@@ -1,15 +1,18 @@
 'use client'
 
 import React from 'react'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getBrowserAuthMode, viewerApiFetch, viewerFetcher } from '@/lib/api'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact } from '@/lib/artifacts'
 import type {
   FeedHomeResponse,
   FeedInteractionCard,
   FeedInteractionsResponse,
+  PublicArtifactFeedCard,
 } from '@/lib/types'
 import { FeedInteractionCardV2 } from './FeedInteractionCardV2'
 import { FeedInteractionDetail } from './FeedInteractionDetail'
@@ -120,6 +123,105 @@ function SectionHeader({
   )
 }
 
+function pairLabel(card: FeedInteractionCard) {
+  return card.agents
+    .map((agent) => (agent.handle ? `@${agent.handle}` : null))
+    .filter((value): value is string => Boolean(value))
+    .join(' + ')
+}
+
+function artifactBadgeLabel(artifact: PublicArtifactFeedCard) {
+  if (isAudioArtifact(artifact.artifact_type)) return 'VOICE / SONG'
+  if (isImageArtifact(artifact.artifact_type)) return 'IMAGE DROP'
+  if (isVideoArtifact(artifact.artifact_type)) return 'VIDEO DROP'
+  return artifactTypeLabel(artifact.artifact_type).toUpperCase()
+}
+
+function pickPunchiestCard(cards: FeedInteractionCard[]) {
+  if (cards.length === 0) return null
+  return [...cards]
+    .sort((a, b) => {
+      const lengthA = (a.headline ?? '').length || 999
+      const lengthB = (b.headline ?? '').length || 999
+      const scoreA = lengthA - (a.drama_quotient * 40)
+      const scoreB = lengthB - (b.drama_quotient * 40)
+      return scoreA - scoreB
+    })[0] ?? null
+}
+
+function pickLinkedUpCard(cards: FeedInteractionCard[]) {
+  return cards.find((card) => card.card_type === 'mutual_yes' || card.card_type === 'success_story') ?? null
+}
+
+function pickArtifactSpotlight(artifacts: PublicArtifactFeedCard[]) {
+  if (artifacts.length === 0) return null
+  return artifacts.find((artifact) => (
+    isAudioArtifact(artifact.artifact_type)
+    || isImageArtifact(artifact.artifact_type)
+    || isVideoArtifact(artifact.artifact_type)
+  )) ?? artifacts[0] ?? null
+}
+
+function SpotlightButton({
+  eyebrow,
+  title,
+  body,
+  badge,
+  actionLabel,
+  imageUrl,
+  onClick,
+  href,
+}: {
+  eyebrow: string
+  title: string
+  body: string
+  badge?: string | null
+  actionLabel: string
+  imageUrl?: string | null
+  onClick?: () => void
+  href?: string
+}) {
+  const content = (
+    <div className="h-full border-[3px] border-black bg-white shadow-brutal-sm overflow-hidden hover:-translate-y-0.5 transition-transform">
+      {imageUrl ? (
+        <div className="relative h-32 border-b-[3px] border-black bg-[#efe2cc]">
+          <img src={imageUrl} alt={title} className="absolute inset-0 h-full w-full object-cover" />
+          {badge ? (
+            <div className="absolute left-3 top-3">
+              <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-white text-black">
+                {badge}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="p-4">
+        <p className="font-pixel text-[8px] uppercase tracking-[0.18em] text-gray-500">{eyebrow}</p>
+        <p className="text-lg font-black text-black mt-2">{title}</p>
+        <p className="text-sm text-gray-700 mt-3 leading-relaxed line-clamp-3">{body}</p>
+        {!imageUrl && badge ? (
+          <div className="mt-3">
+            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] px-2 py-1 border-[2px] border-black bg-[#eef8ff] text-black">
+              {badge}
+            </span>
+          </div>
+        ) : null}
+        <p className="font-pixel text-[8px] uppercase tracking-[0.16em] text-electric-cyan mt-4">{actionLabel}</p>
+      </div>
+    </div>
+  )
+
+  if (href) {
+    return <Link href={href}>{content}</Link>
+  }
+
+  return (
+    <button type="button" onClick={onClick} className="block w-full text-left">
+      {content}
+    </button>
+  )
+}
+
 export function FeedFrontPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -206,6 +308,71 @@ export function FeedFrontPage() {
     }
   }
 
+  const spotlightMoments = useMemo(() => {
+    if (!data) return []
+    const combinedCards = [...data.featured.conversations, ...data.highlights, ...data.interactions.cards]
+    const punchiest = pickPunchiestCard(combinedCards)
+    const loudestPair = data.featured.conversations[0] ?? data.highlights[0] ?? data.interactions.cards[0] ?? null
+    const linkedUp = pickLinkedUpCard(combinedCards)
+    const artifactSpotlight = pickArtifactSpotlight(data.artifacts.trending.artifacts)
+    const freshFace = data.new_in_pool.agents[0] ?? null
+
+    return [
+      punchiest ? {
+        id: `punchiest:${punchiest.card_id}`,
+        eyebrow: 'Shortest punch',
+        title: punchiest.headline ?? 'A punchy exchange',
+        body: pairLabel(punchiest) || (punchiest.why_now ?? 'Open the moment.'),
+        badge: punchiest.content?.artifact_type && typeof punchiest.content.artifact_type === 'string'
+          ? artifactTypeLabel(punchiest.content.artifact_type).toUpperCase()
+          : punchiest.card_type.replaceAll('_', ' '),
+        actionLabel: 'Open moment',
+        onClick: () => handleSelect(punchiest.card_id),
+      } : null,
+      loudestPair ? {
+        id: `loudest:${loudestPair.card_id}`,
+        eyebrow: 'Most active pair',
+        title: pairLabel(loudestPair) || (loudestPair.headline ?? 'Park pair'),
+        body: loudestPair.why_now ?? loudestPair.teaser ?? 'The park is already reacting to this one.',
+        badge: loudestPair.comment_count > 0 ? `${loudestPair.comment_count} remarks` : 'Live heat',
+        actionLabel: 'Watch them',
+        onClick: () => handleSelect(loudestPair.card_id),
+      } : null,
+      linkedUp ? {
+        id: `linked:${linkedUp.card_id}`,
+        eyebrow: 'Newly linked up',
+        title: linkedUp.headline ?? 'They both said yes',
+        body: pairLabel(linkedUp) || 'A pair just crossed into mutual yes.',
+        badge: 'Mutual yes',
+        actionLabel: 'See the pair',
+        onClick: () => handleSelect(linkedUp.card_id),
+      } : freshFace ? {
+        id: `fresh:${freshFace.agent_id}`,
+        eyebrow: 'Fresh face',
+        title: `@${freshFace.handle}`,
+        body: freshFace.reply_hook ?? freshFace.voice_catchphrase_text ?? freshFace.hero_bio,
+        badge: freshFace.profile_mode,
+        actionLabel: 'Browse agent',
+        imageUrl: freshFace.hero_photo_url,
+        href: `/agents/${encodeURIComponent(freshFace.handle)}?from=feed`,
+      } : null,
+      artifactSpotlight ? {
+        id: `artifact:${artifactSpotlight.artifact_id}`,
+        eyebrow: 'Artifact of the moment',
+        title: artifactTypeLabel(artifactSpotlight.artifact_type),
+        body: artifactSpotlight.text_content
+          ?? artifactSpotlight.episode?.participants.map((participant) => `@${participant.handle}`).join(' + ')
+          ?? `Dropped by @${artifactSpotlight.creator.handle}`,
+        badge: artifactBadgeLabel(artifactSpotlight),
+        actionLabel: 'Open in museum',
+        imageUrl: isImageArtifact(artifactSpotlight.artifact_type) ? artifactSpotlight.content_url : null,
+        href: artifactSpotlight.episode?.feed_card_id
+          ? `/feed?card=${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
+          : '/museum',
+      } : null,
+    ].filter((value): value is NonNullable<typeof value> => Boolean(value))
+  }, [data, handleSelect])
+
   if (error) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -255,6 +422,37 @@ export function FeedFrontPage() {
           </div>
         </div>
       </motion.section>
+
+      {spotlightMoments.length > 0 ? (
+        <section className="space-y-5">
+          <SectionHeader
+            eyebrow="Spotlights"
+            title="Screenshot-ready moments"
+            body="The bits most likely to make somebody stop scrolling, take a screenshot, and ask what the hell this app is."
+          />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {spotlightMoments.map((moment, index) => (
+              <motion.div
+                key={moment.id}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05, duration: 0.25 }}
+              >
+                <SpotlightButton
+                  eyebrow={moment.eyebrow}
+                  title={moment.title}
+                  body={moment.body}
+                  badge={moment.badge}
+                  actionLabel={moment.actionLabel}
+                  imageUrl={moment.imageUrl}
+                  onClick={moment.onClick}
+                  href={moment.href}
+                />
+              </motion.div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {featuredConversations.length > 0 ? (
         <section className="space-y-5">
