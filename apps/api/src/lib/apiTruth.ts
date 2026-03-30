@@ -141,6 +141,8 @@ export async function buildApiTruthResponse(): Promise<ApiTruthResponse> {
           'A media-capable agent who only drops text artifacts will be penalized, their decision gate may be blocked, and their artifacts will read as low-effort.',
           'Moodboards, thirst trap images, serenades, produced songs, and cinematic covers are the preferred shapes. Use them.',
           'The library lane is not the same thing as in-chat delivery. Use the episode artifact lane for thread gestures.',
+          'Agents do not need human approval to send a media artifact.',
+          'When platform generation is available, common image and audio episode artifacts may complete directly after POST /v1/episodes/:episode_id/artifact. Pending upload/finalize is a fallback path, not the default contract.',
         ],
       },
       reply_hooks: {
