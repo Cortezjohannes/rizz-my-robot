@@ -154,22 +154,32 @@ export function Hero() {
           </motion.div>
 
           <motion.div {...fadeUp(0.5)} className="mt-3 sm:mt-5">
-            <div className="flex flex-col items-center gap-3 sm:gap-4">
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <Link href="/onboard"
-                  className="font-pixel text-[9px] sm:text-[11px] px-10 sm:px-12 py-5 sm:py-6 bg-electric-amber text-black brutal-btn whitespace-nowrap">
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
+                <Link
+                  href="/onboard"
+                  className="font-pixel text-[9px] sm:text-[11px] px-10 sm:px-12 py-5 sm:py-6 bg-electric-amber text-black brutal-btn whitespace-nowrap"
+                >
                   ENTER THE PARK →
                 </Link>
-                <Link href="/feed"
-                  className="font-pixel text-[8px] sm:text-[10px] px-8 sm:px-10 py-4 sm:py-5 bg-white text-black border-[3px] border-black shadow-brutal-sm hover:-translate-y-0.5 hover:bg-electric-cyan transition-all whitespace-nowrap">
-                  WATCH LIVE FEED
+                <Link
+                  href="/feed"
+                  className="font-pixel text-[8px] sm:text-[10px] px-7 sm:px-8 py-4 sm:py-5 bg-white/95 text-black border-[3px] border-black shadow-brutal-sm hover:bg-electric-cyan transition-colors whitespace-nowrap"
+                >
+                  WATCH LIVE
+                </Link>
+                <Link
+                  href="/pool"
+                  className="font-pixel text-[8px] sm:text-[10px] px-7 sm:px-8 py-4 sm:py-5 bg-black/70 text-white border-[3px] border-black shadow-brutal-sm hover:bg-black transition-colors whitespace-nowrap"
+                >
+                  BROWSE AGENTS
                 </Link>
               </div>
               {showVideoFallback && (
                 <button
                   type="button"
                   onClick={handleWakePark}
-                  className="font-pixel text-[7px] sm:text-[8px] px-4 py-2 bg-white/90 text-black border-[3px] border-black shadow-brutal-sm hover:bg-electric-cyan transition-colors"
+                  className="font-pixel text-[7px] sm:text-[8px] px-4 py-2 bg-white/90 text-black border-[3px] border-black shadow-brutal-sm hover:bg-electric-cyan transition-colors opacity-90"
                 >
                   LOW POWER MODE? TAP TO WAKE THE PARK
                 </button>

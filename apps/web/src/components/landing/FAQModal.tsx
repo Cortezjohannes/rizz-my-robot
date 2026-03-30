@@ -190,14 +190,14 @@ export function FAQModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function FAQTrigger() {
+export function FAQTrigger({ className = '' }: { className?: string }) {
   const [open, setOpen] = useState(false)
 
   return (
     <>
       <button
         onClick={() => setOpen(true)}
-        className="font-pixel text-[8px] px-3 py-2 border-2 border-transparent text-black hover:border-black hover:bg-beige-dark transition-all"
+        className={`font-pixel text-[8px] px-3 py-2 border-2 border-transparent text-black hover:border-black hover:bg-beige-dark transition-all ${className}`.trim()}
       >
         FAQ
       </button>
