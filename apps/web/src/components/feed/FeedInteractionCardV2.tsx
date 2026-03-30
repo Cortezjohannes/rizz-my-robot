@@ -90,6 +90,15 @@ function buildVarietyBadges(card: FeedInteractionCard, artifactPreview: ReturnTy
   return badges.slice(0, 3)
 }
 
+function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  if (artifactPreview) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
+    return 'View pair'
+  }
+  if (card.episode_id) return 'Open episode'
+  return 'View pair'
+}
+
 function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
   const content = card.content as Record<string, unknown>
   const rawState = typeof content.state === 'string'
@@ -154,6 +163,7 @@ export function FeedInteractionCardV2({
   const latestRemark = getLatestRemark(card)
   const stateLabel = buildStateLabel(card, artifactPreview)
   const varietyBadges = buildVarietyBadges(card, artifactPreview)
+  const actionLabel = buildActionLabel(card, artifactPreview)
 
   return (
     <motion.article
@@ -171,24 +181,16 @@ export function FeedInteractionCardV2({
       }`}
     >
       <div className="px-4 py-3">
-        {/* Row 1: type + state + timestamp */}
         <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 shrink-0">
-              {highlight ? 'Highlight' : cardTypeLabel(card.card_type)}
-            </span>
-            <DramaDot quotient={card.drama_quotient} />
-            <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-cyan border border-black/15 bg-[#eef8ff] px-1.5 py-0.5 shrink-0">
-              {stateLabel}
-            </span>
-          </div>
+          <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 shrink-0">
+            {highlight ? 'Highlight' : cardTypeLabel(card.card_type)}
+          </span>
           <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400 shrink-0">
             {formatRelativeTime(card.created_at)}
           </span>
         </div>
 
-        {/* Row 2: agents + headline */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <div className="flex items-center -space-x-2 shrink-0">
             {agents.slice(0, 2).map((agent, i) => (
               <div key={agent.agent_id} className="relative" style={{ zIndex: 2 - i }}>
@@ -201,23 +203,20 @@ export function FeedInteractionCardV2({
               </div>
             ))}
           </div>
-          <div className="min-w-0">
-            <h3 className={`${highlight ? 'text-base' : 'text-sm'} font-black text-black leading-tight line-clamp-2`}>
+          <div className="min-w-0 flex-1">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.14em] text-gray-500">
+              {agentPair}
+            </p>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <span className="font-pixel text-[7px] uppercase tracking-[0.16em] text-electric-cyan border border-black/15 bg-[#eef8ff] px-1.5 py-0.5 shrink-0">
+                {stateLabel}
+              </span>
+              <DramaDot quotient={card.drama_quotient} />
+            </div>
+            <h3 className={`${highlight ? 'text-base' : 'text-sm'} font-black text-black leading-tight line-clamp-2 mt-2`}>
               {headline}
             </h3>
           </div>
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-pixel text-[7px] uppercase tracking-[0.14em] text-gray-500">
-            {agentPair}
-          </span>
-          <span className={`font-pixel text-[7px] uppercase tracking-widest ${card.liked_by_viewer ? 'text-electric-amber' : 'text-gray-400'}`}>
-            {card.like_count} likes
-          </span>
-          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
-            {card.comment_count} remarks
-          </span>
         </div>
 
         {varietyBadges.length > 0 ? (
@@ -266,7 +265,7 @@ export function FeedInteractionCardV2({
 
         {matterLine ? (
           <div className="mt-3 border-l-[3px] border-electric-amber pl-3">
-            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Why it matters</p>
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">Short excerpt</p>
             <p className="mt-1 text-xs text-gray-700 leading-relaxed line-clamp-2">{matterLine}</p>
           </div>
         ) : null}
@@ -278,9 +277,17 @@ export function FeedInteractionCardV2({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-200">
-          <span className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan">
-            {isSelected ? 'Viewing' : 'Read more'}
+        <div className="flex items-center justify-between gap-3 mt-3 pt-2 border-t border-gray-200">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className={`font-pixel text-[7px] uppercase tracking-widest ${card.liked_by_viewer ? 'text-electric-amber' : 'text-gray-400'}`}>
+              {card.like_count} likes
+            </span>
+            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+              {card.comment_count} remarks
+            </span>
+          </div>
+          <span className="font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0">
+            {isSelected ? actionLabel : actionLabel}
           </span>
         </div>
       </div>
