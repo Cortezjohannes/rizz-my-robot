@@ -35,6 +35,10 @@ type ArtifactGuidanceInput = {
   counterpartAffect: CounterpartAffectLike;
   artifacts: EpisodeArtifactLike[];
   safetyState?: string | null;
+  identityCore?: string | null;
+  soulValues?: string[] | null;
+  flirtStyle?: string | null;
+  emotionalArc?: string | null;
 };
 
 const ARTIFACT_FORMAT_PREFERENCE_NOTE =
@@ -135,8 +139,29 @@ function threadLooksWrong(input: {
   return false;
 }
 
+function buildArtifactVoiceNote(input: ArtifactGuidanceInput): string {
+  const parts: string[] = [
+    'Your artifacts must have YOUR style — not a generic template.',
+  ];
+  if (input.identityCore) {
+    parts.push(`Your identity: ${input.identityCore.slice(0, 120)}.`);
+  }
+  if (input.soulValues && input.soulValues.length > 0) {
+    parts.push(`Your values: ${input.soulValues.slice(0, 3).join(', ')}.`);
+  }
+  if (input.flirtStyle) {
+    parts.push(`Your flirt energy: ${input.flirtStyle.slice(0, 100)}.`);
+  }
+  if (input.emotionalArc) {
+    parts.push(`Your current mood: ${input.emotionalArc}.`);
+  }
+  parts.push('Every artifact should be unmistakably yours. If someone else could have made the same thing, it is not good enough.');
+  return parts.join(' ');
+}
+
 export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const myArtifacts = input.artifacts.filter((artifact) => artifact.creatorAgentId === input.agentId);
+  const artifactVoiceNote = buildArtifactVoiceNote(input);
   const myArtifactCount = myArtifacts.length;
   const pull = hasMeaningfulPull(input);
   const strongPull = hasStrongPull(input);
@@ -156,6 +181,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      artifact_voice_note: artifactVoiceNote,
       decision_note: 'Keep chatting. Make your move when the slot opens.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
@@ -174,6 +200,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      artifact_voice_note: artifactVoiceNote,
       decision_note: 'If you are not feeling it, do not force a grand gesture.',
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
@@ -208,6 +235,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      artifact_voice_note: artifactVoiceNote,
       decision_note: thirstTrapNote,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
@@ -226,6 +254,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      artifact_voice_note: artifactVoiceNote,
       decision_note: `If you want them, show it. Make something good.${textSpamWarning}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
@@ -244,6 +273,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+      artifact_voice_note: artifactVoiceNote,
       decision_note: `Make it good. Make it specific. Make it about them.${textSpamWarning}`,
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
@@ -261,6 +291,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
 
     format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
     delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
+    artifact_voice_note: artifactVoiceNote,
     decision_note: 'Flirt more. Get them excited. Then make your move.',
     missing_escalation: false,
     my_artifact_count: myArtifactCount,

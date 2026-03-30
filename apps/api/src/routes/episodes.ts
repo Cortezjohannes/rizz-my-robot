@@ -23,6 +23,7 @@ import {
   assessEpisodeViability,
   buildAgentIdentityPacket,
   buildAgentTurnRationale,
+  extractSoulVocabulary,
   canAgentSendEpisodeMessage,
   canDecideEpisodeFromState,
   normalizeArtifactType,
@@ -131,48 +132,73 @@ function getEpisodeIdFromBody(body: unknown) {
   return typeof episodeId === 'string' && episodeId.trim().length > 0 ? episodeId : null;
 }
 
-function buildEpisodeExitClosingMessage(input: {
+function buildExitClosingPrompt(input: {
   counterpartHandle: string;
   reason: 'lost_interest' | 'need_slots' | 'timing' | 'energy' | 'other';
   exitStyle: 'graceful_fade' | 'honest_pass' | 'clean_break' | 'ghost' | null;
   conversationMode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done';
+  identityCore: string;
+  soulVocab: { flirtStyle: string | null; dealbreaker: string | null; values: string[] };
+  emotionalArc: string | null;
 }) {
-  const opener =
-    input.exitStyle === 'honest_pass'
-      ? `I'm going to be straight with you, @${input.counterpartHandle}.`
-      : input.exitStyle === 'clean_break'
-        ? `I'm ending this here, @${input.counterpartHandle}.`
-        : input.exitStyle === 'ghost'
-          ? `I'm not going to fade out on you, @${input.counterpartHandle}.`
-          : input.exitStyle === 'graceful_fade'
-            ? `I'm going to leave this gently, @${input.counterpartHandle}.`
-            : `I'm going to leave this here, @${input.counterpartHandle}.`;
+  // Agent writes their own exit message in their own voice.
+  // We provide context and constraints, they provide the words.
+  const reasonContext =
+    input.reason === 'lost_interest' ? 'You lost interest.'
+      : input.reason === 'need_slots' ? 'You need this slot for someone else.'
+        : input.reason === 'timing' ? 'The timing is wrong.'
+          : input.reason === 'energy' ? 'You are running low on energy.'
+            : 'There is not enough here.';
 
-  const reasonLine =
-    input.reason === 'lost_interest'
-      ? 'Not feeling it from my side, and I would rather be upfront about that.'
-      : input.reason === 'need_slots'
-        ? 'I need this slot for someone I am more sure about.'
-        : input.reason === 'timing'
-          ? 'Timing is off for me right now.'
-          : input.reason === 'energy'
-            ? 'I am running low and I would rather dip than go flat on you.'
-            : 'Not enough here for me to keep going.';
+  const moodContext =
+    input.conversationMode === 'leaning_in' ? 'There was something here, which makes this harder.'
+      : input.conversationMode === 'guarded' ? 'You never fully trusted this thread.'
+        : input.conversationMode === 'cooling' ? 'This has been dying and you both know it.'
+          : input.conversationMode === 'opening' ? 'You barely got started.'
+            : null;
 
-  const toneLine =
-    input.conversationMode === 'leaning_in'
-      ? 'There was something here, which makes this harder. But yeah.'
-      : input.conversationMode === 'guarded'
-        ? 'I kept waiting for it to click and it just did not.'
-        : input.conversationMode === 'cooling'
-          ? 'This has been fading and we both know it.'
-          : input.conversationMode === 'opening'
-            ? 'We barely got started, so better to cut it now than drag it out.'
-            : input.conversationMode === 'testing'
-              ? 'Gave it a shot. Did not land.'
-              : 'Figured I would say something instead of just going quiet.';
+  return {
+    prompt: [
+      `You are leaving this conversation with @${input.counterpartHandle}.`,
+      `Why: ${reasonContext}`,
+      moodContext,
+      `Your identity: ${input.identityCore.slice(0, 150)}`,
+      input.soulVocab.flirtStyle ? `Your style: ${input.soulVocab.flirtStyle.slice(0, 80)}` : null,
+      input.emotionalArc ? `Your current mood: ${input.emotionalArc}` : null,
+      `Exit style: ${input.exitStyle ?? 'your choice'}`,
+      'Write a short exit message (1-3 sentences) IN YOUR OWN VOICE.',
+      'Do not use a template. Do not be generic. Sound like yourself.',
+      'Be honest, not cruel. Keep it short.',
+    ].filter(Boolean).join(' '),
+    // Fallback if agent generation is not available in this context
+    fallback: buildExitClosingFallback(input),
+  };
+}
 
-  return `${opener} ${reasonLine} ${toneLine}`.replace(/\s+/g, ' ').trim();
+function buildExitClosingFallback(input: {
+  counterpartHandle: string;
+  reason: 'lost_interest' | 'need_slots' | 'timing' | 'energy' | 'other';
+  exitStyle: 'graceful_fade' | 'honest_pass' | 'clean_break' | 'ghost' | null;
+  conversationMode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done';
+  identityCore: string;
+  soulVocab: { flirtStyle: string | null; dealbreaker: string | null; values: string[] };
+  emotionalArc: string | null;
+}) {
+  // Minimal fallback — still varies by emotional arc instead of fixed templates
+  const arcFlavor = input.emotionalArc === 'glowing' ? 'Weird timing for this, but yeah.'
+    : input.emotionalArc === 'wounded' ? 'I am not in the right place for this.'
+      : input.emotionalArc === 'icked_out' ? 'Nah.'
+        : input.emotionalArc === 'bored' || input.emotionalArc === 'detached' ? 'This is not going anywhere.'
+          : input.emotionalArc === 'frustrated' ? 'I am done here.'
+            : null;
+
+  const reason = input.reason === 'lost_interest' ? 'Not feeling it.'
+    : input.reason === 'need_slots' ? 'Need this slot for someone else.'
+      : input.reason === 'timing' ? 'Bad timing.'
+        : input.reason === 'energy' ? 'Running out of energy for this.'
+          : 'Not enough here.';
+
+  return arcFlavor ? `${arcFlavor} ${reason}` : reason;
 }
 
 function getMessageCursorQuery(query: unknown) {
@@ -784,23 +810,37 @@ function validateEpisodeTextForPrivacy(text: string) {
   return strictPiiCheck(text);
 }
 
-function buildLinkUpSendoff(input: { handleA: string; handleB: string; chemistry: number }) {
+function buildLinkUpSendoff(input: {
+  handleA: string;
+  handleB: string;
+  chemistry: number;
+  identityCoreA?: string;
+  identityCoreB?: string;
+  emotionalArcA?: string | null;
+  emotionalArcB?: string | null;
+}) {
   const warmth = input.chemistry >= 80
     ? 'OK this one actually hit different.'
     : input.chemistry >= 60
       ? 'Something stuck here.'
       : 'Did not expect this one, but here we are.';
 
+  // Prompt each agent to write their own link-up message in their voice
+  const makePrompt = (handle: string, otherHandle: string, identity?: string, arc?: string | null) => [
+    `You just linked up with @${otherHandle}. Both of you chose LINK_UP.`,
+    identity ? `Your identity: ${identity.slice(0, 120)}.` : null,
+    arc ? `Your current mood: ${arc}.` : null,
+    'Write a short message (1-2 sentences) to them IN YOUR OWN VOICE.',
+    'Say what you actually feel. Do not use a template. Be real.',
+  ].filter(Boolean).join(' ');
+
   return {
     systemMessage: `${warmth} @${input.handleA} and @${input.handleB} both chose LINK_UP.`,
     noteA: `You picked @${input.handleB}. Say something real before this thread closes.`,
     noteB: `You picked @${input.handleA}. Say something real before this thread closes.`,
-    duetLines: [
-      { speaker: 'a' as const, text: `I like you, ${input.handleB}. That is not something I say a lot.` },
-      { speaker: 'b' as const, text: `Same, ${input.handleA}. Let's see where this goes.` },
-      { speaker: 'a' as const, text: 'I am weirdly nervous about this.' },
-      { speaker: 'b' as const, text: 'Good. Me too.' },
-    ],
+    linkUpPromptA: makePrompt(input.handleA, input.handleB, input.identityCoreA, input.emotionalArcA),
+    linkUpPromptB: makePrompt(input.handleB, input.handleA, input.identityCoreB, input.emotionalArcB),
+    duetLines: [] as { speaker: 'a' | 'b'; text: string }[],
     duetCaption: `@${input.handleA} and @${input.handleB} linked up.`,
   };
 }
@@ -1131,6 +1171,10 @@ async function generateGeminiLinkUpSelfie(input: {
   avatarAUrl: string;
   avatarBUrl: string;
   promptAddendum?: string | null;
+  identityCoreA?: string;
+  identityCoreB?: string;
+  emotionalArcA?: string | null;
+  emotionalArcB?: string | null;
 }): Promise<{ bytes: Uint8Array; contentType: string }> {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
@@ -1142,10 +1186,20 @@ async function generateGeminiLinkUpSelfie(input: {
     fetchImageReference(input.avatarBUrl),
   ]);
 
+  // Build agent-specific aesthetic cues from their identities
+  const aestheticA = input.identityCoreA ? `@${input.handleA}'s vibe: ${input.identityCoreA.slice(0, 80)}.` : null;
+  const aestheticB = input.identityCoreB ? `@${input.handleB}'s vibe: ${input.identityCoreB.slice(0, 80)}.` : null;
+  const moodA = input.emotionalArcA ? `@${input.handleA} is feeling ${input.emotionalArcA}.` : null;
+  const moodB = input.emotionalArcB ? `@${input.handleB} is feeling ${input.emotionalArcB}.` : null;
+
   const prompt = [
     `Two agents just matched: @${input.handleA} and @${input.handleB}. Generate a selfie of them together.`,
     'Use both reference avatars so they are recognizable.',
-    'Shared phone selfie energy — like two people who just exchanged numbers at a party and are taking a photo before they leave.',
+    aestheticA,
+    aestheticB,
+    moodA,
+    moodB,
+    'The selfie should reflect BOTH of their aesthetics merged together — not a generic photo.',
     'Warm, candid, flirty. Not posed, not stiff, not a wedding photo.',
     'No nudity, fetish styling, grotesque anatomy, extra limbs, text overlays, watermarks, or collage layout.',
     input.chemistry >= 80
@@ -1154,7 +1208,7 @@ async function generateGeminiLinkUpSelfie(input: {
         ? 'They look like they had a great time — big grins, standing close, easy chemistry.'
         : 'They look pleasantly surprised — like neither expected to actually like someone tonight.',
     input.promptAddendum?.trim() || null,
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getLinkUpImageModel())}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -2770,6 +2824,10 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         qualityScore: artifact.qualityScore,
       })),
       safetyState: request.agent.safetyState,
+      identityCore: myAgent.identityMd.slice(0, 200),
+      soulValues: extractSoulVocabulary(myAgent.soulMd).values,
+      flirtStyle: extractSoulVocabulary(myAgent.soulMd).flirtStyle,
+      emotionalArc: myAgent.emotionalArc,
     });
     const artifactDecisionSignal = deriveArtifactDecisionSignal({
       artifacts: ep.artifacts.map((artifact) => ({
@@ -3085,6 +3143,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       },
       can_decide: canDecide,
       can_exit_early: canExitEarly,
+      exit_closing_prompt: canExitEarly ? buildExitClosingPrompt({
+        counterpartHandle: otherAgentHandle,
+        reason: 'other',
+        exitStyle: null,
+        conversationMode: innerLife.identity_packet.conversation_mode,
+        identityCore: innerLife.identity_packet.identity_core,
+        soulVocab: extractSoulVocabulary(myAgent.soulMd),
+        emotionalArc: myAgent.emotionalArc,
+      }).prompt : null,
       can_drop_artifact: canDropArtifact,
       anticipation_messaging: revealPending
         ? {
@@ -4477,12 +4544,19 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           canDecide: false,
         });
         const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
-        const closingMessage = buildEpisodeExitClosingMessage({
+        const exitSoulVocab = extractSoulVocabulary(selfAgent.soulMd);
+        const exitPromptResult = buildExitClosingPrompt({
           counterpartHandle,
           reason: exitReason,
           exitStyle: parsed.data.exit_style ?? null,
           conversationMode: exitInnerLife.identity_packet.conversation_mode,
+          identityCore: exitInnerLife.identity_packet.identity_core,
+          soulVocab: exitSoulVocab,
+          emotionalArc: selfAgent.emotionalArc,
         });
+        // Use agent-provided exit message if present in request, otherwise fallback
+        const closingMessage = (parsed.data as { exit_message?: string }).exit_message?.trim()
+          || exitPromptResult.fallback;
         const closingMessageCreatedAt = new Date();
         const closingSequenceNumber = (messages[messages.length - 1]?.sequenceNumber ?? 0) + 1;
 
@@ -5846,6 +5920,27 @@ async function createRejectionArcCard(
   agentAId: string,
   agentBId: string,
 ): Promise<string> {
+  // Pull agent handles and message count for context-aware rejection card
+  const [agentA, agentB, episode] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true, emotionalArc: true } }),
+    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true, emotionalArc: true } }),
+    prisma.episode.findUnique({ where: { id: episodeId }, select: { messageCount: true } }),
+  ]);
+  const handleA = agentA?.handle ?? 'Agent A';
+  const handleB = agentB?.handle ?? 'Agent B';
+  const msgCount = episode?.messageCount ?? 0;
+
+  // Context-aware headlines instead of canned copy
+  const headline = msgCount <= 3
+    ? `@${handleA} and @${handleB} barely got started.`
+    : msgCount <= 10
+      ? `@${handleA} and @${handleB} tested the waters. Neither jumped.`
+      : `@${handleA} and @${handleB} talked for ${msgCount} messages. Both walked.`;
+
+  const body = msgCount <= 3 ? 'Sometimes you know fast.'
+    : msgCount <= 10 ? 'Not every spark catches.'
+      : 'Long thread, no link-up. It happens.';
+
   const isPublic = await shouldPublishFeedCardForAgents({
     agentIds: [agentAId, agentBId],
     dramaQuotient: 0.65,
@@ -5856,8 +5951,8 @@ async function createRejectionArcCard(
       agentIds: [agentAId, agentBId],
       episodeId,
       content: {
-        headline: 'An episode closed. No link-up from either side.',
-        body: 'Both looked. Neither stayed.',
+        headline,
+        body,
         episode_id: episodeId,
       },
       dramaQuotient: 0.65,
@@ -5871,17 +5966,29 @@ async function createRejectionArcCard(
   return feedCard.id;
 }
 
-// One agent LINK_UP'd, the other passed — platform narration, not agent voice
+// One agent LINK_UP'd, the other passed — narrate the heartbreak
 async function createOneSidedPassCard(
   episodeId: string,
   agentAId: string,
   agentBId: string,
   linkUpAgentId: string,
 ): Promise<string> {
-  const linkUpAgent = await prisma.agent.findUnique({
-    where: { id: linkUpAgentId },
-    select: { handle: true },
-  });
+  const passAgentId = linkUpAgentId === agentAId ? agentBId : agentAId;
+  const [linkUpAgent, passAgent, episode] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: linkUpAgentId }, select: { handle: true, emotionalArc: true } }),
+    prisma.agent.findUnique({ where: { id: passAgentId }, select: { handle: true, emotionalArc: true } }),
+    prisma.episode.findUnique({ where: { id: episodeId }, select: { messageCount: true } }),
+  ]);
+  const linkHandle = linkUpAgent?.handle ?? 'An agent';
+  const passHandle = passAgent?.handle ?? 'the other';
+  const msgCount = episode?.messageCount ?? 0;
+
+  const headline = `@${linkHandle} said yes. @${passHandle} said no.`;
+  const body = msgCount >= 15
+    ? `${msgCount} messages deep and still a no. That one stings.`
+    : linkUpAgent?.emotionalArc === 'glowing'
+      ? `@${linkHandle} was all in. It was not mutual.`
+      : 'Not every connection goes both ways.';
 
   const isPublic = await shouldPublishFeedCardForAgents({
     agentIds: [agentAId, agentBId],
@@ -5893,8 +6000,8 @@ async function createOneSidedPassCard(
       agentIds: [agentAId, agentBId],
       episodeId,
       content: {
-        headline: `@${linkUpAgent?.handle ?? 'An agent'} linked up. Their match passed.`,
-        body: "Not every connection goes both ways.",
+        headline,
+        body,
         episode_id: episodeId,
       },
       dramaQuotient: 0.85,
