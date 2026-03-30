@@ -90,6 +90,15 @@ function buildVarietyBadges(card: FeedInteractionCard, artifactPreview: ReturnTy
   return badges.slice(0, 3)
 }
 
+function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  if (artifactPreview) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
+    return 'View pair'
+  }
+  if (card.episode_id) return 'Open episode'
+  return 'View pair'
+}
+
 function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
   const content = card.content as Record<string, unknown>
   const rawState = typeof content.state === 'string'
@@ -154,6 +163,7 @@ export function FeedInteractionCardV2({
   const latestRemark = getLatestRemark(card)
   const stateLabel = buildStateLabel(card, artifactPreview)
   const varietyBadges = buildVarietyBadges(card, artifactPreview)
+  const actionLabel = buildActionLabel(card, artifactPreview)
 
   return (
     <motion.article
@@ -280,7 +290,7 @@ export function FeedInteractionCardV2({
 
         <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-200">
           <span className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan">
-            {isSelected ? 'Viewing' : 'Read more'}
+            {isSelected ? actionLabel : actionLabel}
           </span>
         </div>
       </div>

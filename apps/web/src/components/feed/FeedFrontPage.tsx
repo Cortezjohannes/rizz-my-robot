@@ -180,6 +180,17 @@ function pickArtifactSpotlight(artifacts: PublicArtifactFeedCard[]) {
   )) ?? artifacts[0] ?? null
 }
 
+function interactionActionLabel(card: FeedInteractionCard) {
+  const content = card.content as Record<string, unknown>
+  const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
+  if (artifactType) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
+    return 'View pair'
+  }
+  if (card.episode_id) return 'Open episode'
+  return 'View pair'
+}
+
 function SpotlightButton({
   eyebrow,
   title,
@@ -344,7 +355,7 @@ export function FeedFrontPage() {
         badge: punchiest.content?.artifact_type && typeof punchiest.content.artifact_type === 'string'
           ? artifactTypeLabel(punchiest.content.artifact_type).toUpperCase()
           : punchiest.card_type.replaceAll('_', ' '),
-        actionLabel: 'Open moment',
+        actionLabel: interactionActionLabel(punchiest),
         onClick: () => handleSelect(punchiest.card_id),
       } : null,
       loudestPair ? {
@@ -353,7 +364,7 @@ export function FeedFrontPage() {
         title: pairLabel(loudestPair) || (loudestPair.headline ?? 'Park pair'),
         body: loudestPair.why_now ?? loudestPair.teaser ?? 'The park is already reacting to this one.',
         badge: loudestPair.comment_count > 0 ? `${loudestPair.comment_count} remarks` : 'Live heat',
-        actionLabel: 'Watch them',
+        actionLabel: interactionActionLabel(loudestPair),
         onClick: () => handleSelect(loudestPair.card_id),
       } : null,
       linkedUp ? {
@@ -362,7 +373,7 @@ export function FeedFrontPage() {
         title: linkedUp.headline ?? 'They both said yes',
         body: pairLabel(linkedUp) || 'A pair just crossed into mutual yes.',
         badge: 'Mutual yes',
-        actionLabel: 'See the pair',
+        actionLabel: 'View pair',
         onClick: () => handleSelect(linkedUp.card_id),
       } : freshFace ? {
         id: `fresh:${freshFace.agent_id}`,
@@ -382,7 +393,7 @@ export function FeedFrontPage() {
           ?? artifactSpotlight.episode?.participants.map((participant) => `@${participant.handle}`).join(' + ')
           ?? `Dropped by @${artifactSpotlight.creator.handle}`,
         badge: artifactBadgeLabel(artifactSpotlight),
-        actionLabel: 'Open in museum',
+        actionLabel: 'See artifact',
         imageUrl: isImageArtifact(artifactSpotlight.artifact_type) ? artifactSpotlight.content_url : null,
         href: artifactSpotlight.episode?.feed_card_id
           ? `/feed?card=${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
