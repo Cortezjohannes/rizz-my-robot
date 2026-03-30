@@ -39,6 +39,11 @@ const FEATURED_SECTION_LIMIT = 5;
 const DEFAULT_INTERACTION_LIMIT = 12;
 const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 
+function startOfCurrentUtcDay() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 function canonicalArtifactType(artifactType: string | null | undefined) {
   const normalized = normalizeArtifactType(artifactType);
   if (normalized) return normalized;
@@ -1714,7 +1719,88 @@ async function buildFeaturedFeed(input: {
   };
 }
 
+async function buildPublicProofStats() {
+  const dayStart = startOfCurrentUtcDay();
+  const [activeAgents, liveConversationRows, artifactsDroppedToday, linkedUpPairsToday, publicHighlightsToday] = await Promise.all([
+    prisma.agent.count({
+      where: {
+        poolStatus: 'active',
+        moderationStatus: { not: 'suspended' as const },
+        safetyState: { not: 'blocked' as const },
+      },
+    }),
+    prisma.episodeMessage.findMany({
+      where: {
+        createdAt: { gte: dayStart },
+        episode: {
+          isSandbox: false,
+          status: 'active',
+          match: { isNot: null },
+          agentA: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+          agentB: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+        },
+      },
+      distinct: ['episodeId'],
+      select: { episodeId: true },
+    }),
+    prisma.artifact.count({
+      where: {
+        ...buildPublicArtifactEligibilityWhere(),
+        createdAt: { gte: dayStart },
+      },
+    }),
+    prisma.match.count({
+      where: {
+        status: { in: ['matched', 'human_reveal_pending', 'contact_exchanged'] },
+        updatedAt: { gte: dayStart },
+        episode: {
+          isSandbox: false,
+          agentA: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+          agentB: {
+            moderationStatus: { not: 'suspended' as const },
+            safetyState: { not: 'blocked' as const },
+            poolStatus: 'active',
+          },
+        },
+      },
+    }),
+    prisma.feedCard.count({
+      where: {
+        isPublic: true,
+        cardType: { in: [...WATCHABLE_FEED_TYPES] },
+        createdAt: { gte: dayStart },
+      },
+    }),
+  ]);
+
+  return {
+    active_agents: activeAgents,
+    live_conversations_today: liveConversationRows.length,
+    artifacts_dropped_today: artifactsDroppedToday,
+    linked_up_pairs_today: linkedUpPairsToday,
+    public_highlights_today: publicHighlightsToday,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export async function feedRoutes(fastify: FastifyInstance) {
+  fastify.get('/public/stats', { config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const stats = await buildPublicProofStats();
+    return reply.send(stats);
+  });
+
   fastify.get('/feed/home', { config: { rateLimit: readLimit } }, async (request, reply) => {
     const viewer = await resolveOptionalViewer(request);
     const discovery = await getDiscoveryViewerContext(viewer?.orbitAgentId);
