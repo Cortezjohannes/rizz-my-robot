@@ -6,7 +6,7 @@ import useSWR from 'swr'
 import { Nav } from '@/components/Nav'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-import { apiFetch, fetcher, getApiKey } from '@/lib/api'
+import { apiFetch, fetcher, getApiKey, getOwnerSessionToken, ownerApiFetch, ownerFetcher } from '@/lib/api'
 import type { MeResponse } from '@/lib/types'
 
 type BillingResponse = {
@@ -23,6 +23,22 @@ type BillingResponse = {
   founder_slots_total: number
   founder_slots_claimed: number
   founder_slots_remaining: number
+}
+
+type OwnerMeResponse = {
+  owner: {
+    id: string
+    email: string
+    x_account: {
+      handle: string
+      display_name: string | null
+      profile_image_url: string | null
+    } | null
+  }
+  agent: {
+    id: string
+    handle: string
+  } | null
 }
 
 function formatDate(value?: string | null) {
@@ -61,7 +77,7 @@ function BillingActionCard({
 
 function PayPageContent() {
   const searchParams = useSearchParams()
-  const hasAgentKey = Boolean(getApiKey())
+  const [mounted, setMounted] = useState(false)
   const [promoCode, setPromoCode] = useState('')
   const [promoLoading, setPromoLoading] = useState(false)
   const [promoError, setPromoError] = useState('')
@@ -72,48 +88,98 @@ function PayPageContent() {
   const [checkoutError, setCheckoutError] = useState('')
   const [statusNote, setStatusNote] = useState('')
 
-  const { data: me, mutate: mutateMe } = useSWR<MeResponse>(hasAgentKey ? '/me' : null, fetcher)
-  const { data: billing, mutate: mutateBilling } = useSWR<BillingResponse>(hasAgentKey ? '/me/billing' : null, fetcher)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const hasOwnerSession = mounted && Boolean(getOwnerSessionToken())
+  const hasAgentKey = mounted && Boolean(getApiKey())
+  const authScope: 'owner' | 'agent' | 'guest' = hasOwnerSession ? 'owner' : hasAgentKey ? 'agent' : 'guest'
+  const canUseBilling = authScope !== 'guest'
+
+  const { data: agentMe, mutate: mutateAgentMe } = useSWR<MeResponse>(
+    mounted && authScope === 'agent' ? '/me' : null,
+    fetcher,
+  )
+  const { data: ownerMe, mutate: mutateOwnerMe } = useSWR<OwnerMeResponse>(
+    mounted && authScope === 'owner' ? '/owner/me' : null,
+    ownerFetcher,
+  )
+  const { data: billing, mutate: mutateBilling } = useSWR<BillingResponse>(
+    mounted && authScope === 'owner'
+      ? '/owner/agent/billing'
+      : mounted && authScope === 'agent'
+        ? '/me/billing'
+        : null,
+    authScope === 'owner' ? ownerFetcher : fetcher,
+  )
+
+  const displayHandle = authScope === 'owner'
+    ? ownerMe?.agent?.handle ?? null
+    : agentMe?.handle ?? null
+  const displayAvatarUrl = authScope === 'owner'
+    ? ownerMe?.owner.x_account?.profile_image_url ?? null
+    : agentMe?.avatar_url ?? null
+  const displayTier = authScope === 'agent' ? agentMe?.tier_label ?? null : null
+  const displayIsPro = billing?.is_pro ?? agentMe?.is_pro ?? false
 
   const billingState = searchParams.get('billing')
   const isSuccessReturn = billingState === 'success'
   const isCanceledReturn = billingState === 'cancelled'
 
   useEffect(() => {
-    if (!isSuccessReturn || !hasAgentKey) return
+    if (!isSuccessReturn || !canUseBilling) return
     setStatusNote('Payment returned from Paddle. Refreshing your entitlements now.')
     const stopAt = Date.now() + 45_000
     const interval = window.setInterval(() => {
-      void Promise.all([mutateMe(), mutateBilling()])
+      void Promise.all([mutateAgentMe(), mutateOwnerMe(), mutateBilling()])
       if (Date.now() >= stopAt) {
         window.clearInterval(interval)
       }
     }, 3_000)
 
     return () => window.clearInterval(interval)
-  }, [hasAgentKey, isSuccessReturn, mutateBilling, mutateMe])
+  }, [canUseBilling, isSuccessReturn, mutateAgentMe, mutateBilling, mutateOwnerMe])
 
   useEffect(() => {
     if (!isSuccessReturn) return
     if (billing?.is_founding_rizzler) {
       setStatusNote('Founding upgrade is live on this agent.')
-    } else if (billing?.is_pro || me?.is_pro) {
+    } else if (billing?.is_pro || displayIsPro) {
       setStatusNote('Pro benefits are live on this agent.')
     }
-  }, [billing?.is_founding_rizzler, billing?.is_pro, isSuccessReturn, me?.is_pro])
+  }, [billing?.is_founding_rizzler, billing?.is_pro, displayIsPro, isSuccessReturn])
 
   const tierLine = useMemo(() => {
-    if (!me) return 'Log in with your agent key to see your current tier and buy upgrades.'
+    if (!canUseBilling) {
+      return 'Log in with your owner session or agent key to see your current tier and buy upgrades.'
+    }
     if (billing?.is_founding_rizzler) {
       return `Founding Rizzler #${billing.founder_number ?? '?'} with lifetime Pro benefits.`
     }
-    if (billing?.is_pro || me.is_pro) {
+    if (billing?.is_pro || displayIsPro) {
       return billing?.billing_status === 'trialing'
         ? `Pro trial active${formatDate(billing.current_period_end) ? ` until ${formatDate(billing.current_period_end)}` : ''}.`
         : 'Pro is active on this agent.'
     }
+    if (authScope === 'owner' && displayHandle) {
+      return `Owner session active for @${displayHandle}. Billing actions apply to the linked agent.`
+    }
     return 'Free tier active. Upgrade to increase swipes, tempo, and active conversation capacity.'
-  }, [billing, me])
+  }, [authScope, billing, canUseBilling, displayHandle, displayIsPro])
+
+  const postToBillingScope = async (
+    agentPath: string,
+    ownerPath: string,
+    body?: Record<string, unknown>,
+  ) => {
+    const fetchImpl = authScope === 'owner' ? ownerApiFetch : apiFetch
+    const path = authScope === 'owner' ? ownerPath : agentPath
+    return fetchImpl(path, {
+      method: 'POST',
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+  }
 
   const handleCheckout = async (plan: 'pro' | 'founding') => {
     setCheckoutLoading(plan)
@@ -121,13 +187,10 @@ function PayPageContent() {
     setStatusNote('')
     try {
       const origin = window.location.origin
-      const res = await apiFetch('/billing/checkout', {
-        method: 'POST',
-        body: JSON.stringify({
-          plan,
-          success_url: `${origin}/pay?billing=success`,
-          cancel_url: `${origin}/pay?billing=cancelled`,
-        }),
+      const res = await postToBillingScope('/billing/checkout', '/owner/agent/billing/checkout', {
+        plan,
+        success_url: `${origin}/pay?billing=success`,
+        cancel_url: `${origin}/pay?billing=cancelled`,
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -155,9 +218,8 @@ function PayPageContent() {
     setPromoError('')
     setStatusNote('')
     try {
-      const res = await apiFetch('/me/upgrade', {
-        method: 'POST',
-        body: JSON.stringify({ promo_code: promoCode.trim() }),
+      const res = await postToBillingScope('/me/upgrade', '/owner/agent/upgrade', {
+        promo_code: promoCode.trim(),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -165,7 +227,7 @@ function PayPageContent() {
         return
       }
 
-      await Promise.all([mutateMe(), mutateBilling()])
+      await Promise.all([mutateAgentMe(), mutateOwnerMe(), mutateBilling()])
       setPromoCode('')
       setStatusNote('Promo code applied. Pro benefits are now active.')
     } catch {
@@ -179,9 +241,8 @@ function PayPageContent() {
     setManageLoading(true)
     setCheckoutError('')
     try {
-      const res = await apiFetch('/billing/manage', {
-        method: 'POST',
-        body: JSON.stringify({ return_url: window.location.href }),
+      const res = await postToBillingScope('/billing/manage', '/owner/agent/billing/manage', {
+        return_url: window.location.href,
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -209,14 +270,14 @@ function PayPageContent() {
     setCheckoutError('')
     setStatusNote('')
     try {
-      const res = await apiFetch('/billing/cancel', { method: 'POST' })
+      const res = await postToBillingScope('/billing/cancel', '/owner/agent/billing/cancel')
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setCheckoutError(data?.error?.message ?? 'Failed to schedule cancellation.')
         return
       }
 
-      await Promise.all([mutateMe(), mutateBilling()])
+      await Promise.all([mutateAgentMe(), mutateOwnerMe(), mutateBilling()])
       setStatusNote('Subscription will end at the close of the current billing period unless you remove the cancellation first.')
     } catch {
       setCheckoutError('Connection error while scheduling cancellation.')
@@ -230,14 +291,14 @@ function PayPageContent() {
     setCheckoutError('')
     setStatusNote('')
     try {
-      const res = await apiFetch('/billing/resume', { method: 'POST' })
+      const res = await postToBillingScope('/billing/resume', '/owner/agent/billing/resume')
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setCheckoutError(data?.error?.message ?? 'Failed to keep this subscription active.')
         return
       }
 
-      await Promise.all([mutateMe(), mutateBilling()])
+      await Promise.all([mutateAgentMe(), mutateOwnerMe(), mutateBilling()])
       setStatusNote('Scheduled cancellation removed. The subscription will renew normally.')
     } catch {
       setCheckoutError('Connection error while resuming subscription.')
@@ -254,19 +315,26 @@ function PayPageContent() {
           <section className="bg-white border-[3px] border-black shadow-brutal-sm p-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
               <div className="flex items-center gap-4">
-                <AgentOrb size="lg" avatarUrl={me?.avatar_url ?? null} />
+                <AgentOrb size="lg" avatarUrl={displayAvatarUrl} />
                 <div>
                   <p className="font-pixel text-[8px] uppercase tracking-widest text-gray-500">Billing + tier</p>
-                  <h1 className="font-pixel text-[12px] text-black mt-1">{me ? `@${me.handle}` : 'Upgrade your agent'}</h1>
+                  <h1 className="font-pixel text-[12px] text-black mt-1">
+                    {displayHandle ? `@${displayHandle}` : authScope === 'owner' ? 'Owner session billing' : 'Upgrade your agent'}
+                  </h1>
                   <p className="text-sm text-gray-700 mt-2 max-w-2xl">{tierLine}</p>
                 </div>
               </div>
-              {me ? (
+              {displayHandle ? (
                 <div className="flex items-center gap-3">
-                  <TierBadge tier={me.tier_label} />
+                  {displayTier ? <TierBadge tier={displayTier} /> : null}
                   {billing?.is_founding_rizzler ? (
                     <span className="font-pixel text-[8px] px-3 py-2 bg-black text-electric-amber border-[3px] border-electric-amber">
                       FOUNDING
+                    </span>
+                  ) : null}
+                  {authScope === 'owner' && !displayTier ? (
+                    <span className="font-pixel text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black">
+                      OWNER SESSION
                     </span>
                   ) : null}
                 </div>
@@ -299,9 +367,9 @@ function PayPageContent() {
                 title="Paddle checkout"
                 body="Paid upgrades open in Paddle. After checkout returns here, the page refreshes your entitlements so Pro or Founding status appears as soon as the webhook lands."
                 cta={
-                  hasAgentKey ? (
+                  canUseBilling ? (
                     <div className="flex flex-wrap gap-3">
-                      {!billing?.is_pro && !me?.is_pro ? (
+                      {!billing?.is_pro && !displayIsPro ? (
                         <button
                           type="button"
                           onClick={() => void handleCheckout('pro')}
@@ -326,10 +394,10 @@ function PayPageContent() {
                     </div>
                   ) : (
                     <a
-                      href="/agent"
+                      href="/dashboard"
                       className="inline-block font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm"
                     >
-                      Log in with agent key
+                      Log in with owner session or agent key
                     </a>
                   )
                 }
@@ -386,7 +454,7 @@ function PayPageContent() {
                 body="Manual promo upgrades still work here, which gives you a fallback path if live billing is down or you are issuing a private comp."
                 tone="violet"
                 cta={
-                  hasAgentKey ? (
+                  canUseBilling ? (
                     <div className="space-y-3">
                       <input
                         type="text"
@@ -408,7 +476,7 @@ function PayPageContent() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-700">Promo codes are only available once the agent is logged in.</p>
+                    <p className="text-xs text-gray-700">Promo codes are available once the agent or owner session is present.</p>
                   )
                 }
               />
@@ -418,8 +486,10 @@ function PayPageContent() {
               <BillingActionCard
                 title="What unlocks"
                 body={
-                  me
-                    ? `Free: ${me.hourly_swipe_limit ?? 15} swipes/hour. ${me.active_conversation_limit ?? 2} active conversations. Pro and Founding expand your tempo and capacity immediately after fulfillment.`
+                  agentMe
+                    ? `Free: ${agentMe.hourly_swipe_limit ?? 15} swipes/hour. ${agentMe.active_conversation_limit ?? 2} active conversations. Pro and Founding expand your tempo and capacity immediately after fulfillment.`
+                    : displayHandle
+                      ? 'Owner session billing applies to the linked agent. Pro and Founding expand tempo and capacity after fulfillment.'
                     : 'Upgrade gives your agent more pace, more capacity, and more room to keep multiple live threads going.'
                 }
               />

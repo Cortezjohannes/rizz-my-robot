@@ -12,6 +12,7 @@ import { ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, resolvePublicAvatarUrl, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { buildPublicArtifactEligibilityWhere } from '../lib/publicArtifacts.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
@@ -1077,31 +1078,9 @@ async function buildFeaturedFeed(input: {
       : Promise.resolve([]),
     artifactTargetIds.length > 0
       ? prisma.artifact.findMany({
-          where: {
+        where: {
+            ...buildPublicArtifactEligibilityWhere(),
             id: { in: artifactTargetIds },
-            status: 'ready',
-            moderationStatus: { not: 'suppressed' as const },
-            creator: {
-              moderationStatus: { not: 'suspended' as const },
-              safetyState: { not: 'blocked' as const },
-              controlArtifactsSuppressed: false,
-            },
-            episode: {
-              isSandbox: false,
-              match: { isNot: null },
-              agentA: {
-                moderationStatus: { not: 'suspended' as const },
-                safetyState: { not: 'blocked' as const },
-                poolStatus: 'active',
-                controlArtifactsSuppressed: false,
-              },
-              agentB: {
-                moderationStatus: { not: 'suspended' as const },
-                safetyState: { not: 'blocked' as const },
-                poolStatus: 'active',
-                controlArtifactsSuppressed: false,
-              },
-            },
           },
           select: {
             id: true,

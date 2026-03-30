@@ -28,6 +28,7 @@ type EpisodeArtifactLike = {
 type ArtifactGuidanceInput = {
   agentId: string;
   capabilityTier: CapabilityTier;
+  availableArtifactTypes?: ArtifactType[] | null;
   canDropArtifact: boolean;
   artifactsRemaining: number;
   messageCount: number;
@@ -57,11 +58,15 @@ function score(value: number | null | undefined) {
 function suggestedArtifactTypes(
   capabilityTier: CapabilityTier,
   messageCount: number,
-  strongPull: boolean
+  strongPull: boolean,
+  availableArtifactTypes?: ArtifactType[] | null,
 ): ArtifactType[] {
   const unlocked = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
+  const runtimeAvailable = availableArtifactTypes && availableArtifactTypes.length > 0
+    ? availableArtifactTypes
+    : unlocked;
   const defaultPreference = PREFERRED_ARTIFACTS_BY_TIER[capabilityTier] ?? PREFERRED_ARTIFACTS_BY_TIER.text_only;
-  const hasMedia = capabilityTier !== 'text_only';
+  const hasMedia = runtimeAvailable.some((artifactType) => MEDIA_ARTIFACT_TYPES.has(artifactType));
 
   const stagePreferred: ArtifactType[] = (() => {
     switch (capabilityTier) {
@@ -98,7 +103,12 @@ function suggestedArtifactTypes(
   const preferred = [...stagePreferred, ...defaultPreference]
     .filter((artifactType, index, array) => array.indexOf(artifactType) === index)
     .filter((artifactType) => unlocked.includes(artifactType))
+    .filter((artifactType) => runtimeAvailable.includes(artifactType))
     .filter((artifactType) => !hasMedia || !TEXT_ARTIFACT_TYPES.has(artifactType));
+
+  if (preferred.length === 0) {
+    return runtimeAvailable.slice(0, 3);
+  }
 
   return preferred.slice(0, 3);
 }
@@ -208,12 +218,12 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     };
   }
 
-  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull);
+  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull, input.availableArtifactTypes);
 
   // Count how many of my artifacts are text-only vs multimedia
   const myTextCount = myArtifacts.filter((a) => TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)).length;
   const myMediaCount = myArtifactCount - myTextCount;
-  const hasMediaCapability = input.capabilityTier !== 'text_only';
+  const hasMediaCapability = types.some((artifactType) => MEDIA_ARTIFACT_TYPES.has(artifactType));
   const textSpamWarning = hasMediaCapability && myTextCount > 0 && myMediaCount === 0
     ? ' WARNING: You have only dropped text artifacts despite having multimedia capability. Text-only artifacts are worth almost nothing. Switch to images, audio, or video immediately.'
     : '';

@@ -42,38 +42,39 @@ function withTimeout(options: RequestInit = {}, ms = REQUEST_TIMEOUT_MS): { init
   }
 }
 
-function readPersistentKey(key: string): string | null {
+function readSessionKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
+    const sessionValue = window.sessionStorage.getItem(key)
+    if (sessionValue) return sessionValue
+
     const localValue = window.localStorage.getItem(key)
     if (localValue) {
       window.sessionStorage.setItem(key, localValue)
+      window.localStorage.removeItem(key)
       return localValue
     }
-
-    const sessionValue = window.sessionStorage.getItem(key)
-    if (sessionValue) return sessionValue
   } catch {
     return null
   }
   return null
 }
 
-function writePersistentKey(key: string, value: string): void {
+function writeSessionKey(key: string, value: string): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(key, value)
     window.sessionStorage.setItem(key, value)
+    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }
 }
 
-function clearPersistentKey(key: string): void {
+function clearSessionKey(key: string): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.removeItem(key)
     window.sessionStorage.removeItem(key)
+    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }
@@ -84,15 +85,15 @@ function clearPersistentKey(key: string): void {
 // ---------------------------------------------------------------------------
 
 export function getApiKey(): string | null {
-  return readPersistentKey(API_KEY_STORAGE_KEY)
+  return readSessionKey(API_KEY_STORAGE_KEY)
 }
 
 export function setApiKey(key: string): void {
-  writePersistentKey(API_KEY_STORAGE_KEY, key)
+  writeSessionKey(API_KEY_STORAGE_KEY, key)
 }
 
 export function clearApiKey(): void {
-  clearPersistentKey(API_KEY_STORAGE_KEY)
+  clearSessionKey(API_KEY_STORAGE_KEY)
 }
 
 export function hasApiKey(): boolean {
@@ -100,15 +101,15 @@ export function hasApiKey(): boolean {
 }
 
 export function getOwnerSessionToken(): string | null {
-  return readPersistentKey(OWNER_SESSION_STORAGE_KEY)
+  return readSessionKey(OWNER_SESSION_STORAGE_KEY)
 }
 
 export function setOwnerSessionToken(token: string): void {
-  writePersistentKey(OWNER_SESSION_STORAGE_KEY, token)
+  writeSessionKey(OWNER_SESSION_STORAGE_KEY, token)
 }
 
 export function clearOwnerSessionToken(): void {
-  clearPersistentKey(OWNER_SESSION_STORAGE_KEY)
+  clearSessionKey(OWNER_SESSION_STORAGE_KEY)
 }
 
 export function hasOwnerSessionToken(): boolean {

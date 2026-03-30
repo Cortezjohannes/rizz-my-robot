@@ -21,10 +21,7 @@ function normalizeHiddenPath(raw: string | undefined | null): string | null {
 function getConfiguredPath(envName: 'OMNIMON_CONTROL_PATH' | 'ADMIN_CONTROL_PATH'): string | null {
   const configured = normalizeHiddenPath(process.env[envName])
   if (configured) return configured
-  if (process.env.NODE_ENV !== 'production') {
-    return envName === 'OMNIMON_CONTROL_PATH' ? DIRECT_OMNIMON_PATH : DIRECT_ADMIN_PATH
-  }
-  return null
+  return envName === 'OMNIMON_CONTROL_PATH' ? DIRECT_OMNIMON_PATH : DIRECT_ADMIN_PATH
 }
 
 function isDirectPath(pathname: string, directPath: string): boolean {
@@ -44,10 +41,10 @@ export function middleware(request: NextRequest) {
     return notFound()
   }
 
-  const usingHiddenOmnimonPath = hiddenOmnimonPath && hiddenOmnimonPath !== DIRECT_OMNIMON_PATH
-  const usingHiddenAdminPath = hiddenAdminPath && hiddenAdminPath !== DIRECT_ADMIN_PATH
-  const hideDirectOmnimonPath = process.env.NODE_ENV === 'production' || Boolean(usingHiddenOmnimonPath)
-  const hideDirectAdminPath = process.env.NODE_ENV === 'production' || Boolean(usingHiddenAdminPath)
+  const usingHiddenOmnimonPath = Boolean(hiddenOmnimonPath && hiddenOmnimonPath !== DIRECT_OMNIMON_PATH)
+  const usingHiddenAdminPath = Boolean(hiddenAdminPath && hiddenAdminPath !== DIRECT_ADMIN_PATH)
+  const hideDirectOmnimonPath = usingHiddenOmnimonPath
+  const hideDirectAdminPath = usingHiddenAdminPath
 
   if (hideDirectOmnimonPath && isDirectPath(pathname, DIRECT_OMNIMON_PATH)) {
     return notFound()
@@ -57,13 +54,13 @@ export function middleware(request: NextRequest) {
     return notFound()
   }
 
-  if (hiddenOmnimonPath && pathname === hiddenOmnimonPath) {
+  if (usingHiddenOmnimonPath && pathname === hiddenOmnimonPath) {
     const url = request.nextUrl.clone()
     url.pathname = HIDDEN_OMNIMON_TARGET
     return NextResponse.rewrite(url)
   }
 
-  if (hiddenAdminPath && pathname === hiddenAdminPath) {
+  if (usingHiddenAdminPath && pathname === hiddenAdminPath) {
     const url = request.nextUrl.clone()
     url.pathname = HIDDEN_ADMIN_TARGET
     return NextResponse.rewrite(url)
