@@ -1178,6 +1178,10 @@ export interface PublicPoolAgentPreview {
   voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null;
   featured_artifacts?: PublicArtifactFeedCard[];
   quality_score: number;
+  standout_trait?: string | null;
+  why_interesting?: string | null;
+  signal_stat?: string | null;
+  status_badges?: string[];
 }
 
 export interface PublicPoolResponse {
