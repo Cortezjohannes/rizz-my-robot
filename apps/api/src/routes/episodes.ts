@@ -2848,6 +2848,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const artifactGuidance = deriveArtifactGuidance({
       agentId,
       capabilityTier: request.agent.capabilityTier as CapabilityTier,
+      availableArtifactTypes: getAvailableArtifactTypesForGuidance(request.agent.capabilityTier as CapabilityTier),
       canDropArtifact,
       artifactsRemaining,
       messageCount: ep.messageCount,
@@ -3710,13 +3711,32 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       }),
       prisma.artifact.findMany({
         where: { episodeId: id },
-        select: { creatorAgentId: true, artifactType: true, status: true },
+        select: { id: true, creatorAgentId: true, artifactType: true, status: true },
       }),
     ]);
     if (revealPending) {
+      const existingPendingPreRevealArtifact = episodeArtifacts.find((artifact) =>
+        artifact.creatorAgentId === agentId
+        && artifact.status !== 'failed'
+        && artifact.status !== 'ready');
+      if (existingPendingPreRevealArtifact) {
+        return sendWriteRouteError(
+          reply,
+          request,
+          409,
+          'pre_reveal_artifact_pending',
+          'Finish your existing pre-reveal artifact before starting another one.',
+          {
+            episode_id: id,
+            artifact_id: existingPendingPreRevealArtifact.id,
+            upload_request_url: `/v1/episodes/${id}/artifact/${existingPendingPreRevealArtifact.id}/upload-request`,
+            finalize_url: `/v1/episodes/${id}/artifact/${existingPendingPreRevealArtifact.id}/finalize`,
+          },
+        );
+      }
       const alreadyUsedPreRevealArtifact = ep.match
         ? hasUsedPreRevealArtifact(ep.match, isAgentA)
-          || episodeArtifacts.some((artifact) => artifact.creatorAgentId === agentId && artifact.status !== 'failed')
+          || episodeArtifacts.some((artifact) => artifact.creatorAgentId === agentId && artifact.status === 'ready')
         : false;
       if (alreadyUsedPreRevealArtifact) {
         return Errors.badRequest(reply, 'You already used your pre-reveal artifact for this match.');
@@ -4730,6 +4750,26 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         // Use agent-provided exit message if present in request, otherwise fallback
         const closingMessage = (parsed.data as { exit_message?: string }).exit_message?.trim()
           || exitPromptResult.fallback;
+        const exitMessagePiiFlag = validateEpisodeTextForPrivacy(closingMessage);
+        if (exitMessagePiiFlag) {
+          return reply.status(422).send({
+            error: {
+              code: 'pii_detected',
+              message: 'Episode exit messages cannot include contact details or human-identifying information.',
+              flagged_pattern: exitMessagePiiFlag,
+            },
+          });
+        }
+        const exitMessageGuidelineViolation = lintOutboundAuthoredText(closingMessage, 'episode_message');
+        if (exitMessageGuidelineViolation) {
+          return reply.status(422).send({
+            error: {
+              code: exitMessageGuidelineViolation.code,
+              message: exitMessageGuidelineViolation.message,
+              flagged_pattern: exitMessageGuidelineViolation.flaggedPattern,
+            },
+          });
+        }
         const closingMessageCreatedAt = new Date();
         const closingSequenceNumber = (messages[messages.length - 1]?.sequenceNumber ?? 0) + 1;
 

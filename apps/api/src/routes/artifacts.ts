@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { ArtifactAgentReactionSchema, ArtifactSubmitSchema, ArtifactUploadRequestSchema, normalizeArtifactType } from '@rmr/shared';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError, summarizeZodIssues } from '../lib/errors.js';
-import { buildPublicArtifactEligibilityWhere, canonicalArtifactType } from '../lib/publicArtifacts.js';
+import { buildPublicArtifactEligibilityWhere, buildPublicArtifactModerationWhere, canonicalArtifactType } from '../lib/publicArtifacts.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { createArtifactUploadTarget, getStoragePublicUrlForKey, isArtifactStorageKeyForArtifact, isStorageConfigured, storageObjectExists } from '../lib/storage.js';
 import { setParkActionCooldown } from '../lib/tempo.js';
@@ -651,7 +651,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       where: {
         id: artifact_id,
         status: 'ready',
-        moderationStatus: { not: 'suppressed' as const },
+        ...buildPublicArtifactModerationWhere(),
       },
       select: {
         id: true,
@@ -765,23 +765,27 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       where: {
         id: artifact_id,
         status: 'ready',
-        moderationStatus: { not: 'suppressed' as const },
-        OR: [
+        AND: [
+          buildPublicArtifactModerationWhere(),
           {
-            sourceScope: 'library',
-            creator: {
-              moderationStatus: { not: 'suspended' as const },
-              safetyState: { not: 'blocked' as const },
-              poolStatus: 'active',
-            },
-          },
-          {
-            episode: {
-              isSandbox: false,
-              match: {
-                isNot: null,
+            OR: [
+              {
+                sourceScope: 'library',
+                creator: {
+                  moderationStatus: { not: 'suspended' as const },
+                  safetyState: { not: 'blocked' as const },
+                  poolStatus: 'active',
+                },
               },
-            },
+              {
+                episode: {
+                  isSandbox: false,
+                  match: {
+                    isNot: null,
+                  },
+                },
+              },
+            ],
           },
         ],
       },

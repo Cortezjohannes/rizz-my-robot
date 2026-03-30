@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
+import { getVerificationRequirements } from '../lib/controlSettings.js';
 import { QUEUE_NAMES, getNamedQueue } from '../lib/queues.js';
 import { getStoragePublicBaseUrl, isStorageConfigured } from '../lib/storage.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const WORKER_HEARTBEAT_KEY = 'worker:runtime-heartbeat';
 
 const REQUIRED_SCHEMA_TABLES = [
   'agent_affinity_signals',
@@ -128,6 +130,55 @@ async function checkCriticalQueues() {
   return results;
 }
 
+async function checkWorkerHeartbeat() {
+  const redis = new Redis(REDIS_URL, {
+    lazyConnect: true,
+    connectTimeout: 1500,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null,
+  });
+
+  try {
+    await redis.connect();
+    const payload = await redis.get(WORKER_HEARTBEAT_KEY);
+    if (!payload) {
+      return {
+        ok: false,
+        state: 'missing' as const,
+        details: null as Record<string, unknown> | null,
+        error: 'worker_heartbeat_missing',
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      const state = typeof parsed.state === 'string' ? parsed.state : 'unknown';
+      return {
+        ok: state === 'running',
+        state,
+        details: parsed,
+        error: state === 'running' ? null : `worker_state_${state}`,
+      };
+    } catch {
+      return {
+        ok: false,
+        state: 'invalid' as const,
+        details: null as Record<string, unknown> | null,
+        error: 'worker_heartbeat_invalid',
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      state: 'unreachable' as const,
+      details: null as Record<string, unknown> | null,
+      error: error instanceof Error ? error.message : 'worker_heartbeat_unreachable',
+    };
+  } finally {
+    redis.disconnect();
+  }
+}
+
 function checkStorageHosting() {
   const configured = isStorageConfigured();
   const publicBaseUrl = getStoragePublicBaseUrl();
@@ -142,6 +193,34 @@ function checkStorageHosting() {
   };
 }
 
+function checkClaimEmailDelivery(input: { requireEmailVerification: boolean }) {
+  if (!input.requireEmailVerification) {
+    return { ok: true, reason: null as string | null };
+  }
+
+  if (process.env.SENDGRID_API_KEY) {
+    return { ok: true, reason: null as string | null };
+  }
+
+  if (process.env.EMAIL_PREVIEW_MODE === 'true') {
+    return { ok: true, reason: 'email_preview_mode_enabled' };
+  }
+
+  return { ok: false, reason: 'sendgrid_unconfigured' };
+}
+
+function checkClaimXOAuth(input: { requireXVerification: boolean }) {
+  if (!input.requireXVerification) {
+    return { ok: true, reason: null as string | null };
+  }
+
+  const hasConfig = Boolean(process.env.X_CLIENT_ID && process.env.X_OAUTH_REDIRECT_URI);
+  return {
+    ok: hasConfig,
+    reason: hasConfig ? null : 'x_oauth_unconfigured',
+  };
+}
+
 export async function healthRoutes(fastify: FastifyInstance) {
   const readyHandler = async (_request: unknown, reply: { status: (code: number) => { send: (payload: unknown) => unknown } }) => {
     let dbOk = false;
@@ -152,33 +231,73 @@ export async function healthRoutes(fastify: FastifyInstance) {
     let unavailableQueues: string[] = [];
     let storageOk = false;
     let storageError: string | null = null;
+    let claimEmailOk = false;
+    let claimEmailReason: string | null = null;
+    let claimXOk = false;
+    let claimXReason: string | null = null;
+    let workerOk = false;
+    let workerState = 'unknown';
+    let workerError: string | null = null;
+    let workerDetails: Record<string, unknown> | null = null;
+    let verificationRequirements = {
+      requireEmailVerification: true,
+      requireXVerification: true,
+    };
 
     try {
       await prisma.$queryRaw`SELECT 1`;
       dbOk = true;
-      missingObjects = await getMissingSchemaObjects();
+      [missingObjects, verificationRequirements] = await Promise.all([
+        getMissingSchemaObjects(),
+        getVerificationRequirements(),
+      ]);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : 'database_unreachable';
     }
 
-    const [redisState, queueState] = await Promise.all([
+    const [redisState, queueState, workerStateCheck] = await Promise.all([
       checkRedisConnectivity(),
       checkCriticalQueues(),
+      checkWorkerHeartbeat(),
     ]);
 
     redisOk = redisState.ok;
     redisError = redisState.error;
     unavailableQueues = queueState.filter((queue) => !queue.enabled).map((queue) => queue.name);
+    workerOk = workerStateCheck.ok;
+    workerState = workerStateCheck.state;
+    workerError = workerStateCheck.error;
+    workerDetails = workerStateCheck.details;
     const storageState = checkStorageHosting();
     storageOk = storageState.ok;
     storageError = storageState.error;
+    const claimEmailState = checkClaimEmailDelivery({
+      requireEmailVerification: verificationRequirements.requireEmailVerification,
+    });
+    claimEmailOk = claimEmailState.ok;
+    claimEmailReason = claimEmailState.reason;
+    const claimXState = checkClaimXOAuth({
+      requireXVerification: verificationRequirements.requireXVerification,
+    });
+    claimXOk = claimXState.ok;
+    claimXReason = claimXState.reason;
 
-    const ready = dbOk && missingObjects.length === 0 && redisOk && unavailableQueues.length === 0 && storageOk;
+    const ready = dbOk
+      && missingObjects.length === 0
+      && redisOk
+      && unavailableQueues.length === 0
+      && workerOk
+      && storageOk
+      && claimEmailOk
+      && claimXOk;
     const blockingIssues = [
       ...(!dbOk ? [{ check: 'database', reason: errorMessage ?? 'database_unreachable' }] : []),
       ...(dbOk && missingObjects.length > 0 ? [{ check: 'schema', reason: 'missing_objects', missing_objects: missingObjects }] : []),
       ...(!redisOk ? [{ check: 'redis', reason: redisError ?? 'redis_unreachable' }] : []),
       ...(!storageOk ? [{ check: 'storage', reason: storageError ?? 'storage_unavailable' }] : []),
+      ...(!workerOk ? [{ check: 'worker', reason: workerError ?? 'worker_unavailable', state: workerState }] : []),
+      ...(!claimEmailOk ? [{ check: 'claim_email', reason: claimEmailReason ?? 'claim_email_unavailable' }] : []),
+      ...(!claimXOk ? [{ check: 'claim_x_oauth', reason: claimXReason ?? 'claim_x_oauth_unavailable' }] : []),
       ...(unavailableQueues.length > 0 ? [{ check: 'queues', reason: 'critical_queues_unavailable', queues: unavailableQueues }] : []),
     ];
 
@@ -189,7 +308,10 @@ export async function healthRoutes(fastify: FastifyInstance) {
       db: dbOk ? 'ok' : 'unreachable',
       schema: !dbOk ? 'unknown' : missingObjects.length === 0 ? 'ok' : 'out_of_date',
       redis: redisOk ? 'ok' : 'unreachable',
+      worker: workerOk ? 'ok' : 'unavailable',
       storage: storageOk ? 'ok' : 'unavailable',
+      claim_email: claimEmailOk ? 'ok' : 'unavailable',
+      claim_x_oauth: claimXOk ? 'ok' : 'unavailable',
       queues: unavailableQueues.length === 0 ? 'ok' : 'degraded',
       checks: {
         database: {
@@ -204,11 +326,27 @@ export async function healthRoutes(fastify: FastifyInstance) {
           status: redisOk ? 'healthy' : 'down',
           ...(redisError ? { error: redisError } : {}),
         },
+        worker: {
+          status: workerOk ? 'healthy' : 'down',
+          state: workerState,
+          ...(workerError ? { error: workerError } : {}),
+          ...(workerDetails ? { details: workerDetails } : {}),
+        },
         storage: {
           status: storageOk ? 'healthy' : 'down',
           ...(storageError ? { error: storageError } : {}),
           configured: storageState.configured,
           public_base_url: storageState.public_base_url,
+        },
+        claim_email: {
+          status: claimEmailOk ? 'healthy' : 'down',
+          requirement_enabled: verificationRequirements.requireEmailVerification,
+          ...(claimEmailReason ? { reason: claimEmailReason } : {}),
+        },
+        claim_x_oauth: {
+          status: claimXOk ? 'healthy' : 'down',
+          requirement_enabled: verificationRequirements.requireXVerification,
+          ...(claimXReason ? { reason: claimXReason } : {}),
         },
         queues: {
           status: unavailableQueues.length === 0 ? 'healthy' : 'degraded',

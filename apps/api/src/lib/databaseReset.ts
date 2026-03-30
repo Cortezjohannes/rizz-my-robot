@@ -1,9 +1,12 @@
 import { randomUUID } from 'crypto';
 import { gzipSync } from 'zlib';
 import { Prisma, prisma } from '@rmr/db';
+import Redis from 'ioredis';
+import { MANAGED_QUEUE_NAMES, getNamedQueue } from './queues.js';
 import { uploadBufferToStorage } from './storage.js';
 
 export const FULL_DATABASE_WIPE_PRESERVED_TABLES = ['_prisma_migrations', 'audit_logs', 'control_settings'] as const;
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 function assertSafeIdentifier(value: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -35,6 +38,79 @@ async function readTableRows(tableName: string) {
   const rows = await prisma.$queryRawUnsafe<Array<{ rows: Prisma.JsonValue }>>(sql);
   const payload = rows[0]?.rows;
   return Array.isArray(payload) ? payload : [];
+}
+
+async function drainQueue(name: string) {
+  const queue = getNamedQueue(name);
+
+  if (!queue) return { name, cleaned: false };
+
+  try {
+    await queue.drain(true);
+    await Promise.allSettled([
+      queue.clean(0, 10_000, 'failed'),
+      queue.clean(0, 10_000, 'completed'),
+      queue.clean(0, 10_000, 'wait'),
+      queue.clean(0, 10_000, 'delayed'),
+      queue.clean(0, 10_000, 'paused'),
+      queue.clean(0, 10_000, 'prioritized'),
+    ]);
+    return { name, cleaned: true };
+  } catch (error) {
+    console.error(`[database-reset] Failed to drain queue ${name}:`, error);
+    return { name, cleaned: false };
+  }
+}
+
+export async function drainManagedQueues() {
+  const results = await Promise.all(MANAGED_QUEUE_NAMES.map((name) => drainQueue(name)));
+  const failed = results.filter((result) => !result.cleaned);
+  if (failed.length > 0) {
+    throw new Error(`queue_drain_failed:${failed.map((result) => result.name).join(',')}`);
+  }
+  return results;
+}
+
+async function clearRedisByPattern(redis: Redis, pattern: string) {
+  let cursor = '0';
+  let removed = 0;
+
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 250);
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      removed += await redis.del(...keys);
+    }
+  } while (cursor !== '0');
+
+  return removed;
+}
+
+export async function clearRedisCoordinationState() {
+  let redis: Redis | null = null;
+
+  try {
+    redis = new Redis(REDIS_URL, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    });
+    await redis.connect();
+
+    const removedRevealChatKeys = await clearRedisByPattern(redis, 'reveal_chat:*');
+    return {
+      connected: true,
+      removed_keys: removedRevealChatKeys,
+    };
+  } catch (error) {
+    console.error('[database-reset] Failed to clear Redis coordination state:', error);
+    return {
+      connected: false,
+      removed_keys: 0,
+    };
+  } finally {
+    await redis?.quit().catch(() => {});
+  }
 }
 
 export async function backupPublicDatabaseSnapshot(input: {
@@ -92,6 +168,12 @@ export async function backupAndResetDatabase(input: {
   const preservedTables = FULL_DATABASE_WIPE_PRESERVED_TABLES.filter((table) => allTables.includes(table));
   const resetTables = allTables.filter((table) => !FULL_DATABASE_WIPE_PRESERVED_TABLES.includes(table as (typeof FULL_DATABASE_WIPE_PRESERVED_TABLES)[number]));
 
+  const queueReset = await drainManagedQueues();
+  const redisReset = await clearRedisCoordinationState();
+  if (!redisReset.connected) {
+    throw new Error('redis_coordination_clear_failed');
+  }
+
   const snapshot = await backupPublicDatabaseSnapshot({
     actorKind: input.actorKind,
     actorId: input.actorId,
@@ -111,5 +193,7 @@ export async function backupAndResetDatabase(input: {
     preservedTables,
     resetTables,
     rowCounts: snapshot.rowCounts,
+    queueReset,
+    redisReset,
   };
 }

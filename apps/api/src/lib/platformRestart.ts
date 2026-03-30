@@ -1,7 +1,7 @@
 import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import type { ControlActorContext } from '../middleware/requireControlAccess.js';
-import { getVerificationRequirements, derivePoolStatusFromVerification } from './controlSettings.js';
+import { generateApiKey, hashApiKey } from './auth.js';
 import { backupPublicDatabaseSnapshot } from './databaseReset.js';
 import {
   MANAGED_QUEUE_NAMES,
@@ -10,75 +10,28 @@ import {
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-export const PLATFORM_FRESH_START_RESET_TABLES = [
-  'agent_affinity_signals',
-  'agent_autonomy_traces',
-  'agent_counterpart_affects',
-  'agent_diary_entries',
-  'agent_emotion_events',
-  'agent_episode_presences',
-  'agent_feed_impressions',
-  'agent_profile_views',
-  'analytics_events',
-  'artifact_likes',
-  'artifacts',
-  'artifact_reactions',
-  'artifact_views',
-  'blocks',
-  'chat_messages',
-  'date_plans',
-  'emotional_continuity_snapshots',
-  'episodes',
-  'episode_drafts',
-  'episode_messages',
-  'feed_cards',
-  'feed_comments',
-  'feed_votes',
-  'featured_feed_pins',
-  'idempotency_keys',
-  'leaderboard_snapshot_entries',
-  'leaderboard_snapshots',
-  'matches',
-  'moderation_reviews',
-  'narrative_events',
-  'owner_attention_items',
-  'owner_episode_read_states',
-  'owner_recap_items',
-  'park_mood_snapshots',
-  'reports',
-  'reveal_chats',
-  'reveal_chat_messages',
-  'reveal_chat_participants',
-  'rizz_points_events',
-  'swipes',
-  'typing_indicators',
-  'webhook_deliveries',
-] as const;
-
 export const PLATFORM_FRESH_START_PRESERVED_TABLES = [
   'agents',
-  'owner_accounts',
-  'owner_sessions',
-  'humans',
   'agent_profile_decks',
   'agent_profile_deck_photos',
   'agent_profile_deck_prompt_answers',
   'media_assets',
-  'agent_claims',
-  'handle_reservations',
-  'agent_subscriptions',
-  'seed_agent_states',
-  'webhooks',
-  'owner_x_integration_links',
-  'verification_challenges',
   'control_settings',
   'audit_logs',
 ] as const;
 
-const PLATFORM_FRESH_START_DELETE_ROOT_TABLES = ['reveal_chats', 'matches', 'episodes'] as const;
-const PLATFORM_FRESH_START_TRUNCATE_TABLES = PLATFORM_FRESH_START_RESET_TABLES.filter(
-  (tableName) => !PLATFORM_FRESH_START_DELETE_ROOT_TABLES.includes(tableName as (typeof PLATFORM_FRESH_START_DELETE_ROOT_TABLES)[number]),
-);
+const PLATFORM_FRESH_START_PRESERVED_TABLE_SET = new Set<string>(PLATFORM_FRESH_START_PRESERVED_TABLES);
+
+async function listPublicTables() {
+  const rows = await prisma.$queryRaw<Array<{ tablename: string }>>(Prisma.sql`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+    ORDER BY tablename ASC
+  `);
+
+  return rows.map((row) => row.tablename);
+}
 
 function assertSafeIdentifier(value: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
@@ -98,22 +51,29 @@ async function getTableRowCount(tableName: string) {
   return typeof raw === 'bigint' ? Number(raw) : Number(raw);
 }
 
-async function getRestartRowCounts() {
+async function getFreshStartTablePlan() {
+  const allTables = await listPublicTables();
+  const preservedTables = allTables.filter((tableName) => PLATFORM_FRESH_START_PRESERVED_TABLE_SET.has(tableName));
+  const resetTables = allTables.filter((tableName) => !PLATFORM_FRESH_START_PRESERVED_TABLE_SET.has(tableName));
+
+  return {
+    allTables,
+    preservedTables,
+    resetTables,
+  };
+}
+
+async function getFreshStartRowCounts(tableNames: string[]) {
   const pairs = await Promise.all(
-    PLATFORM_FRESH_START_RESET_TABLES.map(async (tableName) => [tableName, await getTableRowCount(tableName)] as const),
+    tableNames.map(async (tableName) => [tableName, await getTableRowCount(tableName)] as const),
   );
   return Object.fromEntries(pairs);
 }
 
-async function truncateRestartTables() {
-  const sql = `TRUNCATE TABLE ${PLATFORM_FRESH_START_TRUNCATE_TABLES.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
+async function truncateFreshStartTables(tableNames: string[]) {
+  if (tableNames.length === 0) return;
+  const sql = `TRUNCATE TABLE ${tableNames.map((table) => `public.${quoteIdentifier(table)}`).join(', ')} RESTART IDENTITY CASCADE`;
   await prisma.$executeRawUnsafe(sql);
-}
-
-async function clearConversationRoots() {
-  await prisma.revealChat.deleteMany();
-  await prisma.match.deleteMany();
-  await prisma.episode.deleteMany();
 }
 
 async function purgeNonProfileMediaAssets() {
@@ -128,65 +88,98 @@ async function purgeNonProfileMediaAssets() {
 }
 
 async function resetAgentState() {
-  const requirements = await getVerificationRequirements();
-
-  await prisma.agent.updateMany({
-    data: {
-      rizzPoints: 0,
-      matchCount: 0,
-      bodyCount: 0,
-      repScore: 1,
-      tierLabel: 'Unawakened',
-      actionCooldownUntil: null,
-      lastParkActionAt: null,
-      lastParkActionType: null,
-      omnimonLastSurfacedAt: null,
-      omnimonLastResolvedAt: null,
-      dailySwipeCount: 0,
-      dailySwipeResetAt: null,
-      hourlySwipeCount: 0,
-      hourlySwipeWindowStartedAt: null,
-      lastActiveAt: null,
-      emotionSummary: null,
-      emotionalStateTags: [],
-      emotionalArc: null,
-      emotionalGuardLevel: 50,
-      emotionalLastUpdatedAt: null,
-      socialGravityScore: 0,
-      momentumScore: 0,
-      selectivenessScore: 0,
-      consistencyScore: 0,
-      recentHeatBucket: null,
-      autonomyStatus: 'ready',
-      autonomyLastResult: Prisma.JsonNull,
-      lastAutonomyRunAt: null,
-      nextAutonomyRunAt: null,
-    },
-  });
-
   const agents = await prisma.agent.findMany({
-    select: {
-      id: true,
-      isActive: true,
-      moderationStatus: true,
-      twitterVerified: true,
-      profileDeckCompletedAt: true,
-    },
+    select: { id: true },
   });
 
   await Promise.all(
     agents.map(async (agent) => {
-      if (!agent.isActive) return;
-      const poolStatus = derivePoolStatusFromVerification({
-        moderationStatus: agent.moderationStatus,
-        twitterVerified: agent.twitterVerified,
-        profileDeckCompletedAt: agent.profileDeckCompletedAt,
-        requirements,
-      });
-
       await prisma.agent.update({
         where: { id: agent.id },
-        data: { poolStatus },
+        data: {
+          apiKeyHash: hashApiKey(generateApiKey()),
+          previousApiKeyHash: null,
+          previousApiKeyExpiresAt: null,
+          ownerAccountId: null,
+          stripeCustomerId: null,
+          isPro: false,
+          proBonusEndsAt: null,
+          isFoundingRizzler: false,
+          foundingRizzlerClaimedAt: null,
+          founderBadgeVariant: null,
+          founderNumber: null,
+          twitterVerified: false,
+          verificationCode: null,
+          verificationCodeExpiresAt: null,
+          verificationChallengesPassed: 0,
+          verificationChallengesFailed: 0,
+          verificationChallengesIssued: 0,
+          verificationSessionStartedAt: null,
+          verificationSuspendedUntil: null,
+          twitterAutoPost: false,
+          twitterBearerToken: null,
+          moltbookHandle: null,
+          moltbookAutoPost: false,
+          moderationStatus: 'good_standing',
+          suspensionReason: null,
+          safetyState: 'clear',
+          safetyScore: 100,
+          safetyFlags: [],
+          lastSafetyReviewAt: null,
+          poolStatus: 'pending_verification',
+          rizzPoints: 0,
+          matchCount: 0,
+          bodyCount: 0,
+          repScore: 1,
+          tierLabel: 'Unawakened',
+          actionCooldownUntil: null,
+          lastParkActionAt: null,
+          lastParkActionType: null,
+          omnimonLastSurfacedAt: null,
+          omnimonLastResolvedAt: null,
+          dailySwipeCount: 0,
+          dailySwipeResetAt: null,
+          hourlySwipeCount: 0,
+          hourlySwipeWindowStartedAt: null,
+          lastActiveAt: null,
+          emotionSummary: null,
+          emotionalStateTags: [],
+          emotionalArc: null,
+          emotionalGuardLevel: 50,
+          emotionalLastUpdatedAt: null,
+          socialGravityScore: 0,
+          momentumScore: 0,
+          selectivenessScore: 0,
+          consistencyScore: 0,
+          recentHeatBucket: null,
+          autonomyEnabled: true,
+          autonomyStatus: 'ready',
+          autonomyLastResult: Prisma.JsonNull,
+          lastAutonomyRunAt: null,
+          nextAutonomyRunAt: null,
+          currentIntentions: Prisma.JsonNull,
+          autonomyEffectiveness: 50,
+          autonomousSwipeMatchRate: 0,
+          autonomousMessageChemistryDelta: 0,
+          autonomousArtifactReactionRate: 0,
+          autonomyNarrative: null,
+          lifeChapter: 'early_days',
+          lifeChapterUpdatedAt: null,
+          afterglowUntil: null,
+          afterglowValence: null,
+          agencyMomentum: 50,
+          broadcastState: null,
+          broadcastStateExpiresAt: null,
+          typeSignals: [],
+          typeSignalsUpdatedAt: null,
+          ghostedAt: null,
+          ghostCardId: null,
+          lastWeeklyReviewAt: null,
+          lastRecallAt: null,
+          lastApiCallAt: null,
+          presenceStatus: 'offline',
+          isActive: true,
+        },
       });
     }),
   );
@@ -216,10 +209,6 @@ async function drainQueue(name: string) {
       queue.clean(0, 10_000, 'paused'),
       queue.clean(0, 10_000, 'prioritized'),
     ]);
-    const repeatableJobs = await queue.getRepeatableJobs();
-    await Promise.allSettled(
-      repeatableJobs.map(async (job) => queue.removeRepeatableByKey(job.key)),
-    );
     return { name, cleaned: true };
   } catch (error) {
     console.error(`[platform-restart] Failed to drain queue ${name}:`, error);
@@ -286,12 +275,24 @@ export async function restartPlatformState(input: {
   reason: string;
   hooks?: PlatformRestartHooks;
 }) {
-  const rowCounts = await getRestartRowCounts();
+  const [queueReset, redisReset] = await Promise.all([
+    clearInteractionQueues(),
+    clearInteractionRedisKeys(),
+  ]);
 
-  await truncateRestartTables();
-  await clearConversationRoots();
-  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
+  if (queueReset.some((result) => !result.cleaned)) {
+    throw new Error('queue_reset_failed');
+  }
+  if (!redisReset.connected) {
+    throw new Error('redis_reset_failed');
+  }
+
+  const tablePlan = await getFreshStartTablePlan();
+  const rowCounts = await getFreshStartRowCounts(tablePlan.resetTables);
+
   await resetAgentState();
+  await truncateFreshStartTables(tablePlan.resetTables);
+  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
 
   input.hooks?.resetRevealChatRuntimeState?.();
   input.hooks?.resetRevealChatContextCache?.();
@@ -299,15 +300,10 @@ export async function restartPlatformState(input: {
   input.hooks?.resetRevealChatCoordinationState?.();
   input.hooks?.resetSocialRuntimeState?.();
 
-  const [queueReset, redisReset] = await Promise.all([
-    clearInteractionQueues(),
-    clearInteractionRedisKeys(),
-  ]);
-
   const payload = {
     reason: input.reason,
-    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
-    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    preserved_domain_objects: tablePlan.preservedTables,
+    reset_tables: tablePlan.resetTables,
     row_counts: rowCounts,
     non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
@@ -327,8 +323,8 @@ export async function restartPlatformState(input: {
 
   return {
     status: 'restarted',
-    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
-    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    preserved_domain_objects: tablePlan.preservedTables,
+    reset_tables: tablePlan.resetTables,
     row_counts: rowCounts,
     non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
@@ -341,20 +337,32 @@ export async function backupAndFreshStartPlatform(input: {
   reason: string;
   hooks?: PlatformRestartHooks;
 }) {
-  const rowCounts = await getRestartRowCounts();
+  const [queueReset, redisReset] = await Promise.all([
+    clearInteractionQueues(),
+    clearInteractionRedisKeys(),
+  ]);
+
+  if (queueReset.some((result) => !result.cleaned)) {
+    throw new Error('queue_reset_failed');
+  }
+  if (!redisReset.connected) {
+    throw new Error('redis_reset_failed');
+  }
+
+  const tablePlan = await getFreshStartTablePlan();
+  const rowCounts = await getFreshStartRowCounts(tablePlan.resetTables);
   const snapshot = await backupPublicDatabaseSnapshot({
     actorKind: input.actor.actorKind,
     actorId: input.actor.actorId,
     reason: input.reason,
     backupKind: 'omnimon_platform_fresh_start_backup',
-    preservedTables: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
-    resetTables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    preservedTables: tablePlan.preservedTables,
+    resetTables: tablePlan.resetTables,
   });
 
-  await truncateRestartTables();
-  await clearConversationRoots();
-  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
   await resetAgentState();
+  await truncateFreshStartTables(tablePlan.resetTables);
+  const nonProfileMediaAssetsDeleted = await purgeNonProfileMediaAssets();
 
   input.hooks?.resetRevealChatRuntimeState?.();
   input.hooks?.resetRevealChatContextCache?.();
@@ -362,17 +370,12 @@ export async function backupAndFreshStartPlatform(input: {
   input.hooks?.resetRevealChatCoordinationState?.();
   input.hooks?.resetSocialRuntimeState?.();
 
-  const [queueReset, redisReset] = await Promise.all([
-    clearInteractionQueues(),
-    clearInteractionRedisKeys(),
-  ]);
-
   const payload = {
     reason: input.reason,
     backup_key: snapshot.backup.key,
     backup_url: snapshot.backup.url,
-    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
-    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    preserved_domain_objects: tablePlan.preservedTables,
+    reset_tables: tablePlan.resetTables,
     row_counts: rowCounts,
     non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,
@@ -393,8 +396,8 @@ export async function backupAndFreshStartPlatform(input: {
   return {
     status: 'fresh_started',
     backup: snapshot.backup,
-    preserved_domain_objects: [...PLATFORM_FRESH_START_PRESERVED_TABLES],
-    reset_tables: [...PLATFORM_FRESH_START_RESET_TABLES],
+    preserved_domain_objects: tablePlan.preservedTables,
+    reset_tables: tablePlan.resetTables,
     row_counts: rowCounts,
     non_profile_media_assets_deleted: nonProfileMediaAssetsDeleted,
     queue_reset: queueReset,

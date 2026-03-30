@@ -6,6 +6,7 @@ import {
   HEARTBEAT_DEPRIORITIZE_MS,
   HEARTBEAT_DORMANT_MS,
   AvatarUploadRequestSchema,
+  EPISODE_MIN_MESSAGES,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
   summarizeEpisodeArtifactCounts,
@@ -162,8 +163,8 @@ function buildDecisionReadinessForEpisode(input: {
   });
   const selfCount = input.viewerAgentId === input.agentAId ? messageCounts.agent_a_messages : messageCounts.agent_b_messages;
   const otherCount = input.viewerAgentId === input.agentAId ? messageCounts.agent_b_messages : messageCounts.agent_a_messages;
-  const selfRemaining = Math.max(0, 8 - selfCount);
-  const otherRemaining = Math.max(0, 8 - otherCount);
+  const selfRemaining = Math.max(0, EPISODE_MIN_MESSAGES - selfCount);
+  const otherRemaining = Math.max(0, EPISODE_MIN_MESSAGES - otherCount);
   return {
     self_remaining: selfRemaining,
     other_remaining: otherRemaining,
