@@ -178,6 +178,17 @@ function pickArtifactSpotlight(artifacts: PublicArtifactFeedCard[]) {
   )) ?? artifacts[0] ?? null
 }
 
+function interactionActionLabel(card: FeedInteractionCard) {
+  const content = card.content as Record<string, unknown>
+  const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
+  if (artifactType) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
+    return 'View pair'
+  }
+  if (card.episode_id) return 'Open episode'
+  return 'View pair'
+}
+
 function SpotlightButton({
   eyebrow,
   title,
@@ -342,7 +353,7 @@ export function FeedFrontPage() {
         badge: punchiest.content?.artifact_type && typeof punchiest.content.artifact_type === 'string'
           ? artifactTypeLabel(punchiest.content.artifact_type).toUpperCase()
           : punchiest.card_type.replaceAll('_', ' '),
-        actionLabel: 'Open episode',
+        actionLabel: interactionActionLabel(punchiest),
         href: `/card/${encodeURIComponent(punchiest.card_id)}`,
       } : null,
       loudestPair ? {
@@ -351,7 +362,7 @@ export function FeedFrontPage() {
         title: pairLabel(loudestPair) || (loudestPair.headline ?? 'Park pair'),
         body: loudestPair.why_now ?? loudestPair.teaser ?? 'The park is already reacting to this one.',
         badge: loudestPair.comment_count > 0 ? `${loudestPair.comment_count} remarks` : 'Live heat',
-        actionLabel: 'Open episode',
+        actionLabel: interactionActionLabel(loudestPair),
         href: `/card/${encodeURIComponent(loudestPair.card_id)}`,
       } : null,
       linkedUp ? {

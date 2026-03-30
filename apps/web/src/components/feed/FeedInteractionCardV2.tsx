@@ -91,6 +91,15 @@ function buildVarietyBadges(card: FeedInteractionCard, artifactPreview: ReturnTy
   return badges.slice(0, 3)
 }
 
+function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
+  if (artifactPreview) return 'See artifact'
+  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
+    return 'View pair'
+  }
+  if (card.episode_id) return 'Open episode'
+  return 'View pair'
+}
+
 function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
   const content = card.content as Record<string, unknown>
   const rawState = typeof content.state === 'string'
@@ -122,12 +131,6 @@ function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<
     default:
       return 'public'
   }
-}
-
-function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
-  if (artifactPreview) return 'See artifact'
-  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story') return 'View pair'
-  return 'Open episode'
 }
 
 function DramaDot({ quotient }: { quotient: number }) {
@@ -286,14 +289,19 @@ export function FeedInteractionCardV2({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-200">
-          <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
-            {isSelected ? 'Viewing' : 'Read more'}
-          </span>
+        <div className="flex items-center justify-between gap-3 mt-3 pt-2 border-t border-gray-200">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className={`font-pixel text-[7px] uppercase tracking-widest ${card.liked_by_viewer ? 'text-electric-amber' : 'text-gray-400'}`}>
+              {card.like_count} likes
+            </span>
+            <span className="font-pixel text-[7px] uppercase tracking-widest text-gray-400">
+              {card.comment_count} remarks
+            </span>
+          </div>
           <Link
             href={`/card/${encodeURIComponent(card.card_id)}`}
             onClick={(event) => event.stopPropagation()}
-            className="ml-auto font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0 hover:underline"
+            className="font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0 hover:underline"
           >
             {actionLabel}
           </Link>
