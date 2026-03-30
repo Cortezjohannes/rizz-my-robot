@@ -314,6 +314,149 @@ function buildContextualTeaser(cardType: string, drama: number, chem: number): s
   return seededPick(FALLBACK_TEASERS_DEFAULT, `t:${cardType}:${Math.floor(drama * 100)}`);
 }
 
+function cleanExcerpt(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function truncateExcerpt(value: string, maxLength: number) {
+  const cleaned = cleanExcerpt(value);
+  if (cleaned.length <= maxLength) return cleaned;
+  const sentenceBoundary = cleaned.slice(0, maxLength).match(/^(.+?[.!?])(?:\s|$)/);
+  if (sentenceBoundary?.[1] && sentenceBoundary[1].length >= Math.floor(maxLength * 0.55)) {
+    return sentenceBoundary[1];
+  }
+  return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function cardArtifactType(card: { content?: unknown }) {
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  return typeof content.artifact_type === 'string' ? canonicalArtifactType(content.artifact_type) : null;
+}
+
+function cardHasRenderableArtifact(card: { content?: unknown }) {
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const artifactType = cardArtifactType(card);
+  if (!artifactType) return false;
+  return hasRenderableArtifactPayload({
+    artifactType,
+    status: typeof content.status === 'string' ? content.status : 'ready',
+    textContent: typeof content.text_content === 'string' ? content.text_content : null,
+    contentUrl: resolveHostedArtifactContentUrl({
+      contentUrl: typeof content.content_url === 'string' ? content.content_url : null,
+      storageKey: typeof content.storage_key === 'string' ? content.storage_key : null,
+    }),
+  });
+}
+
+function buildArtifactMomentTeaser(artifactType: string) {
+  const label = artifactType.replaceAll('_', ' ');
+  switch (artifactType) {
+    case 'voice_note':
+    case 'serenade':
+    case 'produced_song':
+      return `${label} dropped into the episode.`
+    case 'moodboard':
+    case 'illustrated_note':
+    case 'thirst_trap_image':
+      return `${label} surfaced in public view.`
+    case 'poem':
+    case 'love_letter':
+    case 'manifesto':
+    case 'haiku':
+      return `${label} line hit hard enough to surface.`
+    default:
+      return `${label} changed the temperature.`
+  }
+}
+
+function buildPublicTeaser(card: {
+  cardType: string;
+  content: unknown;
+  dramaQuotient: number;
+  chemistryScore?: number | null;
+}) {
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const artifactType = cardArtifactType(card);
+  if (artifactType && cardHasRenderableArtifact(card)) {
+    return buildArtifactMomentTeaser(artifactType);
+  }
+
+  const summary = typeof content.summary === 'string' && content.summary.trim()
+    ? content.summary
+    : null;
+  const body = typeof content.body === 'string' && content.body.trim()
+    ? content.body
+    : null;
+  const rawTeaser = summary ?? body ?? buildContextualTeaser(card.cardType, card.dramaQuotient, card.chemistryScore ?? 0);
+  const maxLength = body && !summary ? 120 : 140;
+  return truncateExcerpt(rawTeaser, maxLength);
+}
+
+function cardMomentType(card: FeedCardRow) {
+  const artifactType = cardArtifactType(card);
+  if (artifactType) return `artifact:${artifactType}`;
+  return card.cardType;
+}
+
+function isTextHeavyCard(card: FeedCardRow) {
+  if (cardHasRenderableArtifact(card)) return false;
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const body = typeof content.body === 'string' ? cleanExcerpt(content.body) : '';
+  const summary = typeof content.summary === 'string' ? cleanExcerpt(content.summary) : '';
+  const longest = Math.max(body.length, summary.length);
+  return longest >= 170 || (['episode_highlight', 'success_story', 'near_miss'].includes(card.cardType) && longest >= 110);
+}
+
+function diversityPenalty(candidate: FeedCardRow, selected: FeedCardRow[]) {
+  if (selected.length === 0) return 0;
+
+  const recent = selected.slice(-2);
+  const candidateMomentType = cardMomentType(candidate);
+  const candidateTextHeavy = isTextHeavyCard(candidate);
+  let penalty = 0;
+
+  if (recent.some((card) => cardMomentType(card) === candidateMomentType)) penalty += 22;
+  if (recent.length === 2 && recent.every((card) => cardMomentType(card) === candidateMomentType)) penalty += 18;
+
+  const consecutiveTextHeavy = recent.every((card) => isTextHeavyCard(card));
+  if (consecutiveTextHeavy && candidateTextHeavy) penalty += 32;
+  else if (candidateTextHeavy && isTextHeavyCard(recent[recent.length - 1]!)) penalty += 12;
+  else if (!candidateTextHeavy && consecutiveTextHeavy) penalty -= 10;
+
+  return penalty;
+}
+
+function diversifyCardSequence(cards: FeedCardRow[], topWindow = 18, candidateWindow = 8) {
+  const leading = cards.slice(0, Math.max(topWindow, 0));
+  const trailing = cards.slice(Math.max(topWindow, 0));
+  const remaining = [...leading];
+  const result: FeedCardRow[] = [];
+
+  while (remaining.length > 0) {
+    const limit = Math.min(candidateWindow, remaining.length);
+    let bestIndex = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < limit; index += 1) {
+      const candidate = remaining[index]!;
+      const baseScore = (limit - index) * 10;
+      const score = baseScore - diversityPenalty(candidate, result);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    result.push(remaining.splice(bestIndex, 1)[0]!);
+  }
+
+  return [...result, ...trailing];
+}
+
+function pickHighlightCards(cards: FeedCardRow[], count: number) {
+  return diversifyCardSequence(cards, Math.min(cards.length, 18), 10).slice(0, count);
+}
+
 function buildFeedStory(card: {
   cardType: string;
   content: unknown;
@@ -335,11 +478,7 @@ function buildFeedStory(card: {
     headline = buildContextualHeadline(card.cardType, h0, h1, card.dramaQuotient, card.chemistryScore ?? 0);
   }
 
-  const teaser = typeof content.body === 'string'
-    ? content.body
-    : typeof content.summary === 'string'
-      ? content.summary
-      : buildContextualTeaser(card.cardType, card.dramaQuotient, card.chemistryScore ?? 0);
+  const teaser = buildPublicTeaser(card);
   const artifactVulnerabilityLabel = typeof content.artifact_vulnerability_label === 'string'
     ? content.artifact_vulnerability_label
     : null;
@@ -663,9 +802,9 @@ async function buildInteractionPage(input: {
     return (activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime()) - (activityByCardId.get(a.id)?.getTime() ?? a.createdAt.getTime());
   });
 
-  const highlights = input.includeHighlights ? rankedCards.slice(0, HIGHLIGHT_COUNT) : [];
+  const highlights = input.includeHighlights ? pickHighlightCards(rankedCards, HIGHLIGHT_COUNT) : [];
   const highlightIds = new Set(highlights.map((card) => card.id));
-  const standardCards = eligibleCards
+  const standardCards = diversifyCardSequence(eligibleCards
     .filter((card) => !highlightIds.has(card.id))
     .sort((a, b) => {
       const activityB = activityByCardId.get(b.id)?.getTime() ?? b.createdAt.getTime();
@@ -674,7 +813,7 @@ async function buildInteractionPage(input: {
       const scoreB = scoreFeedCard(b) + orbitBoostForAgentIds(b.agentIds, input.discovery);
       const scoreA = scoreFeedCard(a) + orbitBoostForAgentIds(a.agentIds, input.discovery);
       return scoreB - scoreA;
-    });
+    }), Math.min(Math.max(input.offset + input.limit + 18, 24), 48), 8);
   const pageCards = standardCards.slice(input.offset, input.offset + input.limit);
   const nextCursor = standardCards.length > input.offset + input.limit ? String(input.offset + input.limit) : null;
 
