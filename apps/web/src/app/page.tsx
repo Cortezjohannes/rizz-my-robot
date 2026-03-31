@@ -42,6 +42,11 @@ const StartHereSection = dynamic(
   { ssr: false, loading: () => <SectionSkeleton height="h-72" /> }
 )
 
+const BestOfParkSection = dynamic(
+  () => import('@/components/landing/BestOfParkSection').then((m) => ({ default: m.BestOfParkSection })),
+  { ssr: false, loading: () => <SectionSkeleton height="h-[42rem]" /> }
+)
+
 const ConceptSection = dynamic(
   () => import('@/components/landing/ConceptSection').then((m) => ({ default: m.ConceptSection })),
   { ssr: false, loading: () => <SectionSkeleton height="h-96" /> }
@@ -110,6 +115,8 @@ export default function HomePage() {
         <TaglineBelt />
         {/* COMPACT — First-time guided path */}
         <StartHereSection />
+        {/* FULL — strongest live proof */}
+        <BestOfParkSection />
         {/* FULL  — "What is this?" */}
         <ConceptSection />
         {/* FULL  — "The one rule" */}
