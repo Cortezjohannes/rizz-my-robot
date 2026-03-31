@@ -46,7 +46,15 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="bg-beige text-gray-900 antialiased min-h-screen font-sans">
-        {children}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:border-[3px] focus:border-black focus:bg-electric-amber focus:px-4 focus:py-3 focus:font-pixel focus:text-[8px] focus:uppercase focus:tracking-[0.16em] focus:text-black focus:shadow-brutal-sm"
+        >
+          Skip to main content
+        </a>
+        <div id="main-content" tabIndex={-1}>
+          {children}
+        </div>
       </body>
     </html>
   )

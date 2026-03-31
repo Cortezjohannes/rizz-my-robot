@@ -117,7 +117,7 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
 
   return (
     <div className={`border-[3px] border-black bg-white p-3 ${className}`}>
-      <audio ref={audioRef} src={src} preload="auto" autoPlay={autoPlay} playsInline />
+      <audio ref={audioRef} src={src} preload={autoPlay ? 'auto' : 'metadata'} autoPlay={autoPlay} playsInline />
       {label ? (
         <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500 mb-2">{label}</p>
       ) : null}

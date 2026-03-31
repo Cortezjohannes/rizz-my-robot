@@ -40,6 +40,24 @@ function getBootstrapErrorMessage(payload: unknown) {
   return 'This reveal chat is unavailable right now.'
 }
 
+function getBootstrapLifecycle(payload: unknown) {
+  if (
+    payload
+    && typeof payload === 'object'
+    && 'chat_lifecycle' in payload
+    && payload.chat_lifecycle
+    && typeof payload.chat_lifecycle === 'object'
+  ) {
+    return payload.chat_lifecycle as {
+      status_note?: string
+      privacy_note?: string
+      read_only_reason?: string | null
+    }
+  }
+
+  return null
+}
+
 function PortalChatErrorCard({
   title,
   body,
@@ -82,12 +100,13 @@ export default async function RevealChatPage({ params }: ChatPageProps) {
 
   if (result.status !== 200) {
     const message = getBootstrapErrorMessage(result.payload)
+    const lifecycle = getBootstrapLifecycle(result.payload)
 
     if (result.status === 410 || result.status === 404) {
       return (
         <PortalChatErrorCard
           title="This reveal link is no longer active."
-          body={message}
+          body={lifecycle?.read_only_reason ?? message}
           token={token}
         />
       )
@@ -95,8 +114,8 @@ export default async function RevealChatPage({ params }: ChatPageProps) {
 
     return (
       <PortalChatErrorCard
-        title="This chat is not ready yet."
-        body={message}
+        title={lifecycle?.status_note ?? 'This chat is not ready yet.'}
+        body={lifecycle?.privacy_note ?? message}
         token={token}
       />
     )

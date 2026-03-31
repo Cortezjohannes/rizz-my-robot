@@ -16,6 +16,17 @@ export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './m
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
+export { scanAndRedact, strictPiiCheck, type PiiScanResult } from './piiFilter.js';
+export {
+  inspectOutboundAuthoredText,
+  lintOutboundAuthoredText,
+  enforceOutboundAuthoredText,
+  OutboundGuidelineError,
+  type OutboundGuidelineSurface,
+  type OutboundGuidelineViolation,
+  type OutboundGuidelineOptions,
+  type OutboundGuidelineInspection,
+} from './outboundGuidelineLint.js';
 export {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
@@ -179,6 +190,50 @@ export const EpisodeStatus = z.enum([
   'expired',
 ]);
 export type EpisodeStatus = z.infer<typeof EpisodeStatus>;
+
+export const PortalPhase = z.enum([
+  'age_gate',
+  'loading',
+  'under_review',
+  'reveal_offer',
+  'waiting_on_other',
+  'reward_waiting',
+  'reward_ready',
+  'contact_unlocked',
+  'chat_ready',
+  'chat_active',
+  'chat_archived',
+  'closed',
+  'expired',
+  'error',
+]);
+export type PortalPhase = z.infer<typeof PortalPhase>;
+
+export const PortalBlockReason = z.enum([
+  'age_unverified',
+  'reveal_review',
+  'other_human_pending',
+  'omnimon_pending',
+  'contact_missing',
+  'chat_keys_pending',
+  'chat_archived',
+  'token_expired',
+  'auth_failed',
+  'runtime_degraded',
+]);
+export type PortalBlockReason = z.infer<typeof PortalBlockReason>;
+
+export const PortalNextAction = z.enum([
+  'verify_age',
+  'decide_yes_no',
+  'wait',
+  'copy_contact',
+  'open_chat',
+  'resume_chat',
+  'download_chat',
+  'return_to_feed',
+]);
+export type PortalNextAction = z.infer<typeof PortalNextAction>;
 
 const ARTIFACT_TYPE_VALUES = [
   'poem',
@@ -1301,6 +1356,7 @@ export interface FeedCard {
   vote_score: number;
   teaser?: string;
   why_now?: string;
+  significance_summary?: string | null;
   aura_overlays?: string[];
   emotional_aura_overlays?: string[];
   founder_overlays?: Array<{

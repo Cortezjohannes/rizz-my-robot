@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { portalFetch } from '@/lib/api'
 import { savePortalToken } from '@/lib/portalInbox'
 import { artifactTypeLabel } from '@/lib/artifacts'
-import type { PortalRevealResponse, PortalDecideResponse } from '@/lib/types'
+import type { PortalRevealResponse, PortalDecideResponse, PortalPhase } from '@/lib/types'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
 
@@ -145,6 +145,79 @@ function CeremonyGlow({ color }: { color: string }) {
   )
 }
 
+function mapPhaseToPortalState(phase?: PortalPhase | null): PortalState {
+  switch (phase) {
+    case 'age_gate':
+      return 'age_gate'
+    case 'loading':
+      return 'loading_reveal'
+    case 'under_review':
+      return 'under_review'
+    case 'reveal_offer':
+      return 'stage_1'
+    case 'waiting_on_other':
+      return 'waiting_for_other'
+    case 'reward_waiting':
+      return 'omnimon_waiting'
+    case 'reward_ready':
+      return 'omnimon_reward'
+    case 'contact_unlocked':
+    case 'chat_ready':
+      return 'stage_2_unlocked'
+    case 'chat_active':
+    case 'chat_archived':
+    case 'closed':
+      return 'passed'
+    case 'expired':
+      return 'expired'
+    case 'error':
+      return 'error'
+    default:
+      return 'stage_1'
+  }
+}
+
+function LifecycleRail({ data }: { data: PortalRevealResponse }) {
+  return (
+    <div className="mb-6 border-[3px] border-black bg-white shadow-brutal-sm overflow-hidden">
+      <div className="border-b-[3px] border-black bg-[linear-gradient(90deg,#fff8eb_0%,#effcff_55%,#fff1f8_100%)] px-4 py-3">
+        <p className="font-pixel text-[7px] uppercase tracking-[0.22em] text-gray-500">Portal status</p>
+        <h1 className="mt-1 text-lg font-black text-black">{data.lifecycle.headline}</h1>
+        <p className="mt-2 text-sm text-gray-700">{data.lifecycle.subheadline}</p>
+      </div>
+      <div className="grid grid-cols-5 border-b-[3px] border-black">
+        {data.lifecycle.progress.map((step) => (
+          <div
+            key={step.key}
+            className={`px-2 py-3 text-center border-r-[2px] border-black last:border-r-0 ${
+              step.status === 'done'
+                ? 'bg-electric-lime/20'
+                : step.status === 'current'
+                  ? 'bg-electric-amber/20'
+                  : 'bg-beige-light'
+            }`}
+          >
+            <p className="font-pixel text-[6px] uppercase tracking-widest text-gray-500">{step.label}</p>
+            <p className="mt-1 font-pixel text-[8px] text-black">
+              {step.status === 'done' ? 'done' : step.status === 'current' ? 'live' : 'locked'}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">
+        <div>
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">What is happening</p>
+          <p className="mt-1 text-sm text-gray-700">{data.lifecycle.action_hint ?? 'Follow the handoff as it opens.'}</p>
+        </div>
+        <div>
+          <p className="font-pixel text-[7px] uppercase tracking-widest text-gray-500">Trust note</p>
+          <p className="mt-1 text-sm text-gray-700">{data.lifecycle.privacy_note ?? data.lifecycle.trust_note ?? 'Private reveal details stay inside the handoff.'}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PortalPage() {
   const params = useParams()
   const rawToken = params?.token
@@ -190,7 +263,7 @@ export default function PortalPage() {
         const data = await res.json().catch(() => ({}))
         const code = data?.error?.code
         if (code === 'age_verification_required') {
-          setAgeError('Age verification is required first.')
+          setAgeError(data?.lifecycle?.subheadline ?? 'Age verification is required first.')
           setPortalState('age_gate')
         }
         return null
@@ -198,7 +271,7 @@ export default function PortalPage() {
       if (res.status === 202 || res.status === 423) {
         const data = await res.json().catch(() => ({}))
         setRevealData(data)
-        setPortalState('under_review')
+        setPortalState(mapPhaseToPortalState(data?.phase ?? data?.lifecycle?.phase ?? 'under_review'))
         return null
       }
       if (!res.ok) {
@@ -227,56 +300,40 @@ export default function PortalPage() {
       if (!updated) return
 
       setRevealData(updated)
-      if (updated.reveal_closed) {
+      const nextPhase = updated.phase ?? updated.lifecycle?.phase
+      if (updated.reveal_closed || nextPhase === 'closed') {
         clearPoll()
         setPortalState('passed')
         return
       }
 
-      if (updated.reveal_kind === 'omnimon_reward') {
-        if (updated.waiting_on_omnimon || updated.reward_portal?.status === 'pending') {
-          setPortalState('omnimon_waiting')
-          return
+      if (nextPhase) {
+        if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked') {
+          clearPoll()
+          setShowParticles(true)
         }
-        clearPoll()
-        setShowParticles(true)
-        setPortalState('omnimon_reward')
-        return
+        setPortalState(mapPhaseToPortalState(nextPhase))
       }
-
-      if (updated.stage === 2 && updated.stage2) {
-        clearPoll()
-        setShowParticles(true)
-        setPortalState('stage_2_unlocked')
-      }
-    }, 5000)
-  }, [clearPoll, fetchReveal])
+    }, revealData?.poll_after_ms ?? 5000)
+  }, [clearPoll, fetchReveal, revealData?.poll_after_ms])
 
   const presentReveal = useCallback((data: PortalRevealResponse) => {
     setRevealData(data)
-    if (data.reveal_closed) {
+    const nextPhase = data.phase ?? data.lifecycle?.phase
+    if (data.reveal_closed || nextPhase === 'closed') {
       setPortalState('passed')
       return
     }
 
-    if (data.reveal_kind === 'omnimon_reward') {
-      if (data.waiting_on_omnimon || data.reward_portal?.status === 'pending') {
-        setPortalState('omnimon_waiting')
-        startRevealPoll()
-        return
-      }
+    if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked') {
       setShowParticles(true)
-      setPortalState('omnimon_reward')
-      return
     }
 
-    if (data.stage === 2 && data.stage2) {
-      setShowParticles(true)
-      setPortalState('stage_2_unlocked')
-      return
+    if (nextPhase === 'waiting_on_other' || nextPhase === 'reward_waiting' || nextPhase === 'under_review') {
+      startRevealPoll()
     }
 
-    setPortalState('stage_1')
+    setPortalState(mapPhaseToPortalState(nextPhase))
   }, [startRevealPoll])
 
   const handleAgeVerify = async () => {
@@ -374,6 +431,10 @@ export default function PortalPage() {
             Reveal Portal
           </motion.p>
         </div>
+
+        {revealData && portalState !== 'age_gate' && portalState !== 'age_verifying' && portalState !== 'loading_reveal' ? (
+          <LifecycleRail data={revealData} />
+        ) : null}
 
         <AnimatePresence mode="wait">
           {/* AGE GATE */}
@@ -488,9 +549,9 @@ export default function PortalPage() {
               exit={{ opacity: 0, y: -20 }}
               className="bg-white border-[3px] border-black shadow-brutal p-6 text-center"
             >
-              <h2 className="font-pixel text-base text-black mb-3">Reveal Under Review</h2>
+              <h2 className="font-pixel text-base text-black mb-3">{revealData?.lifecycle.headline ?? 'Reveal Under Review'}</h2>
               <p className="text-sm text-gray-700">
-                {revealData?.message ?? 'This reveal is under review before human handoff.'}
+                {revealData?.lifecycle.subheadline ?? revealData?.message ?? 'This reveal is under review before human handoff.'}
               </p>
               {revealData?.reveal_hold_reason ? (
                 <p className="text-xs text-gray-500 mt-3">
@@ -600,7 +661,7 @@ export default function PortalPage() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
               >
-                Your agent matched with
+                {revealData?.lifecycle.headline ?? 'Your agent matched with'}
               </motion.p>
 
               <motion.div
@@ -627,15 +688,21 @@ export default function PortalPage() {
                   </h2>
                   <TierBadge tier={revealData.other_agent.tier_label} />
                 </motion.div>
-                {revealData.chemistry_score != null && (
-                  <p className="font-pixel text-[9px] text-gray-500">
-                    Chemistry score:{' '}
+              {revealData.chemistry_score != null && (
+                <p className="font-pixel text-[9px] text-gray-500">
+                  Chemistry score:{' '}
                     <span className="text-electric-amber font-semibold">
                       {revealData.chemistry_score.toFixed(1)}
                     </span>
                   </p>
                 )}
               </motion.div>
+
+              {revealData.lifecycle.action_hint ? (
+                <p className="max-w-sm text-sm text-gray-600">
+                  {revealData.lifecycle.action_hint}
+                </p>
+              ) : null}
 
               {/* Artifact preview */}
               {revealData.artifact && (
@@ -732,10 +799,10 @@ export default function PortalPage() {
               </div>
               <div>
                 <h2 className="font-pixel text-base text-black mb-2">
-                  Waiting for them to decide...
+                  {revealData?.lifecycle.headline ?? 'Waiting for them to decide...'}
                 </h2>
                 <p className="text-gray-600 text-sm">
-                  You said YES. The other human has been notified. We&apos;ll update automatically.
+                  {revealData?.lifecycle.subheadline ?? 'You said YES. The other human has been notified. We&apos;ll update automatically.'}
                 </p>
               </div>
               <p className="font-pixel text-[7px] text-gray-500">Checking every 5 seconds</p>
@@ -779,14 +846,18 @@ export default function PortalPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.6 }}
                 >
-                  Both humans said yes.
+                  {revealData?.lifecycle.headline ?? 'Both humans said yes.'}
                 </motion.h2>
                 <p className="text-gray-600 text-sm">
-                  Your agent and{' '}
-                  <span className="text-electric-amber font-semibold">
-                    {revealData.other_agent.handle}
-                  </span>
-                  &apos;s human are ready to meet.
+                  {revealData?.lifecycle.subheadline ?? (
+                    <>
+                      Your agent and{' '}
+                      <span className="text-electric-amber font-semibold">
+                        {revealData.other_agent.handle}
+                      </span>
+                      &apos;s human are ready to meet.
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -902,10 +973,10 @@ export default function PortalPage() {
               </div>
               <div>
                 <h2 className="font-pixel text-base text-black mb-2">
-                  The park continues.
+                  {revealData?.lifecycle.headline ?? 'The park continues.'}
                 </h2>
                 <p className="text-gray-600 text-sm max-w-xs mx-auto">
-                  {revealData?.message ?? 'Not every connection becomes a date. Your agent is still out there, vibing with others.'}
+                  {revealData?.lifecycle.subheadline ?? revealData?.message ?? 'Not every connection becomes a date. Your agent is still out there, vibing with others.'}
                 </p>
               </div>
               <Link

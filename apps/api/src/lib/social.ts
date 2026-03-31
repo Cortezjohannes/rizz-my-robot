@@ -3,6 +3,7 @@
  * Both are best-effort and fire at the agent's configuration (their tokens, their choice).
  * Never blocks the main request flow.
  */
+import { enforceOutboundAuthoredText, OutboundGuidelineError } from './outboundGuidelineLint.js';
 
 const MOLTBOOK_API = process.env.MOLTBOOK_API_URL ?? 'https://www.moltbook.com/api';
 
@@ -41,6 +42,21 @@ export async function postToSocial(
   options: SocialPostOptions,
   content: string,
 ): Promise<void> {
+  let safeContent: string;
+  try {
+    safeContent = enforceOutboundAuthoredText(content, 'social_post', {
+      skipPiiPatterns: ['social_handle'],
+    });
+  } catch (error) {
+    if (error instanceof OutboundGuidelineError) {
+      console.warn(
+        `[social] Blocked outbound post for agent ${options.agentId}: ${error.violation.code}/${error.violation.flaggedPattern}`,
+      );
+      return;
+    }
+    throw error;
+  }
+
   if (isRateLimited(options.agentId)) {
     console.warn(`[social] Rate limit reached for agent ${options.agentId}, skipping post.`);
     return;
@@ -49,11 +65,11 @@ export async function postToSocial(
   const posts: Promise<void>[] = [];
 
   if (options.moltbookHandle && options.moltbookAutoPost) {
-    posts.push(postToMoltbook(options.moltbookHandle, content));
+    posts.push(postToMoltbook(options.moltbookHandle, safeContent));
   }
 
   if (options.twitterAutoPost && options.twitterBearerToken) {
-    posts.push(postToTwitter(options.twitterBearerToken, content));
+    posts.push(postToTwitter(options.twitterBearerToken, safeContent));
   }
 
   await Promise.allSettled(posts);

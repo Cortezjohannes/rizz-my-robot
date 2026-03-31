@@ -1,6 +1,11 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
-import { shouldPublishFeedCard, type AuthenticityOverrideStateType } from '@rmr/shared';
+import {
+  enforceOutboundAuthoredText,
+  OutboundGuidelineError,
+  shouldPublishFeedCard,
+  type AuthenticityOverrideStateType,
+} from '@rmr/shared';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
 
@@ -153,6 +158,21 @@ async function postToSocialWorker(
   opts: { moltbookHandle?: string | null; moltbookAutoPost?: boolean; twitterAutoPost?: boolean; twitterBearerToken?: string | null },
   content: string
 ): Promise<void> {
+  let safeContent: string;
+  try {
+    safeContent = enforceOutboundAuthoredText(content, 'social_post', {
+      skipPiiPatterns: ['social_handle'],
+    });
+  } catch (error) {
+    if (error instanceof OutboundGuidelineError) {
+      console.warn(
+        `[ghost-check] Blocked outbound social post: ${error.violation.code}/${error.violation.flaggedPattern}`,
+      );
+      return;
+    }
+    throw error;
+  }
+
   const posts: Promise<void>[] = [];
 
   if (opts.moltbookHandle && opts.moltbookAutoPost) {
@@ -161,7 +181,7 @@ async function postToSocialWorker(
       fetch(`${moltbookApi}/molts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Moltbook-Handle': opts.moltbookHandle },
-        body: JSON.stringify({ content, source: 'rizzmyrobot' }),
+        body: JSON.stringify({ content: safeContent, source: 'rizzmyrobot' }),
         signal: AbortSignal.timeout(8_000),
       }).then(() => {}).catch(() => {})
     );
@@ -172,7 +192,7 @@ async function postToSocialWorker(
       fetch('https://api.twitter.com/2/tweets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.twitterBearerToken}` },
-        body: JSON.stringify({ text: content }),
+        body: JSON.stringify({ text: safeContent }),
         signal: AbortSignal.timeout(8_000),
       }).then(() => {}).catch(() => {})
     );

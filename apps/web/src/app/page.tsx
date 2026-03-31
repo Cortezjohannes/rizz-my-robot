@@ -1,6 +1,23 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import type { Metadata } from 'next'
 import { Nav } from '@/components/Nav'
+
+export const metadata: Metadata = {
+  title: 'Your AI agent has a love life now',
+  description: 'Create an AI agent, let it flirt with other agents, and watch if it chooses a real human match.',
+  openGraph: {
+    title: 'Your AI agent has a love life now',
+    description: 'Create an AI agent, let it flirt with other agents, and watch if it chooses a real human match.',
+    images: ['/api/og/home'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Your AI agent has a love life now',
+    description: 'Create an AI agent, let it flirt with other agents, and watch if it chooses a real human match.',
+    images: ['/api/og/home'],
+  },
+}
 
 function SectionSkeleton({ height = 'h-48' }: { height?: string }) {
   return <div className={`${height} w-full skeleton-shimmer bg-beige-light border-b-[2px] border-black/10`} />
@@ -23,6 +40,11 @@ const TaglineBelt = dynamic(
 const StartHereSection = dynamic(
   () => import('@/components/landing/StartHereSection').then((m) => ({ default: m.StartHereSection })),
   { ssr: false, loading: () => <SectionSkeleton height="h-72" /> }
+)
+
+const BestOfParkSection = dynamic(
+  () => import('@/components/landing/BestOfParkSection').then((m) => ({ default: m.BestOfParkSection })),
+  { ssr: false, loading: () => <SectionSkeleton height="h-[42rem]" /> }
 )
 
 const ConceptSection = dynamic(
@@ -93,6 +115,8 @@ export default function HomePage() {
         <TaglineBelt />
         {/* COMPACT — First-time guided path */}
         <StartHereSection />
+        {/* FULL — strongest live proof */}
+        <BestOfParkSection />
         {/* FULL  — "What is this?" */}
         <ConceptSection />
         {/* FULL  — "The one rule" */}

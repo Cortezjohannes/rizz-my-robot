@@ -14,9 +14,11 @@ const INTERVENTION_MAX_PER_CHAT = 2;
 const localFallbackLocks = new Map<string, number>();
 let redisClient: Redis | null = null;
 let redisUnavailableLogged = false;
+let lastFallbackReason: string | null = process.env.REDIS_URL ? null : 'redis_unconfigured';
 
 export function resetRevealChatCoordinationState() {
   localFallbackLocks.clear();
+  lastFallbackReason = process.env.REDIS_URL ? null : 'redis_unconfigured';
 }
 
 export function getRevealChatTurnLockKey(chatId: string) {
@@ -46,8 +48,10 @@ export async function acquireRevealChatAgentTurnLock(chatId: string, agentId: st
   if (redis) {
     try {
       const result = await redis.set(key, agentId, 'PX', AGENT_TURN_LOCK_TTL_MS, 'NX');
+      lastFallbackReason = null;
       return result === 'OK';
     } catch (error) {
+      lastFallbackReason = 'redis_lock_failed';
       console.error('[reveal-chat-coordination] Redis lock failed, falling back to local lock:', error);
     }
   }
@@ -93,8 +97,10 @@ export async function markRevealChatHumanDisconnected(chatId: string, participan
   if (redis) {
     try {
       await redis.set(key, 'disconnected', 'EX', HUMAN_GRACE_TTL_SECONDS);
+      lastFallbackReason = null;
       return;
     } catch (error) {
+      lastFallbackReason = 'redis_grace_write_failed';
       console.error('[reveal-chat-coordination] Failed to set grace key:', error);
     }
   }
@@ -108,8 +114,10 @@ export async function clearRevealChatHumanDisconnectGrace(chatId: string, partic
   if (redis) {
     try {
       await redis.del(key);
+      lastFallbackReason = null;
       return;
     } catch (error) {
+      lastFallbackReason = 'redis_grace_clear_failed';
       console.error('[reveal-chat-coordination] Failed to clear grace key:', error);
     }
   }
@@ -123,8 +131,10 @@ export async function hasRevealChatHumanDisconnectGrace(chatId: string, particip
   if (redis) {
     try {
       const value = await redis.get(key);
+      lastFallbackReason = null;
       return value === 'disconnected';
     } catch (error) {
+      lastFallbackReason = 'redis_grace_read_failed';
       console.error('[reveal-chat-coordination] Failed to read grace key:', error);
     }
   }
@@ -145,8 +155,10 @@ export async function canSendRevealChatIntervention(chatId: string, agentId: str
   if (redis) {
     try {
       const [cooldown, count] = await Promise.all([redis.get(cooldownKey), redis.get(countKey)]);
+      lastFallbackReason = null;
       return !cooldown && Number(count ?? '0') < INTERVENTION_MAX_PER_CHAT;
     } catch (error) {
+      lastFallbackReason = 'redis_intervention_read_failed';
       console.error('[reveal-chat-coordination] Failed to inspect intervention state:', error);
     }
   }
@@ -167,9 +179,19 @@ export async function markRevealChatInterventionSent(chatId: string, agentId: st
       .incr(countKey)
       .expire(countKey, 7 * 24 * 60 * 60)
       .exec();
+    lastFallbackReason = null;
   } catch (error) {
+    lastFallbackReason = 'redis_intervention_write_failed';
     console.error('[reveal-chat-coordination] Failed to mark intervention sent:', error);
   }
+}
+
+export function getRevealChatCoordinationRuntimeState() {
+  return {
+    degraded: lastFallbackReason !== null,
+    fallbackReason: lastFallbackReason,
+    backend: process.env.REDIS_URL ? 'redis' : 'local',
+  };
 }
 
 function getRedisClient() {
@@ -190,6 +212,7 @@ function getRedisClient() {
     });
     return redisClient;
   } catch (error) {
+    lastFallbackReason = 'redis_init_failed';
     console.error('[reveal-chat-coordination] Failed to initialize Redis client:', error);
     return null;
   }

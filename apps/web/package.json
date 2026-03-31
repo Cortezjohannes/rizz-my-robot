@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "typecheck": "pnpm --filter @rmr/shared build && tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",
