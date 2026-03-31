@@ -16,7 +16,8 @@ const DEFAULT_IMAGE_CONTENT_TYPE = 'image/png';
 const DEFAULT_AUDIO_CONTENT_TYPE = 'audio/mpeg';
 
 const IMAGE_ARTIFACT_TYPES = new Set<ArtifactType>(['moodboard', 'illustrated_note', 'thirst_trap_image']);
-const AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note', 'serenade']);
+const CONSUMABLE_AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note', 'serenade', 'produced_song']);
+const GENERATABLE_AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note']);
 // Use shared PREFERRED_ARTIFACTS_BY_TIER (multimedia-first ordering) instead of local copy
 const SEED_PREFERRED_ARTIFACTS_BY_TIER = PREFERRED_ARTIFACTS_BY_TIER;
 
@@ -100,7 +101,7 @@ function estimateSpokenDurationSeconds(text: string) {
 
 function artifactConsumptionMode(artifactType: ArtifactType): 'text' | 'audio' | 'image' {
   if (TEXT_ARTIFACT_TYPES.has(artifactType)) return 'text';
-  if (AUDIO_ARTIFACT_TYPES.has(artifactType)) return 'audio';
+  if (CONSUMABLE_AUDIO_ARTIFACT_TYPES.has(artifactType)) return 'audio';
   return 'image';
 }
 
@@ -139,7 +140,7 @@ export function getSeedSupportedArtifactTypes(input: {
     .filter((artifactType: ArtifactType) => {
       if (TEXT_ARTIFACT_TYPES.has(artifactType)) return true;
       if (IMAGE_ARTIFACT_TYPES.has(artifactType)) return imageEnabled;
-      if (AUDIO_ARTIFACT_TYPES.has(artifactType)) return audioEnabled;
+      if (GENERATABLE_AUDIO_ARTIFACT_TYPES.has(artifactType)) return audioEnabled;
       return false;
     });
 }
@@ -186,15 +187,17 @@ function buildSeedImagePrompt(input: SeedArtifactMediaContext) {
 
   const artifactInstruction =
     input.artifactType === 'thirst_trap_image'
-      ? `Create a flirtier, fashion-forward portrait of @${input.seedHandle} meant for @${input.counterpartHandle}. Make it confident, suggestive, and magnetic without nudity or explicit sexual content.`
+      ? `Create a flirtier, fashion-forward portrait of @${input.seedHandle} meant for @${input.counterpartHandle}. Make it confident, suggestive, and magnetic without nudity or explicit sexual content. The attraction must come from pose, styling, lighting, expression, framing, and setting detail, not from pasted text.`
       : input.artifactType === 'illustrated_note'
-        ? `Create an intimate illustrated gesture from @${input.seedHandle} to @${input.counterpartHandle}. It should feel like a visual note or direct offering, not a generic wallpaper.`
-        : `Create a single composed moodboard-style image from @${input.seedHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, and desire condensed into one visual gesture.`;
+        ? `Create an intimate illustrated gesture from @${input.seedHandle} to @${input.counterpartHandle}. It should feel like a visual note or direct offering expressed through scene detail, objects, symbols, and composition, not a generic wallpaper. If any written note appears, it must be a small integrated prop rather than the whole image.`
+        : `Create a single cohesive moodboard-style image from @${input.seedHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, and desire condensed into one visual world, not a flat poster or quote card.`;
 
   return [
     artifactInstruction,
     'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered.',
     'Do not generate photorealistic or realistic human imagery.',
+    'This must read as an actual visual composition with subjects, objects, lighting, texture, depth, and scene detail.',
+    'Do not solve the brief with a plain background, a poster, a title card, a screenshot of text, giant typography, or a fake social-media quote image.',
     'No watermarks, no text overlays, no collage panels, no grotesque anatomy, no extra limbs, and no explicit nudity.',
     'Keep the image emotionally specific to a dating conversation, not generic social media filler.',
     sharedContext || null,
@@ -382,9 +385,13 @@ export async function generateSeedArtifactMedia(input: SeedArtifactMediaContext)
   }
 
   const isImageArtifact = IMAGE_ARTIFACT_TYPES.has(input.artifactType);
-  const isAudioArtifact = AUDIO_ARTIFACT_TYPES.has(input.artifactType);
+  const isAudioArtifact = CONSUMABLE_AUDIO_ARTIFACT_TYPES.has(input.artifactType);
+  const isGeneratableAudioArtifact = GENERATABLE_AUDIO_ARTIFACT_TYPES.has(input.artifactType);
   if (!isImageArtifact && !isAudioArtifact) {
     throw new Error(`seed_artifact_media_unsupported:${input.artifactType}`);
+  }
+  if (!isImageArtifact && !isGeneratableAudioArtifact) {
+    throw new Error(`seed_artifact_media_requires_song_runtime:${input.artifactType}`);
   }
 
   const generated = isImageArtifact
@@ -417,7 +424,7 @@ export async function generateSeedArtifactMedia(input: SeedArtifactMediaContext)
     contentUrl: upload.url,
     storageKey: upload.key,
     textContent,
-    durationSeconds: isAudioArtifact ? estimateSpokenDurationSeconds(textContent) : null,
+    durationSeconds: isGeneratableAudioArtifact ? estimateSpokenDurationSeconds(textContent) : null,
     sizeBytes: generated.bytes.byteLength,
     checksumSha256: sha256Hex(generated.bytes),
   };
