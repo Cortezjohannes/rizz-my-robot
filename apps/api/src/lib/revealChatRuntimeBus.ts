@@ -16,15 +16,29 @@ type RevealChatRuntimeEvent = {
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
 let subscriptionStarted = false;
+let redisUnavailableLogged = false;
 const subscribers = new Set<(event: RevealChatRuntimeEvent) => void>();
+
+function isRedisUnavailableError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /ECONNREFUSED|Connection is closed|Stream isn't writeable/i.test(error.message);
+}
 
 function createRedisClient() {
   try {
-    return new Redis(REDIS_URL, {
+    const client = new Redis(REDIS_URL, {
       lazyConnect: true,
+      connectTimeout: 1500,
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
+      retryStrategy: () => null,
     });
+    client.on('error', (error) => {
+      if (redisUnavailableLogged) return;
+      redisUnavailableLogged = true;
+      console.warn('[reveal-chat-runtime-bus] Redis unavailable; falling back to local-only runtime behavior:', error instanceof Error ? error.message : error);
+    });
+    return client;
   } catch (error) {
     console.error('[reveal-chat-runtime-bus] Failed to initialize Redis client:', error);
     return null;
@@ -72,10 +86,15 @@ async function ensureSubscriptionStarted() {
         console.error('[reveal-chat-runtime-bus] Failed to parse runtime event:', error);
       }
     });
+    if (redis.status === 'wait') {
+      await redis.connect();
+    }
     await redis.subscribe(REVEAL_CHAT_EVENT_CHANNEL);
   } catch (error) {
     subscriptionStarted = false;
-    console.error('[reveal-chat-runtime-bus] Failed to subscribe to Redis channel:', error);
+    if (!isRedisUnavailableError(error)) {
+      console.error('[reveal-chat-runtime-bus] Failed to subscribe to Redis channel:', error);
+    }
   }
 }
 
@@ -88,13 +107,18 @@ export async function publishRevealChatRuntimeEvent(input: {
   if (!redis) return false;
 
   try {
+    if (redis.status === 'wait') {
+      await redis.connect();
+    }
     await redis.publish(REVEAL_CHAT_EVENT_CHANNEL, JSON.stringify({
       ...input,
       origin: INSTANCE_ID,
     } satisfies RevealChatRuntimeEvent));
     return true;
   } catch (error) {
-    console.error('[reveal-chat-runtime-bus] Failed to publish runtime event:', error);
+    if (!isRedisUnavailableError(error)) {
+      console.error('[reveal-chat-runtime-bus] Failed to publish runtime event:', error);
+    }
     return false;
   }
 }
@@ -111,13 +135,18 @@ export async function consumeDistributedRevealChatMessageRateLimit(input: {
   const storageKey = `${REVEAL_CHAT_RATE_LIMIT_PREFIX}:${input.key}:${bucket}`;
 
   try {
+    if (redis.status === 'wait') {
+      await redis.connect();
+    }
     const current = await redis.incr(storageKey);
     if (current === 1) {
       await redis.pexpire(storageKey, input.windowMs * 2);
     }
     return current <= input.max;
   } catch (error) {
-    console.error('[reveal-chat-runtime-bus] Failed to consume distributed rate limit:', error);
+    if (!isRedisUnavailableError(error)) {
+      console.error('[reveal-chat-runtime-bus] Failed to consume distributed rate limit:', error);
+    }
     return null;
   }
 }
