@@ -8,24 +8,16 @@ import Link from 'next/link'
 import { portalFetch } from '@/lib/api'
 import { savePortalToken } from '@/lib/portalInbox'
 import { artifactTypeLabel } from '@/lib/artifacts'
-import type { PortalRevealResponse, PortalDecideResponse, PortalPhase } from '@/lib/types'
+import type { PortalRevealResponse, PortalDecideResponse } from '@/lib/types'
+import {
+  getPortalChatCtaLabel,
+  isPortalDecisionState,
+  isPortalUnlockedState,
+  resolvePortalViewState,
+  type PortalViewState,
+} from '@/lib/portalViewState'
 import { AgentOrb } from '@/components/ui/AgentOrb'
 import { TierBadge } from '@/components/ui/TierBadge'
-
-type PortalState =
-  | 'age_gate'
-  | 'age_verifying'
-  | 'loading_reveal'
-  | 'stage_1'
-  | 'omnimon_waiting'
-  | 'omnimon_reward'
-  | 'deciding'
-  | 'waiting_for_other'
-  | 'stage_2_unlocked'
-  | 'under_review'
-  | 'passed'
-  | 'expired'
-  | 'error'
 
 const BURST_COLORS = ['#F59E0B', '#06B6D4', '#FF0080', '#7C3AED', '#FBBF24', '#A78BFA', '#00F5FF', '#F59E0B', '#FF0080', '#06B6D4', '#FBBF24', '#7C3AED', '#F59E0B', '#00F5FF', '#A78BFA', '#FF0080']
 const BURST_PARTICLES = BURST_COLORS.map((color, i) => ({
@@ -145,38 +137,6 @@ function CeremonyGlow({ color }: { color: string }) {
   )
 }
 
-function mapPhaseToPortalState(phase?: PortalPhase | null): PortalState {
-  switch (phase) {
-    case 'age_gate':
-      return 'age_gate'
-    case 'loading':
-      return 'loading_reveal'
-    case 'under_review':
-      return 'under_review'
-    case 'reveal_offer':
-      return 'stage_1'
-    case 'waiting_on_other':
-      return 'waiting_for_other'
-    case 'reward_waiting':
-      return 'omnimon_waiting'
-    case 'reward_ready':
-      return 'omnimon_reward'
-    case 'contact_unlocked':
-    case 'chat_ready':
-      return 'stage_2_unlocked'
-    case 'chat_active':
-    case 'chat_archived':
-    case 'closed':
-      return 'passed'
-    case 'expired':
-      return 'expired'
-    case 'error':
-      return 'error'
-    default:
-      return 'stage_1'
-  }
-}
-
 function LifecycleRail({ data }: { data: PortalRevealResponse }) {
   return (
     <div className="mb-6 border-[3px] border-black bg-white shadow-brutal-sm overflow-hidden">
@@ -224,7 +184,7 @@ export default function PortalPage() {
   const token = Array.isArray(rawToken) ? rawToken[0] : (rawToken ?? '')
   const isMobile = useIsMobile()
 
-  const [portalState, setPortalState] = useState<PortalState>('age_gate')
+  const [portalState, setPortalState] = useState<PortalViewState>('age_gate')
   const [ageChecked, setAgeChecked] = useState(false)
   const [ageError, setAgeError] = useState('')
   const [revealData, setRevealData] = useState<PortalRevealResponse | null>(null)
@@ -261,6 +221,7 @@ export default function PortalPage() {
       }
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}))
+        setRevealData(data)
         const code = data?.error?.code
         if (code === 'age_verification_required') {
           setAgeError(data?.lifecycle?.subheadline ?? 'Age verification is required first.')
@@ -271,20 +232,22 @@ export default function PortalPage() {
       if (res.status === 202 || res.status === 423) {
         const data = await res.json().catch(() => ({}))
         setRevealData(data)
-        setPortalState(mapPhaseToPortalState(data?.phase ?? data?.lifecycle?.phase ?? 'under_review'))
+        setPortalState(resolvePortalViewState(data))
         return null
       }
       if (!res.ok) {
-        setPortalState('error')
-        setErrorMessage('Something went wrong loading the reveal.')
+        const data = await res.json().catch(() => ({}))
+        if (data?.phase || data?.lifecycle?.phase) {
+          setRevealData(data)
+          setPortalState(resolvePortalViewState(data))
+          setErrorMessage(data?.error?.message ?? 'Something went wrong loading the reveal.')
+        } else {
+          setPortalState('error')
+          setErrorMessage('Something went wrong loading the reveal.')
+        }
         return null
       }
       const data: PortalRevealResponse = await res.json()
-      if (data.reveal_closed) {
-        setRevealData(data)
-        setPortalState('passed')
-        return data
-      }
       return data
     } catch {
       setPortalState('error')
@@ -300,32 +263,30 @@ export default function PortalPage() {
       if (!updated) return
 
       setRevealData(updated)
-      const nextPhase = updated.phase ?? updated.lifecycle?.phase
-      if (updated.reveal_closed || nextPhase === 'closed') {
+      const nextPhase = resolvePortalViewState(updated)
+      if (nextPhase === 'closed') {
         clearPoll()
-        setPortalState('passed')
+        setPortalState('closed')
         return
       }
 
-      if (nextPhase) {
-        if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked') {
-          clearPoll()
-          setShowParticles(true)
-        }
-        setPortalState(mapPhaseToPortalState(nextPhase))
+      if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked' || nextPhase === 'chat_ready') {
+        clearPoll()
+        setShowParticles(true)
       }
+      setPortalState(nextPhase)
     }, revealData?.poll_after_ms ?? 5000)
   }, [clearPoll, fetchReveal, revealData?.poll_after_ms])
 
   const presentReveal = useCallback((data: PortalRevealResponse) => {
     setRevealData(data)
-    const nextPhase = data.phase ?? data.lifecycle?.phase
-    if (data.reveal_closed || nextPhase === 'closed') {
-      setPortalState('passed')
+    const nextPhase = resolvePortalViewState(data)
+    if (nextPhase === 'closed') {
+      setPortalState('closed')
       return
     }
 
-    if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked') {
+    if (nextPhase === 'reward_ready' || nextPhase === 'contact_unlocked' || nextPhase === 'chat_ready') {
       setShowParticles(true)
     }
 
@@ -333,7 +294,7 @@ export default function PortalPage() {
       startRevealPoll()
     }
 
-    setPortalState(mapPhaseToPortalState(nextPhase))
+    setPortalState(nextPhase)
   }, [startRevealPoll])
 
   const handleAgeVerify = async () => {
@@ -348,7 +309,7 @@ export default function PortalPage() {
       })
 
       if (res.ok) {
-        setPortalState('loading_reveal')
+        setPortalState('loading')
         const data = await fetchReveal()
         if (data) {
           presentReveal(data)
@@ -386,7 +347,7 @@ export default function PortalPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setDecideError(data?.error?.message ?? 'Failed to submit decision.')
-        setPortalState('stage_1')
+        setPortalState(resolvePortalViewState(revealData))
         return
       }
 
@@ -399,15 +360,15 @@ export default function PortalPage() {
           presentReveal(updated)
         }
       } else if (data.outcome === 'passed' || decision === 'NO') {
-        setPortalState('passed')
+        setPortalState('closed')
       } else {
         // Pending — waiting for other human
-        setPortalState('waiting_for_other')
+        setPortalState('waiting_on_other')
         startRevealPoll()
       }
     } catch {
       setDecideError('Network error. Please try again.')
-      setPortalState('stage_1')
+      setPortalState(resolvePortalViewState(revealData))
     }
   }
 
@@ -432,7 +393,7 @@ export default function PortalPage() {
           </motion.p>
         </div>
 
-        {revealData && portalState !== 'age_gate' && portalState !== 'age_verifying' && portalState !== 'loading_reveal' ? (
+        {revealData && portalState !== 'age_gate' && portalState !== 'age_verifying' && portalState !== 'loading' ? (
           <LifecycleRail data={revealData} />
         ) : null}
 
@@ -501,7 +462,7 @@ export default function PortalPage() {
             </motion.div>
           )}
 
-          {portalState === 'omnimon_waiting' && revealData && (
+          {portalState === 'reward_waiting' && revealData && (
             <motion.div
               key="omnimon_waiting"
               initial={{ opacity: 0, y: 20 }}
@@ -561,7 +522,7 @@ export default function PortalPage() {
             </motion.div>
           )}
 
-          {portalState === 'omnimon_reward' && revealData?.reward_portal && (
+          {portalState === 'reward_ready' && revealData?.reward_portal && (
             <motion.div
               key="omnimon_reward"
               initial={{ opacity: 0, scale: 0.88, y: 20 }}
@@ -633,7 +594,7 @@ export default function PortalPage() {
           )}
 
           {/* LOADING REVEAL */}
-          {portalState === 'loading_reveal' && (
+          {portalState === 'loading' && (
             <motion.div
               key="loading_reveal"
               initial={{ opacity: 0 }}
@@ -646,7 +607,7 @@ export default function PortalPage() {
           )}
 
           {/* STAGE 1 */}
-          {(portalState === 'stage_1' || portalState === 'deciding') && revealData && (
+          {isPortalDecisionState(portalState) && revealData && (
             <motion.div
               key="stage_1"
               initial={{ opacity: 0, scale: 0.9, y: 30 }}
@@ -779,7 +740,7 @@ export default function PortalPage() {
           )}
 
           {/* WAITING FOR OTHER */}
-          {portalState === 'waiting_for_other' && (
+          {portalState === 'waiting_on_other' && (
             <motion.div
               key="waiting"
               initial={{ opacity: 0, y: 20 }}
@@ -810,7 +771,7 @@ export default function PortalPage() {
           )}
 
           {/* STAGE 2 UNLOCKED */}
-          {portalState === 'stage_2_unlocked' && revealData?.stage2 && (
+          {isPortalUnlockedState(portalState) && revealData?.stage2 && (
             <motion.div
               key="stage_2"
               initial={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -945,7 +906,7 @@ export default function PortalPage() {
                   href={`/portal/${encodeURIComponent(token)}/chat`}
                   className="inline-flex border-[3px] border-black bg-electric-cyan px-5 py-3 font-pixel text-[8px] uppercase tracking-widest text-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
                 >
-                  Open encrypted chat
+                  {getPortalChatCtaLabel(portalState)}
                 </Link>
                 <Link
                   href="/feed"
@@ -958,7 +919,7 @@ export default function PortalPage() {
           )}
 
           {/* PASSED */}
-          {portalState === 'passed' && (
+          {portalState === 'closed' && (
             <motion.div
               key="passed"
               initial={{ opacity: 0, y: 20 }}

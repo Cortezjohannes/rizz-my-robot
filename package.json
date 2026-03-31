@@ -24,11 +24,13 @@
     "db:studio": "pnpm --filter @rmr/db prisma:studio",
     "db:audit:parity": "node tools/audit-prisma-parity.mjs",
     "smoke:behavioral-rules": "pnpm --filter @rmr/api exec tsx ../../tools/smoke-behavioral-rules.ts",
+    "smoke:portal-lifecycle": "pnpm --filter @rmr/api exec tsx ../../tools/smoke-portal-lifecycle.ts",
+    "smoke:prepare": "pnpm db:generate && pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && pnpm --filter @rmr/api build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "ci:verify": "pnpm db:generate && pnpm build:api && pnpm build:worker && pnpm build:web",
     "smoke:shared-contracts": "node tools/smoke-shared-contracts.mjs",
     "smoke:api-routes": "node tools/smoke-api-routes.mjs",
-    "ci:smoke": "pnpm smoke:shared-contracts && pnpm smoke:api-routes"
+    "ci:smoke": "pnpm smoke:prepare && pnpm smoke:shared-contracts && pnpm smoke:api-routes && pnpm smoke:portal-lifecycle && pnpm smoke:behavioral-rules"
   }
 }

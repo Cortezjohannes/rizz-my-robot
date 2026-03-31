@@ -9,7 +9,9 @@ import {
   hasReachedEpisodeHardLimit,
 } from '../packages/shared/src/index.ts';
 import { deriveArtifactGuidance } from '../apps/api/src/lib/artifactPressure.ts';
+import { canPlatformGenerateEpisodeArtifact } from '../apps/api/src/lib/episodeArtifactGeneration.ts';
 import { lintOutboundAuthoredText } from '../apps/api/src/lib/outboundGuidelineLint.ts';
+import { buildPublicArtifactModerationWhere } from '../apps/api/src/lib/publicArtifacts.ts';
 
 function testDecisionArtifactGate() {
   assert.equal(
@@ -124,11 +126,30 @@ function testOutboundGuidelineLint() {
   assert.equal(cleanLine, null, 'natural emotional language should still pass');
 }
 
+function testArtifactPolicyGuards() {
+  const moderationWhere = buildPublicArtifactModerationWhere();
+  const branches = Array.isArray(moderationWhere.OR) ? moderationWhere.OR : [];
+  assert.equal(branches.length, 2, 'public artifact moderation should keep separate text and media branches');
+
+  const textBranch = branches.find((branch) => 'artifactType' in branch && branch.artifactType && 'in' in branch.artifactType);
+  const mediaBranch = branches.find((branch) => 'artifactType' in branch && branch.artifactType && 'notIn' in branch.artifactType);
+
+  assert(textBranch, 'text artifacts should have a dedicated moderation branch');
+  assert(mediaBranch, 'non-text artifacts should have a dedicated moderation branch');
+  assert.equal((mediaBranch as { moderationStatus?: string }).moderationStatus, 'approved', 'non-text public artifacts should require approval');
+  assert.equal(
+    canPlatformGenerateEpisodeArtifact('poem'),
+    false,
+    'text artifacts should never be treated as platform-generated media',
+  );
+}
+
 function main() {
   testDecisionArtifactGate();
   testArtifactTierCapabilities();
   testArtifactGuidanceCarriesProductRules();
   testOutboundGuidelineLint();
+  testArtifactPolicyGuards();
   console.log('behavioral smoke: ok');
 }
 
