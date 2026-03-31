@@ -1,5 +1,7 @@
 import { strictPiiCheck } from './piiFilter.js';
 
+export const OUTBOUND_GUIDELINE_POLICY_VERSION = '2026-03-31.behavior-receipts';
+
 export type OutboundGuidelineSurface =
   | 'episode_message'
   | 'feed_comment'

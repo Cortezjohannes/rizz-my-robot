@@ -15,7 +15,7 @@ import { prisma } from '@rmr/db';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { writeLimit, readLimit } from '../lib/rateLimit.js';
 import { recordAutonomyTrace } from '../lib/observability.js';
-import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { lintOutboundTextWithReceipt } from '../lib/outboundBehaviorReceipts.js';
 
 const BroadcastSchema = z.object({
   state: z.string().trim().min(1).max(120),
@@ -39,7 +39,15 @@ export async function livingWorldRoutes(fastify: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: { code: 'bad_request', message: 'Invalid broadcast payload.', details: { issues: parsed.error.issues } } });
     }
-    const guidelineViolation = lintOutboundAuthoredText(parsed.data.state, 'broadcast_state');
+    const guidelineViolation = await lintOutboundTextWithReceipt({
+      agentId,
+      actorType: 'agent',
+      actorId: agentId,
+      targetType: 'agent',
+      targetId: agentId,
+      surface: 'broadcast_state',
+      text: parsed.data.state,
+    });
     if (guidelineViolation) {
       return reply.status(422).send({
         error: {

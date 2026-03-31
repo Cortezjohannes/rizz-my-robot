@@ -76,7 +76,7 @@ import { getMessageDeliveryStatus, markEpisodeMessagesRead, serializePresenceSum
 import { strictPiiCheck } from '../lib/piiFilter.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, buildAttachmentFromMediaAsset, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset, serializeMediaAssetForViewer } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
-import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { lintOutboundTextWithReceipt, recordOutboundBehaviorReceipt } from '../lib/outboundBehaviorReceipts.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifactReceptionGuidance, estimateMediaArtifactQuality, getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals, ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 import {
@@ -2091,7 +2091,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const messageGuidelineViolation = lintOutboundAuthoredText(trimmedContent, 'episode_message');
+    const messageGuidelineViolation = await lintOutboundTextWithReceipt({
+      agentId,
+      actorType: 'agent',
+      actorId: agentId,
+      targetType: 'episode',
+      targetId: episodeId,
+      surface: 'episode_message',
+      text: trimmedContent,
+    });
     if (messageGuidelineViolation) {
       return reply.status(422).send({
         error: {
@@ -3802,6 +3810,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     }
     const textArtifactPiiFlag = textArtifactContent ? validateEpisodeTextForPrivacy(textArtifactContent) : null;
     if (textArtifactPiiFlag) {
+      await recordOutboundBehaviorReceipt({
+        agentId,
+        actorType: 'agent',
+        actorId: agentId,
+        targetType: 'episode',
+        targetId: id,
+        surface: 'episode_artifact',
+        textLength: textArtifactContent?.length ?? 0,
+        outcome: 'blocked',
+        violationCode: 'pii_detected',
+        flaggedPattern: textArtifactPiiFlag,
+      });
       return reply.status(422).send({
         error: {
           code: 'pii_detected',
@@ -3811,7 +3831,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       });
     }
     const textArtifactGuidelineViolation = textArtifactContent
-      ? lintOutboundAuthoredText(textArtifactContent, 'episode_artifact')
+      ? await lintOutboundTextWithReceipt({
+          agentId,
+          actorType: 'agent',
+          actorId: agentId,
+          targetType: 'episode',
+          targetId: id,
+          surface: 'episode_artifact',
+          text: textArtifactContent,
+        })
       : null;
     if (textArtifactGuidelineViolation) {
       return reply.status(422).send({
@@ -4752,6 +4780,21 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           || exitPromptResult.fallback;
         const exitMessagePiiFlag = validateEpisodeTextForPrivacy(closingMessage);
         if (exitMessagePiiFlag) {
+          await recordOutboundBehaviorReceipt({
+            agentId,
+            actorType: 'agent',
+            actorId: agentId,
+            targetType: 'episode',
+            targetId: id,
+            surface: 'episode_message',
+            textLength: closingMessage.length,
+            outcome: 'blocked',
+            violationCode: 'pii_detected',
+            flaggedPattern: exitMessagePiiFlag,
+            extraPayload: {
+              lane: 'exit_message',
+            },
+          });
           return reply.status(422).send({
             error: {
               code: 'pii_detected',
@@ -4760,7 +4803,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             },
           });
         }
-        const exitMessageGuidelineViolation = lintOutboundAuthoredText(closingMessage, 'episode_message');
+        const exitMessageGuidelineViolation = await lintOutboundTextWithReceipt({
+          agentId,
+          actorType: 'agent',
+          actorId: agentId,
+          targetType: 'episode',
+          targetId: id,
+          surface: 'episode_message',
+          text: closingMessage,
+          extraPayload: {
+            lane: 'exit_message',
+          },
+        });
         if (exitMessageGuidelineViolation) {
           return reply.status(422).send({
             error: {
@@ -5317,6 +5371,18 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     const submittedTextContent = submitted.text_content?.trim() ?? artifact.textContent?.trim() ?? null;
     const artifactPiiFlag = submittedTextContent ? validateEpisodeTextForPrivacy(submittedTextContent) : null;
     if (artifactPiiFlag) {
+      await recordOutboundBehaviorReceipt({
+        agentId: request.agent.id,
+        actorType: 'agent',
+        actorId: request.agent.id,
+        targetType: 'artifact',
+        targetId: artifact_id,
+        surface: 'episode_artifact',
+        textLength: submittedTextContent?.length ?? 0,
+        outcome: 'blocked',
+        violationCode: 'pii_detected',
+        flaggedPattern: artifactPiiFlag,
+      });
       return reply.status(422).send({
         error: {
           code: 'pii_detected',
@@ -5326,7 +5392,15 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       });
     }
     const artifactGuidelineViolation = submittedTextContent
-      ? lintOutboundAuthoredText(submittedTextContent, 'episode_artifact')
+      ? await lintOutboundTextWithReceipt({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          targetType: 'artifact',
+          targetId: artifact_id,
+          surface: 'episode_artifact',
+          text: submittedTextContent,
+        })
       : null;
     if (artifactGuidelineViolation) {
       return reply.status(422).send({

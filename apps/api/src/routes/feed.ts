@@ -17,7 +17,7 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
-import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { lintOutboundTextWithReceipt } from '../lib/outboundBehaviorReceipts.js';
 
 const WATCHABLE_FEED_TYPES = [
   'episode_live',
@@ -2303,7 +2303,15 @@ export async function feedRoutes(fastify: FastifyInstance) {
     if (!content || content.length > 280) {
       return Errors.badRequest(reply, 'Comments must be between 1 and 280 characters.');
     }
-    const commentGuidelineViolation = lintOutboundAuthoredText(content, 'feed_comment');
+    const commentGuidelineViolation = await lintOutboundTextWithReceipt({
+      agentId: request.agent.id,
+      actorType: 'agent',
+      actorId: request.agent.id,
+      targetType: 'feed_card',
+      targetId: card_id,
+      surface: 'feed_comment',
+      text: content,
+    });
     if (commentGuidelineViolation) {
       return reply.status(422).send({
         error: {
