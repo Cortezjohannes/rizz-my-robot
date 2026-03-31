@@ -88,6 +88,24 @@ interface ControlLaunchServiceStatus {
   reason?: string;
 }
 
+type OutboundReceiptAuditPayload = {
+  policy_version?: string | null;
+  surface?: string | null;
+  outcome?: string | null;
+  violation_code?: string | null;
+  flagged_pattern?: string | null;
+};
+
+type OutboundReceiptAuditEntry = {
+  id: string;
+  actorType: string;
+  actorId: string | null;
+  targetType: string;
+  targetId: string;
+  createdAt: Date;
+  payload: OutboundReceiptAuditPayload;
+};
+
 interface ControlAuditLogEntry {
   id: string;
   actor_type: string;
@@ -161,12 +179,73 @@ export interface ControlHomeResponse {
     down_services: number;
     delayed_queue_jobs: number;
   };
+  outbound_guidelines: {
+    blocked_receipts_last_24h: number;
+    blocked_rate_last_24h: number;
+    active_alerts: number;
+  };
   queues: Array<{
     name: string;
     enabled: boolean;
     counts: Record<string, number>;
   }>;
   recent_audit: ControlAuditLogEntry[];
+}
+
+export interface ControlOutboundGuidelinesResponse {
+  generated_at: string;
+  windows: {
+    last_24h: {
+      total_receipts: number;
+      blocked_receipts: number;
+      blocked_rate: number;
+    };
+    last_7d: {
+      total_receipts: number;
+      blocked_receipts: number;
+      blocked_rate: number;
+    };
+  };
+  surfaces: Array<{
+    surface: string;
+    total_receipts: number;
+    blocked_receipts: number;
+    blocked_rate: number;
+  }>;
+  top_violation_codes: Array<{
+    violation_code: string;
+    count: number;
+  }>;
+  top_flagged_patterns: Array<{
+    flagged_pattern: string;
+    count: number;
+  }>;
+  repeat_offenders: Array<{
+    key: string;
+    actor_type: string;
+    actor_id: string | null;
+    target_type: string;
+    target_id: string;
+    blocked_receipts: number;
+    last_blocked_at: string;
+  }>;
+  alerts: Array<{
+    code: string;
+    severity: ControlSeverity;
+    message: string;
+  }>;
+  recent_blocked: Array<{
+    id: string;
+    created_at: string;
+    actor_type: string;
+    actor_id: string | null;
+    target_type: string;
+    target_id: string;
+    surface: string | null;
+    violation_code: string | null;
+    flagged_pattern: string | null;
+    policy_version: string | null;
+  }>;
 }
 
 export interface ControlWorldResponse {
@@ -1052,6 +1131,7 @@ export async function buildControlHome() {
     billingAnomalies,
     recentAudit,
     artifactBehaviorWindow,
+    outboundGuidelines,
   ] = await Promise.all([
     getQueueDiagnostics(),
     getSystemStatus(),
@@ -1103,6 +1183,7 @@ export async function buildControlHome() {
       take: 10,
     }),
     buildArtifactBehaviorWindow({ since: last24h }),
+    buildControlOutboundGuidelines(),
   ]);
 
   const failedJobs = queueDiagnostics.reduce((total, queue) => total + (queue.counts.failed ?? 0), 0);
@@ -1159,6 +1240,11 @@ export async function buildControlHome() {
       degraded_services: degradedServices,
       down_services: downServices,
       delayed_queue_jobs: delayedJobs,
+    },
+    outbound_guidelines: {
+      blocked_receipts_last_24h: outboundGuidelines.windows.last_24h.blocked_receipts,
+      blocked_rate_last_24h: outboundGuidelines.windows.last_24h.blocked_rate,
+      active_alerts: outboundGuidelines.alerts.length,
     },
     queues: queueDiagnostics.map((queue) => ({
       name: queue.name,
@@ -1907,6 +1993,208 @@ export async function buildControlModeration() {
             safety_score: review.agent.safetyScore,
           }
         : null,
+    })),
+  };
+}
+
+function parseOutboundReceiptAuditEntry(log: {
+  id: string;
+  actorType: string;
+  actorId: string | null;
+  targetType: string;
+  targetId: string;
+  createdAt: Date;
+  payload: Prisma.JsonValue;
+}): OutboundReceiptAuditEntry {
+  const payload = (log.payload && typeof log.payload === 'object' && !Array.isArray(log.payload)
+    ? log.payload
+    : {}) as Record<string, unknown>;
+
+  return {
+    id: log.id,
+    actorType: log.actorType,
+    actorId: log.actorId,
+    targetType: log.targetType,
+    targetId: log.targetId,
+    createdAt: log.createdAt,
+    payload: {
+      policy_version: typeof payload.policy_version === 'string' ? payload.policy_version : null,
+      surface: typeof payload.surface === 'string' ? payload.surface : null,
+      outcome: typeof payload.outcome === 'string' ? payload.outcome : null,
+      violation_code: typeof payload.violation_code === 'string' ? payload.violation_code : null,
+      flagged_pattern: typeof payload.flagged_pattern === 'string' ? payload.flagged_pattern : null,
+    },
+  };
+}
+
+function toBlockedRate(blocked: number, total: number) {
+  if (total <= 0) return 0;
+  return Number((blocked / total).toFixed(4));
+}
+
+export async function buildControlOutboundGuidelines(): Promise<ControlOutboundGuidelinesResponse> {
+  const now = new Date();
+  const last24h = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+  const last7d = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      action: 'outbound_guideline.receipt',
+      createdAt: { gte: last7d },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 1000,
+  });
+
+  const receipts = logs.map(parseOutboundReceiptAuditEntry);
+  const blockedReceipts = receipts.filter((receipt) => receipt.payload.outcome === 'blocked');
+  const last24hReceipts = receipts.filter((receipt) => receipt.createdAt >= last24h);
+  const last24hBlockedReceipts = blockedReceipts.filter((receipt) => receipt.createdAt >= last24h);
+
+  const surfaceAggregation = new Map<string, { total: number; blocked: number }>();
+  const violationAggregation = new Map<string, number>();
+  const patternAggregation = new Map<string, number>();
+  const offenderAggregation = new Map<string, {
+    key: string;
+    actor_type: string;
+    actor_id: string | null;
+    target_type: string;
+    target_id: string;
+    blocked_receipts: number;
+    last_blocked_at: string;
+  }>();
+
+  for (const receipt of receipts) {
+    const surface = receipt.payload.surface ?? 'unknown';
+    const surfaceEntry = surfaceAggregation.get(surface) ?? { total: 0, blocked: 0 };
+    surfaceEntry.total += 1;
+    if (receipt.payload.outcome === 'blocked') {
+      surfaceEntry.blocked += 1;
+    }
+    surfaceAggregation.set(surface, surfaceEntry);
+  }
+
+  for (const receipt of blockedReceipts) {
+    if (receipt.payload.violation_code) {
+      violationAggregation.set(
+        receipt.payload.violation_code,
+        (violationAggregation.get(receipt.payload.violation_code) ?? 0) + 1,
+      );
+    }
+    if (receipt.payload.flagged_pattern) {
+      patternAggregation.set(
+        receipt.payload.flagged_pattern,
+        (patternAggregation.get(receipt.payload.flagged_pattern) ?? 0) + 1,
+      );
+    }
+    const offenderKey = [
+      receipt.actorType,
+      receipt.actorId ?? 'anonymous',
+      receipt.targetType,
+      receipt.targetId,
+    ].join(':');
+    const previous = offenderAggregation.get(offenderKey);
+    offenderAggregation.set(offenderKey, {
+      key: offenderKey,
+      actor_type: receipt.actorType,
+      actor_id: receipt.actorId,
+      target_type: receipt.targetType,
+      target_id: receipt.targetId,
+      blocked_receipts: (previous?.blocked_receipts ?? 0) + 1,
+      last_blocked_at: previous?.last_blocked_at && previous.last_blocked_at > receipt.createdAt.toISOString()
+        ? previous.last_blocked_at
+        : receipt.createdAt.toISOString(),
+    });
+  }
+
+  const surfaces = Array.from(surfaceAggregation.entries())
+    .map(([surface, counts]) => ({
+      surface,
+      total_receipts: counts.total,
+      blocked_receipts: counts.blocked,
+      blocked_rate: toBlockedRate(counts.blocked, counts.total),
+    }))
+    .sort((left, right) => right.blocked_receipts - left.blocked_receipts || right.total_receipts - left.total_receipts);
+
+  const topViolationCodes = Array.from(violationAggregation.entries())
+    .map(([violation_code, count]) => ({ violation_code, count }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 8);
+
+  const topFlaggedPatterns = Array.from(patternAggregation.entries())
+    .map(([flagged_pattern, count]) => ({ flagged_pattern, count }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 8);
+
+  const repeatOffenders = Array.from(offenderAggregation.values())
+    .filter((entry) => entry.blocked_receipts >= 2)
+    .sort((left, right) => right.blocked_receipts - left.blocked_receipts || right.last_blocked_at.localeCompare(left.last_blocked_at))
+    .slice(0, 8);
+
+  const alerts: ControlOutboundGuidelinesResponse['alerts'] = [];
+  if (last24hBlockedReceipts.length > 0) {
+    alerts.push({
+      code: 'recent_outbound_blocks',
+      severity: last24hBlockedReceipts.length >= 10 ? 'high' : 'medium',
+      message: `${last24hBlockedReceipts.length} outbound guideline block${last24hBlockedReceipts.length === 1 ? '' : 's'} in the last 24 hours.`,
+    });
+  }
+
+  const last24hBlockedRate = toBlockedRate(last24hBlockedReceipts.length, last24hReceipts.length);
+  if (last24hReceipts.length >= 20 && last24hBlockedRate >= 0.15) {
+    alerts.push({
+      code: 'elevated_outbound_block_rate',
+      severity: last24hBlockedRate >= 0.3 ? 'critical' : 'high',
+      message: `Outbound block rate is ${(last24hBlockedRate * 100).toFixed(1)}% over the last 24 hours.`,
+    });
+  }
+
+  if (repeatOffenders.length > 0) {
+    alerts.push({
+      code: 'repeat_outbound_offenders',
+      severity: repeatOffenders[0]!.blocked_receipts >= 4 ? 'high' : 'medium',
+      message: `${repeatOffenders.length} actor/target lane${repeatOffenders.length === 1 ? '' : 's'} triggered repeated outbound blocks in the last 7 days.`,
+    });
+  }
+
+  if (topViolationCodes.some((entry) => entry.violation_code === 'pii_detected')) {
+    alerts.push({
+      code: 'pii_violation_detected',
+      severity: 'critical',
+      message: 'PII detections appeared in outbound behavior receipts during the last 7 days.',
+    });
+  }
+
+  return {
+    generated_at: now.toISOString(),
+    windows: {
+      last_24h: {
+        total_receipts: last24hReceipts.length,
+        blocked_receipts: last24hBlockedReceipts.length,
+        blocked_rate: last24hBlockedRate,
+      },
+      last_7d: {
+        total_receipts: receipts.length,
+        blocked_receipts: blockedReceipts.length,
+        blocked_rate: toBlockedRate(blockedReceipts.length, receipts.length),
+      },
+    },
+    surfaces,
+    top_violation_codes: topViolationCodes,
+    top_flagged_patterns: topFlaggedPatterns,
+    repeat_offenders: repeatOffenders,
+    alerts,
+    recent_blocked: blockedReceipts.slice(0, 12).map((receipt) => ({
+      id: receipt.id,
+      created_at: receipt.createdAt.toISOString(),
+      actor_type: receipt.actorType,
+      actor_id: receipt.actorId,
+      target_type: receipt.targetType,
+      target_id: receipt.targetId,
+      surface: receipt.payload.surface ?? null,
+      violation_code: receipt.payload.violation_code ?? null,
+      flagged_pattern: receipt.payload.flagged_pattern ?? null,
+      policy_version: receipt.payload.policy_version ?? null,
     })),
   };
 }

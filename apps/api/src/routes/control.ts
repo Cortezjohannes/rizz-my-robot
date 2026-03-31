@@ -30,6 +30,7 @@ import {
   buildControlInbox,
   buildControlJobs,
   buildControlModeration,
+  buildControlOutboundGuidelines,
   buildControlSettings,
   buildControlWorld,
   pinFeaturedFeedItem,
@@ -368,6 +369,11 @@ export async function controlRoutes(fastify: FastifyInstance) {
   fastify.get('/internal/control/audit', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
     const audit = await buildControlAudit();
     return reply.send(audit);
+  });
+
+  fastify.get('/internal/control/outbound-guidelines', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const outboundGuidelines = await buildControlOutboundGuidelines();
+    return reply.send(outboundGuidelines);
   });
 
   fastify.get('/internal/agents/:id/control', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
