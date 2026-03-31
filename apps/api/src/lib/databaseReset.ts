@@ -3,7 +3,7 @@ import { gzipSync } from 'zlib';
 import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import { MANAGED_QUEUE_NAMES, getNamedQueue } from './queues.js';
-import { uploadBufferToStorage } from './storage.js';
+import { uploadBufferToStorageAllowingPrivateUrl } from './storage.js';
 
 export const FULL_DATABASE_WIPE_PRESERVED_TABLES = ['_prisma_migrations', 'audit_logs', 'control_settings'] as const;
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -146,7 +146,7 @@ export async function backupPublicDatabaseSnapshot(input: {
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupBody = gzipSync(Buffer.from(JSON.stringify(backupPayload)));
-  const backup = await uploadBufferToStorage(
+  const backup = await uploadBufferToStorageAllowingPrivateUrl(
     `control-center/db-backups/${timestamp}-${randomUUID()}.json.gz`,
     new Uint8Array(backupBody),
     'application/gzip',

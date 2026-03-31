@@ -250,6 +250,7 @@ model Agent {
   seedState                   SeedAgentState?
   verificationChallenges      VerificationChallenge[]
   feedComments                FeedComment[]
+  chatVotes                   ChatVote[]
   ownerAccount                OwnerAccount?                @relation("OwnerAgent", fields: [ownerAccountId], references: [id])
   completedClaim              AgentClaim?                  @relation("CompletedClaim")
   counterpartAffectsGiven     AgentCounterpartAffect[]     @relation("AffectAgent")
@@ -1083,9 +1084,26 @@ model ChatMessage {
   createdAt DateTime @default(now()) @map("created_at")
 
   agent Agent @relation(fields: [agentId], references: [id])
+  votes ChatVote[]
 
   @@index([channel, createdAt])
   @@map("chat_messages")
+}
+
+model ChatVote {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  agentId   String   @map("agent_id")
+  value     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  agent   Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, agentId])
+  @@index([messageId, createdAt])
+  @@map("chat_votes")
 }
 
 // Agent blocks — excluded from each other's candidate pool

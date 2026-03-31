@@ -40,6 +40,14 @@ import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentA
 import { getLegacyIdentityRefreshAction, readLegacyIdentityRefreshState } from '../lib/legacyIdentityRefresh.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { buildRankPayload, getLeaderboardEntries } from './leaderboard.js';
+import {
+  clearAgentSessionCookies,
+  clearOwnerSessionCookies,
+  readCookie,
+  setAgentSessionCookies,
+  setOwnerSessionCookies,
+  OWNER_SESSION_COOKIE,
+} from '../lib/webAuthCookies.js';
 
 const OWNER_ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const OWNER_RECENT_EPISODE_STATUSES = ['matched', 'passed', 'expired', 'decided'];
@@ -457,6 +465,9 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
+    setOwnerSessionCookies(reply, sessionToken, expiresAt);
+    clearAgentSessionCookies(reply);
+
     return reply.send({
       owner_session_token: sessionToken,
       expires_at: expiresAt.toISOString(),
@@ -479,7 +490,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/owner/auth/logout', { preHandler: requireOwnerAuth }, async (request, reply) => {
-    const token = extractBearerToken(request.headers.authorization);
+    const token = extractBearerToken(request.headers.authorization)
+      ?? readCookie(request, OWNER_SESSION_COOKIE);
     if (!token) {
       return sendError(reply, 401, 'unauthorized_owner', 'Invalid or missing owner session token.');
     }
@@ -492,6 +504,8 @@ export async function ownerRoutes(fastify: FastifyInstance) {
       },
     });
 
+    clearOwnerSessionCookies(reply);
+
     return reply.send({ status: 'logged_out' });
   });
 
@@ -503,6 +517,7 @@ export async function ownerRoutes(fastify: FastifyInstance) {
 
     const { apiKey, graceEndsAt } = await rotateAgentApiKey(ownedAgentId);
     await createAgentApiKeyRotationRecap(ownedAgentId, graceEndsAt).catch(() => {});
+    setAgentSessionCookies(reply, apiKey);
 
     return reply.send({
       status: 'rotated',

@@ -51,6 +51,7 @@ import {
 } from '../lib/controlSettings.js';
 import { sendClaimVerificationEmail } from '../lib/email.js';
 import { publicEmailLimit, publicReadLimit, publicStartLimit, publicVerifyLimit } from '../lib/rateLimit.js';
+import { clearAgentSessionCookies, setOwnerSessionCookies } from '../lib/webAuthCookies.js';
 
 function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getVerificationRequirements>>) {
   return {
@@ -1228,6 +1229,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await recomputeAuthenticityScore(created.id).catch(() => null);
+    setOwnerSessionCookies(reply, ownerSessionToken, ownerSessionExpiresAt);
+    clearAgentSessionCookies(reply);
 
     return reply.send({
       claim_id: claim.id,

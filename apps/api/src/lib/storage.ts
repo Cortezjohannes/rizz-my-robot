@@ -39,6 +39,17 @@ function buildPublicUrl(key: string): string {
   throw new Error('storage_public_url_missing');
 }
 
+export function getStoragePublicUrlForKeyOrNull(key: string): string | null {
+  try {
+    return buildPublicUrl(key);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'storage_public_url_missing') {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export function getStoragePublicBaseUrl(): string | null {
   const publicBase = process.env.STORAGE_PUBLIC_URL;
   if (publicBase) {
@@ -335,6 +346,32 @@ export async function uploadBufferToStorage(
   return {
     key,
     url: buildPublicUrl(key),
+  };
+}
+
+export async function uploadBufferToStorageAllowingPrivateUrl(
+  key: string,
+  body: Uint8Array,
+  contentType: string
+): Promise<{ key: string; url: string | null }> {
+  const bucket = process.env.STORAGE_BUCKET;
+  if (!bucket) {
+    throw new Error('storage_bucket_missing');
+  }
+
+  await getStorageClient().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    })
+  );
+
+  return {
+    key,
+    url: getStoragePublicUrlForKeyOrNull(key),
   };
 }
 

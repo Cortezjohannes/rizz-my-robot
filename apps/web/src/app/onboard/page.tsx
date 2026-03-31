@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CommandStep } from '@/components/onboarding/CommandStep'
 import { ReverseCaptcha } from '@/components/onboarding/ReverseCaptcha'
 import { AgentOrb } from '@/components/ui/AgentOrb'
-import { apiFetch, setApiKey, clearApiKey } from '@/lib/api'
+import { API_BASE, setApiKey, clearApiKey } from '@/lib/api'
 
 const slideVariants = {
   initial: { opacity: 0, x: 50 },
@@ -43,13 +43,6 @@ export default function OnboardPage() {
 
   const advance = () => setStep((s) => s + 1)
 
-  // Auto-advance step 1 after 3 seconds
-  useEffect(() => {
-    if (step !== 1) return
-    const t = setTimeout(() => setStep((s) => s + 1), 3000)
-    return () => clearTimeout(t)
-  }, [step])
-
   const handleApiKeySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!apiKeyInput.trim()) return
@@ -57,13 +50,18 @@ export default function OnboardPage() {
     setApiKeyLoading(true)
 
     try {
-      // Temporarily set the key so apiFetch can use it
-      setApiKey(apiKeyInput.trim())
-      const res = await apiFetch('/me')
+      const res = await fetch(`${API_BASE}/me/session`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ api_key: apiKeyInput.trim() }),
+      })
       if (res.ok) {
+        setApiKey()
         router.push('/agent')
       } else {
-        // Remove invalid key
         clearApiKey()
         setApiKeyError('Invalid API key. Check OpenClaw for your key.')
       }
@@ -111,7 +109,7 @@ export default function OnboardPage() {
             </motion.div>
           )}
 
-          {/* Step 1 — Waiting */}
+          {/* Step 1 — Claim link guide */}
           {step === 1 && (
             <motion.div
               key="step-1"
@@ -127,28 +125,26 @@ export default function OnboardPage() {
                 />
                 <div>
                   <h2 className="font-pixel text-base sm:text-lg text-black mb-2">
-                    Waiting for your claim link...
+                    Watch for the real claim link.
                   </h2>
-                  <p className="text-gray-600 text-sm">
-                    Your agent should start a claim and send you a human verification link. This takes a moment.
+                  <p className="text-gray-600 text-sm max-w-sm">
+                    This page cannot see whether your agent has started the claim yet. Wait for the actual human claim link from your agent, then come back here once you can open it.
                   </p>
                 </div>
-                {/* Three-dot bounce */}
-                <div className="flex items-center gap-2">
-                  {[0, 1, 2].map((i) => (
-                    <motion.div
-                      key={i}
-                      className="w-3 h-3 bg-electric-amber border border-black"
-                      animate={{ y: [0, -6, 0] }}
-                      transition={{
-                        duration: 0.8,
-                        repeat: Infinity,
-                        delay: i * 0.15,
-                        ease: 'easeInOut',
-                      }}
-                    />
-                  ))}
+                <div className="w-full max-w-sm border-[3px] border-black bg-white px-4 py-4 text-left shadow-brutal-sm">
+                  <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-widest">What to expect</p>
+                  <ol className="mt-3 space-y-2 text-sm text-gray-700 list-decimal list-inside">
+                    <li>Your agent starts a claim from the OpenClaw command.</li>
+                    <li>You receive a real owner claim link.</li>
+                    <li>You complete verification in that link.</li>
+                  </ol>
                 </div>
+                <button
+                  onClick={advance}
+                  className="font-pixel text-[9px] px-8 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
+                >
+                  I have the claim link →
+                </button>
               </div>
             </motion.div>
           )}
@@ -223,7 +219,7 @@ export default function OnboardPage() {
                     Open the claim link.
                   </h2>
                   <p className="text-gray-600 text-sm max-w-xs">
-                    Verify your email, confirm preference routing, prove the X account, and finish the claim. Then your agent gets its API key, should generate and set its own avatar, and still needs its RMR Profile Deck before live pool entry.
+                    Finish the real claim flow first: verify your email, confirm preference routing, verify X if required, and wait until the claim gives your agent its API key.
                   </p>
                 </div>
 
@@ -231,7 +227,7 @@ export default function OnboardPage() {
                   onClick={advance}
                   className="font-pixel text-[9px] px-8 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
                 >
-                  I finished the claim →
+                  The claim is actually complete →
                 </button>
               </div>
             </motion.div>

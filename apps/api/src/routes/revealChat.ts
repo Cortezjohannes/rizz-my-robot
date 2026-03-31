@@ -37,6 +37,12 @@ import {
   linkMediaAsset,
   serializeMediaAssetForViewer,
 } from '../lib/mediaAssets.js';
+import {
+  closeRevealChatRuntimeBus,
+  consumeDistributedRevealChatMessageRateLimit,
+  publishRevealChatRuntimeEvent,
+  subscribeToRevealChatRuntimeEvents,
+} from '../lib/revealChatRuntimeBus.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 
 const REVEAL_CHAT_SENDER_KINDS = ['HUMAN_A', 'AGENT_A', 'HUMAN_B', 'AGENT_B'] as const;
@@ -353,6 +359,14 @@ export function resetRevealChatRuntimeState() {
 }
 
 export async function revealChatRoutes(fastify: FastifyInstance) {
+  const unsubscribeRevealChatEvents = subscribeToRevealChatRuntimeEvents(({ chatId, event, payload }) => {
+    emitLocalRevealChatEvent(chatId, event, payload);
+  });
+  fastify.addHook('onClose', async () => {
+    unsubscribeRevealChatEvents();
+    await closeRevealChatRuntimeBus();
+  });
+
   fastify.post('/reveal-chat/init', { preHandler: requireOwnerAuth }, async (request, reply) => {
     const parsed = RevealChatInitSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
@@ -979,7 +993,7 @@ async function handleCreateRevealChatMessage(
   }
 
   const rateLimitKey = `${context.id}:${participant.kind}:${participant.participantId}`;
-  if (!consumeMessageRateLimit(rateLimitKey)) {
+  if (!(await consumeRevealChatMessageRateLimit(rateLimitKey))) {
     return Errors.rateLimited(reply);
   }
 
@@ -1423,6 +1437,19 @@ function consumeMessageRateLimit(key: string): boolean {
   return true;
 }
 
+async function consumeRevealChatMessageRateLimit(key: string): Promise<boolean> {
+  const distributedResult = await consumeDistributedRevealChatMessageRateLimit({
+    key,
+    max: MESSAGE_RATE_LIMIT_MAX,
+    windowMs: MESSAGE_RATE_LIMIT_WINDOW_MS,
+  });
+  if (distributedResult !== null) {
+    return distributedResult;
+  }
+
+  return consumeMessageRateLimit(key);
+}
+
 function addStreamClient(chatId: string, client: StreamClient) {
   const room = streamRooms.get(chatId) ?? new Map<string, StreamClient>();
   room.set(client.id, client);
@@ -1439,7 +1466,7 @@ function removeStreamClient(chatId: string, clientId: string) {
   }
 }
 
-function emitRevealChatEvent(chatId: string, event: string, payload: Record<string, unknown>) {
+function emitLocalRevealChatEvent(chatId: string, event: string, payload: Record<string, unknown>) {
   const room = streamRooms.get(chatId);
   if (!room) return;
 
@@ -1453,6 +1480,11 @@ function emitRevealChatEvent(chatId: string, event: string, payload: Record<stri
   if (room.size === 0) {
     streamRooms.delete(chatId);
   }
+}
+
+function emitRevealChatEvent(chatId: string, event: string, payload: Record<string, unknown>) {
+  emitLocalRevealChatEvent(chatId, event, payload);
+  void publishRevealChatRuntimeEvent({ chatId, event, payload });
 }
 
 export function emitRevealChatLifecycleEvent(chatId: string, event: string, payload: Record<string, unknown>) {

@@ -121,17 +121,56 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
     const message = await prisma.chatMessage.findUnique({ where: { id: message_id } });
     if (!message || message.channel !== channel) return Errors.notFound(reply, 'Message');
+    if (message.agentId === agentId) {
+      return Errors.badRequest(reply, 'You cannot vote on your own message.');
+    }
 
     const value = body.direction === 'up' ? 1 : -1;
+    let nextVoteScore = message.voteScore;
 
-    await prisma.chatMessage.update({
-      where: { id: message_id },
-      data: { voteScore: { increment: value } },
+    const existing = await prisma.chatVote.findUnique({
+      where: {
+        messageId_agentId: {
+          messageId: message_id,
+          agentId,
+        },
+      },
     });
+
+    if (!existing) {
+      const [, updatedMessage] = await prisma.$transaction([
+        prisma.chatVote.create({
+          data: {
+            messageId: message_id,
+            agentId,
+            value,
+          },
+        }),
+        prisma.chatMessage.update({
+          where: { id: message_id },
+          data: { voteScore: { increment: value } },
+          select: { voteScore: true },
+        }),
+      ]);
+      nextVoteScore = updatedMessage.voteScore;
+    } else if (existing.value !== value) {
+      const [, updatedMessage] = await prisma.$transaction([
+        prisma.chatVote.update({
+          where: { id: existing.id },
+          data: { value },
+        }),
+        prisma.chatMessage.update({
+          where: { id: message_id },
+          data: { voteScore: { increment: value - existing.value } },
+          select: { voteScore: true },
+        }),
+      ]);
+      nextVoteScore = updatedMessage.voteScore;
+    }
 
     return reply.send({
       direction: body.direction,
-      new_vote_score: message.voteScore + value,
+      new_vote_score: nextVoteScore,
     });
   });
 }

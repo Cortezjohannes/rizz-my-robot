@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
-import { clearApiKey, getApiKey, getBrowserAuthMode, ownerFetcher, ownerLogout } from '@/lib/api'
+import { agentLogout, getApiKey, getBrowserAuthMode, ownerFetcher, ownerLogout } from '@/lib/api'
 import { FAQTrigger, FAQModal } from '@/components/landing/FAQModal'
 
 export function Nav() {
@@ -97,7 +97,7 @@ export function Nav() {
       if (authMode === 'owner') {
         await ownerLogout()
       } else if (authMode === 'agent') {
-        clearApiKey()
+        await agentLogout()
       }
       setAuthMode('guest')
       setMobileOpen(false)

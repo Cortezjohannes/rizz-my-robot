@@ -2152,7 +2152,7 @@ export interface ControlActionResult {
 export interface DatabaseResetActionResult extends ControlActionResult {
   backup: {
     key: string
-    url: string
+    url: string | null
   }
   preserved_tables: string[]
   reset_tables: string[]

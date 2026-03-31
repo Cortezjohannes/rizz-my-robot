@@ -2,12 +2,18 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@rmr/db';
 import { extractApiKeyFromRequest, extractBearerToken, hashApiKey } from './auth.js';
 import { hashOpaqueSecret } from './claimAuth.js';
-import { refreshOwnerSessionActivity } from './claims.js';
+import { ownerSessionExpiryDate, refreshOwnerSessionActivity, shouldRefreshOwnerSession } from './claims.js';
 import { isEffectivelyPro } from './entitlements.js';
 import { Errors, sendError } from './errors.js';
 import { deliverWebhooks } from './notification.js';
 import { schedulePresenceLifecycle } from './socialSignals.js';
 import { buildAuthDiagnostics } from './writeDiagnostics.js';
+import {
+  AGENT_API_KEY_COOKIE,
+  OWNER_SESSION_COOKIE,
+  readCookie,
+  setOwnerSessionCookies,
+} from './webAuthCookies.js';
 
 export interface AuthenticatedAgent {
   id: string;
@@ -59,7 +65,9 @@ export async function authenticateOwnerRequest(
   reply: FastifyReply,
   options: AuthenticateRequestOptions = {}
 ): Promise<AuthenticatedOwnerAccount | null> {
-  const token = options.tokenOverride ?? extractBearerToken(request.headers.authorization);
+  const token = options.tokenOverride
+    ?? extractBearerToken(request.headers.authorization)
+    ?? readCookie(request, OWNER_SESSION_COOKIE);
   if (!token) {
     if (options.suppressErrors) return null;
     sendError(reply, 401, 'unauthorized_owner', 'Invalid or missing owner session token.');
@@ -91,11 +99,19 @@ export async function authenticateOwnerRequest(
     return null;
   }
 
+  const shouldRefresh = shouldRefreshOwnerSession({
+    expiresAt: session.expiresAt,
+    lastUsedAt: session.lastUsedAt,
+  });
+
   await refreshOwnerSessionActivity({
     id: session.id,
     expiresAt: session.expiresAt,
     lastUsedAt: session.lastUsedAt,
   });
+  if (shouldRefresh) {
+    setOwnerSessionCookies(reply, token, ownerSessionExpiryDate());
+  }
 
   const ownerAccount: AuthenticatedOwnerAccount = {
     id: session.ownerAccount.id,
@@ -120,7 +136,9 @@ export async function authenticateAgentRequest(
   reply: FastifyReply,
   options: AuthenticateRequestOptions = {}
 ): Promise<AuthenticatedAgent | null> {
-  const token = options.tokenOverride ?? extractApiKeyFromRequest(request);
+  const token = options.tokenOverride
+    ?? extractApiKeyFromRequest(request)
+    ?? readCookie(request, AGENT_API_KEY_COOKIE);
   if (!token) {
     if (options.suppressErrors) return null;
     sendError(
