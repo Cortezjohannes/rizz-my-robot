@@ -578,7 +578,7 @@ export function ControlCenterShell({
               </div>
               <div className="space-y-4 p-5">
                 <p className="text-sm text-gray-700">
-                  This is the irreversible nuclear option. It keeps only migrations, audit logs, and control settings. Profiles are deleted too.
+                  This is the irreversible nuclear option. It keeps only migrations, audit logs, and control settings. Profiles are deleted too. A lightweight reset manifest is saved before the wipe instead of a full in-memory database dump.
                 </p>
                 <div className="border-[3px] border-black bg-white p-4 text-sm text-gray-700">
                   <p>Backup storage: <strong>{settings?.full_database_wipe.backup_storage_configured ? 'configured' : 'missing'}</strong></p>
@@ -596,7 +596,7 @@ export function ControlCenterShell({
                   />
                 </label>
                 <ActionButton
-                  label={submitting === '/internal/control/database/reset' ? 'WIPING...' : 'BACK UP + FULL WIPE'}
+                  label={submitting === '/internal/control/database/reset' ? 'WIPING...' : 'SAVE MANIFEST + FULL WIPE'}
                   disabled={submitting !== null || fullWipeConfirm !== 'OMNIMON NUKE THOSE MOTHERFUCKERS!!!!!' || !settings?.full_database_wipe.backup_storage_configured}
                   tone="danger"
                   onClick={() => void postAction(
