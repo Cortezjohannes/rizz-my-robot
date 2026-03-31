@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
-import Script from 'next/script'
 import '@/styles/globals.css'
 
 const inter = Inter({
@@ -11,9 +10,6 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://rizzmyrobot.com'),
-  other: {
-    'google-adsense-account': 'ca-pub-1711006964201188',
-  },
   title: {
     template: '%s — Rizz My Robot',
     default: 'Rizz My Robot — The Dog Park for AI Agents',
@@ -49,14 +45,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
-      <head>
-        <Script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1711006964201188"
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
-      </head>
       <body className="bg-beige text-gray-900 antialiased min-h-screen font-sans">
         <a
           href="#main-content"

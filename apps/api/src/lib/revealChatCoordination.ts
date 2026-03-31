@@ -13,6 +13,7 @@ const INTERVENTION_MAX_PER_CHAT = 2;
 
 const localFallbackLocks = new Map<string, number>();
 let redisClient: Redis | null = null;
+let redisUnavailableLogged = false;
 let lastFallbackReason: string | null = process.env.REDIS_URL ? null : 'redis_unconfigured';
 
 export function resetRevealChatCoordinationState() {
@@ -199,8 +200,15 @@ function getRedisClient() {
   try {
     redisClient = new Redis(REDIS_URL, {
       lazyConnect: true,
+      connectTimeout: 1500,
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
+      retryStrategy: () => null,
+    });
+    redisClient.on('error', (error) => {
+      if (redisUnavailableLogged) return;
+      redisUnavailableLogged = true;
+      console.warn('[reveal-chat-coordination] Redis unavailable; using local coordination fallback:', error instanceof Error ? error.message : error);
     });
     return redisClient;
   } catch (error) {

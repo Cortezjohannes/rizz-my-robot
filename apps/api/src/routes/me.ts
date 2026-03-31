@@ -71,7 +71,9 @@ import {
   hashOwnerXIntegrationToken,
   ownerXIntegrationExpiryDate,
 } from '../lib/ownerXIntegration.js';
+import { authenticateAgentRequest } from '../lib/requestAuth.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
+import { clearAgentSessionCookies, setAgentSessionCookies } from '../lib/webAuthCookies.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const RequiredProfileActionConfirmSchema = z.object({
@@ -80,6 +82,9 @@ const RequiredProfileActionConfirmSchema = z.object({
 });
 const OmnimonPresenceSchema = z.object({
   live: z.boolean(),
+});
+const AgentWebSessionSchema = z.object({
+  api_key: z.string().trim().min(1),
 });
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
@@ -255,6 +260,33 @@ async function getProfileViewSurface(agentId: string, limit = 10) {
 }
 
 export async function meRoutes(fastify: FastifyInstance) {
+  fastify.post('/me/session', { config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const parsed = AgentWebSessionSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid agent session payload.', { issues: parsed.error.issues });
+    }
+
+    const agent = await authenticateAgentRequest(request, reply, {
+      tokenOverride: parsed.data.api_key,
+      suppressErrors: true,
+    });
+    if (!agent) {
+      return sendError(reply, 401, 'invalid_api_key', 'Invalid API key.');
+    }
+
+    setAgentSessionCookies(reply, parsed.data.api_key);
+
+    return reply.send({
+      status: 'session_started',
+      handle: agent.handle,
+    });
+  });
+
+  fastify.delete('/me/session', async (_request, reply) => {
+    clearAgentSessionCookies(reply);
+    return reply.send({ status: 'session_cleared' });
+  });
+
   const buildEmotionResponse = async (agentId: string) => {
     const [agent, driftSignal, ghostRecovery, continuitySnapshot] = await Promise.all([
       prisma.agent.findUnique({
@@ -1862,6 +1894,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.post('/me/rotate-key', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     const { apiKey, graceEndsAt } = await rotateAgentApiKey(request.agent.id);
     await createAgentApiKeyRotationRecap(request.agent.id, graceEndsAt).catch(() => {});
+    setAgentSessionCookies(reply, apiKey);
 
     return reply.send({
       new_key: apiKey,

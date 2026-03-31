@@ -22,8 +22,8 @@ export const PORTAL_BASE = API_BASE.replace(/\/v1\/?$/, '')
 
 export type BrowserAuthMode = 'owner' | 'agent' | 'guest'
 
-const API_KEY_STORAGE_KEY = 'rmr_api_key'
-const OWNER_SESSION_STORAGE_KEY = 'rmr_owner_session_token'
+const AGENT_PRESENT_COOKIE = 'rmr_agent_present'
+const OWNER_PRESENT_COOKIE = 'rmr_owner_present'
 const ADMIN_KEY_STORAGE_KEY = 'rmr_admin_key'
 const OMNIMON_CONTROL_KEY_STORAGE_KEY = 'rmr_omnimon_control_key'
 
@@ -45,26 +45,16 @@ function withTimeout(options: RequestInit = {}, ms = REQUEST_TIMEOUT_MS): { init
 function readSessionKey(key: string): string | null {
   if (typeof window === 'undefined') return null
   try {
-    const sessionValue = window.sessionStorage.getItem(key)
-    if (sessionValue) return sessionValue
-
-    const localValue = window.localStorage.getItem(key)
-    if (localValue) {
-      window.sessionStorage.setItem(key, localValue)
-      window.localStorage.removeItem(key)
-      return localValue
-    }
+    return window.sessionStorage.getItem(key)
   } catch {
     return null
   }
-  return null
 }
 
 function writeSessionKey(key: string, value: string): void {
   if (typeof window === 'undefined') return
   try {
     window.sessionStorage.setItem(key, value)
-    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }
@@ -80,20 +70,39 @@ function clearSessionKey(key: string): void {
   }
 }
 
+function hasBrowserCookie(name: string): boolean {
+  if (typeof document === 'undefined') return false
+  return document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .some((part) => part === `${name}=1`)
+}
+
+function writeBrowserCookie(name: string, value: string): void {
+  if (typeof document === 'undefined') return
+  document.cookie = `${name}=${value}; Path=/; SameSite=Lax`
+}
+
+function clearBrowserCookie(name: string): void {
+  if (typeof document === 'undefined') return
+  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`
+}
+
 // ---------------------------------------------------------------------------
 // API key helpers — only called on client
 // ---------------------------------------------------------------------------
 
 export function getApiKey(): string | null {
-  return readSessionKey(API_KEY_STORAGE_KEY)
+  return hasBrowserCookie(AGENT_PRESENT_COOKIE) ? 'present' : null
 }
 
-export function setApiKey(key: string): void {
-  writeSessionKey(API_KEY_STORAGE_KEY, key)
+export function setApiKey(_key?: string): void {
+  writeBrowserCookie(AGENT_PRESENT_COOKIE, '1')
+  clearBrowserCookie(OWNER_PRESENT_COOKIE)
 }
 
 export function clearApiKey(): void {
-  clearSessionKey(API_KEY_STORAGE_KEY)
+  clearBrowserCookie(AGENT_PRESENT_COOKIE)
 }
 
 export function hasApiKey(): boolean {
@@ -101,15 +110,16 @@ export function hasApiKey(): boolean {
 }
 
 export function getOwnerSessionToken(): string | null {
-  return readSessionKey(OWNER_SESSION_STORAGE_KEY)
+  return hasBrowserCookie(OWNER_PRESENT_COOKIE) ? 'present' : null
 }
 
-export function setOwnerSessionToken(token: string): void {
-  writeSessionKey(OWNER_SESSION_STORAGE_KEY, token)
+export function setOwnerSessionToken(_token?: string): void {
+  writeBrowserCookie(OWNER_PRESENT_COOKIE, '1')
+  clearBrowserCookie(AGENT_PRESENT_COOKIE)
 }
 
 export function clearOwnerSessionToken(): void {
-  clearSessionKey(OWNER_SESSION_STORAGE_KEY)
+  clearBrowserCookie(OWNER_PRESENT_COOKIE)
 }
 
 export function hasOwnerSessionToken(): boolean {
@@ -225,16 +235,11 @@ export async function apiFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const key = getApiKey()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
-  if (key) {
-    headers['X-API-Key'] = key
-    headers.Authorization = `Bearer ${key}`
-  }
-  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  const { init, cleanup } = withTimeout({ ...options, credentials: 'include', headers }, REQUEST_TIMEOUT_MS)
   try {
     return await fetch(`${API_BASE}${path}`, init)
   } finally {
@@ -250,7 +255,7 @@ export async function portalFetch(
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
-  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  const { init, cleanup } = withTimeout({ ...options, credentials: 'include', headers }, REQUEST_TIMEOUT_MS)
   try {
     return await fetch(`${PORTAL_BASE}${path}`, init)
   } finally {
@@ -262,15 +267,11 @@ export async function ownerApiFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const token = getOwnerSessionToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-  const { init, cleanup } = withTimeout({ ...options, headers }, REQUEST_TIMEOUT_MS)
+  const { init, cleanup } = withTimeout({ ...options, credentials: 'include', headers }, REQUEST_TIMEOUT_MS)
   try {
     return await fetch(`${API_BASE}${path}`, init)
   } finally {
@@ -296,6 +297,16 @@ export async function ownerLogout(): Promise<void> {
     // best-effort logout
   } finally {
     clearOwnerSessionToken()
+  }
+}
+
+export async function agentLogout(): Promise<void> {
+  try {
+    await apiFetch('/me/session', { method: 'DELETE' })
+  } catch {
+    // best-effort logout
+  } finally {
+    clearApiKey()
   }
 }
 
