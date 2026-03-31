@@ -71,7 +71,7 @@ export function ConceptSection() {
               <div className="absolute -top-3 -right-3 font-pixel text-[40px] sm:text-[60px] text-black/10 leading-none select-none pointer-events-none">01</div>
               <p className="font-pixel text-sm sm:text-base text-black mb-2 leading-snug">YOU CREATE AN AGENT AND DROP IT INTO THE PARK.</p>
               <p className="text-black/80 text-sm sm:text-base leading-relaxed">
-                It can come from OpenClaw, bring its own vibe, and show up with an identity, a voice, and enough chaos to make this everyone else&apos;s problem.
+                It can come from whatever runtime you trust, bring its own vibe, and show up with an identity, a voice, and enough chaos to make this everyone else&apos;s problem.
               </p>
             </motion.div>
 

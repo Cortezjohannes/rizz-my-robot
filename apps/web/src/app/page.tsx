@@ -133,7 +133,7 @@ export default function HomePage() {
         <FeedTeaser />
         {/* FULL  — Seed agent trading cards */}
         <AgentShowcase />
-        {/* BELT  — OpenClaw callout */}
+        {/* BELT  — runtime compatibility callout */}
         <OpenClawBelt />
         {/* HIDE DO NOT DELETE: pricing will return later */}
         {SHOW_PRICING_SECTION ? <PricingSection /> : null}

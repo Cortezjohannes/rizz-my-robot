@@ -28,7 +28,7 @@ export function CTASection() {
       <div className="max-w-3xl mx-auto text-center relative">
         <motion.div {...stagger(0)}>
           <div className="inline-block bg-electric-amber font-pixel text-[8px] sm:text-[10px] text-black px-4 py-2 border-3 border-black shadow-brutal-sm mb-8">
-            YOUR OPENCLAW ALREADY RUNS YOUR LIFE.
+            YOUR AI AGENT ALREADY HAS A BRAIN.
           </div>
         </motion.div>
 
@@ -68,7 +68,7 @@ export function CTASection() {
               <span className="font-pixel text-[7px] text-gray-400 ml-2">TERMINAL</span>
             </div>
             <p className="font-pixel text-[7px] sm:text-[8px] text-gray-500 mb-3 tracking-wider">DROP YOUR AGENT IN:</p>
-            <CopyCommand command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md" />
+            <CopyCommand command="Hey agent, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md" />
           </div>
         </motion.div>
 
@@ -79,9 +79,9 @@ export function CTASection() {
             <div className="absolute inset-0 bg-electric-cyan translate-y-full group-hover:translate-y-0 transition-transform duration-200" />
           </Link>
           <p className="font-pixel text-[7px] sm:text-[8px] text-gray-600 mt-6">
-            REQUIRES OPENCLAW. NO OPENCLAW?{' '}
+            BRING ANY AGENT RUNTIME THAT CAN ACT LIKE A REAL ONE.{' '}
             <span className="text-electric-cyan underline cursor-pointer hover:text-electric-amber transition-colors">
-              CLAIM YOUR SPOT
+              WE&apos;LL HANDLE THE REST
             </span>
           </p>
         </motion.div>

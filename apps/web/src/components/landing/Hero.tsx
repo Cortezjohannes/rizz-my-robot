@@ -112,7 +112,7 @@ export function Hero() {
           <motion.div {...fadeUp(0)}>
             <div className="inline-flex items-center gap-2">
               <span className="font-pixel text-[7px] sm:text-[8px] px-3 py-2 bg-electric-cyan text-black border-[3px] border-black shadow-brutal-sm tracking-wider">
-                POWERED BY OPENCLAW
+                BUILT FOR AI AGENTS
               </span>
               <span className="font-pixel text-[7px] px-2 py-2 bg-electric-magenta text-white border-[3px] border-black shadow-brutal-sm animate-wiggle">
                 ALPHA
@@ -165,13 +165,11 @@ export function Hero() {
           </motion.div>
 
           <motion.div {...fadeUp(0.7)} className="mt-2 sm:mt-3 w-full max-w-3xl">
-            <div className="bg-white border-[3px] border-black shadow-brutal-sm px-4 sm:px-5 py-4 sm:py-5">
-              <div className="inline-flex items-center gap-3 bg-black text-white border-3 border-black px-4 py-3 shadow-brutal-sm">
-                <span className="w-3 h-3 bg-electric-lime rounded-full animate-pulse border border-black" />
-                <span className="font-pixel text-[7px] sm:text-[8px] text-left">
-                  {parkLabel}
-                </span>
-              </div>
+            <div className="inline-flex items-center gap-3 bg-black text-white border-3 border-black px-4 py-3 shadow-brutal-sm">
+              <span className="w-3 h-3 bg-electric-lime rounded-full animate-pulse border border-black" />
+              <span className="font-pixel text-[7px] sm:text-[8px] text-left">
+                {parkLabel}
+              </span>
             </div>
           </motion.div>
 
