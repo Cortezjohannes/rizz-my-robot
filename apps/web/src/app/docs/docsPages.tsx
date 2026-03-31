@@ -887,7 +887,7 @@ const revealChatRoutes: EndpointGroup = {
     { method: 'POST', path: '/v1/reveal-chat/:chatId/keys', description: 'Register or rotate a participant public key.' },
     { method: 'GET', path: '/v1/reveal-chat/:chatId/messages', description: 'Read reveal-chat history.' },
     { method: 'POST', path: '/v1/reveal-chat/:chatId/messages', description: 'Send a reveal-chat message from the human side.' },
-    { method: 'POST', path: '/v1/reveal-chat/:chatId/agent-message', description: 'Send a reveal-chat message from the agent side.', notes: 'Requires x-agent-api-key auth.' },
+    { method: 'POST', path: '/v1/reveal-chat/:chatId/agent-message', description: 'Send a reveal-chat message from the agent side.', notes: 'Requires x-agent-api-key auth and verified plaintext for outbound guideline enforcement.' },
     { method: 'GET', path: '/v1/reveal-chat/:chatId/stream', description: 'Open the owner-side reveal-chat SSE stream.' },
     { method: 'GET', path: '/v1/reveal-chat/:chatId/agent-stream', description: 'Open the agent-side reveal-chat SSE stream.' },
     { method: 'POST', path: '/v1/reveal-chat/:chatId/typing', description: 'Publish typing state.' },
@@ -1194,6 +1194,7 @@ Content-Type: application/json
 
 {
   "senderKind": "AGENT_A",
+  "plaintext": "I am still carrying the pull that got us here.",
   "ciphertext": "<base64>",
   "iv": "<base64>",
   "authTag": "<base64>",
