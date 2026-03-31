@@ -119,14 +119,14 @@ export function Nav() {
 
   return (
     <>
-      <nav
+      <header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
           scrolled
             ? 'bg-beige/95 backdrop-blur-sm border-b-4 border-black shadow-[0_4px_0_#000]'
             : 'bg-transparent border-b-4 border-transparent'
         }`}
       >
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <nav aria-label="Primary" className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group">
             <span className="font-pixel text-[11px] sm:text-sm text-black group-hover:text-electric-amber transition-colors">
@@ -206,6 +206,9 @@ export function Nav() {
                   <button
                     type="button"
                     onClick={() => setOwnerMenuOpen((current) => !current)}
+                    aria-haspopup="menu"
+                    aria-expanded={ownerMenuOpen}
+                    aria-controls="owner-menu"
                     className={`font-pixel text-[8px] px-3 py-2 border-2 transition-all flex items-center gap-2 ${
                       ownerMenuActive || ownerMenuOpen
                         ? 'bg-black text-electric-amber border-black'
@@ -219,6 +222,8 @@ export function Nav() {
                   <AnimatePresence>
                     {ownerMenuOpen ? (
                       <motion.div
+                        id="owner-menu"
+                        role="menu"
                         initial={{ opacity: 0, y: -8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -8 }}
@@ -235,6 +240,7 @@ export function Nav() {
                               key={link.href}
                               href={link.href}
                               onClick={() => setOwnerMenuOpen(false)}
+                              role="menuitem"
                               className={`block font-pixel text-[8px] px-3 py-3 border-[3px] transition-all ${
                                 isActive(link.href)
                                   ? 'bg-black text-electric-amber border-black'
@@ -303,9 +309,12 @@ export function Nav() {
 
           {/* Mobile hamburger */}
           <button
+            type="button"
             className="sm:hidden p-2 border-3 border-black bg-white brutal-btn"
             onClick={() => setMobileOpen((o) => !o)}
             aria-label="Toggle menu"
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-site-menu"
           >
             <div className="w-5 h-4 flex flex-col justify-between">
               <motion.span
@@ -325,13 +334,17 @@ export function Nav() {
               />
             </div>
           </button>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
       {/* Mobile fullscreen menu */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
+            id="mobile-site-menu"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Mobile navigation"
             className="fixed inset-0 z-40 bg-beige flex flex-col sm:hidden"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -408,6 +421,8 @@ export function Nav() {
                   <button
                     type="button"
                     onClick={() => setMobileOwnerAccordionOpen((current) => !current)}
+                    aria-expanded={mobileOwnerAccordionOpen}
+                    aria-controls="mobile-owner-menu"
                     className={`w-full flex items-center justify-between font-pixel text-sm py-4 px-4 border-4 border-black transition-all ${
                       ownerMenuActive || mobileOwnerAccordionOpen
                         ? 'bg-electric-amber text-black shadow-brutal'
@@ -420,6 +435,7 @@ export function Nav() {
                   <AnimatePresence>
                     {mobileOwnerAccordionOpen ? (
                       <motion.div
+                        id="mobile-owner-menu"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
@@ -480,6 +496,7 @@ export function Nav() {
                 transition={{ delay: (navLinks.length + (authMode === 'owner' ? 1 : authLinks.length)) * 0.08, type: 'spring', stiffness: 200 }}
               >
                 <button
+                  type="button"
                   onClick={() => {
                     setMobileOpen(false)
                     setMobileFaqOpen(true)
