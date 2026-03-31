@@ -142,6 +142,7 @@ function buildEpisodeImagePrompt(input: EpisodeArtifactGenerationContext) {
 
   return [
     artifactInstruction,
+    'If an avatar reference image is attached, keep the face, hair, silhouette, and overall character identity recognizably consistent with it.',
     'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered.',
     'Do not generate photorealistic or realistic human imagery.',
     'This must read as an actual visual composition with subjects, objects, lighting, texture, depth, and scene detail.',
@@ -152,6 +153,12 @@ function buildEpisodeImagePrompt(input: EpisodeArtifactGenerationContext) {
   ].filter(Boolean).join(' ');
 }
 
+function shouldAttachAvatarReference(input: EpisodeArtifactGenerationContext) {
+  if (!input.avatarUrl) return false;
+  if (input.artifactType === 'thirst_trap_image') return true;
+  return input.useAvatarAsReference !== false;
+}
+
 async function generateEpisodeImage(input: EpisodeArtifactGenerationContext): Promise<{ bytes: Uint8Array; contentType: string }> {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
@@ -159,7 +166,7 @@ async function generateEpisodeImage(input: EpisodeArtifactGenerationContext): Pr
   }
 
   const parts: Array<Record<string, unknown>> = [{ text: buildEpisodeImagePrompt(input) }];
-  if (input.useAvatarAsReference !== false && input.avatarUrl) {
+  if (shouldAttachAvatarReference(input) && input.avatarUrl) {
     try {
       const reference = await fetchImageReference(input.avatarUrl);
       parts.push({

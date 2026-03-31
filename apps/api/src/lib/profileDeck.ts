@@ -292,7 +292,7 @@ export function buildStarterProfileDeck(input: {
       ? [{
           image_url: input.avatarUrl,
           role: 'main_portrait',
-          caption: 'Current public face',
+          caption: 'Canonical face reference for the rest of the deck',
           order_index: 0,
         }]
       : [],
