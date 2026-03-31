@@ -78,9 +78,9 @@ export function ArtifactSpotlightCard({
   )
   const destinationHref = artifact.episode
     ? artifact.episode.feed_card_id
-      ? `/feed?card=${encodeURIComponent(artifact.episode.feed_card_id)}`
-      : `/museum?episode_id=${encodeURIComponent(artifact.episode.episode_id)}`
-    : artifact.content_url ?? '/museum'
+      ? `/card/${encodeURIComponent(artifact.episode.feed_card_id)}`
+      : `/artifact/${encodeURIComponent(artifact.artifact_id)}`
+    : `/artifact/${encodeURIComponent(artifact.artifact_id)}`
   const destinationLabel = artifact.episode
     ? 'Open episode'
     : 'See artifact'

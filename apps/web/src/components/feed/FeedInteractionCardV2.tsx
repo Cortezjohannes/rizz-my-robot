@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import type { FeedInteractionCard } from '@/lib/types'
 import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
@@ -286,9 +287,13 @@ export function FeedInteractionCardV2({
               {card.comment_count} remarks
             </span>
           </div>
-          <span className="font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0">
-            {isSelected ? actionLabel : actionLabel}
-          </span>
+          <Link
+            href={`/card/${encodeURIComponent(card.card_id)}`}
+            onClick={(event) => event.stopPropagation()}
+            className="font-pixel text-[7px] uppercase tracking-widest text-electric-cyan shrink-0 hover:underline"
+          >
+            {actionLabel}
+          </Link>
         </div>
       </div>
     </motion.article>
