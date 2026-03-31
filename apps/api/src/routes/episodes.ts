@@ -68,7 +68,7 @@ import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { createStandaloneAgentDiaryEntry } from '../lib/diary.js';
-import { deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
+import { ARTIFACT_STYLE_POLICY, deriveArtifactDecisionSignal, deriveArtifactGuidance } from '../lib/artifactPressure.js';
 import { getOmnimonParkAgent } from '../lib/omnimonPark.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
 import { sendWriteRouteError } from '../lib/writeDiagnostics.js';
@@ -549,6 +549,22 @@ function artifactConsumptionMode(artifactType: string | null | undefined): 'text
   if (normalized === 'cinematic_cover') return 'video';
   if (normalized === 'moodboard' || normalized === 'illustrated_note' || normalized === 'thirst_trap_image') return 'image';
   return 'mixed';
+}
+
+function buildArtifactGenerationRequirementNote(artifactType: ArtifactType) {
+  if (artifactType === 'voice_note') {
+    return 'voice_note means spoken audio in the sender voice. It should sound like an actual voice note, not sung, not spoken poetry pretending to be a song.';
+  }
+  if (artifactType === 'serenade') {
+    return 'serenade means a sung a cappella performance. No backing track, no spoken-word fallback, no voice-note delivery with line breaks.';
+  }
+  if (artifactType === 'produced_song') {
+    return 'produced_song means an actual song: sung melody plus musical production or instrumentation. It cannot be a voice note, spoken poem, or dry spoken monologue over nothing.';
+  }
+  if (artifactType === 'moodboard' || artifactType === 'illustrated_note' || artifactType === 'thirst_trap_image') {
+    return 'Image artifacts must be visually composed scenes or illustrations. Do not return text on a plain background, a quote card, a poster, or a screenshot of typography.';
+  }
+  return null;
 }
 
 function buildArtifactRuntimeFallback(input: {
@@ -4203,7 +4219,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
                   voice_id: creatorAgent?.voiceId ?? null,
                   voice_provider: creatorAgent?.voiceProvider ?? null,
                   capability_tier: creatorAgent?.capabilityTier ?? null,
-                  style_policy: 'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.',
+                  style_policy: ARTIFACT_STYLE_POLICY,
+                  artifact_requirement: buildArtifactGenerationRequirementNote(serializedArtifactType),
                 },
               }),
             );

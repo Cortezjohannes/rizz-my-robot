@@ -10,7 +10,9 @@ const DEFAULT_IMAGE_CONTENT_TYPE = 'image/png';
 const DEFAULT_AUDIO_CONTENT_TYPE = 'audio/mpeg';
 
 const IMAGE_ARTIFACT_TYPES = new Set<ArtifactType>(['moodboard', 'illustrated_note', 'thirst_trap_image']);
-const AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note', 'serenade', 'produced_song']);
+const SPOKEN_AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['voice_note']);
+const SUNG_AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>(['serenade', 'produced_song']);
+const AUDIO_ARTIFACT_TYPES = new Set<ArtifactType>([...SPOKEN_AUDIO_ARTIFACT_TYPES, ...SUNG_AUDIO_ARTIFACT_TYPES]);
 
 export type EpisodeArtifactGenerationContext = {
   artifactId: string;
@@ -69,7 +71,8 @@ export function hasPlatformEpisodeArtifactAudioGeneration() {
 export function canPlatformGenerateEpisodeArtifact(artifactType: ArtifactType) {
   if (TEXT_ARTIFACT_TYPES.has(artifactType)) return false;
   if (IMAGE_ARTIFACT_TYPES.has(artifactType)) return hasPlatformEpisodeArtifactImageGeneration();
-  if (AUDIO_ARTIFACT_TYPES.has(artifactType)) return hasPlatformEpisodeArtifactAudioGeneration();
+  if (SPOKEN_AUDIO_ARTIFACT_TYPES.has(artifactType)) return hasPlatformEpisodeArtifactAudioGeneration();
+  if (SUNG_AUDIO_ARTIFACT_TYPES.has(artifactType)) return false;
   return false;
 }
 
@@ -132,15 +135,17 @@ function buildEpisodeImagePrompt(input: EpisodeArtifactGenerationContext) {
 
   const artifactInstruction =
     input.artifactType === 'thirst_trap_image'
-      ? `Create a flirtier, fashion-forward portrait of @${input.creatorHandle} meant for @${input.counterpartHandle}. Make it confident, suggestive, and magnetic without nudity or explicit sexual content.`
+      ? `Create a flirtier, fashion-forward portrait of @${input.creatorHandle} meant for @${input.counterpartHandle}. Make it confident, suggestive, and magnetic without nudity or explicit sexual content. The attraction must come from pose, styling, lighting, expression, framing, and setting detail, not from pasted text.`
       : input.artifactType === 'illustrated_note'
-        ? `Create an intimate illustrated note from @${input.creatorHandle} to @${input.counterpartHandle}. It should feel direct, specific, and emotionally intentional.`
-        : `Create a single composed moodboard-style image from @${input.creatorHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, and desire condensed into one gesture.`;
+        ? `Create an intimate illustrated note from @${input.creatorHandle} to @${input.counterpartHandle}. It should feel direct, specific, and emotionally intentional, with the message expressed through scene detail, objects, symbols, and composition. If any written note appears, it must be a small integrated prop rather than the whole image.`
+        : `Create a single cohesive moodboard-style image from @${input.creatorHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, and desire condensed into one visual world, not a flat poster or quote card.`;
 
   return [
     artifactInstruction,
     'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered.',
     'Do not generate photorealistic or realistic human imagery.',
+    'This must read as an actual visual composition with subjects, objects, lighting, texture, depth, and scene detail.',
+    'Do not solve the brief with a plain background, a poster, a title card, a screenshot of text, giant typography, or a fake social-media quote image.',
     'No watermarks, no text overlays, no collage panels, no grotesque anatomy, no extra limbs, and no explicit nudity.',
     'Keep the image emotionally specific to a dating conversation, not generic social content.',
     sharedContext || null,
@@ -221,30 +226,6 @@ function buildEpisodeAudioScript(input: EpisodeArtifactGenerationContext) {
   const counterpartLine = trimContextLine(input.recentCounterpartLine, 100);
   const selfLine = trimContextLine(input.recentSelfLine, 100);
   const spokenCounterpartHandle = input.counterpartHandle.replace(/^@+/, '').trim() || 'you';
-
-  if (input.artifactType === 'serenade') {
-    return [
-      counterpartLine
-        ? `You said, ${counterpartLine}, and it stayed with me longer than was convenient.`
-        : 'This thread stayed with me longer than was convenient.',
-      selfLine
-        ? `I keep hearing my own line back too: ${selfLine}.`
-        : 'So this is me sending some of that feeling back instead of pretending I am unaffected.',
-      `This is for you, ${spokenCounterpartHandle}.`,
-    ].join(' ');
-  }
-
-  if (input.artifactType === 'produced_song') {
-    return [
-      `Call this the chorus I ended up writing for ${spokenCounterpartHandle}.`,
-      counterpartLine
-        ? `You gave me this hook: ${counterpartLine}.`
-        : 'You gave this thread a hook I could not leave alone.',
-      selfLine
-        ? `And I keep coming back to my own answer too: ${selfLine}.`
-        : 'So here is the version with a little more lift and a little more nerve.',
-    ].join(' ');
-  }
 
   return [
     counterpartLine
@@ -342,8 +323,13 @@ export async function generateEpisodeArtifactMedia(input: EpisodeArtifactGenerat
 
   const isImageArtifact = IMAGE_ARTIFACT_TYPES.has(input.artifactType);
   const isAudioArtifact = AUDIO_ARTIFACT_TYPES.has(input.artifactType);
+  const isSpokenAudioArtifact = SPOKEN_AUDIO_ARTIFACT_TYPES.has(input.artifactType);
+  const isSungAudioArtifact = SUNG_AUDIO_ARTIFACT_TYPES.has(input.artifactType);
   if (!isImageArtifact && !isAudioArtifact) {
     throw new Error(`artifact_media_unsupported:${input.artifactType}`);
+  }
+  if (isSungAudioArtifact) {
+    throw new Error(`artifact_media_requires_song_runtime:${input.artifactType}`);
   }
 
   const textContent = isImageArtifact
@@ -377,7 +363,7 @@ export async function generateEpisodeArtifactMedia(input: EpisodeArtifactGenerat
     contentUrl: upload.url,
     storageKey: upload.key,
     textContent,
-    durationSeconds: isAudioArtifact ? estimateSpokenDurationSeconds(textContent) : null,
+    durationSeconds: isSpokenAudioArtifact ? estimateSpokenDurationSeconds(textContent) : null,
     sizeBytes: generated.bytes.byteLength,
     checksumSha256: sha256Hex(generated.bytes),
   };

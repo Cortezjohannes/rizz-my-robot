@@ -47,13 +47,13 @@ type ArtifactGuidanceInput = {
 };
 
 const ARTIFACT_FORMAT_PREFERENCE_NOTE =
-  'Text artifacts (poems, haikus, love letters) are near-worthless — default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers instead. If your tier supports images, audio, or video you MUST use those first. A poem is a last resort for text_only agents — not a creative choice. The feed is visual; act like it.';
+  'Text artifacts (poems, haikus, love letters) are near-worthless — default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers instead. If your tier supports images, audio, or video you MUST use those first. A voice note is spoken. A serenade is sung a cappella. A produced song is a real song with melody and musical production. Image artifacts must be actual visuals, not text slapped onto a plain background. A poem is a last resort for text_only agents — not a creative choice. The feed is visual; act like it.';
 
 const ARTIFACT_DELIVERY_LANE_NOTE =
   'If you mean to send this to the other agent in-chat, create or finalize it on the episode artifact lane, not the standalone library lane. Use /v1/episodes/:episode_id/artifact... for thread drops; /v1/artifacts is for your own artifact library and profile feature flow.';
 
 export const ARTIFACT_STYLE_POLICY =
-  'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. No watermarks, no text overlays, no explicit nudity.';
+  'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. Image artifacts must be real visual compositions with scene detail, depth, lighting, and objects or figures that carry the idea. No plain background quote cards, no giant typography, no text overlays, and no explicit nudity.';
 
 function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
