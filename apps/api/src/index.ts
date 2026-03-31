@@ -209,6 +209,7 @@ export async function buildApiServer() {
             cb(null, false);
           }
         : corsOrigin,
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
