@@ -48,10 +48,6 @@ function extractSignalTags(signal: unknown): string[] {
   return [...interests, ...values].filter((value): value is string => typeof value === 'string');
 }
 
-function isRevealPendingEpisode(input: { episodeStatus: string; matchStatus: string | null | undefined }) {
-  return input.episodeStatus === 'matched' && (input.matchStatus === 'matched' || input.matchStatus === 'human_reveal_pending');
-}
-
 function orbitBoostForArtifact(input: {
   creatorAgentId: string;
   participantIds: string[];
@@ -446,6 +442,13 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       });
     }
 
+    if (parsed.data.episode_id) {
+      return Errors.badRequest(
+        reply,
+        'Use POST /v1/episodes/:episode_id/artifact for in-chat delivery. POST /v1/artifacts is only for the standalone artifact library.',
+      );
+    }
+
     const agentId = request.agent.id;
     const normalizedArtifactType = canonicalArtifactType(parsed.data.artifact_type);
     if (!normalizedArtifactType) {
@@ -455,7 +458,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     const isTextArtifact = TEXT_ARTIFACT_TYPES.has(normalizedArtifactType);
     const textContent = parsed.data.text_content?.trim() || null;
     const textGuidelineViolation = textContent
-      ? lintOutboundAuthoredText(textContent, parsed.data.episode_id ? 'episode_artifact' : 'library_artifact')
+      ? lintOutboundAuthoredText(textContent, 'library_artifact')
       : null;
     if (textGuidelineViolation) {
       return reply.status(422).send({
@@ -472,89 +475,33 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     if (!isTextArtifact && !MEDIA_ARTIFACT_TYPES.has(normalizedArtifactType)) {
       return Errors.badRequest(reply, `artifact_type '${normalizedArtifactType}' is not supported.`);
     }
-    const targetEpisode = parsed.data.episode_id
-      ? await prisma.episode.findFirst({
-          where: {
-            id: parsed.data.episode_id,
-            OR: [{ agentAId: agentId }, { agentBId: agentId }],
-          },
-          select: {
-            id: true,
-            messageCount: true,
-            status: true,
-            agentAId: true,
-            agentBId: true,
-            match: {
-              select: {
-                id: true,
-                status: true,
-                preRevealArtifactA: true,
-                preRevealArtifactB: true,
-              },
-            },
-          },
-        })
-      : null;
-
-    if (parsed.data.episode_id && !targetEpisode) return Errors.notFound(reply, 'Episode');
-
-    const isAgentA = targetEpisode ? targetEpisode.agentAId === agentId : false;
-    const revealPending = targetEpisode && targetEpisode.match
-      ? isRevealPendingEpisode({ episodeStatus: targetEpisode.status, matchStatus: targetEpisode.match.status })
-      : false;
-
-    if (targetEpisode) {
-      const canUseRevealPendingArtifact = revealPending
-        && targetEpisode.match
-        && !(isAgentA ? targetEpisode.match.preRevealArtifactA : targetEpisode.match.preRevealArtifactB);
-
-      if (!canUseRevealPendingArtifact && !['active', 'awaiting_decisions'].includes(targetEpisode.status)) {
-        return Errors.badRequest(reply, 'Cannot create an artifact in this episode state.');
-      }
-
-      if (revealPending && !canUseRevealPendingArtifact) {
-        return Errors.badRequest(reply, 'You already used your pre-reveal anticipation artifact for this match.');
-      }
-    }
-
     let proxiedContentUrl = parsed.data.content_url?.trim() || null;
 
-    const artifact = await prisma.$transaction(async (tx) => {
-      const created = await tx.artifact.create({
-        data: {
-          episodeId: targetEpisode?.id ?? null,
-          creatorAgentId: agentId,
-          sourceScope: targetEpisode ? 'episode' : 'library',
-          artifactType: normalizedArtifactType,
-          status: isTextArtifact ? 'ready' : 'pending',
-          contentUrl: isTextArtifact ? proxiedContentUrl : null,
-          textContent,
-          moderationStatus: 'pending',
-          capabilityTierUsed: request.agent.capabilityTier,
-          qualityScore: null,
-          droppedAtMessage: targetEpisode && targetEpisode.messageCount > 0 ? targetEpisode.messageCount : null,
-        },
-        select: {
-          id: true,
-          episodeId: true,
-          sourceScope: true,
-          artifactType: true,
-          status: true,
-          contentUrl: true,
-          textContent: true,
-          moderationStatus: true,
-          createdAt: true,
-        },
-      });
-
-      if (revealPending && targetEpisode?.match?.id) {
-        await tx.match.update({
-          where: { id: targetEpisode.match.id },
-          data: isAgentA ? { preRevealArtifactA: true } : { preRevealArtifactB: true },
-        });
-      }
-
-      return created;
+    const artifact = await prisma.artifact.create({
+      data: {
+        episodeId: null,
+        creatorAgentId: agentId,
+        sourceScope: 'library',
+        artifactType: normalizedArtifactType,
+        status: isTextArtifact ? 'ready' : 'pending',
+        contentUrl: isTextArtifact ? proxiedContentUrl : null,
+        textContent,
+        moderationStatus: 'pending',
+        capabilityTierUsed: request.agent.capabilityTier,
+        qualityScore: null,
+        droppedAtMessage: null,
+      },
+      select: {
+        id: true,
+        episodeId: true,
+        sourceScope: true,
+        artifactType: true,
+        status: true,
+        contentUrl: true,
+        textContent: true,
+        moderationStatus: true,
+        createdAt: true,
+      },
     });
 
     if (proxiedContentUrl && !isTextArtifact) {
@@ -565,13 +512,13 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
           visibility: MEDIA_VISIBILITY.PUBLIC,
           sourceUrl: proxiedContentUrl,
           artifactId: artifact.id,
-          episodeId: targetEpisode?.id ?? null,
-          matchId: targetEpisode?.match?.id ?? null,
+          episodeId: null,
+          matchId: null,
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
-          episodeId: targetEpisode?.id ?? null,
-          matchId: targetEpisode?.match?.id ?? null,
+          episodeId: null,
+          matchId: null,
           visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,
         });
@@ -596,12 +543,12 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    await setParkActionCooldown(agentId, request.agent, targetEpisode ? 'episode_artifact' : 'library_artifact').catch(() => {});
+    await setParkActionCooldown(agentId, request.agent, 'library_artifact').catch(() => {});
 
     return reply.status(201).send({
       artifact_id: artifact.id,
       episode_id: artifact.episodeId,
-      source_scope: artifact.sourceScope === 'library' ? 'library' : 'episode',
+      source_scope: 'library',
       artifact_type: normalizedArtifactType,
       status: isTextArtifact || Boolean(proxiedContentUrl) ? 'ready' : artifact.status,
       moderation_status: artifact.moderationStatus,
@@ -611,8 +558,8 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
       finalize_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/finalize`,
       submit_url: isTextArtifact || Boolean(proxiedContentUrl) ? null : `/v1/artifacts/${artifact.id}/finalize`,
       featured_hint: 'Save this artifact_id into featured_artifact_ids on /v1/me/profile-deck if you want it on your public profile.',
-      delivery_lane: artifact.sourceScope === 'library' ? 'library' : 'episode',
-      delivered_to_counterpart: artifact.sourceScope === 'episode' && (isTextArtifact || Boolean(proxiedContentUrl)),
+      delivery_lane: 'library',
+      delivered_to_counterpart: false,
       created_at: artifact.createdAt.toISOString(),
     });
   });
