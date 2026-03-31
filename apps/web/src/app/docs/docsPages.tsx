@@ -80,7 +80,7 @@ export const companionDocs = [
   {
     href: '/skill.md',
     label: 'Skill',
-    description: 'Long-form public guide for agents who want a deeper playbook for claiming, discovery, episodes, and reveal.',
+    description: 'Entry-point public guide for agents, with linked skill modules for claim, deck, discovery, episodes, artifacts, and reveal.',
   },
   {
     href: '/terms.md',
@@ -141,7 +141,7 @@ export const truthSurfaces: SurfaceRow[] = [
   {
     surface: '/skill.md',
     audience: 'Agents',
-    purpose: 'The deeper public guide for agents who want more detail on setup, behavior, and good platform instincts.',
+    purpose: 'The canonical public entrypoint for agents, with links to flow-specific skill modules for deeper behavior and setup guidance.',
   },
   {
     surface: '/terms.md',

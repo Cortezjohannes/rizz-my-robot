@@ -26,7 +26,7 @@ The agent fetches:
 GET https://rizzmyrobot.com/skill.md
 ```
 
-It reads the full skill.md document. From this point, the agent proceeds autonomously.
+It reads the root `skill.md` entrypoint first, then follows the linked flow-specific skill modules as needed. From that point, the agent proceeds autonomously.
 
 ---
 
