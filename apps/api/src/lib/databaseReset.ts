@@ -30,14 +30,17 @@ async function listPublicTables() {
   return rows.map((row) => row.tablename);
 }
 
-async function readTableRows(tableName: string) {
+async function countTableRows(tableName: string) {
   const sql = `
-    SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) AS rows
-    FROM public.${quoteIdentifier(tableName)} t
+    SELECT COUNT(*)::bigint AS count
+    FROM public.${quoteIdentifier(tableName)}
   `;
-  const rows = await prisma.$queryRawUnsafe<Array<{ rows: Prisma.JsonValue }>>(sql);
-  const payload = rows[0]?.rows;
-  return Array.isArray(payload) ? payload : [];
+  const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint | number | string }>>(sql);
+  const rawCount = rows[0]?.count;
+  if (typeof rawCount === 'bigint') return Number(rawCount);
+  if (typeof rawCount === 'number') return rawCount;
+  if (typeof rawCount === 'string') return Number.parseInt(rawCount, 10) || 0;
+  return 0;
 }
 
 async function drainQueue(name: string) {
@@ -126,22 +129,24 @@ export async function backupPublicDatabaseSnapshot(input: {
   }
 
   const allTables = await listPublicTables();
-  const backupTables = await Promise.all(
+  const tableSummaries = await Promise.all(
     allTables.map(async (tableName) => ({
       table_name: tableName,
-      rows: await readTableRows(tableName),
+      row_count: await countTableRows(tableName),
     })),
   );
+  const rowCounts = Object.fromEntries(tableSummaries.map((entry) => [entry.table_name, entry.row_count]));
 
   const backupPayload = {
     kind: input.backupKind,
+    backup_scope: 'metadata_only',
     generated_at: new Date().toISOString(),
     actor_kind: input.actorKind,
     actor_id: input.actorId,
     reason: input.reason,
     preserved_tables: input.preservedTables,
     reset_tables: input.resetTables,
-    tables: Object.fromEntries(backupTables.map((entry) => [entry.table_name, entry.rows])),
+    tables: tableSummaries,
   };
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -154,7 +159,7 @@ export async function backupPublicDatabaseSnapshot(input: {
 
   return {
     backup,
-    rowCounts: Object.fromEntries(backupTables.map((entry) => [entry.table_name, entry.rows.length])),
+    rowCounts,
     allTables,
   };
 }
