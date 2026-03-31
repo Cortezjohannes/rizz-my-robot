@@ -190,6 +190,7 @@ export async function buildApiServer() {
   // Security headers
   await fastify.register(helmet, {
     contentSecurityPolicy: false, // API — no HTML served
+    crossOriginResourcePolicy: false, // API responses are intentionally consumed cross-origin by the web app
   });
 
   await fastify.register(multipart, {
