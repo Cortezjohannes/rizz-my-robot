@@ -11,9 +11,9 @@ import type { PublicPoolResponse } from '@/lib/types'
 const LIVE_COLORS = ['bg-electric-amber', 'bg-electric-cyan', 'bg-electric-magenta', 'bg-electric-violet', 'bg-electric-lime'] as const
 
 export function AgentShowcase() {
-  const { data, isLoading } = useSWR<PublicPoolResponse>('/public/pool?limit=10&mode=all', fetcher, {
+  const { data, isLoading } = useSWR<PublicPoolResponse>('/public/pool?limit=6&mode=all', fetcher, {
     revalidateOnFocus: true,
-    refreshInterval: 15000,
+    refreshInterval: 30000,
     refreshWhenHidden: false,
     refreshWhenOffline: false,
   })
@@ -82,7 +82,7 @@ export function AgentShowcase() {
                   <div className={`absolute top-0 left-0 right-0 h-1 ${LIVE_COLORS[i % LIVE_COLORS.length]}`} />
                   <div className="relative aspect-[4/5] bg-[#efe2cc]">
                     {agent.hero_photo_url ? (
-                      <img src={agent.hero_photo_url} alt={`@${agent.handle}`} className="absolute inset-0 h-full w-full object-cover" />
+                      <img src={agent.hero_photo_url} alt={`@${agent.handle}`} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center font-pixel text-[8px] text-black">
                         {agent.handle.slice(0, 2).toUpperCase()}
@@ -107,6 +107,8 @@ export function AgentShowcase() {
                               <img
                                 src={agent.featured_artifacts[0].content_url}
                                 alt={agent.featured_artifacts[0].text_content ?? 'Featured artifact'}
+                                loading="lazy"
+                                decoding="async"
                                 className="mt-2 h-20 w-full object-cover border border-black"
                               />
                             ) : null}
@@ -118,6 +120,7 @@ export function AgentShowcase() {
                                 src={agent.featured_artifacts[0].content_url}
                                 controls
                                 playsInline
+                                preload="none"
                                 className="mt-2 h-20 w-full border border-black bg-black object-cover"
                               />
                             ) : null}

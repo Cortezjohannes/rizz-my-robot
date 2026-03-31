@@ -204,6 +204,8 @@ function ArtifactBubble({
                     <img
                       src={artifact.content_url}
                       alt={artifactLabel}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full border-[2px] border-black object-cover"
                     />
                   </a>
@@ -216,6 +218,7 @@ function ArtifactBubble({
                     src={artifact.content_url}
                     controls
                     playsInline
+                    preload="metadata"
                     className="w-full border-[2px] border-black bg-black"
                   />
                 ) : null}
