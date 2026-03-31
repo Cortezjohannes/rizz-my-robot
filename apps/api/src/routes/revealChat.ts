@@ -282,6 +282,18 @@ export async function ensureRevealChatForMatch(input: {
     revealChatSessionKeyCache.set(chat.id, sessionCryptoKey);
     await initializeTimeCapsule(chat.id, chat.createdAt);
     await scheduleRevealChatInactivityCheck(chat.id);
+    await recordAuditLog({
+      agentId: null,
+      actorType: 'system',
+      actorId: null,
+      action: 'reveal_chat_initialized',
+      targetType: 'reveal_chat',
+      targetId: chat.id,
+      payload: {
+        matchId: input.matchId,
+        createdAt: chat.createdAt.toISOString(),
+      },
+    });
     void primeRevealChatContextCache(chat.id);
     void ensureRevealChatEntrySequence(chat.id, {
       emitEvent: emitRevealChatEvent,

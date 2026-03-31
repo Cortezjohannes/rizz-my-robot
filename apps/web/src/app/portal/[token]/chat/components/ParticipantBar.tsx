@@ -102,11 +102,17 @@ export function ParticipantBar({
                 <div className="mt-1 flex items-center gap-2">
                   <span
                     className={`h-2.5 w-2.5 rounded-full border border-black ${
-                      isOnline ? 'bg-electric-lime' : 'bg-gray-300'
+                      participant.left
+                        ? 'bg-gray-400'
+                        : isOnline
+                          ? 'bg-electric-lime'
+                          : participant.joined
+                            ? 'bg-electric-amber'
+                            : 'bg-gray-300'
                     }`}
                   />
                   <span className="font-pixel text-[6px] uppercase tracking-widest text-gray-500">
-                    {isOnline ? 'online' : 'offline'}
+                    {participant.left ? 'left' : isOnline ? 'online' : participant.joined ? 'waiting' : 'pending'}
                   </span>
                 </div>
               </div>

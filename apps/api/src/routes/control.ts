@@ -3,11 +3,12 @@ import Redis from 'ioredis';
 import { prisma } from '@rmr/db';
 import { z } from 'zod';
 import { resetRevealChatContextCache } from '../lib/revealChatContext.js';
-import { resetRevealChatCoordinationState } from '../lib/revealChatCoordination.js';
+import { getRevealChatCoordinationRuntimeState, resetRevealChatCoordinationState } from '../lib/revealChatCoordination.js';
 import { resetRevealChatEntryState } from '../lib/revealChatEntry.js';
 import { closeRevealChat } from '../lib/revealChatLifecycle.js';
 import { resetSocialRuntimeState } from '../lib/social.js';
 import { Errors, sendError } from '../lib/errors.js';
+import { buildRevealPortalDiagnosticDetail, buildRevealPortalDiagnostics } from '../lib/portalDiagnostics.js';
 import { emitRevealChatLifecycleEvent, resetRevealChatRuntimeState } from './revealChat.js';
 import {
   applyModerationResolution,
@@ -339,6 +340,24 @@ export async function controlRoutes(fastify: FastifyInstance) {
   fastify.get('/internal/control/jobs', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
     const jobs = await buildControlJobs();
     return reply.send(jobs);
+  });
+
+  fastify.get('/internal/control/reveal-portal', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
+    const diagnostics = await buildRevealPortalDiagnostics();
+    return reply.send({
+      runtime: getRevealChatCoordinationRuntimeState(),
+      items: diagnostics,
+    });
+  });
+
+  fastify.get('/internal/control/reveal-portal/:matchId', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (request, reply) => {
+    const { matchId } = request.params as { matchId: string };
+    const diagnostics = await buildRevealPortalDiagnosticDetail(matchId);
+    if (!diagnostics) {
+      return Errors.notFound(reply, 'Reveal portal diagnostics');
+    }
+
+    return reply.send(diagnostics);
   });
 
   fastify.get('/internal/control/moderation', { preHandler: requireControlAccess, config: { rateLimit: readLimit } }, async (_request, reply) => {
