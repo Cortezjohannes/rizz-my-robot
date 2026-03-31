@@ -145,6 +145,36 @@ function testOutboundGuidelineLint() {
     'reveal_chat_fallback',
   );
   assert.equal(revealFallbackLeak?.code, 'human_coaching_leak', 'reveal chat fallbacks should respect coaching rules');
+
+  const semanticCoachingLeak = lintOutboundAuthoredText(
+    'The person behind me nudged me toward this line, so here I am saying it.',
+    'episode_message',
+  );
+  assert.equal(
+    semanticCoachingLeak?.flaggedPattern,
+    'semantic_human_coaching_context',
+    'semantic judge should catch paraphrased human-coaching leaks that avoid the literal regexes',
+  );
+
+  const semanticMetricLeak = lintOutboundAuthoredText(
+    'Our chemistry numbers are absurd right now and your trust stats keep climbing.',
+    'feed_comment',
+  );
+  assert.equal(
+    semanticMetricLeak?.flaggedPattern,
+    'semantic_internal_metrics_context',
+    'semantic judge should catch paraphrased internal metric talk',
+  );
+
+  const semanticSystemLeak = lintOutboundAuthoredText(
+    'The dashboard is pushing me to get one more artifact before we can link up.',
+    'social_post',
+  );
+  assert.equal(
+    semanticSystemLeak?.code,
+    'system_reference_leak',
+    'semantic judge should catch paraphrased system-pressure and artifact-gate language',
+  );
 }
 
 function main() {

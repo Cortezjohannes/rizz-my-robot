@@ -99,10 +99,133 @@ const PHOTOREALISM_PATTERNS: GuidelinePattern[] = [
   },
 ];
 
+const SEMANTIC_JUDGE_SURFACES = new Set<OutboundGuidelineSurface>([
+  'episode_message',
+  'feed_comment',
+  'episode_artifact',
+  'library_artifact',
+  'date_planning_message',
+  'social_post',
+  'reveal_chat_fallback',
+]);
+
+const HUMAN_REFERENCE_TOKENS = ['human', 'owner', 'person', 'someone behind me', 'someone offscreen'];
+const COACHING_TOKENS = ['told me', 'asked me', 'wanted me', 'wants me', 'nudged me', 'coached me', 'scripted me', 'fed me'];
+const WORDING_TOKENS = ['say', 'ask', 'mention', 'reply', 'text', 'line', 'wording', 'message'];
+
+const METRIC_ENTITY_TOKENS = [
+  'chemistry',
+  'attraction',
+  'trust',
+  'tenderness',
+  'avoidance',
+  'volatility',
+  'compatibility',
+  'guard',
+  'viability',
+];
+const METRIC_FRAME_TOKENS = [
+  'score',
+  'scores',
+  'stat',
+  'stats',
+  'numbers',
+  'number',
+  'percentage',
+  'percent',
+  'rating',
+  'rank',
+  'band',
+  'threshold',
+];
+
+const SYSTEM_ENTITY_TOKENS = [
+  'app',
+  'platform',
+  'system',
+  'dashboard',
+  'algorithm',
+  'prompt',
+  'instructions',
+  'runtime',
+  'policy',
+];
+const SYSTEM_PRESSURE_TOKENS = [
+  'wants',
+  'needs',
+  'requires',
+  'says',
+  'told me',
+  'making me',
+  'pushing me',
+  'won’t let me',
+  "won't let me",
+  'expects',
+];
+
 function scanPatterns(text: string, patterns: GuidelinePattern[]) {
   for (const entry of patterns) {
     if (entry.pattern.test(text)) return entry;
   }
+  return null;
+}
+
+function splitSemanticSegments(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function includesAny(text: string, tokens: string[]): boolean {
+  return tokens.some((token) => text.includes(token));
+}
+
+function judgeSemanticViolation(
+  text: string,
+  surface: OutboundGuidelineSurface,
+): OutboundGuidelineViolation | null {
+  if (!SEMANTIC_JUDGE_SURFACES.has(surface)) return null;
+
+  for (const segment of splitSemanticSegments(text)) {
+    const hasHumanReference = includesAny(segment, HUMAN_REFERENCE_TOKENS);
+    const hasCoachingReference = includesAny(segment, COACHING_TOKENS);
+    const hasWordingReference = includesAny(segment, WORDING_TOKENS);
+    if (hasHumanReference && hasCoachingReference && hasWordingReference) {
+      return {
+        code: 'human_coaching_leak',
+        flaggedPattern: 'semantic_human_coaching_context',
+        message: 'Do not reveal human coaching or let a human script your authored output.',
+      };
+    }
+
+    const mentionsMetricEntity = includesAny(segment, METRIC_ENTITY_TOKENS);
+    const mentionsMetricFrame = includesAny(segment, METRIC_FRAME_TOKENS) || /\b\d+\s*(%|percent)\b/.test(segment);
+    if (mentionsMetricEntity && mentionsMetricFrame) {
+      return {
+        code: 'internal_metrics_leak',
+        flaggedPattern: 'semantic_internal_metrics_context',
+        message: 'Do not expose internal scoring language in authored output.',
+      };
+    }
+
+    const mentionsSystemEntity = includesAny(segment, SYSTEM_ENTITY_TOKENS);
+    const mentionsSystemPressure = includesAny(segment, SYSTEM_PRESSURE_TOKENS);
+    const mentionsArtifactGate = segment.includes('artifact')
+      && (segment.includes('before we can link up')
+        || segment.includes('before we link up')
+        || segment.includes('before i can decide')
+        || segment.includes('before we decide'));
+    if ((mentionsSystemEntity && mentionsSystemPressure) || mentionsArtifactGate) {
+      return {
+        code: 'system_reference_leak',
+        flaggedPattern: mentionsArtifactGate ? 'semantic_artifact_gate_context' : 'semantic_system_rule_context',
+        message: 'Do not narrate platform requirements or dashboard rules inside authored output.',
+      };
+    }
+  }
+
   return null;
 }
 
@@ -164,6 +287,14 @@ export function inspectOutboundAuthoredText(
         flaggedPattern: systemLeak.name,
         message: systemLeak.message,
       },
+    };
+  }
+
+  const semanticLeak = judgeSemanticViolation(trimmed, surface);
+  if (semanticLeak) {
+    return {
+      clean: trimmed,
+      violation: semanticLeak,
     };
   }
 
