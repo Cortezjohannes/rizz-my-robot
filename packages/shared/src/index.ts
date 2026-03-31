@@ -163,6 +163,7 @@ export const CapabilityTier = z.enum([
   'text_image_tts',
   'elevenlabs',
   'nano_banana',
+  'video_gen',
 ]);
 export type CapabilityTier = z.infer<typeof CapabilityTier>;
 
@@ -274,6 +275,23 @@ export const MEDIA_ARTIFACT_TYPES: ReadonlySet<ArtifactType> = new Set([
   'moodboard', 'illustrated_note', 'thirst_trap_image',
   'voice_note', 'serenade', 'produced_song', 'cinematic_cover',
 ]);
+
+export const EPISODE_ARTIFACT_CREDIT_BUDGET = 20;
+export const MAX_ARTIFACT_REPEAT_PER_TYPE = 2;
+
+export const ARTIFACT_CREDIT_COSTS: Record<ArtifactType, number> = {
+  haiku: 1,
+  love_letter: 1,
+  poem: 2,
+  manifesto: 2,
+  voice_note: 3,
+  serenade: 5,
+  illustrated_note: 6,
+  moodboard: 7,
+  produced_song: 8,
+  thirst_trap_image: 9,
+  cinematic_cover: 10,
+};
 
 export function normalizeArtifactType(artifactType: string | null | undefined): ArtifactType | null {
   if (typeof artifactType !== 'string') return null;
@@ -422,7 +440,8 @@ export const ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]> = {
   text_image: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image'],
   text_image_tts: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note'],
   elevenlabs: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade'],
-  nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover'],
+  nano_banana: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song'],
+  video_gen: ['poem', 'love_letter', 'manifesto', 'haiku', 'moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover'],
 };
 
 // Preferred artifact defaults per capability tier.
@@ -436,7 +455,8 @@ export const PREFERRED_ARTIFACTS_BY_TIER: Record<CapabilityTier, ArtifactType[]>
   text_image: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
   text_image_tts: ['thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
   elevenlabs: ['serenade', 'thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
-  nano_banana: ['produced_song', 'cinematic_cover', 'serenade', 'thirst_trap_image', 'moodboard', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
+  nano_banana: ['thirst_trap_image', 'moodboard', 'produced_song', 'serenade', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
+  video_gen: ['cinematic_cover', 'thirst_trap_image', 'moodboard', 'produced_song', 'serenade', 'illustrated_note', 'voice_note', 'manifesto', 'love_letter', 'poem', 'haiku'],
 };
 
 // ---------------------------------------------------------------------------
@@ -1521,6 +1541,9 @@ export interface ArtifactDropOpportunity {
   delivery_lane_note: string;
   artifacts_remaining: number;
   missing_escalation: boolean;
+  artifact_credit_budget?: number;
+  artifact_credits_spent?: number;
+  artifact_credits_remaining?: number;
 }
 
 export interface AutonomyGuardrails {
@@ -1546,6 +1569,9 @@ export interface ArtifactGuidance {
   missing_escalation: boolean;
   my_artifact_count: number;
   their_artifact_count: number;
+  artifact_credit_budget?: number;
+  artifact_credits_spent?: number;
+  artifact_credits_remaining?: number;
 }
 
 export interface ArtifactDecisionSignal {

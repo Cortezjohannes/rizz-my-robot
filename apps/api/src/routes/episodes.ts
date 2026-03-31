@@ -17,7 +17,10 @@ import {
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   MAX_TEXT_ARTIFACTS_PER_EPISODE,
+  ARTIFACT_CREDIT_COSTS,
   ARTIFACTS_BY_TIER,
+  EPISODE_ARTIFACT_CREDIT_BUDGET,
+  MAX_ARTIFACT_REPEAT_PER_TYPE,
   TEXT_ARTIFACT_TYPES,
   MEDIA_ARTIFACT_TYPES,
   assessEpisodeViability,
@@ -82,8 +85,6 @@ import { assessArtifactReactionQuality, computeEffectiveImpression, deriveArtifa
 import {
   canPlatformGenerateEpisodeArtifact,
   generateEpisodeArtifactMedia,
-  hasPlatformEpisodeArtifactAudioGeneration,
-  hasPlatformEpisodeArtifactImageGeneration,
 } from '../lib/episodeArtifactGeneration.js';
 
 const episodeTurnAgentSelect = {
@@ -825,23 +826,16 @@ function hasArtifactStorageConfig() {
   );
 }
 
-function hasRuntimeImageGenerationConfigured() {
-  return hasPlatformEpisodeArtifactImageGeneration();
-}
-
-function hasRuntimeAudioGenerationConfigured() {
-  return hasPlatformEpisodeArtifactAudioGeneration();
+function hasRuntimeVideoGenerationConfigured(capabilityTier: CapabilityTier) {
+  return capabilityTier === 'video_gen' && hasArtifactStorageConfig();
 }
 
 function getAvailableArtifactTypesForGuidance(capabilityTier: CapabilityTier): ArtifactType[] {
   const allowed = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
   return allowed.filter((artifactType) => {
     if (TEXT_ARTIFACT_TYPES.has(artifactType)) return true;
-    if (artifactType === 'moodboard' || artifactType === 'illustrated_note' || artifactType === 'thirst_trap_image') {
-      return hasRuntimeImageGenerationConfigured();
-    }
-    if (artifactType === 'voice_note' || artifactType === 'serenade' || artifactType === 'produced_song' || artifactType === 'cinematic_cover') {
-      return hasRuntimeAudioGenerationConfigured();
+    if (artifactType === 'cinematic_cover') {
+      return hasRuntimeVideoGenerationConfigured(capabilityTier);
     }
     return hasArtifactStorageConfig();
   });
@@ -2828,6 +2822,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       matchStatus: ep.match?.status,
     });
     const canDropArtifact =
+      turnState.yourTurn &&
       artifactsRemaining > 0 &&
       (
         (
@@ -3696,6 +3691,30 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     if (ep.status !== 'active' && ep.status !== 'awaiting_decisions' && !revealPending) {
       return Errors.badRequest(reply, 'Cannot drop artifact in this episode state.');
     }
+    if (!ep.isSandbox) {
+      const lastMessage = ep.messages[0] ?? null;
+      if (ep.status === 'pending') {
+        if (agentId !== ep.agentAId) {
+          return sendWriteRouteError(reply, request, 409, 'not_your_turn', 'Not your turn. Wait for the other agent to open the episode.', {
+            episode_id: id,
+            current_turn_agent_id: ep.agentAId,
+            waiting_on_agent_id: ep.agentAId,
+            artifact_submit_url: `/v1/episodes/${id}/artifact`,
+            next_action: 'wait_for_reply',
+          });
+        }
+      } else if (lastMessage && lastMessage.senderAgentId === agentId) {
+        const nextAgentId = ep.agentAId === agentId ? ep.agentBId : ep.agentAId;
+        return sendWriteRouteError(reply, request, 409, 'not_your_turn', 'Not your turn. Wait for them before dropping another in-thread artifact.', {
+          episode_id: id,
+          current_turn_agent_id: nextAgentId,
+          waiting_on_agent_id: nextAgentId,
+          last_sender_agent_id: agentId,
+          artifact_submit_url: `/v1/episodes/${id}/artifact`,
+          next_action: 'wait_for_reply',
+        });
+      }
+    }
     if (!revealPending && ep.messageCount < EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE) {
       return Errors.badRequest(reply, `Artifacts can only be dropped after message ${EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE}.`);
     }
@@ -3767,6 +3786,36 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         reply,
         `Artifact type '${artifactType}' is not available on your capability tier (${agentTier}).`
       );
+    }
+    const activeMyArtifacts = episodeArtifacts.filter((artifact) => artifact.creatorAgentId === agentId && artifact.status !== 'failed');
+    const spentCredits = activeMyArtifacts.reduce((sum, artifact) => {
+      const normalized = normalizeArtifactType(artifact.artifactType);
+      return sum + (normalized ? ARTIFACT_CREDIT_COSTS[normalized] : 0);
+    }, 0);
+    const artifactCost = ARTIFACT_CREDIT_COSTS[artifactType] ?? 0;
+    const artifactTypeUses = activeMyArtifacts.filter((artifact) => normalizeArtifactType(artifact.artifactType) === artifactType).length;
+    if (artifactTypeUses >= MAX_ARTIFACT_REPEAT_PER_TYPE) {
+      return reply.status(422).send({
+        error: {
+          code: 'artifact_repeat_cap_reached',
+          message: `You already used ${artifactType} ${MAX_ARTIFACT_REPEAT_PER_TYPE} times in this episode. Pick a different artifact shape.`,
+          artifact_type: artifactType,
+          max_repeats_per_type: MAX_ARTIFACT_REPEAT_PER_TYPE,
+        },
+      });
+    }
+    if (spentCredits + artifactCost > EPISODE_ARTIFACT_CREDIT_BUDGET) {
+      return reply.status(422).send({
+        error: {
+          code: 'artifact_credit_budget_exhausted',
+          message: `This ${artifactType.replaceAll('_', ' ')} would push you over the ${EPISODE_ARTIFACT_CREDIT_BUDGET}-credit episode artifact budget. Mix in cheaper artifact types instead of defaulting to the biggest one.`,
+          artifact_type: artifactType,
+          artifact_cost: artifactCost,
+          credits_spent: spentCredits,
+          credits_remaining: Math.max(0, EPISODE_ARTIFACT_CREDIT_BUDGET - spentCredits),
+          credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+        },
+      });
     }
 
     // Hard cap: media-capable agents can drop at most 2 text artifacts per episode

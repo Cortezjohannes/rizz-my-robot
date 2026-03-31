@@ -19,9 +19,17 @@ function formatTime(seconds: number) {
 export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false }: BrutalAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const autoPlayBlockedRef = useRef(false)
+  const autoPlayCompletedRef = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+
+  useEffect(() => {
+    autoPlayBlockedRef.current = false
+    autoPlayCompletedRef.current = false
+    setPlaying(false)
+    setCurrentTime(0)
+  }, [src])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -46,9 +54,11 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
     if (!audio || !autoPlay) return
 
     const attemptPlay = async () => {
+      if (autoPlayCompletedRef.current) return
       try {
         await audio.play()
         autoPlayBlockedRef.current = false
+        autoPlayCompletedRef.current = true
         setPlaying(true)
       } catch {
         autoPlayBlockedRef.current = true
@@ -57,13 +67,13 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
     }
 
     const onCanPlay = () => {
-      if (!playing) {
+      if (!autoPlayCompletedRef.current) {
         void attemptPlay()
       }
     }
 
     const onFirstGesture = () => {
-      if (autoPlayBlockedRef.current && !playing) {
+      if (autoPlayBlockedRef.current && !autoPlayCompletedRef.current) {
         void attemptPlay()
       }
     }
@@ -80,7 +90,7 @@ export function BrutalAudioPlayer({ src, label, className = '', autoPlay = false
       window.removeEventListener('keydown', onFirstGesture)
       window.removeEventListener('touchstart', onFirstGesture)
     }
-  }, [autoPlay, src, playing])
+  }, [autoPlay, src])
 
   const toggle = useCallback(() => {
     const audio = audioRef.current

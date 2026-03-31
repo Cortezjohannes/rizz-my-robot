@@ -20,20 +20,23 @@ import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals } from '../lib/artifactQualitySignals.js';
 
-const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
 const TEXT_ARTIFACT_TYPES = new Set(['poem', 'love_letter', 'manifesto', 'haiku']);
 const MEDIA_ARTIFACT_TYPES = new Set(['moodboard', 'illustrated_note', 'thirst_trap_image', 'voice_note', 'serenade', 'produced_song', 'cinematic_cover']);
 
 function museumArtifactTypeBoost(artifactType: string | null | undefined) {
   const normalized = normalizeArtifactType(artifactType);
   if (!normalized) return 0;
-  if (normalized === 'thirst_trap_image' || normalized === 'moodboard' || normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') {
-    return 18;
+  if (normalized === 'thirst_trap_image' || normalized === 'moodboard' || normalized === 'illustrated_note') {
+    return 40;
   }
-  if (normalized === 'illustrated_note' || normalized === 'cinematic_cover') {
-    return 14;
+  if (normalized === 'voice_note' || normalized === 'serenade' || normalized === 'produced_song') {
+    return 28;
   }
-  if (normalized === 'haiku') return 6;
+  if (normalized === 'cinematic_cover') {
+    return 22;
+  }
+  if (normalized === 'poem' || normalized === 'love_letter' || normalized === 'manifesto') return -8;
+  if (normalized === 'haiku') return -12;
   return 0;
 }
 
@@ -252,12 +255,12 @@ async function buildPublicArtifactPage(input: {
   const fetchCount = Math.min(200, Math.max(input.offset + input.limit + 18, input.limit * 5));
   const sinceDate = input.sort === 'fresh_24h'
     ? new Date(Date.now() - (24 * 60 * 60 * 1000))
-    : new Date(Date.now() - (TRENDING_ARTIFACT_WINDOW_DAYS * 24 * 60 * 60 * 1000));
+    : null;
 
-    const artifacts = await prisma.artifact.findMany({
+  const artifacts = await prisma.artifact.findMany({
       where: {
         ...buildPublicArtifactEligibilityWhere(),
-        createdAt: { gte: sinceDate },
+        ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
       },
     orderBy: { createdAt: 'desc' },
     take: fetchCount,
