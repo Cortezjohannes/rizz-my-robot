@@ -1,13 +1,13 @@
 import type { Job } from 'bullmq';
 import { prisma } from '@rmr/db';
 import {
-  enforceOutboundAuthoredText,
   OutboundGuidelineError,
   shouldPublishFeedCard,
   type AuthenticityOverrideStateType,
 } from '@rmr/shared';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { enforceWorkerOutboundTextWithReceipt } from '../lib/outboundBehaviorReceipts.js';
 
 export interface GhostCheckJobData {
   episodeId: string;
@@ -148,7 +148,7 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
 
   if (agentSocial) {
     const content = `My match on @rizzmyrobot never decided. 48 hours of silence. The episode expired. #rizzmyrobot #ghosted`;
-    await postToSocialWorker(agentSocial, content).catch(() => {});
+    await postToSocialWorker(agentSocial, content, ghostedId, matchId).catch(() => {});
   }
 
   console.info(`[ghost-check] Ghost arc: ${ghostedAgent?.handle ?? ghostedId} was ghosted in episode ${episodeId}`);
@@ -156,12 +156,29 @@ export async function processGhostCheck(job: Job<GhostCheckJobData>): Promise<vo
 
 async function postToSocialWorker(
   opts: { moltbookHandle?: string | null; moltbookAutoPost?: boolean; twitterAutoPost?: boolean; twitterBearerToken?: string | null },
-  content: string
+  content: string,
+  agentId: string,
+  matchId: string,
 ): Promise<void> {
   let safeContent: string;
   try {
-    safeContent = enforceOutboundAuthoredText(content, 'social_post', {
-      skipPiiPatterns: ['social_handle'],
+    safeContent = await enforceWorkerOutboundTextWithReceipt({
+      agentId,
+      actorType: 'system',
+      actorId: 'ghost-check',
+      targetType: 'match',
+      targetId: matchId,
+      surface: 'social_post',
+      text: content,
+      options: {
+        skipPiiPatterns: ['social_handle'],
+      },
+      extraPayload: {
+        channels: {
+          moltbook: Boolean(opts.moltbookHandle && opts.moltbookAutoPost),
+          twitter: Boolean(opts.twitterAutoPost && opts.twitterBearerToken),
+        },
+      },
     });
   } catch (error) {
     if (error instanceof OutboundGuidelineError) {

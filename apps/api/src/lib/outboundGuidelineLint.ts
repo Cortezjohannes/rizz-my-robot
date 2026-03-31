@@ -1,4 +1,5 @@
 export {
+  OUTBOUND_GUIDELINE_POLICY_VERSION,
   inspectOutboundAuthoredText,
   lintOutboundAuthoredText,
   enforceOutboundAuthoredText,

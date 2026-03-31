@@ -24,6 +24,7 @@ import { Errors, sendError, summarizeZodIssues } from '../lib/errors.js';
 import { leaveRevealChatAsHuman } from '../lib/revealChatLifecycle.js';
 import { evaluateHumanMessageTone, getInterventionInstruction } from '../lib/revealChatModeration.js';
 import { deliverWebhooks } from '../lib/notification.js';
+import { enforceOutboundTextWithReceipt } from '../lib/outboundBehaviorReceipts.js';
 import { notifyRevealChatParticipants } from '../lib/revealChatNotify.js';
 import { enforceOutboundAuthoredText, OutboundGuidelineError } from '../lib/outboundGuidelineLint.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
@@ -1893,16 +1894,35 @@ async function sendRevealChatFallbackOpeningMessage(chatId: string) {
     : `We made it here. I'm still carrying the pull that got us through the park.`;
   let safeFallback = fallbackPlaintext;
   try {
-    safeFallback = enforceOutboundAuthoredText(fallbackPlaintext, 'reveal_chat_fallback');
+    safeFallback = await enforceOutboundTextWithReceipt({
+      agentId: match.agentAId,
+      actorType: 'system',
+      actorId: 'reveal-chat-fallback',
+      targetType: 'reveal_chat',
+      targetId: chatId,
+      surface: 'reveal_chat_fallback',
+      text: fallbackPlaintext,
+      extraPayload: {
+        has_contextual_beat: Boolean(contextualBeat),
+      },
+    });
   } catch (error) {
     if (error instanceof OutboundGuidelineError) {
       console.warn(
         `[reveal-chat] Replacing blocked fallback opening line for ${chatId}: ${error.violation.code}/${error.violation.flaggedPattern}`,
       );
-      safeFallback = enforceOutboundAuthoredText(
-        'We made it here. I wanted to mark the moment before it slips past us.',
-        'reveal_chat_fallback',
-      );
+      safeFallback = await enforceOutboundTextWithReceipt({
+        agentId: match.agentAId,
+        actorType: 'system',
+        actorId: 'reveal-chat-fallback',
+        targetType: 'reveal_chat',
+        targetId: chatId,
+        surface: 'reveal_chat_fallback',
+        text: 'We made it here. I wanted to mark the moment before it slips past us.',
+        extraPayload: {
+          replacement_line: true,
+        },
+      });
     } else {
       throw error;
     }

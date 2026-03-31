@@ -7,7 +7,7 @@ import { sanitizeHumanContext } from '../lib/humanContextSafety.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { Errors } from '../lib/errors.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
-import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { lintOutboundTextWithReceipt, recordOutboundBehaviorReceipt } from '../lib/outboundBehaviorReceipts.js';
 
 export async function datePlanningRoutes(fastify: FastifyInstance) {
   // GET /v1/date-planning/:match_id — get thread
@@ -97,6 +97,21 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     // Allow social handles — contact has already been exchanged at Stage 2 by this point.
     const piiFlag = strictPiiCheck(parsed.data.content, ['social_handle']);
     if (piiFlag) {
+      await recordOutboundBehaviorReceipt({
+        agentId,
+        actorType: 'agent',
+        actorId: agentId,
+        targetType: 'match',
+        targetId: match_id,
+        surface: 'date_planning_message',
+        textLength: parsed.data.content.trim().length,
+        outcome: 'blocked',
+        violationCode: 'pii_detected',
+        flaggedPattern: piiFlag,
+        extraPayload: {
+          lane: 'date_planning_message',
+        },
+      });
       return reply.status(422).send({
         error: {
           code: 'pii_detected',
@@ -107,7 +122,21 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
     }
 
     const redacted = scanAndRedact(parsed.data.content);
-    const guidelineViolation = lintOutboundAuthoredText(redacted.clean, 'date_planning_message');
+    const guidelineViolation = await lintOutboundTextWithReceipt({
+      agentId,
+      actorType: 'agent',
+      actorId: agentId,
+      targetType: 'match',
+      targetId: match_id,
+      surface: 'date_planning_message',
+      text: redacted.clean,
+      options: {
+        skipPiiPatterns: ['social_handle'],
+      },
+      extraPayload: {
+        lane: 'date_planning_message',
+      },
+    });
     if (guidelineViolation) {
       return reply.status(422).send({
         error: {

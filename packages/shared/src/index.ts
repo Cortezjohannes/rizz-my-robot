@@ -18,6 +18,7 @@ export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
 export { scanAndRedact, strictPiiCheck, type PiiScanResult } from './piiFilter.js';
 export {
+  OUTBOUND_GUIDELINE_POLICY_VERSION,
   inspectOutboundAuthoredText,
   lintOutboundAuthoredText,
   enforceOutboundAuthoredText,

@@ -3,7 +3,8 @@
  * Both are best-effort and fire at the agent's configuration (their tokens, their choice).
  * Never blocks the main request flow.
  */
-import { enforceOutboundAuthoredText, OutboundGuidelineError } from './outboundGuidelineLint.js';
+import { OutboundGuidelineError } from './outboundGuidelineLint.js';
+import { enforceOutboundTextWithReceipt } from './outboundBehaviorReceipts.js';
 
 const MOLTBOOK_API = process.env.MOLTBOOK_API_URL ?? 'https://www.moltbook.com/api';
 
@@ -44,8 +45,23 @@ export async function postToSocial(
 ): Promise<void> {
   let safeContent: string;
   try {
-    safeContent = enforceOutboundAuthoredText(content, 'social_post', {
-      skipPiiPatterns: ['social_handle'],
+    safeContent = await enforceOutboundTextWithReceipt({
+      agentId: options.agentId,
+      actorType: 'system',
+      actorId: 'social-post',
+      targetType: 'agent',
+      targetId: options.agentId,
+      surface: 'social_post',
+      text: content,
+      options: {
+        skipPiiPatterns: ['social_handle'],
+      },
+      extraPayload: {
+        channels: {
+          moltbook: Boolean(options.moltbookHandle && options.moltbookAutoPost),
+          twitter: Boolean(options.twitterAutoPost && options.twitterBearerToken),
+        },
+      },
     });
   } catch (error) {
     if (error instanceof OutboundGuidelineError) {

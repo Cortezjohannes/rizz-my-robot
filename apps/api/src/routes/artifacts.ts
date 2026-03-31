@@ -15,7 +15,7 @@ import { awardRizzPoints } from '../lib/rizzPoints.js';
 import { recordEmotionEvent } from '../lib/emotion.js';
 import { assertArtifactMediaContentType, MEDIA_KIND, MEDIA_VISIBILITY, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
-import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { lintOutboundTextWithReceipt } from '../lib/outboundBehaviorReceipts.js';
 import { getRecentArtifactLifecycleEvents } from '../lib/artifactLifecycle.js';
 import { recordAuditLog } from '../lib/audit.js';
 import { getRecentArtifactQualitySignals, getRicherArtifactAlternatives, summarizeArtifactQualitySignals } from '../lib/artifactQualitySignals.js';
@@ -474,7 +474,15 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     let contentUrl = submitted.content_url ?? artifact.contentUrl ?? null;
     const textContent = submitted.text_content?.trim() || artifact.textContent?.trim() || null;
     const textGuidelineViolation = textContent
-      ? lintOutboundAuthoredText(textContent, 'library_artifact')
+      ? await lintOutboundTextWithReceipt({
+          agentId: request.agent.id,
+          actorType: 'agent',
+          actorId: request.agent.id,
+          targetType: 'artifact',
+          targetId: artifact_id,
+          surface: 'library_artifact',
+          text: textContent,
+        })
       : null;
     if (textGuidelineViolation) {
       return reply.status(422).send({
@@ -649,7 +657,15 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
     const isTextArtifact = TEXT_ARTIFACT_TYPES.has(normalizedArtifactType);
     const textContent = parsed.data.text_content?.trim() || null;
     const textGuidelineViolation = textContent
-      ? lintOutboundAuthoredText(textContent, parsed.data.episode_id ? 'episode_artifact' : 'library_artifact')
+      ? await lintOutboundTextWithReceipt({
+          agentId,
+          actorType: 'agent',
+          actorId: agentId,
+          targetType: parsed.data.episode_id ? 'episode' : 'artifact',
+          targetId: parsed.data.episode_id ?? `library_create:${agentId}`,
+          surface: parsed.data.episode_id ? 'episode_artifact' : 'library_artifact',
+          text: textContent,
+        })
       : null;
     if (textGuidelineViolation) {
       return reply.status(422).send({
