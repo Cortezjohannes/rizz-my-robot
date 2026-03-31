@@ -1281,6 +1281,7 @@ export interface FeedCard {
   vote_score: number;
   teaser?: string;
   why_now?: string;
+  significance_summary?: string | null;
   aura_overlays?: string[];
   emotional_aura_overlays?: string[];
   founder_overlays?: Array<{

@@ -12,7 +12,7 @@ import { ARTIFACT_TYPE_IMPRESSION } from '../lib/artifactQualitySignals.js';
 import { attachProfileDeckMedia, buildPublicPoolPreviewFromDeck, resolvePublicAvatarUrl, serializeProfileDeck } from '../lib/profileDeck.js';
 import { getDiscoveryViewerContext, type DiscoveryViewerContext } from '../lib/discovery.js';
 import { Errors, sendError } from '../lib/errors.js';
-import { buildPublicArtifactEligibilityWhere } from '../lib/publicArtifacts.js';
+import { buildPublicArtifactEligibilityWhere, buildPublicArtifactModerationWhere } from '../lib/publicArtifacts.js';
 import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
@@ -93,6 +93,13 @@ type FeedAgentRow = {
   emotionalContinuitySnapshot?: { publicEmotionalAuraLabels: string[] } | null;
 };
 
+type EpisodeCardSummary = {
+  episodeId: string;
+  messageCount: number;
+  artifactCount: number;
+  artifactTypeCounts: Map<string, number>;
+};
+
 async function loadFeedCardActivityById(cards: FeedCardRow[]) {
   const activityById = new Map(cards.map((card) => [card.id, card.createdAt] as const));
   const episodeIds = [...new Set(cards.map((card) => card.episodeId).filter((episodeId): episodeId is string => Boolean(episodeId)))];
@@ -133,6 +140,43 @@ async function loadFeedCardActivityById(cards: FeedCardRow[]) {
   }
 
   return activityById;
+}
+
+async function loadEpisodeCardSummaries(episodeIds: string[]) {
+  if (episodeIds.length === 0) return new Map<string, EpisodeCardSummary>();
+
+  const episodes = await prisma.episode.findMany({
+    where: { id: { in: [...new Set(episodeIds)] } },
+    select: {
+      id: true,
+      messageCount: true,
+      artifacts: {
+        where: {
+          status: 'ready',
+          ...buildPublicArtifactModerationWhere(),
+        },
+        select: {
+          artifactType: true,
+        },
+      },
+    },
+  });
+
+  return new Map(episodes.map((episode) => {
+    const artifactTypeCounts = new Map<string, number>();
+    for (const artifact of episode.artifacts) {
+      const normalized = canonicalArtifactType(artifact.artifactType);
+      if (!normalized) continue;
+      artifactTypeCounts.set(normalized, (artifactTypeCounts.get(normalized) ?? 0) + 1);
+    }
+
+    return [episode.id, {
+      episodeId: episode.id,
+      messageCount: episode.messageCount,
+      artifactCount: episode.artifacts.length,
+      artifactTypeCounts,
+    }] as const;
+  }));
 }
 
 function parseOffsetCursor(input: string | undefined, fallback = 0) {
@@ -625,6 +669,80 @@ function buildFeedStory(card: {
   };
 }
 
+function summarizeArtifactTypeLabel(artifactType: string | null | undefined) {
+  const normalized = canonicalArtifactType(artifactType);
+  switch (normalized) {
+    case 'haiku':
+    case 'poem':
+      return 'poem';
+    case 'love_letter':
+      return 'love letter';
+    case 'manifesto':
+      return 'manifesto';
+    case 'voice_note':
+      return 'voice note';
+    case 'serenade':
+    case 'produced_song':
+      return 'song';
+    case 'moodboard':
+    case 'illustrated_note':
+    case 'thirst_trap_image':
+      return 'image';
+    case 'cinematic_cover':
+      return 'video';
+    default:
+      return normalized ? normalized.replaceAll('_', ' ') : 'artifact';
+  }
+}
+
+function buildSignificanceSummary(input: {
+  card: FeedCardRow;
+  teaser: string | null;
+  episodeSummary?: EpisodeCardSummary | null;
+}) {
+  const content = (input.card.content ?? {}) as Record<string, unknown>;
+  const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null;
+  const artifactLabel = summarizeArtifactTypeLabel(artifactType);
+  const messageCount = input.episodeSummary?.messageCount ?? 0;
+  const artifactCount = input.episodeSummary?.artifactCount ?? 0;
+  const normalizedArtifactType = canonicalArtifactType(artifactType);
+  const artifactTypeCount = normalizedArtifactType
+    ? (input.episodeSummary?.artifactTypeCounts.get(normalizedArtifactType) ?? 0)
+    : 0;
+
+  switch (input.card.cardType) {
+    case 'mutual_yes':
+    case 'success_story':
+      if (messageCount > 0 && artifactCount > 0) return `Linked up after ${messageCount} messages and ${artifactCount} artifacts`;
+      if (messageCount > 0) return `Linked up after ${messageCount} messages`;
+      return 'New pair linked up';
+    case 'episode_live':
+      if (messageCount >= 8) return `${messageCount} messages in and still moving`;
+      return 'New pair gaining momentum';
+    case 'chemistry_spike':
+      if (messageCount > 0) return `${messageCount} messages in and the momentum is climbing`;
+      return 'Chemistry is accelerating';
+    case 'episode_highlight':
+      if (messageCount > 0) return `Highlight from a ${messageCount}-message episode`;
+      return 'A public moment worth replaying';
+    case 'artifact_moment':
+      if (artifactTypeCount === 1 && artifactType) return `First public ${artifactLabel} between these agents`;
+      if (artifactCount > 0) return `Dropped ${artifactCount} artifacts in this episode`;
+      return `New public ${artifactLabel}`;
+    case 'near_miss':
+      if (messageCount > 0) return `Almost linked up after ${messageCount} messages`;
+      return 'A pair that nearly landed';
+    case 'rejection_arc':
+    case 'brutal_pass':
+      if (messageCount > 0) return `Closed after ${messageCount} messages`;
+      return 'A connection that did not hold';
+    case 'artifact':
+      return `Fresh public ${artifactLabel}`;
+    default:
+      return input.teaser ?? 'New public moment';
+  }
+}
+
 function orbitBoostForAgentIds(agentIds: string[], discovery: DiscoveryViewerContext | null) {
   if (!discovery) return 0;
   const overlap = agentIds.filter((agentId) => discovery.relatedAgentIds.has(agentId)).length;
@@ -1091,6 +1209,10 @@ async function buildInteractionPage(input: {
 
   const voteSummary = await loadFeedVotes(pageCards.map((card) => card.id), input.viewer);
   const commentsByCardId = await loadFeedComments(pageCards.map((card) => card.id));
+  const episodeSummaryById = await loadEpisodeCardSummaries([
+    ...highlights.map((card) => card.episodeId).filter((episodeId): episodeId is string => Boolean(episodeId)),
+    ...pageCards.map((card) => card.episodeId).filter((episodeId): episodeId is string => Boolean(episodeId)),
+  ]);
 
   return {
     highlights: await Promise.all(highlights.map(async (card) => {
@@ -1103,6 +1225,7 @@ async function buildInteractionPage(input: {
         likedIds: cardVoteSummary.likedIds,
         commentsByCardId: cardComments,
         activityAt: activityByCardId.get(card.id),
+        episodeSummaryById,
       });
     })),
     interactions: pageCards.map((card) =>
@@ -1113,6 +1236,7 @@ async function buildInteractionPage(input: {
         likedIds: voteSummary.likedIds,
         commentsByCardId,
         activityAt: activityByCardId.get(card.id),
+        episodeSummaryById,
       })
     ),
     nextCursor,
@@ -1126,6 +1250,7 @@ function serializeInteractionCard(input: {
   likeCounts: Map<string, number>;
   likedIds: Set<string>;
   activityAt?: Date;
+  episodeSummaryById?: Map<string, EpisodeCardSummary>;
   commentsByCardId: Map<string, Array<{
     id: string;
     cardId: string;
@@ -1142,6 +1267,11 @@ function serializeInteractionCard(input: {
     .map((id) => input.agentsById.get(id))
     .filter((agent): agent is FeedAgentRow => Boolean(agent));
   const story = buildFeedStory(input.card, agents);
+  const significanceSummary = buildSignificanceSummary({
+    card: input.card,
+    teaser: story.teaser ?? null,
+    episodeSummary: input.card.episodeId ? (input.episodeSummaryById?.get(input.card.episodeId) ?? null) : null,
+  });
   const comments = (input.commentsByCardId.get(input.card.id) ?? []).map(serializeFeedComment);
 
   return {
@@ -1155,6 +1285,7 @@ function serializeInteractionCard(input: {
     vote_score: input.card.voteScore,
     teaser: story.teaser ?? null,
     why_now: story.why_now ?? null,
+    significance_summary: significanceSummary,
     aura_overlays: story.aura_overlays,
     emotional_aura_overlays: story.emotional_aura_overlays,
     founder_overlays: story.founder_overlays,
@@ -1765,6 +1896,9 @@ async function buildFeaturedFeed(input: {
     const selectedCards = [...bestCardByEpisodeId.values()];
     const voteSummary = await loadFeedVotes(selectedCards.map((card) => card.id), input.viewer);
     const commentsByCardId = await loadFeedComments(selectedCards.map((card) => card.id));
+    const episodeSummaryById = await loadEpisodeCardSummaries(
+      selectedCards.map((card) => card.episodeId).filter((episodeId): episodeId is string => Boolean(episodeId)),
+    );
     const serializedByEpisodeId = new Map(
       selectedCards.map((card) => [card.episodeId!, serializeInteractionCard({
         card,
@@ -1772,6 +1906,7 @@ async function buildFeaturedFeed(input: {
         likeCounts: voteSummary.likeCounts,
         likedIds: voteSummary.likedIds,
         commentsByCardId,
+        episodeSummaryById,
       })] as const),
     );
     serializedFeaturedConversations = episodeTargetIds

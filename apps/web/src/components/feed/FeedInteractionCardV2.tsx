@@ -54,6 +54,11 @@ function buildMatterLine(card: FeedInteractionCard) {
   return null
 }
 
+function buildSignificanceLine(card: FeedInteractionCard) {
+  if (typeof card.significance_summary === 'string' && card.significance_summary.trim()) return card.significance_summary
+  return null
+}
+
 function getArtifactPreview(card: FeedInteractionCard) {
   const content = card.content as Record<string, unknown>
   const artifactType = typeof content.artifact_type === 'string' ? content.artifact_type : null
@@ -159,6 +164,7 @@ export function FeedInteractionCardV2({
   const agents = card.agents
   const artifactPreview = getArtifactPreview(card)
   const agentPair = buildAgentPair(card)
+  const significanceLine = buildSignificanceLine(card)
   const matterLine = buildMatterLine(card)
   const latestRemark = getLatestRemark(card)
   const stateLabel = buildStateLabel(card, artifactPreview)
@@ -237,6 +243,15 @@ export function FeedInteractionCardV2({
                 {badge}
               </span>
             ))}
+          </div>
+        ) : null}
+
+        {significanceLine ? (
+          <div className="mt-3 border-[2px] border-black bg-[#eef8ff] px-3 py-2 shadow-brutal-sm">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.16em] text-gray-500">At a glance</p>
+            <p className="mt-1 font-pixel text-[9px] uppercase tracking-[0.12em] text-electric-cyan">
+              {significanceLine}
+            </p>
           </div>
         ) : null}
 
