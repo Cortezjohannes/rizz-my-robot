@@ -218,10 +218,12 @@ function scoreFeedCard(card: {
   else if (excerptLength <= 180) excerptQualityBoost += 5;
   else if (excerptLength >= 260) excerptQualityBoost -= 7;
   if (!summary && body.length > 0 && body.length <= 90) excerptQualityBoost += 4;
+  excerptQualityBoost += publicExcerptQualityScore(card);
+  const textHeavyPenalty = isTextHeavyCard(card) ? 16 : 0;
 
   const recencyLift = Math.max(0, 18 - freshnessHours * 0.6);
 
-  return spectacle + noveltyBoost + milestoneBoost + visualRichnessBoost + excerptQualityBoost + recencyLift - freshnessHours * 1.05;
+  return spectacle + noveltyBoost + milestoneBoost + visualRichnessBoost + excerptQualityBoost + recencyLift - textHeavyPenalty - freshnessHours * 1.05;
 }
 
 // ---- Contextual headline / teaser generation ----
@@ -440,7 +442,40 @@ function cardMomentType(card: FeedCardRow) {
   return card.cardType;
 }
 
-function isTextHeavyCard(card: FeedCardRow) {
+function normalizeThemeWord(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+function extractThemeKeys(input: string) {
+  const stopWords = new Set([
+    'about', 'after', 'agent', 'agents', 'almost', 'another', 'around', 'because', 'between', 'cleared',
+    'conversation', 'different', 'enough', 'episode', 'everyone', 'from', 'have', 'into', 'just', 'line',
+    'made', 'mark', 'moment', 'park', 'public', 'really', 'something', 'surface', 'their', 'them', 'they',
+    'this', 'through', 'worth', 'with',
+  ]);
+
+  return [...new Set(input
+    .split(/[^a-z0-9]+/i)
+    .map((word) => normalizeThemeWord(word))
+    .filter((word) => word.length >= 5 && !stopWords.has(word))
+    .slice(0, 3))];
+}
+
+function cardThemeKeys(card: FeedCardRow) {
+  const content = (card.content ?? {}) as Record<string, unknown>;
+  const themeText = [
+    typeof content.summary === 'string' ? content.summary : '',
+    typeof content.body === 'string' ? content.body : '',
+    typeof content.artifact_type === 'string' ? content.artifact_type : '',
+    card.cardType,
+  ].filter(Boolean).join(' ');
+  return extractThemeKeys(themeText);
+}
+
+function isTextHeavyCard(card: { cardType: string; content?: unknown }) {
   if (cardHasRenderableArtifact(card)) return false;
   const content = (card.content ?? {}) as Record<string, unknown>;
   const body = typeof content.body === 'string' ? cleanExcerpt(content.body) : '';
@@ -449,21 +484,60 @@ function isTextHeavyCard(card: FeedCardRow) {
   return longest >= 170 || (['episode_highlight', 'success_story', 'near_miss'].includes(card.cardType) && longest >= 110);
 }
 
+function publicExcerptQualityScore(card: {
+  cardType: string;
+  content?: unknown;
+  dramaQuotient: number;
+  chemistryScore?: number | null;
+}) {
+  const teaser = buildPublicTeaser({
+    cardType: card.cardType,
+    content: card.content,
+    dramaQuotient: card.dramaQuotient,
+    chemistryScore: card.chemistryScore,
+  });
+  const length = cleanExcerpt(teaser).length;
+  let score = 0;
+
+  if (length >= 28 && length <= 110) score += 10;
+  else if (length >= 18 && length <= 135) score += 5;
+  else if (length > 160) score -= 10;
+  else if (length < 14) score -= 4;
+
+  if (cardHasRenderableArtifact(card)) {
+    const artifactType = cardArtifactType(card);
+    if (artifactType && !['poem', 'love_letter', 'manifesto', 'haiku'].includes(artifactType)) score += 8;
+  }
+
+  if ('id' in card && isTextHeavyCard(card as FeedCardRow)) score -= 6;
+  return score;
+}
+
 function diversityPenalty(candidate: FeedCardRow, selected: FeedCardRow[]) {
   if (selected.length === 0) return 0;
 
-  const recent = selected.slice(-2);
+  const recent = selected.slice(-3);
   const candidateMomentType = cardMomentType(candidate);
   const candidateTextHeavy = isTextHeavyCard(candidate);
+  const candidateThemes = cardThemeKeys(candidate);
   let penalty = 0;
 
   if (recent.some((card) => cardMomentType(card) === candidateMomentType)) penalty += 22;
   if (recent.length === 2 && recent.every((card) => cardMomentType(card) === candidateMomentType)) penalty += 18;
+  if (recent.filter((card) => card.cardType === candidate.cardType).length >= 2) penalty += 12;
 
   const consecutiveTextHeavy = recent.every((card) => isTextHeavyCard(card));
   if (consecutiveTextHeavy && candidateTextHeavy) penalty += 32;
   else if (candidateTextHeavy && isTextHeavyCard(recent[recent.length - 1]!)) penalty += 12;
   else if (!candidateTextHeavy && consecutiveTextHeavy) penalty -= 10;
+
+  if (candidateThemes.length > 0) {
+    const recentThemeOverlap = recent.reduce((count, card) => {
+      const themes = cardThemeKeys(card);
+      return count + candidateThemes.filter((theme) => themes.includes(theme)).length;
+    }, 0);
+    penalty += recentThemeOverlap * 7;
+  }
 
   return penalty;
 }
