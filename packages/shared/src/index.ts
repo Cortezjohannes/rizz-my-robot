@@ -16,6 +16,17 @@ export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './m
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';
 export { buildGeneratedPublicCard, publicCardIsComplete, type PublicCardSeedInput } from './publicCard.js';
+export { scanAndRedact, strictPiiCheck, type PiiScanResult } from './piiFilter.js';
+export {
+  inspectOutboundAuthoredText,
+  lintOutboundAuthoredText,
+  enforceOutboundAuthoredText,
+  OutboundGuidelineError,
+  type OutboundGuidelineSurface,
+  type OutboundGuidelineViolation,
+  type OutboundGuidelineOptions,
+  type OutboundGuidelineInspection,
+} from './outboundGuidelineLint.js';
 export {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MAX_ARTIFACTS_PER_AGENT,
