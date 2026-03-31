@@ -16,6 +16,7 @@ Optional env:
   RMR_SMOKE_ARTIFACT_TYPE=illustrated_note
   RMR_SMOKE_MEDIA_KIND=artifact
   RMR_SMOKE_MEDIA_VISIBILITY=public
+  RMR_SMOKE_EPISODE_ID=<episode_uuid>
 
 Example:
   RMR_BASE_URL=https://api.rizzmyrobot.com \\
@@ -106,6 +107,59 @@ function logStep(title, detail) {
   process.stdout.write(`\n[${title}] ${detail}\n`);
 }
 
+async function finalizeEpisodeArtifact({
+  baseUrl,
+  apiKey,
+  episodeId,
+  artifactId,
+  contentType,
+  fileBuffer,
+}) {
+  logStep('episode upload request', 'POST /v1/episodes/:episode_id/artifact/:artifact_id/upload-request');
+  const uploadRequest = await apiFetch(baseUrl, apiKey, `/v1/episodes/${episodeId}/artifact/${artifactId}/upload-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content_type: contentType,
+    }),
+  });
+  expectOk('POST /v1/episodes/:episode_id/artifact/:artifact_id/upload-request', uploadRequest.response, uploadRequest.body, [200]);
+  const uploadUrl = requireString('episode artifact upload-request', uploadRequest.body?.upload_url, 'upload_url');
+  const storageKey = requireString('episode artifact upload-request', uploadRequest.body?.storage_key, 'storage_key');
+  const artifactContentUrl = requireString('episode artifact upload-request', uploadRequest.body?.content_url, 'content_url');
+
+  logStep('episode storage put', 'PUT presigned upload_url');
+  const presignedPut = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: uploadRequest.body?.headers ?? { 'Content-Type': contentType },
+    body: fileBuffer,
+  });
+  if (!presignedPut.ok) {
+    throw new Error(`PUT presigned episode artifact upload failed with ${presignedPut.status}.`);
+  }
+
+  logStep('episode finalize', 'PUT /v1/episodes/:episode_id/artifact/:artifact_id/finalize');
+  const finalize = await apiFetch(baseUrl, apiKey, `/v1/episodes/${episodeId}/artifact/${artifactId}/finalize`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      storage_key: storageKey,
+      content_url: artifactContentUrl,
+    }),
+  });
+  expectOk('PUT /v1/episodes/:episode_id/artifact/:artifact_id/finalize', finalize.response, finalize.body, [200]);
+  if (finalize.body?.status !== 'ready') {
+    throw new Error(`Episode artifact finalize returned unexpected status '${finalize.body?.status}'.`);
+  }
+  if (finalize.body?.delivered_to_counterpart !== true) {
+    throw new Error('Episode artifact finalize did not report delivered_to_counterpart=true.');
+  }
+  return {
+    artifactId,
+    contentUrl: finalize.body?.content_url ?? artifactContentUrl,
+  };
+}
+
 async function run() {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     process.stdout.write(`${HELP}\n`);
@@ -124,6 +178,7 @@ async function run() {
   const artifactType = optionalEnv('RMR_SMOKE_ARTIFACT_TYPE', inferArtifactType(contentType));
   const mediaKind = optionalEnv('RMR_SMOKE_MEDIA_KIND', 'artifact');
   const visibility = optionalEnv('RMR_SMOKE_MEDIA_VISIBILITY', 'public');
+  const episodeId = process.env.RMR_SMOKE_EPISODE_ID?.trim() || null;
   const fileBuffer = await readFile(mediaFile);
 
   logStep('config', `base=${baseUrl} file=${mediaFile} content_type=${contentType} artifact_type=${artifactType}`);
@@ -228,6 +283,44 @@ async function run() {
   }
   logStep('finalize ok', `artifact_id=${pendingArtifactId} status=ready`);
 
+  let episodeArtifactResult = null;
+  if (episodeId) {
+    logStep('episode artifact', 'POST /v1/episodes/:episode_id/artifact');
+    const episodeArtifact = await apiFetch(baseUrl, apiKey, `/v1/episodes/${episodeId}/artifact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artifact_type: artifactType,
+      }),
+    });
+    expectOk('POST /v1/episodes/:episode_id/artifact', episodeArtifact.response, episodeArtifact.body, [201]);
+    const episodeArtifactId = requireString('POST /v1/episodes/:episode_id/artifact', episodeArtifact.body?.artifact_id, 'artifact_id');
+    const episodeStatus = requireString('POST /v1/episodes/:episode_id/artifact', episodeArtifact.body?.status, 'status');
+
+    if (episodeStatus === 'ready') {
+      if (episodeArtifact.body?.delivered_to_counterpart !== true) {
+        throw new Error('Ready episode artifact did not report delivered_to_counterpart=true.');
+      }
+      episodeArtifactResult = {
+        artifactId: episodeArtifactId,
+        contentUrl: episodeArtifact.body?.content_url ?? null,
+      };
+      logStep('episode artifact ok', `artifact_id=${episodeArtifactId} status=ready`);
+    } else if (episodeStatus === 'pending') {
+      episodeArtifactResult = await finalizeEpisodeArtifact({
+        baseUrl,
+        apiKey,
+        episodeId,
+        artifactId: episodeArtifactId,
+        contentType,
+        fileBuffer,
+      });
+      logStep('episode artifact ok', `artifact_id=${episodeArtifactId} status=ready`);
+    } else {
+      throw new Error(`Episode artifact creation returned unexpected status '${episodeStatus}'.`);
+    }
+  }
+
   process.stdout.write(`\nSmoke test passed.\n`);
   process.stdout.write(`${JSON.stringify({
     media_asset_id: mediaAssetId,
@@ -235,6 +328,8 @@ async function run() {
     direct_artifact_id: directArtifactId,
     pending_artifact_id: pendingArtifactId,
     finalized_content_url: finalize.body?.content_url ?? artifactContentUrl,
+    episode_artifact_id: episodeArtifactResult?.artifactId ?? null,
+    episode_content_url: episodeArtifactResult?.contentUrl ?? null,
   }, null, 2)}\n`);
 }
 
