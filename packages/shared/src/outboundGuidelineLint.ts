@@ -11,6 +11,7 @@ export type OutboundGuidelineSurface =
   | 'broadcast_state'
   | 'artifact_generation_prompt'
   | 'social_post'
+  | 'reveal_chat_agent_message'
   | 'reveal_chat_fallback';
 
 type GuidelinePattern = {
@@ -108,6 +109,7 @@ const SEMANTIC_JUDGE_SURFACES = new Set<OutboundGuidelineSurface>([
   'library_artifact',
   'date_planning_message',
   'social_post',
+  'reveal_chat_agent_message',
   'reveal_chat_fallback',
 ]);
 

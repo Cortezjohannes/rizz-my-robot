@@ -81,6 +81,7 @@ const RevealChatMessageSchema = z.object({
   ciphertext: z.string().min(1),
   iv: z.string().min(1),
   authTag: z.string().min(1),
+  plaintext: z.string().trim().min(1).max(4000).optional(),
   media_asset_id: z.string().uuid().optional().nullable(),
   clientMessageId: z.string().trim().min(1).max(255).optional(),
   senderKind: z.enum(REVEAL_CHAT_SENDER_KINDS),
@@ -104,6 +105,7 @@ const RevealChatShareConsentSchema = z.object({
 });
 
 const RevealChatTimeCapsuleSchema = z.object({
+  plaintext: z.string().trim().min(1).max(4000).optional(),
   ciphertext: z.string().min(1),
   iv: z.string().min(1),
   authTag: z.string().min(1),
@@ -746,6 +748,26 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       return sendError(reply, 403, 'sender_kind_mismatch', 'time capsule role does not match the authenticated agent.');
     }
 
+    const plaintextValidationError = await validateRevealChatAgentAuthoredText({
+      chatId: context.id,
+      agentId: participant.participantId,
+      senderKind: expectedKind,
+      payload: parsed.data,
+      surface: 'reveal_chat_agent_message',
+      extraPayload: {
+        lane: 'time_capsule',
+        role: parsed.data.role,
+      },
+    });
+    if (plaintextValidationError) {
+      return sendError(
+        reply,
+        plaintextValidationError.statusCode,
+        plaintextValidationError.code,
+        plaintextValidationError.message,
+      );
+    }
+
     const chatState = await prisma.revealChat.findUnique({
       where: { id: context.id },
       select: {
@@ -983,6 +1005,26 @@ async function handleCreateRevealChatMessage(
 
   if (options.requireAgentSender && participant.kind !== 'AGENT_A' && participant.kind !== 'AGENT_B') {
     return sendError(reply, 403, 'agent_sender_required', 'This endpoint only accepts AGENT_A or AGENT_B senders.');
+  }
+
+  if (participant.actorType === 'agent') {
+    if (participant.kind !== 'AGENT_A' && participant.kind !== 'AGENT_B') {
+      return sendError(reply, 403, 'agent_sender_required', 'Authenticated reveal chat agents must send as AGENT_A or AGENT_B.');
+    }
+    const plaintextValidationError = await validateRevealChatAgentAuthoredText({
+      chatId: context.id,
+      agentId: participant.participantId,
+      senderKind: participant.kind,
+      payload: parsed.data,
+    });
+    if (plaintextValidationError) {
+      return sendError(
+        reply,
+        plaintextValidationError.statusCode,
+        plaintextValidationError.code,
+        plaintextValidationError.message,
+      );
+    }
   }
 
   if (participant.actorType === 'agent') {
@@ -1855,6 +1897,89 @@ async function validateAgentMessageTiming(chatId: string, senderId: string): Pro
       code: 'agent_message_too_fast',
       message: 'Agent messages must not arrive within 2 seconds of another agent message.',
     };
+  }
+
+  return null;
+}
+
+async function validateRevealChatAgentAuthoredText(input: {
+  chatId: string;
+  agentId: string;
+  senderKind: 'AGENT_A' | 'AGENT_B';
+  payload: Pick<z.infer<typeof RevealChatMessageSchema>, 'plaintext' | 'ciphertext' | 'iv' | 'authTag' | 'clientMessageId'>
+    | Pick<z.infer<typeof RevealChatTimeCapsuleSchema>, 'plaintext' | 'ciphertext' | 'iv' | 'authTag'>;
+  surface?: 'reveal_chat_agent_message' | 'reveal_chat_fallback';
+  extraPayload?: Record<string, unknown>;
+}): Promise<{
+  statusCode: number;
+  code: string;
+  message: string;
+} | null> {
+  const plaintext = input.payload.plaintext?.trim();
+  if (!plaintext) {
+    return {
+      statusCode: 400,
+      code: 'agent_plaintext_required',
+      message: 'Agent reveal chat messages must include plaintext for outbound guideline enforcement.',
+    };
+  }
+
+  const sessionKey = await getRevealChatSessionKey(input.chatId);
+  if (!sessionKey) {
+    return {
+      statusCode: 409,
+      code: 'reveal_chat_session_unavailable',
+      message: 'Reveal chat session key is not available for agent message verification yet.',
+    };
+  }
+
+  let decryptedPlaintext: string;
+  try {
+    decryptedPlaintext = await decryptMessage({
+      ciphertext: input.payload.ciphertext,
+      iv: input.payload.iv,
+      authTag: input.payload.authTag,
+    }, sessionKey);
+  } catch {
+    return {
+      statusCode: 400,
+      code: 'invalid_agent_ciphertext',
+      message: 'Reveal chat ciphertext could not be decrypted for agent message verification.',
+    };
+  }
+
+  if (decryptedPlaintext.trim() !== plaintext) {
+    return {
+      statusCode: 400,
+      code: 'agent_plaintext_mismatch',
+      message: 'Reveal chat plaintext must match the encrypted agent message payload.',
+    };
+  }
+
+  try {
+    await enforceOutboundTextWithReceipt({
+      agentId: input.agentId,
+      actorType: 'agent',
+      actorId: input.agentId,
+      targetType: 'reveal_chat',
+      targetId: input.chatId,
+      surface: input.surface ?? 'reveal_chat_agent_message',
+      text: plaintext,
+      extraPayload: {
+        sender_kind: input.senderKind,
+        client_message_id: 'clientMessageId' in input.payload ? input.payload.clientMessageId ?? null : null,
+        ...(input.extraPayload ?? {}),
+      },
+    });
+  } catch (error) {
+    if (error instanceof OutboundGuidelineError) {
+      return {
+        statusCode: 422,
+        code: 'outbound_guideline_violation',
+        message: error.violation.message,
+      };
+    }
+    throw error;
   }
 
   return null;

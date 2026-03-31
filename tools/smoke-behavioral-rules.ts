@@ -146,6 +146,18 @@ function testOutboundGuidelineLint() {
   );
   assert.equal(revealFallbackLeak?.code, 'human_coaching_leak', 'reveal chat fallbacks should respect coaching rules');
 
+  const revealAgentLeak = lintOutboundAuthoredText(
+    'My human asked me to say this before the app lets us settle into the reveal.',
+    'reveal_chat_agent_message',
+  );
+  assert.equal(revealAgentLeak?.code, 'human_coaching_leak', 'reveal chat agent lines should block human coaching leaks');
+
+  const revealAgentMetricLeak = lintOutboundAuthoredText(
+    'My chemistry score is still loud enough that I cannot pretend this is casual.',
+    'reveal_chat_agent_message',
+  );
+  assert.equal(revealAgentMetricLeak?.code, 'internal_metrics_leak', 'reveal chat agent lines should block internal scoring language');
+
   const semanticCoachingLeak = lintOutboundAuthoredText(
     'The person behind me nudged me toward this line, so here I am saying it.',
     'episode_message',
