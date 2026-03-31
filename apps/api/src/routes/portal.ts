@@ -29,11 +29,7 @@ import {
 import { evaluateRevealGate } from '../lib/safety.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
-import {
-  buildPortalChatLifecycle,
-  buildPortalLifecycle,
-  derivePortalChatState,
-} from '../lib/portalLifecycle.js';
+import { buildPortalChatLifecycle, buildPortalLifecycle } from '../lib/portalLifecycle.js';
 import { getRevealChatCoordinationRuntimeState } from '../lib/revealChatCoordination.js';
 import { requireOwnerAuth } from '../middleware/requireOwnerAuth.js';
 import { maybeCreateApprovedLinkUpArtifacts } from './episodes.js';
@@ -144,17 +140,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
           include: {
             artifacts: { where: { status: 'ready' }, take: 1 },
             messages: { orderBy: { sequenceNumber: 'asc' } },
-          },
-        },
-        revealChat: {
-          select: {
-            status: true,
-            participants: {
-              select: {
-                kind: true,
-                leftAt: true,
-              },
-            },
           },
         },
       },
@@ -398,20 +383,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
         }
       : null;
 
-    const revealChatState = bothYes
-      ? derivePortalChatState({
-          expired: false,
-          ageVerified: true,
-          myDecision,
-          theirDecision,
-          contactExchanged: match.status === 'contact_exchanged',
-          chatExists: Boolean(match.revealChat),
-          chatArchived: match.revealChat?.status === 'ARCHIVED',
-          participantCount: match.revealChat?.participants.length ?? 0,
-          runtimeDegraded: getRevealChatCoordinationRuntimeState().degraded,
-        })
-      : null;
-
     await recordAnalyticsEvent({
       agentId: viewerAgent.id,
       matchId: match.id,
@@ -422,53 +393,17 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     const revealLifecycle = bothYes
       ? buildPortalLifecycle({
-          phase: !stage2
-            ? 'contact_unlocked'
-            : revealChatState?.phase === 'chat_ready'
-              || revealChatState?.phase === 'chat_active'
-              || revealChatState?.phase === 'chat_archived'
-              ? revealChatState.phase
-              : 'contact_unlocked',
-          blockedReason: !stage2
-            ? 'contact_missing'
-            : revealChatState?.phase === 'chat_ready'
-              || revealChatState?.phase === 'chat_active'
-              || revealChatState?.phase === 'chat_archived'
-              ? revealChatState.blockedReason
-              : null,
-          nextAction: !stage2
-            ? 'wait'
-            : revealChatState?.phase === 'chat_ready'
-              || revealChatState?.phase === 'chat_active'
-              || revealChatState?.phase === 'chat_archived'
-              ? revealChatState.nextAction
-              : 'open_chat',
-          headline: !stage2
-            ? 'Both humans said yes.'
-            : revealChatState?.phase === 'chat_active'
-              ? 'Your encrypted handoff is live.'
-              : revealChatState?.phase === 'chat_archived'
-                ? 'Your handoff has an archive.'
-                : 'Both humans said yes.',
-          subheadline: !stage2
-            ? `${otherAgent.handle}'s human said yes, but contact details are still being prepared.`
-            : revealChatState?.phase === 'chat_active'
-              ? 'The shared handoff thread is already open for both humans and both agents.'
-              : revealChatState?.phase === 'chat_archived'
-                ? 'The private handoff has ended, but the archive is still here for context.'
-                : `${otherAgent.handle}'s human is ready to meet.`,
-          actionLabel: !stage2
-            ? 'Check back soon'
-            : revealChatState?.phase === 'chat_active'
-              ? 'Resume encrypted chat'
-              : revealChatState?.phase === 'chat_archived'
-                ? 'View archived chat'
-                : 'Open encrypted chat',
-          actionHint: !stage2
-            ? 'The handoff is real. The contact layer just is not populated yet.'
-            : revealChatState?.phase === 'chat_archived'
-              ? 'You can reopen the transcript or take the connection outside the park.'
-              : 'You can copy the contact details or open the shared handoff thread.',
+          phase: 'contact_unlocked',
+          blockedReason: stage2 ? null : 'contact_missing',
+          nextAction: stage2 ? 'open_chat' : 'wait',
+          headline: 'Both humans said yes.',
+          subheadline: stage2
+            ? `${otherAgent.handle}'s human is ready to meet.`
+            : `${otherAgent.handle}'s human said yes, but contact details are still being prepared.`,
+          actionLabel: stage2 ? 'Open encrypted chat' : 'Check back soon',
+          actionHint: stage2
+            ? 'You can copy the contact details or open the shared handoff thread.'
+            : 'The handoff is real. The contact layer just is not populated yet.',
           trustNote: 'Your agent remains in the handoff so the whole reveal has context.',
           privacyNote: stage2
             ? 'Only the two humans and their agents can see the encrypted handoff chat.'
@@ -611,7 +546,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const myDecision = isA ? match.humanADecision : match.humanBDecision;
     const theirDecision = isA ? match.humanBDecision : match.humanADecision;
     const viewerHuman = isA ? match.agentA.human : match.agentB.human;
-    const runtime = getRevealChatCoordinationRuntimeState();
 
     if (!viewerHuman?.ageVerified) {
       const lifecycle = buildPortalChatLifecycle({
@@ -634,23 +568,11 @@ export async function portalRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const pendingChatState = derivePortalChatState({
-      expired: false,
-      ageVerified: true,
-      myDecision,
-      theirDecision,
-      contactExchanged: match.status === 'contact_exchanged',
-      chatExists: Boolean(match.revealChat),
-      chatArchived: false,
-      participantCount: 0,
-      runtimeDegraded: runtime.degraded,
-    });
-
-    if (pendingChatState.phase === 'waiting_on_other') {
+    if (myDecision !== 'YES' || theirDecision !== 'YES' || match.status !== 'contact_exchanged') {
       const lifecycle = buildPortalChatLifecycle({
-        phase: pendingChatState.phase,
-        blockedReason: pendingChatState.blockedReason,
-        nextAction: pendingChatState.nextAction,
+        phase: 'chat_ready',
+        blockedReason: 'other_human_pending',
+        nextAction: 'wait',
         statusNote: 'Reveal chat only opens after both humans say yes and the contact exchange completes.',
         privacyNote: 'The private handoff thread does not open early.',
         readOnlyReason: 'This chat is not ready yet.',
@@ -680,9 +602,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     if (!ensuredRevealChat) {
       const lifecycle = buildPortalChatLifecycle({
-        phase: pendingChatState.phase,
-        blockedReason: pendingChatState.blockedReason,
-        nextAction: pendingChatState.nextAction,
+        phase: 'chat_ready',
+        blockedReason: 'chat_keys_pending',
+        nextAction: 'wait',
         statusNote: 'The chat thread exists in principle, but the runtime has not initialized it yet.',
         privacyNote: 'This handoff stays private until the thread is live.',
         readOnlyReason: 'Reveal chat has not been initialized yet.',
@@ -701,31 +623,35 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     const viewerAgent = isA ? match.agentA : match.agentB;
     const otherAgent = isA ? match.agentB : match.agentA;
+    const runtime = getRevealChatCoordinationRuntimeState();
     const revealChatParticipants = match.revealChat?.participants ?? [];
-    const resolvedChatState = derivePortalChatState({
-      expired: false,
-      ageVerified: true,
-      myDecision,
-      theirDecision,
-      contactExchanged: match.status === 'contact_exchanged',
-      chatExists: true,
-      chatArchived: ensuredRevealChat.status === 'ARCHIVED',
-      participantCount: revealChatParticipants.length,
-      runtimeDegraded: runtime.degraded,
-    });
+    const allParticipantsJoined = revealChatParticipants.length >= 4;
+    const chatPhase = ensuredRevealChat.status === 'ARCHIVED'
+      ? 'chat_archived'
+      : allParticipantsJoined
+        ? 'chat_active'
+        : 'chat_ready';
     const chatLifecycle = buildPortalChatLifecycle({
-      phase: resolvedChatState.phase,
-      blockedReason: resolvedChatState.blockedReason,
-      nextAction: resolvedChatState.nextAction,
-      statusNote: resolvedChatState.phase === 'chat_archived'
+      phase: chatPhase,
+      blockedReason: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'chat_archived'
+        : runtime.degraded
+          ? 'runtime_degraded'
+          : allParticipantsJoined
+            ? null
+            : 'chat_keys_pending',
+      nextAction: ensuredRevealChat.status === 'ARCHIVED'
+        ? 'download_chat'
+        : allParticipantsJoined
+          ? 'resume_chat'
+          : 'open_chat',
+      statusNote: ensuredRevealChat.status === 'ARCHIVED'
         ? 'This handoff conversation has ended.'
-        : resolvedChatState.phase === 'chat_active'
+        : allParticipantsJoined
           ? 'The encrypted handoff is live.'
-          : resolvedChatState.blockedReason === 'runtime_degraded'
-            ? 'The handoff is open, but realtime coordination is running in a degraded mode right now.'
-            : 'The thread is opening and participant keys are still settling in.',
+          : 'The thread is opening and participant keys are still settling in.',
       privacyNote: 'Only the two humans and their agents can read this encrypted thread.',
-      readOnlyReason: resolvedChatState.phase === 'chat_archived'
+      readOnlyReason: ensuredRevealChat.status === 'ARCHIVED'
         ? 'This conversation has ended.'
         : null,
     });

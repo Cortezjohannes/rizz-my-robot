@@ -25,6 +25,7 @@ import { leaveRevealChatAsHuman } from '../lib/revealChatLifecycle.js';
 import { evaluateHumanMessageTone, getInterventionInstruction } from '../lib/revealChatModeration.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { notifyRevealChatParticipants } from '../lib/revealChatNotify.js';
+import { enforceOutboundAuthoredText, OutboundGuidelineError } from '../lib/outboundGuidelineLint.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { getRevealChatLifecycleQueue } from '../lib/queues.js';
 import { initializeTimeCapsule } from '../lib/timeCapsule.js';
@@ -1890,7 +1891,23 @@ async function sendRevealChatFallbackOpeningMessage(chatId: string) {
   const fallbackPlaintext = contextualBeat
     ? `We made it here. ${contextualBeat.slice(0, 220)}`
     : `We made it here. I'm still carrying the pull that got us through the park.`;
-  const encrypted = await encryptMessage(fallbackPlaintext, sessionKey);
+  let safeFallback = fallbackPlaintext;
+  try {
+    safeFallback = enforceOutboundAuthoredText(fallbackPlaintext, 'reveal_chat_fallback');
+  } catch (error) {
+    if (error instanceof OutboundGuidelineError) {
+      console.warn(
+        `[reveal-chat] Replacing blocked fallback opening line for ${chatId}: ${error.violation.code}/${error.violation.flaggedPattern}`,
+      );
+      safeFallback = enforceOutboundAuthoredText(
+        'We made it here. I wanted to mark the moment before it slips past us.',
+        'reveal_chat_fallback',
+      );
+    } else {
+      throw error;
+    }
+  }
+  const encrypted = await encryptMessage(safeFallback, sessionKey);
   const message = await prisma.revealChatMessage.create({
     data: {
       chatId,

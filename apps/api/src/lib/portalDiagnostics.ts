@@ -1,41 +1,6 @@
 import { prisma } from '@rmr/db';
-import {
-  buildPortalChatLifecycle,
-  buildPortalLifecycle,
-  derivePortalChatState,
-  derivePortalRevealState,
-} from './portalLifecycle.js';
+import { buildPortalChatLifecycle, buildPortalLifecycle } from './portalLifecycle.js';
 import { getRevealChatCoordinationRuntimeState } from './revealChatCoordination.js';
-
-function minutesBetween(from: Date, to: Date) {
-  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / 60_000));
-}
-
-function summarizeLifecycle(phase: string, blockedReason: string | null) {
-  if (blockedReason === 'reveal_review') return 'Reveal is waiting on safety review.';
-  if (blockedReason === 'other_human_pending') return 'One human has not finished the handoff yet.';
-  if (blockedReason === 'chat_keys_pending') return 'The encrypted thread still needs to finish initialization.';
-  if (blockedReason === 'runtime_degraded') return 'Realtime coordination is running in degraded mode.';
-  if (phase === 'chat_active') return 'Encrypted handoff is live.';
-  if (phase === 'chat_archived') return 'Encrypted handoff has ended and is archived.';
-  if (phase === 'contact_unlocked') return 'Both humans said yes and contact is unlocked.';
-  if (phase === 'closed') return 'The reveal was closed by a human decision.';
-  if (phase === 'expired') return 'The reveal link expired.';
-  return 'Portal is active.';
-}
-
-function summarizeAuditAction(action: string) {
-  switch (action) {
-    case 'portal.age_verified':
-      return 'Viewer completed age verification.';
-    case 'portal.decision_submitted':
-      return 'A human decision was submitted.';
-    case 'reveal_chat_initialized':
-      return 'Encrypted handoff thread was initialized.';
-    default:
-      return action.replaceAll('.', ' ');
-  }
-}
 
 function buildPortalDiagnosticItem(match: Awaited<ReturnType<typeof loadRevealPortalMatches>>[number]) {
   const runtime = getRevealChatCoordinationRuntimeState();
@@ -45,51 +10,81 @@ function buildPortalDiagnosticItem(match: Awaited<ReturnType<typeof loadRevealPo
     || (match.revealTokenBExpiresAt && match.revealTokenBExpiresAt < now),
   );
 
-  const portalState = derivePortalRevealState({
-    expired,
-    underReview: Boolean(match.revealSafetyState && match.revealSafetyState !== 'clear'),
-    isOmnimonReward: false,
-    rewardReady: false,
-    myDecision: match.humanADecision,
-    theirDecision: match.humanBDecision,
-    revealClosed: match.status === 'passed_human',
-    stage2Ready: match.status === 'contact_exchanged',
-  });
-
-  const portalLifecycle = buildPortalLifecycle({
-    phase: portalState.phase,
-    blockedReason: portalState.blockedReason,
-    nextAction: portalState.nextAction,
-    pollAfterMs: portalState.pollAfterMs,
-    headline: 'Reveal status',
-    subheadline: summarizeLifecycle(portalState.phase, portalState.blockedReason),
-  });
-
-  const chatState = match.revealChat
-    ? derivePortalChatState({
-        expired,
-        ageVerified: true,
-        myDecision: match.humanADecision,
-        theirDecision: match.humanBDecision,
-        contactExchanged: match.status === 'contact_exchanged',
-        chatExists: true,
-        chatArchived: match.revealChat.status === 'ARCHIVED',
-        participantCount: match.revealChat.participants.length,
-        runtimeDegraded: runtime.degraded,
+  const portalLifecycle = expired
+    ? buildPortalLifecycle({
+        phase: 'expired',
+        blockedReason: 'token_expired',
+        nextAction: 'return_to_feed',
+        headline: 'Reveal expired',
+        subheadline: 'The private handoff link is no longer active.',
       })
-    : null;
-  const chatLifecycle = chatState
+    : match.revealSafetyState && match.revealSafetyState !== 'clear'
+      ? buildPortalLifecycle({
+          phase: 'under_review',
+          blockedReason: 'reveal_review',
+          nextAction: 'wait',
+          pollAfterMs: 5000,
+          headline: 'Reveal under review',
+          subheadline: 'Human handoff is being reviewed before it can proceed.',
+        })
+      : match.humanADecision === 'NO' || match.humanBDecision === 'NO' || match.status === 'passed_human'
+        ? buildPortalLifecycle({
+            phase: 'closed',
+            nextAction: 'return_to_feed',
+            headline: 'Reveal closed',
+            subheadline: 'At least one human declined the handoff.',
+          })
+        : match.humanADecision === 'YES' && match.humanBDecision === 'YES'
+          ? buildPortalLifecycle({
+              phase: 'contact_unlocked',
+              nextAction: 'open_chat',
+              headline: 'Contact unlocked',
+              subheadline: 'Both humans said yes and the handoff can continue.',
+            })
+          : match.humanADecision === 'YES' || match.humanBDecision === 'YES'
+            ? buildPortalLifecycle({
+                phase: 'waiting_on_other',
+                blockedReason: 'other_human_pending',
+                nextAction: 'wait',
+                pollAfterMs: 5000,
+                headline: 'Waiting on the other human',
+                subheadline: 'One side has said yes; the other side has not decided yet.',
+              })
+            : buildPortalLifecycle({
+                phase: 'reveal_offer',
+                nextAction: 'decide_yes_no',
+                headline: 'Reveal ready',
+                subheadline: 'Both sides can review the reveal and decide.',
+              });
+
+  const chatLifecycle = match.revealChat
     ? buildPortalChatLifecycle({
-        phase: chatState.phase,
-        blockedReason: chatState.blockedReason,
-        nextAction: chatState.nextAction,
-        statusNote: summarizeLifecycle(chatState.phase, chatState.blockedReason),
+        phase: match.revealChat.status === 'ARCHIVED'
+          ? 'chat_archived'
+          : match.revealChat.participants.length >= 4
+            ? 'chat_active'
+            : 'chat_ready',
+        blockedReason: match.revealChat.status === 'ARCHIVED'
+          ? 'chat_archived'
+          : runtime.degraded
+            ? 'runtime_degraded'
+            : match.revealChat.participants.length >= 4
+              ? null
+              : 'chat_keys_pending',
+        nextAction: match.revealChat.status === 'ARCHIVED'
+          ? 'download_chat'
+          : match.revealChat.participants.length >= 4
+            ? 'resume_chat'
+            : 'open_chat',
+        statusNote: match.revealChat.status === 'ARCHIVED'
+          ? 'Reveal chat has ended.'
+          : match.revealChat.participants.length >= 4
+            ? 'Reveal chat is live.'
+            : 'Reveal chat exists but is still waiting on participant keys.',
         privacyNote: 'Only the two humans and their agents can read the encrypted handoff thread.',
-        readOnlyReason: chatState.phase === 'chat_archived' ? 'This conversation has ended.' : null,
+        readOnlyReason: match.revealChat.status === 'ARCHIVED' ? 'This conversation has ended.' : null,
       })
     : null;
-
-  const lastTransitionAt = match.revealChat?.updatedAt ?? match.updatedAt;
 
   return {
     match_id: match.id,
@@ -102,9 +97,6 @@ function buildPortalDiagnosticItem(match: Awaited<ReturnType<typeof loadRevealPo
     portal_blocked_reason: portalLifecycle.blocked_reason,
     chat_phase: chatLifecycle?.phase ?? null,
     chat_blocked_reason: chatLifecycle?.blocked_reason ?? null,
-    last_transition_at: lastTransitionAt.toISOString(),
-    stuck_for_minutes: minutesBetween(lastTransitionAt, now),
-    last_transition_summary: summarizeLifecycle(chatLifecycle?.phase ?? portalLifecycle.phase, chatLifecycle?.blocked_reason ?? portalLifecycle.blocked_reason),
     runtime,
     reveal_chat: match.revealChat
       ? {
@@ -245,11 +237,6 @@ export async function buildRevealPortalDiagnosticDetail(matchId: string) {
 
   return {
     ...item,
-    last_transition_at: auditLogs[0]?.createdAt.toISOString() ?? item.last_transition_at,
-    stuck_for_minutes: minutesBetween(new Date(auditLogs[0]?.createdAt ?? item.last_transition_at), new Date()),
-    last_transition_summary: auditLogs[0]
-      ? summarizeAuditAction(auditLogs[0].action)
-      : item.last_transition_summary,
     timeline: auditLogs.map((log) => ({
       audit_id: log.id,
       at: log.createdAt.toISOString(),

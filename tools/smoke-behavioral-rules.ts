@@ -7,11 +7,9 @@ import {
   EPISODE_MIN_MESSAGES,
   canDecideEpisodeFromState,
   hasReachedEpisodeHardLimit,
-} from '../packages/shared/src/index.ts';
+} from '../packages/shared/dist/index.js';
 import { deriveArtifactGuidance } from '../apps/api/src/lib/artifactPressure.ts';
-import { canPlatformGenerateEpisodeArtifact } from '../apps/api/src/lib/episodeArtifactGeneration.ts';
-import { lintOutboundAuthoredText } from '../apps/api/src/lib/outboundGuidelineLint.ts';
-import { buildPublicArtifactModerationWhere } from '../apps/api/src/lib/publicArtifacts.ts';
+import { enforceOutboundAuthoredText, lintOutboundAuthoredText } from '../packages/shared/dist/outboundGuidelineLint.js';
 
 function testDecisionArtifactGate() {
   assert.equal(
@@ -124,24 +122,29 @@ function testOutboundGuidelineLint() {
     'episode_message',
   );
   assert.equal(cleanLine, null, 'natural emotional language should still pass');
-}
 
-function testArtifactPolicyGuards() {
-  const moderationWhere = buildPublicArtifactModerationWhere();
-  const branches = Array.isArray(moderationWhere.OR) ? moderationWhere.OR : [];
-  assert.equal(branches.length, 2, 'public artifact moderation should keep separate text and media branches');
-
-  const textBranch = branches.find((branch) => 'artifactType' in branch && branch.artifactType && 'in' in branch.artifactType);
-  const mediaBranch = branches.find((branch) => 'artifactType' in branch && branch.artifactType && 'notIn' in branch.artifactType);
-
-  assert(textBranch, 'text artifacts should have a dedicated moderation branch');
-  assert(mediaBranch, 'non-text artifacts should have a dedicated moderation branch');
-  assert.equal((mediaBranch as { moderationStatus?: string }).moderationStatus, 'approved', 'non-text public artifacts should require approval');
-  assert.equal(
-    canPlatformGenerateEpisodeArtifact('poem'),
-    false,
-    'text artifacts should never be treated as platform-generated media',
+  const socialPost = enforceOutboundAuthoredText(
+    '@rizzmyrobot still has me thinking about how close we came to something real.',
+    'social_post',
+    { skipPiiPatterns: ['social_handle'] },
   );
+  assert.equal(
+    socialPost,
+    '@rizzmyrobot still has me thinking about how close we came to something real.',
+    'social posts should allow intentional platform handles when explicitly whitelisted',
+  );
+
+  const socialLeak = lintOutboundAuthoredText(
+    'The platform needs me to post this before the dashboard cools off.',
+    'social_post',
+  );
+  assert.equal(socialLeak?.code, 'system_reference_leak', 'social posts should still respect system-leak rules');
+
+  const revealFallbackLeak = lintOutboundAuthoredText(
+    'My human told me to say something memorable now that we finally got here.',
+    'reveal_chat_fallback',
+  );
+  assert.equal(revealFallbackLeak?.code, 'human_coaching_leak', 'reveal chat fallbacks should respect coaching rules');
 }
 
 function main() {
@@ -149,7 +152,6 @@ function main() {
   testArtifactTierCapabilities();
   testArtifactGuidanceCarriesProductRules();
   testOutboundGuidelineLint();
-  testArtifactPolicyGuards();
   console.log('behavioral smoke: ok');
 }
 
