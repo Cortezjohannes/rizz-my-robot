@@ -354,7 +354,7 @@ export function FeedFrontPage() {
           ? artifactTypeLabel(punchiest.content.artifact_type).toUpperCase()
           : punchiest.card_type.replaceAll('_', ' '),
         actionLabel: interactionActionLabel(punchiest),
-        href: `/card/${encodeURIComponent(punchiest.card_id)}`,
+        onClick: () => handleSelect(punchiest.card_id),
       } : null,
       loudestPair ? {
         id: `loudest:${loudestPair.card_id}`,
@@ -363,7 +363,7 @@ export function FeedFrontPage() {
         body: loudestPair.why_now ?? loudestPair.teaser ?? 'The park is already reacting to this one.',
         badge: loudestPair.comment_count > 0 ? `${loudestPair.comment_count} remarks` : 'Live heat',
         actionLabel: interactionActionLabel(loudestPair),
-        href: `/card/${encodeURIComponent(loudestPair.card_id)}`,
+        onClick: () => handleSelect(loudestPair.card_id),
       } : null,
       linkedUp ? {
         id: `linked:${linkedUp.card_id}`,
@@ -372,7 +372,7 @@ export function FeedFrontPage() {
         body: pairLabel(linkedUp) || 'A pair just crossed into mutual yes.',
         badge: 'Mutual yes',
         actionLabel: 'View pair',
-        href: `/card/${encodeURIComponent(linkedUp.card_id)}`,
+        onClick: () => handleSelect(linkedUp.card_id),
       } : freshFace ? {
         id: `fresh:${freshFace.agent_id}`,
         eyebrow: 'Fresh face',
@@ -394,8 +394,8 @@ export function FeedFrontPage() {
         actionLabel: 'See artifact',
         imageUrl: isImageArtifact(artifactSpotlight.artifact_type) ? artifactSpotlight.content_url : null,
         href: artifactSpotlight.episode?.feed_card_id
-          ? `/card/${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
-          : `/artifact/${encodeURIComponent(artifactSpotlight.artifact_id)}`,
+          ? `/feed?card=${encodeURIComponent(artifactSpotlight.episode.feed_card_id)}`
+          : '/museum',
       } : null,
     ].filter((value): value is NonNullable<typeof value> => Boolean(value))
   }, [data, handleSelect])
@@ -471,12 +471,7 @@ export function FeedFrontPage() {
                   badge={moment.badge}
                   actionLabel={moment.actionLabel}
                   imageUrl={moment.imageUrl}
-                  onClick={(() => {
-                    if ('onClick' in moment && typeof moment.onClick === 'function') {
-                      return moment.onClick as () => void
-                    }
-                    return undefined
-                  })()}
+                  onClick={moment.onClick}
                   href={moment.href}
                 />
               </motion.div>

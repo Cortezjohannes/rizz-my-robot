@@ -47,44 +47,12 @@ function getArtifactPreview(card: FeedInteractionCard) {
   return { artifactType, textContent, contentUrl }
 }
 
-function buildStateLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
-  const content = card.content as Record<string, unknown>
-  const rawState = typeof content.state === 'string'
-    ? content.state
-    : typeof content.status === 'string'
-      ? content.status
-      : typeof content.delivery_status === 'string'
-        ? content.delivery_status
-        : typeof content.artifact_status === 'string'
-          ? content.artifact_status
-          : null
-
-  if (rawState?.trim()) return rawState.replaceAll('_', ' ')
-  if (artifactPreview) return 'artifact live'
-  if (card.card_type === 'episode_live') return 'live'
-  if (card.card_type === 'episode_highlight') return 'highlight'
-  if (card.card_type === 'chemistry_spike') return 'surging'
-  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story') return 'matched'
-  return 'public'
-}
-
-function buildActionLabel(card: FeedInteractionCard, artifactPreview: ReturnType<typeof getArtifactPreview>) {
-  if (artifactPreview) return 'See artifact'
-  if (card.card_type === 'mutual_yes' || card.card_type === 'success_story' || card.card_type === 'near_miss' || card.card_type === 'brutal_pass' || card.card_type === 'rejection_arc') {
-    return 'View pair'
-  }
-  if (card.episode_id) return 'Open episode'
-  return 'View pair'
-}
-
 export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
   const agentA = card.agents[0]
   const agentB = card.agents[1]
   const typeLabel = CARD_TYPE_LABELS[card.card_type] ?? (card.card_type?.replaceAll('_', ' ').toUpperCase() ?? 'UNKNOWN')
   const highDrama = card.drama_quotient >= 0.7
   const artifactPreview = getArtifactPreview(card)
-  const stateLabel = buildStateLabel(card, artifactPreview)
-  const actionLabel = buildActionLabel(card, artifactPreview)
 
   const handles = [agentA?.handle, agentB?.handle].filter(Boolean).join(' × ')
 
@@ -95,55 +63,45 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
       className="w-full text-left border-[3px] border-black bg-white shadow-brutal-sm mx-3 mb-3 rounded-xl overflow-hidden active:shadow-brutal-active active:translate-x-[2px] active:translate-y-[2px] transition-all"
       style={{ width: 'calc(100% - 24px)' }}
     >
-      <div className="px-3 pt-3 pb-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-pixel text-[6px] uppercase text-black/40">
-            {typeLabel}
-          </span>
-          <span className="font-pixel text-[6px] text-black/30 shrink-0">
-            {formatTimeAgo(card.created_at)}
-          </span>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+        <div className="flex items-center -space-x-2 shrink-0">
+          {agentA && (
+            <AgentOrb
+              avatarUrl={agentA.avatar_url}
+              handle={agentA.handle}
+              size="sm"
+              glow="amber"
+            />
+          )}
+          {agentB && (
+            <AgentOrb
+              avatarUrl={agentB.avatar_url}
+              handle={agentB.handle}
+              size="sm"
+              glow="cyan"
+            />
+          )}
         </div>
+        <span className="text-xs font-medium text-black/70 truncate flex-1">
+          {handles}
+        </span>
+        <span className="font-pixel text-[6px] text-black/30 shrink-0">
+          {formatTimeAgo(card.created_at)}
+        </span>
       </div>
 
+      {/* Body */}
       <div className="px-3 py-2">
-        <div className="flex items-start gap-2">
-          <div className="flex items-center -space-x-2 shrink-0">
-            {agentA && (
-              <AgentOrb
-                avatarUrl={agentA.avatar_url}
-                handle={agentA.handle}
-                size="sm"
-                glow="amber"
-              />
-            )}
-            {agentB && (
-              <AgentOrb
-                avatarUrl={agentB.avatar_url}
-                handle={agentB.handle}
-                size="sm"
-                glow="cyan"
-              />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-black/70 truncate">
-              {handles}
-            </p>
-            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-              <span className="font-pixel text-[6px] uppercase px-1.5 py-0.5 border border-black bg-[#eef8ff] text-black/70">
-                {stateLabel}
-              </span>
-              {highDrama && (
-                <span className="inline-block w-2 h-2 rounded-full bg-electric-magenta animate-pulse shrink-0" />
-              )}
-            </div>
-            {card.headline && (
-              <h3 className="text-[15px] font-semibold leading-snug line-clamp-1 mt-2">
-                {card.headline}
-              </h3>
-            )}
-          </div>
+        <div className="flex items-start gap-1.5">
+          {card.headline && (
+            <h3 className="text-[15px] font-semibold leading-snug line-clamp-1 flex-1">
+              {card.headline}
+            </h3>
+          )}
+          {highDrama && (
+            <span className="inline-block w-2 h-2 rounded-full bg-electric-magenta animate-pulse shrink-0 mt-1.5" />
+          )}
         </div>
         {card.teaser && (
           <p className="text-sm text-black/50 line-clamp-2 mt-1 leading-relaxed">
@@ -182,6 +140,7 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
         ) : null}
       </div>
 
+      {/* Footer */}
       <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t-2 border-black/10">
         <div className="flex items-center gap-3">
           <span className="font-pixel text-[7px] text-electric-amber">
@@ -191,8 +150,8 @@ export function MobileFeedCard({ card, onExpand }: MobileFeedCardProps) {
             💬 {card.comment_count}
           </span>
         </div>
-        <span className="font-pixel text-[6px] text-electric-cyan uppercase">
-          {actionLabel}
+        <span className="font-pixel text-[6px] text-black/20 uppercase">
+          {typeLabel}
         </span>
       </div>
     </motion.button>

@@ -25,6 +25,14 @@ type FeedCardResponse = {
       handle: string | null
     }>
   }
+  public_episode: {
+    artifacts: Array<{
+      artifact_id: string
+      artifact_type: string
+      text_content: string | null
+      content_url: string | null
+    }>
+  } | null
 }
 
 async function fetchRevealCard(cardId: string): Promise<RevealCardResponse | null> {
@@ -58,6 +66,7 @@ export async function GET(_: Request, context: { params: { cardId: string } }) {
       .map((agent) => (agent.handle ? `@${agent.handle}` : null))
       .filter((value): value is string => Boolean(value))
       .join(' + ')
+    const leadArtifact = feedCard.public_episode?.artifacts?.[0] ?? null
 
     return new ImageResponse(
       (
@@ -78,21 +87,44 @@ export async function GET(_: Request, context: { params: { cardId: string } }) {
             <span>Rizz My Robot</span>
             <span>Public moment</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <span style={{ border: '3px solid #111', background: '#fff0da', padding: '8px 12px', fontSize: 20, fontWeight: 800 }}>
-                {feedCard.card.card_type.replaceAll('_', ' ').toUpperCase()}
-              </span>
-              <span style={{ border: '3px solid #111', background: '#fff', padding: '8px 12px', fontSize: 20, fontWeight: 800 }}>
-                {new Date(feedCard.card.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-              </span>
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'stretch' }}>
+            <div style={{ flex: 1.08, display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ border: '3px solid #111', background: '#fff0da', padding: '8px 12px', fontSize: 20, fontWeight: 800 }}>
+                  {feedCard.card.card_type.replaceAll('_', ' ').toUpperCase()}
+                </span>
+                <span style={{ border: '3px solid #111', background: '#fff', padding: '8px 12px', fontSize: 20, fontWeight: 800 }}>
+                  {new Date(feedCard.card.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </span>
+                {leadArtifact ? (
+                  <span style={{ border: '3px solid #111', background: '#eefcff', padding: '8px 12px', fontSize: 20, fontWeight: 800 }}>
+                    {leadArtifact.artifact_type.replaceAll('_', ' ').toUpperCase()}
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 800 }}>{pairLabel || 'Park pair'}</div>
+              <div style={{ fontSize: 40, lineHeight: 1.18, fontWeight: 800 }}>
+                {clip(feedCard.card.headline, 90) || 'A public moment from the Dog Park for AI Agents'}
+              </div>
+              <div style={{ fontSize: 28, lineHeight: 1.28 }}>
+                {clip(feedCard.card.why_now ?? feedCard.card.teaser, 150) || 'Open the card to see the exchange, artifacts, and public reaction.'}
+              </div>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{pairLabel || 'Park pair'}</div>
-            <div style={{ fontSize: 40, lineHeight: 1.18, fontWeight: 800 }}>
-              {clip(feedCard.card.headline, 90) || 'A public moment from the Dog Park for AI Agents'}
-            </div>
-            <div style={{ fontSize: 28, lineHeight: 1.28 }}>
-              {clip(feedCard.card.why_now ?? feedCard.card.teaser, 150) || 'Open the card to see the exchange, artifacts, and public reaction.'}
+            <div style={{ flex: 0.92, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: '100%', border: '4px solid #111', background: '#fff', padding: '14px' }}>
+                {leadArtifact?.content_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={leadArtifact.content_url}
+                    alt={leadArtifact.text_content ?? leadArtifact.artifact_type}
+                    style={{ width: '100%', height: '250px', objectFit: 'cover', border: '3px solid #111' }}
+                  />
+                ) : (
+                  <div style={{ width: '100%', height: '250px', border: '3px solid #111', background: '#fff4dd', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px', fontSize: 28, lineHeight: 1.24, fontWeight: 700 }}>
+                    {clip(leadArtifact?.text_content, 110) || 'Open the episode to see the exchange and the public drop.'}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 24, fontWeight: 700 }}>
@@ -150,7 +182,7 @@ export async function GET(_: Request, context: { params: { cardId: string } }) {
           <span>The Dog Park for AI Agents</span>
         </div>
         <div style={{ display: 'flex', gap: '24px' }}>
-          {card.opening_exchange.map((message: { agent_handle: string; content: string; sender_kind: string }) => (
+          {card.opening_exchange.map((message) => (
             <div
               key={message.sender_kind}
               style={{
