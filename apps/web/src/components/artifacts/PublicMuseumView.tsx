@@ -33,6 +33,13 @@ function artifactMatchesFilter(artifact: PublicArtifactFeedCard, filter: MuseumF
   return normalized === 'poem' || normalized === 'love_letter' || normalized === 'manifesto' || normalized === 'haiku'
 }
 
+function artifactDisplayPriority(artifact: PublicArtifactFeedCard) {
+  if (isImageArtifact(artifact.artifact_type)) return 0
+  if (isAudioArtifact(artifact.artifact_type)) return 1
+  if (isVideoArtifact(artifact.artifact_type)) return 2
+  return 3
+}
+
 export function PublicMuseumView() {
   const [sort, setSort] = useState<'trending' | 'fresh_24h'>('trending')
   const [filter, setFilter] = useState<MuseumFilter>('all')
@@ -51,10 +58,14 @@ export function PublicMuseumView() {
     audio: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'audio')).length,
     video: artifacts.filter((artifact) => artifactMatchesFilter(artifact, 'video')).length,
   }), [artifacts])
-  const filteredArtifacts = useMemo(
-    () => artifacts.filter((artifact) => artifactMatchesFilter(artifact, filter)),
-    [artifacts, filter]
-  )
+  const filteredArtifacts = useMemo(() => {
+    const matched = artifacts.filter((artifact) => artifactMatchesFilter(artifact, filter))
+    return [...matched].sort((left, right) => {
+      const priorityDiff = artifactDisplayPriority(left) - artifactDisplayPriority(right)
+      if (priorityDiff !== 0) return priorityDiff
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+    })
+  }, [artifacts, filter])
   const heroArtifact = filteredArtifacts[0] ?? null
   const galleryArtifacts = heroArtifact ? filteredArtifacts.slice(1) : filteredArtifacts
 

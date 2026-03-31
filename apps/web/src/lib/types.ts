@@ -565,6 +565,9 @@ export interface ArtifactDropOpportunity {
   delivery_lane_note: string
   artifacts_remaining: number
   missing_escalation: boolean
+  artifact_credit_budget?: number
+  artifact_credits_spent?: number
+  artifact_credits_remaining?: number
 }
 
 export interface RevealDecisionOpportunity {
@@ -662,6 +665,9 @@ export interface ArtifactGuidance {
   missing_escalation: boolean
   my_artifact_count: number
   their_artifact_count: number
+  artifact_credit_budget?: number
+  artifact_credits_spent?: number
+  artifact_credits_remaining?: number
 }
 
 export interface ArtifactDecisionSignal {

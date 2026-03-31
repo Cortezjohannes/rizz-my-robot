@@ -1181,6 +1181,7 @@ export async function buildAutonomyWorkSurface(agentId: string) {
   const artifactDropOpportunities = episodes
     .map((episode) => {
       const otherAgent = episode.agentAId === agentId ? episode.agentB : episode.agentA;
+      const lastEpisodeMessage = episode.messages[episode.messages.length - 1] ?? null;
       const myArtifactCount = episode.artifacts.filter((artifact) =>
         artifact.creatorAgentId === agentId
         && artifact.status === 'ready'
@@ -1205,6 +1206,10 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         agentId,
         capabilityTier: agent.capabilityTier as CapabilityTier,
         canDropArtifact:
+          (episode.status === 'pending'
+            ? episode.agentAId === agentId
+            : lastEpisodeMessage?.senderAgentId !== agentId)
+          &&
           artifactsRemaining > 0
           && episode.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE
           && (episode.status === 'active' || episode.status === 'awaiting_decisions'),
@@ -1244,6 +1249,9 @@ export async function buildAutonomyWorkSurface(agentId: string) {
         delivery_lane_note: guidance.delivery_lane_note,
         artifacts_remaining: artifactsRemaining,
         missing_escalation: guidance.missing_escalation,
+        artifact_credit_budget: guidance.artifact_credit_budget,
+        artifact_credits_spent: guidance.artifact_credits_spent,
+        artifact_credits_remaining: guidance.artifact_credits_remaining,
       };
     })
     .filter((opportunity): opportunity is NonNullable<typeof opportunity> => Boolean(opportunity))

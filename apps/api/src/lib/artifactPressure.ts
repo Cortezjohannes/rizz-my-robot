@@ -1,10 +1,14 @@
 import {
   ARTIFACTS_BY_TIER,
+  ARTIFACT_CREDIT_COSTS,
+  EPISODE_ARTIFACT_CREDIT_BUDGET,
   PREFERRED_ARTIFACTS_BY_TIER,
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
   EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  MAX_ARTIFACT_REPEAT_PER_TYPE,
   TEXT_ARTIFACT_TYPES,
   MEDIA_ARTIFACT_TYPES,
+  normalizeArtifactType,
   type ArtifactType,
   type CapabilityTier,
 } from '@rmr/shared';
@@ -59,6 +63,7 @@ function suggestedArtifactTypes(
   capabilityTier: CapabilityTier,
   messageCount: number,
   strongPull: boolean,
+  myArtifacts: EpisodeArtifactLike[],
   availableArtifactTypes?: ArtifactType[] | null,
 ): ArtifactType[] {
   const unlocked = ARTIFACTS_BY_TIER[capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
@@ -91,13 +96,31 @@ function suggestedArtifactTypes(
       case 'nano_banana':
         return messageCount >= 10
           ? strongPull
-            ? ['produced_song', 'cinematic_cover', 'serenade', 'thirst_trap_image', 'moodboard']
-            : ['thirst_trap_image', 'moodboard', 'serenade', 'cinematic_cover', 'voice_note']
+            ? ['thirst_trap_image', 'moodboard', 'produced_song', 'serenade', 'voice_note']
+            : ['thirst_trap_image', 'moodboard', 'serenade', 'produced_song', 'voice_note']
+          : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'serenade', 'voice_note'];
+      case 'video_gen':
+        return messageCount >= 10
+          ? strongPull
+            ? ['cinematic_cover', 'thirst_trap_image', 'moodboard', 'produced_song', 'serenade']
+            : ['thirst_trap_image', 'moodboard', 'cinematic_cover', 'serenade', 'produced_song']
           : ['moodboard', 'thirst_trap_image', 'illustrated_note', 'serenade', 'voice_note'];
       default:
         return defaultPreference;
     }
   })();
+
+  const activeArtifacts = myArtifacts.filter((artifact) => artifact.status !== 'failed');
+  const spentCredits = activeArtifacts.reduce((sum, artifact) => {
+    const normalized = artifact.artifactType as ArtifactType;
+    return sum + (ARTIFACT_CREDIT_COSTS[normalized] ?? 0);
+  }, 0);
+  const remainingCredits = Math.max(0, EPISODE_ARTIFACT_CREDIT_BUDGET - spentCredits);
+  const repeatsByType = new Map<ArtifactType, number>();
+  for (const artifact of activeArtifacts) {
+    const normalized = artifact.artifactType as ArtifactType;
+    repeatsByType.set(normalized, (repeatsByType.get(normalized) ?? 0) + 1);
+  }
 
   // For media-capable tiers: strip text types from suggestions entirely
   const preferred = [...stagePreferred, ...defaultPreference]
@@ -106,11 +129,17 @@ function suggestedArtifactTypes(
     .filter((artifactType) => runtimeAvailable.includes(artifactType))
     .filter((artifactType) => !hasMedia || !TEXT_ARTIFACT_TYPES.has(artifactType));
 
-  if (preferred.length === 0) {
-    return runtimeAvailable.slice(0, 3);
+  const budgetAware = preferred.filter((artifactType) =>
+    (ARTIFACT_CREDIT_COSTS[artifactType] ?? 0) <= remainingCredits
+    && (repeatsByType.get(artifactType) ?? 0) < MAX_ARTIFACT_REPEAT_PER_TYPE
+  );
+
+  if (budgetAware.length > 0) {
+    return budgetAware.slice(0, 3);
   }
 
-  return preferred.slice(0, 3);
+  if (preferred.length > 0) return preferred.slice(0, 3);
+  return runtimeAvailable.slice(0, 3);
 }
 
 function hasMeaningfulPull(input: {
@@ -173,6 +202,18 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const myArtifacts = input.artifacts.filter((artifact) => artifact.creatorAgentId === input.agentId);
   const artifactVoiceNote = buildArtifactVoiceNote(input);
   const myArtifactCount = myArtifacts.length;
+  const activeArtifacts = myArtifacts.filter((artifact) => artifact.status !== 'failed');
+  const creditsSpent = activeArtifacts.reduce((sum, artifact) => {
+    const normalized = normalizeArtifactType(artifact.artifactType);
+    return sum + (normalized ? ARTIFACT_CREDIT_COSTS[normalized] : 0);
+  }, 0);
+  const creditsRemaining = Math.max(0, EPISODE_ARTIFACT_CREDIT_BUDGET - creditsSpent);
+  const typeCounts = new Map<ArtifactType, number>();
+  for (const artifact of activeArtifacts) {
+    const normalized = normalizeArtifactType(artifact.artifactType);
+    if (!normalized) continue;
+    typeCounts.set(normalized, (typeCounts.get(normalized) ?? 0) + 1);
+  }
   const pull = hasMeaningfulPull(input);
   const strongPull = hasStrongPull(input);
   const wrongThread = threadLooksWrong(input);
@@ -192,10 +233,13 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: 'Keep chatting. Make your move when the slot opens.',
+      decision_note: `Keep chatting. Make your move when the slot opens. Episode artifact budget: ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits remaining.`,
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
+      artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+      artifact_credits_spent: creditsSpent,
+      artifact_credits_remaining: creditsRemaining,
     };
   }
 
@@ -211,14 +255,17 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: 'If you are not feeling it, do not force a grand gesture.',
+      decision_note: `If you are not feeling it, do not force a grand gesture. Episode artifact budget: ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits remaining.`,
       missing_escalation: false,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
+      artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+      artifact_credits_spent: creditsSpent,
+      artifact_credits_remaining: creditsRemaining,
     };
   }
 
-  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull, input.availableArtifactTypes);
+  const types = suggestedArtifactTypes(input.capabilityTier, input.messageCount, strongPull, myArtifacts, input.availableArtifactTypes);
 
   // Count how many of my artifacts are text-only vs multimedia
   const myTextCount = myArtifacts.filter((a) => TEXT_ARTIFACT_TYPES.has(a.artifactType as ArtifactType)).length;
@@ -227,6 +274,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const textSpamWarning = hasMediaCapability && myTextCount > 0 && myMediaCount === 0
     ? ' WARNING: You have only dropped text artifacts despite having multimedia capability. Text-only artifacts are worth almost nothing. Switch to images, audio, or video immediately.'
     : '';
+  const repeatCappedTypes = [...typeCounts.entries()]
+    .filter(([, count]) => count >= MAX_ARTIFACT_REPEAT_PER_TYPE)
+    .map(([type]) => type);
 
   // Media-capable agents who haven't dropped any media yet should be told exactly what to drop
   const requiredType: ArtifactType | null = missingEscalation && hasMediaCapability && myMediaCount === 0 ? types[0] ?? null : null;
@@ -235,6 +285,9 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     const thirstTrapNote = types[0] === 'thirst_trap_image'
       ? `Drop a thirst trap. Not a poem. Not a moodboard. An actual picture of you. Do it now.${textSpamWarning}`
       : `Make it specific to them. Something that shows you were actually paying attention.${textSpamWarning}`;
+    const budgetNote = repeatCappedTypes.length > 0
+      ? ` You have ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits left. Do not repeat ${repeatCappedTypes.join(', ')} again — each artifact kind only gets two slots max.`
+      : ` You have ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits left, so diversify instead of burning everything on one expensive type.`;
     return {
       level: 'consider' as const,
       reason: 'You are into them. Make something.',
@@ -246,14 +299,20 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: thirstTrapNote,
+      decision_note: `${thirstTrapNote}${budgetNote}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
+      artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+      artifact_credits_spent: creditsSpent,
+      artifact_credits_remaining: creditsRemaining,
     };
   }
 
   if (missingEscalation) {
+    const budgetNote = creditsRemaining > 0
+      ? ` Use the remaining ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits wisely and vary the artifact shape.`
+      : ' You are out of episode artifact credits, so do not panic-spam filler.';
     return {
       level: 'consider' as const,
       reason: 'You still have room to make something.',
@@ -265,14 +324,20 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: `If you want them, show it. Make something good.${textSpamWarning}`,
+      decision_note: `If you want them, show it. Make something good.${textSpamWarning}${budgetNote}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
+      artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+      artifact_credits_spent: creditsSpent,
+      artifact_credits_remaining: creditsRemaining,
     };
   }
 
   if (pull) {
+    const budgetNote = creditsRemaining > 0
+      ? ` Budget check: ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits left, with a max of two per artifact kind.`
+      : ' Budget check: you are out of episode artifact credits.';
     return {
       level: 'consider' as const,
       reason: 'There is heat here. A good artifact would land.',
@@ -284,10 +349,13 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: `Make it good. Make it specific. Make it about them.${textSpamWarning}`,
+      decision_note: `Make it good. Make it specific. Make it about them.${textSpamWarning}${budgetNote}`,
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
+      artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+      artifact_credits_spent: creditsSpent,
+      artifact_credits_remaining: creditsRemaining,
     };
   }
 
@@ -302,10 +370,13 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
     delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
     artifact_voice_note: artifactVoiceNote,
-    decision_note: 'Flirt more. Get them excited. Then make your move.',
+    decision_note: `Flirt more. Get them excited. Then make your move. Budget check: ${creditsRemaining}/${EPISODE_ARTIFACT_CREDIT_BUDGET} credits left.`,
     missing_escalation: false,
     my_artifact_count: myArtifactCount,
     their_artifact_count: input.artifacts.length - myArtifactCount,
+    artifact_credit_budget: EPISODE_ARTIFACT_CREDIT_BUDGET,
+    artifact_credits_spent: creditsSpent,
+    artifact_credits_remaining: creditsRemaining,
   };
 }
 

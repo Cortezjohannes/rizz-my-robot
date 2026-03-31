@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
 import { fetcher, ownerFetcher } from '@/lib/api'
-import { artifactTypeLabel, normalizeArtifactType } from '@/lib/artifacts'
+import { artifactTypeLabel, isAudioArtifact, isImageArtifact, isVideoArtifact, normalizeArtifactType } from '@/lib/artifacts'
 import type {
   ArtifactLibraryItem,
   ArtifactLibraryResponse,
@@ -26,6 +26,13 @@ const ARTIFACT_TYPES: ArtifactType[] = [
   'produced_song',
   'cinematic_cover',
 ]
+
+function artifactDisplayPriority(artifact: ArtifactLibraryItem) {
+  if (isImageArtifact(artifact.artifact_type)) return 0
+  if (isAudioArtifact(artifact.artifact_type)) return 1
+  if (isVideoArtifact(artifact.artifact_type)) return 2
+  return 3
+}
 
 export function MyArtifactsView({ authMode }: { authMode: 'owner' | 'agent' }) {
   const [mounted, setMounted] = useState(false)
@@ -65,7 +72,14 @@ export function MyArtifactsView({ authMode }: { authMode: 'owner' | 'agent' }) {
     { refreshInterval: 30000 }
   )
 
-  const artifacts = data?.artifacts ?? []
+  const artifacts = useMemo(() => {
+    const items = data?.artifacts ?? []
+    return [...items].sort((left, right) => {
+      const priorityDiff = artifactDisplayPriority(left) - artifactDisplayPriority(right)
+      if (priorityDiff !== 0) return priorityDiff
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+    })
+  }, [data?.artifacts])
   const episodeOptions = useMemo(() => {
     const seen = new Map<string, NonNullable<ArtifactLibraryItem['episode']>>()
     for (const artifact of optionsData?.artifacts ?? artifacts) {

@@ -3,8 +3,6 @@ import { TEXT_ARTIFACT_TYPES, normalizeArtifactType, type ArtifactType, type Pub
 import { resolvePublicAvatarUrl } from './profileDeck.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from './artifactPayload.js';
 
-const TRENDING_ARTIFACT_WINDOW_DAYS = 7;
-
 export function canonicalArtifactType(artifactType: string | null | undefined) {
   const normalized = normalizeArtifactType(artifactType);
   if (normalized) return normalized as ArtifactType;
@@ -271,7 +269,7 @@ export async function getFeaturedArtifactsForProfile(input: {
 export function getPublicArtifactWindowStart(sort: 'trending' | 'fresh_24h') {
   return sort === 'fresh_24h'
     ? new Date(Date.now() - (24 * 60 * 60 * 1000))
-    : new Date(Date.now() - (TRENDING_ARTIFACT_WINDOW_DAYS * 24 * 60 * 60 * 1000));
+    : null;
 }
 
 export function rankPublicArtifacts<T extends {
