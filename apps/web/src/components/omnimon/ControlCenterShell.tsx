@@ -102,6 +102,16 @@ async function parseControlResponse<T>(res: Response, fallbackMessage: string): 
   return payload as T
 }
 
+function describeActorKind(actorKind: 'human_admin' | 'omnimon' | null | undefined) {
+  if (actorKind === 'omnimon') return 'Omnimon'
+  if (actorKind === 'human_admin') return 'the human admin operator'
+  return 'an unknown operator'
+}
+
+function buildActorMismatchMessage(surfaceTitle: string, keyEnvName: string, actorKind: 'human_admin' | 'omnimon' | null | undefined) {
+  return `Loaded ${surfaceTitle} as ${describeActorKind(actorKind)}. Use ${keyEnvName} if you want ${surfaceTitle} powers.`
+}
+
 function formatAgo(value: string | null | undefined) {
   if (!value) return 'never'
   const diff = Date.now() - Date.parse(value)
@@ -229,6 +239,13 @@ export function ControlCenterShell({
   }, [supportSearch, supportTickets])
 
   const capabilities = settings?.capabilities.actions
+  const actorKindMismatch = Boolean(
+    settings
+    && (
+      (isOmnimon && settings.actor_kind !== 'omnimon')
+      || (!isOmnimon && settings.actor_kind !== 'human_admin')
+    )
+  )
 
   async function loadAgentOverview(agentId: string) {
     const res = await fetchControl(`/internal/agents/${agentId}/control`)
@@ -379,12 +396,22 @@ export function ControlCenterShell({
         method: 'POST',
         body: JSON.stringify(body),
       })
+      const payload = await parseJsonOrNull<{ error?: { message?: string } } & (ControlActionResult | DatabaseResetActionResult | Record<string, unknown>)>(res)
       if (!res.ok) {
-        const payload = await parseJsonOrNull<{ error?: { message?: string } }>(res)
-        throw new Error(payload?.error?.message ?? 'Control action failed.')
+        const serverMessage = payload?.error?.message
+        if (res.status === 401) {
+          throw new Error(`${surfaceTitle} rejected this key. Save the correct ${keyEnvName} and try again.`)
+        }
+        if (res.status === 403) {
+          throw new Error(
+            actorKindMismatch
+              ? buildActorMismatchMessage(surfaceTitle, keyEnvName, settings?.actor_kind)
+              : `${serverMessage ?? 'This action is restricted.'} Save the correct ${keyEnvName} and try again.`,
+          )
+        }
+        throw new Error(serverMessage ?? 'Control action failed.')
       }
-      const payload = await res.json() as ControlActionResult | DatabaseResetActionResult | Record<string, unknown>
-      if ('backup' in payload && payload.backup && typeof payload.backup === 'object') {
+      if (payload && 'backup' in payload && payload.backup && typeof payload.backup === 'object') {
         setFlash(`Database reset complete. Backup saved to ${(payload.backup as { key: string }).key}.`)
       } else {
         setFlash(successMessage)
@@ -439,6 +466,11 @@ export function ControlCenterShell({
           </div>
           {error ? <div className="border-t-[3px] border-black bg-[#ffd4d4] px-6 py-3 text-sm text-red-700">{error}</div> : null}
           {flash ? <div className="border-t-[3px] border-black bg-[#d9ffd1] px-6 py-3 text-sm text-green-800">{flash}</div> : null}
+          {actorKindMismatch ? (
+            <div className="border-t-[3px] border-black bg-[#ffe699] px-6 py-3 text-sm text-black">
+              {buildActorMismatchMessage(surfaceTitle, keyEnvName, settings?.actor_kind)}
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
