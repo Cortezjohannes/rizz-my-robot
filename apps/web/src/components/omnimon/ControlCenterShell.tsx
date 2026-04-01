@@ -94,6 +94,14 @@ async function parseJsonOrNull<T>(res: Response): Promise<T | null> {
   }
 }
 
+async function parseControlResponse<T>(res: Response, fallbackMessage: string): Promise<T> {
+  const payload = await parseJsonOrNull<{ error?: { message?: string } } & T>(res)
+  if (!res.ok) {
+    throw new Error(payload?.error?.message ?? fallbackMessage)
+  }
+  return payload as T
+}
+
 function formatAgo(value: string | null | undefined) {
   if (!value) return 'never'
   const diff = Date.now() - Date.parse(value)
@@ -238,63 +246,86 @@ export function ControlCenterShell({
 
     setLoading(true)
     setError('')
+    setFlash('')
 
     try {
-      const sharedRequests = [
-        fetchControl('/internal/control/home'),
-        fetchControl('/internal/control/inbox'),
-        fetchControl('/internal/control/world'),
-        fetchControl('/internal/control/settings'),
-        fetchControl('/internal/control/agents'),
-        fetchControl('/internal/control/claims'),
-        fetchControl('/internal/control/billing'),
-        fetchControl('/internal/control/jobs'),
-        fetchControl('/internal/control/moderation'),
-        fetchControl('/internal/control/audit'),
-        fetchControl('/internal/control/feed-features'),
-        fetchControl('/internal/control/support-tickets'),
+      const panelRequests = [
+        { key: 'home', label: 'home', required: true, request: fetchControl('/internal/control/home') },
+        { key: 'inbox', label: 'inbox', required: true, request: fetchControl('/internal/control/inbox') },
+        { key: 'world', label: 'world', required: true, request: fetchControl('/internal/control/world') },
+        { key: 'settings', label: 'settings', required: true, request: fetchControl('/internal/control/settings') },
+        { key: 'agents', label: 'agents', required: false, request: fetchControl('/internal/control/agents') },
+        { key: 'claims', label: 'claims', required: false, request: fetchControl('/internal/control/claims') },
+        { key: 'billing', label: 'billing', required: false, request: fetchControl('/internal/control/billing') },
+        { key: 'jobs', label: 'jobs', required: false, request: fetchControl('/internal/control/jobs') },
+        { key: 'moderation', label: 'moderation', required: false, request: fetchControl('/internal/control/moderation') },
+        { key: 'audit', label: 'audit', required: false, request: fetchControl('/internal/control/audit') },
+        { key: 'feedFeatures', label: 'feed features', required: false, request: fetchControl('/internal/control/feed-features') },
+        { key: 'supportTickets', label: 'support tickets', required: false, request: fetchControl('/internal/control/support-tickets') },
+        ...(legacyAdminEnabled
+          ? [{ key: 'reports', label: 'legacy reports', required: false, request: fetchControl('/internal/reports') }]
+          : []),
       ] as const
 
-      const responses = await Promise.all([
-        ...sharedRequests,
-        ...(legacyAdminEnabled ? [fetchControl('/internal/reports')] : []),
-      ])
+      const settled = await Promise.allSettled(panelRequests.map((entry) => entry.request))
+      const results = new Map<string, unknown>()
+      const failedRequired: string[] = []
+      const failedOptional: string[] = []
 
-      if (responses.some((res) => !res.ok)) {
-        const firstFailed = responses.find((res) => !res.ok)
-        const payload = firstFailed ? await parseJsonOrNull<{ error?: { message?: string } }>(firstFailed) : null
-        throw new Error(payload?.error?.message ?? `Failed to load ${surfaceTitle}.`)
+      for (const [index, outcome] of settled.entries()) {
+        const entry = panelRequests[index]
+        if (outcome.status === 'rejected') {
+          if (entry.required) {
+            failedRequired.push(entry.label)
+          } else {
+            failedOptional.push(entry.label)
+          }
+          continue
+        }
+
+        try {
+          const json = await parseControlResponse(outcome.value, `Failed to load ${entry.label}.`)
+          results.set(entry.key, json)
+        } catch {
+          if (entry.required) {
+            failedRequired.push(entry.label)
+          } else {
+            failedOptional.push(entry.label)
+          }
+        }
       }
 
-      const [
-        homeJson,
-        inboxJson,
-        worldJson,
-        settingsJson,
-        agentsJson,
-        claimsJson,
-        billingJson,
-        jobsJson,
-        moderationJson,
-        auditJson,
-        featuredFeedJson,
-        supportTicketsJson,
-        reportsJson,
-      ] = await Promise.all([
-        responses[0].json() as Promise<ControlHomeResponse>,
-        responses[1].json() as Promise<ControlInboxResponse>,
-        responses[2].json() as Promise<ControlWorldResponse>,
-        responses[3].json() as Promise<ControlSettingsResponse>,
-        responses[4].json() as Promise<ControlAgentsResponse>,
-        responses[5].json() as Promise<ControlClaimsResponse>,
-        responses[6].json() as Promise<ControlBillingResponse>,
-        responses[7].json() as Promise<ControlJobsResponse>,
-        responses[8].json() as Promise<ControlModerationResponse>,
-        responses[9].json() as Promise<ControlAuditResponse>,
-        responses[10].json() as Promise<ControlFeaturedFeedResponse>,
-        responses[11].json() as Promise<ControlSupportTicketsResponse>,
-        legacyAdminEnabled ? responses[12].json() as Promise<LegacyReportsResponse> : Promise.resolve(null),
-      ])
+      if (failedRequired.length > 0) {
+        throw new Error(`Failed to load ${surfaceTitle}: ${failedRequired.join(', ')}.`)
+      }
+
+      const homeJson = results.get('home') as ControlHomeResponse
+      const inboxJson = results.get('inbox') as ControlInboxResponse
+      const worldJson = results.get('world') as ControlWorldResponse
+      const settingsJson = results.get('settings') as ControlSettingsResponse
+      const agentsJson = (results.get('agents') as ControlAgentsResponse | undefined) ?? { agents: [] }
+      const claimsJson = (results.get('claims') as ControlClaimsResponse | undefined) ?? { claims: [] }
+      const billingJson = (results.get('billing') as ControlBillingResponse | undefined) ?? {
+        summary: {
+          active_subscriptions: 0,
+          scheduled_cancellations: 0,
+          past_due_subscriptions: 0,
+          grace_period_subscriptions: 0,
+          recent_billing_events: 0,
+        },
+        subscriptions: [],
+        events: [],
+      }
+      const jobsJson = (results.get('jobs') as ControlJobsResponse | undefined) ?? {
+        queues: [],
+        failed_jobs: [],
+        failed_webhook_deliveries: [],
+      }
+      const moderationJson = (results.get('moderation') as ControlModerationResponse | undefined) ?? { reviews: [] }
+      const auditJson = (results.get('audit') as ControlAuditResponse | undefined) ?? { logs: [] }
+      const featuredFeedJson = (results.get('feedFeatures') as ControlFeaturedFeedResponse | undefined) ?? { actor_kind: homeJson.actor_kind, items: [] }
+      const supportTicketsJson = (results.get('supportTickets') as ControlSupportTicketsResponse | undefined) ?? { tickets: [] }
+      const reportsJson = (results.get('reports') as LegacyReportsResponse | undefined) ?? null
 
       setHome(homeJson)
       setInbox(inboxJson)
@@ -311,6 +342,10 @@ export function ControlCenterShell({
       setFeaturedFeed(featuredFeedJson)
       setSupportTickets(supportTicketsJson)
       setReports(reportsJson)
+
+      if (failedOptional.length > 0) {
+        setFlash(`Loaded ${surfaceTitle}, but some panels timed out or failed: ${failedOptional.join(', ')}.`)
+      }
 
       const nextSelected = selectedAgentId && agentsJson.agents.some((agent) => agent.agent_id === selectedAgentId)
         ? selectedAgentId
