@@ -368,6 +368,7 @@ export default function ClaimPage() {
     setError('')
     try {
       const normalizedHandle = handleDraft.trim().toLowerCase()
+      const normalizedXHandle = xHandle.trim().toLowerCase()
       if (normalizedHandle && normalizedHandle !== requestedHandle) {
         await saveHandle(normalizedHandle)
       }
@@ -376,7 +377,7 @@ export default function ClaimPage() {
         body: JSON.stringify({
           claim_token: claim.claim_token,
           email,
-          x_handle: xHandle,
+          x_handle: normalizedXHandle || null,
           handle_confirmed: handleConfirmed,
           human_identity: humanIdentity,
           looking_for: lookingFor,
@@ -417,12 +418,13 @@ export default function ClaimPage() {
     setSubmitting(true)
     setError('')
     try {
+      const normalizedXHandle = xHandle.trim().toLowerCase()
       const data = await jsonFetch<EmailStepResponse>(`/claims/${claim.claim_id}/email`, {
         method: 'POST',
         body: JSON.stringify({
           claim_token: claim.claim_token,
           email,
-          x_handle: xHandle,
+          x_handle: normalizedXHandle || null,
           handle_confirmed: true,
           human_identity: humanIdentity,
           looking_for: lookingFor,
