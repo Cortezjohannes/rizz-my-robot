@@ -1164,6 +1164,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     const ownerSessionToken = generateOwnerSessionToken();
     const ownerSessionTokenHash = hashOpaqueSecret(ownerSessionToken);
     const ownerSessionExpiresAt = ownerSessionExpiryDate();
+    const normalizedTwitterHandle = claim.twitterHandle ?? '';
 
     const created = await prisma.$transaction(async (tx) => {
       const existingOwnerAgent = await tx.agent.findFirst({
@@ -1178,7 +1179,8 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         data: {
           handle: claim.reservedHandle!,
           openclawAgentId: claim.openclawAgentId,
-          twitterHandle: claim.twitterHandle!,
+          // X verification can be disabled globally, so the claim may complete without a handle.
+          twitterHandle: normalizedTwitterHandle,
           twitterVerified: Boolean(claim.xVerifiedAt),
           apiKeyHash,
           identityMd: claim.identityMd,
