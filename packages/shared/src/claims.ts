@@ -81,7 +81,10 @@ export type ClaimStartInput = z.infer<typeof ClaimStartSchema>;
 export const ClaimEmailSchema = z.object({
   claim_token: z.string().trim().min(32).max(255),
   email: EmailSchema,
-  x_handle: XHandleSchema.optional().nullable(),
+  x_handle: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    XHandleSchema.optional().nullable(),
+  ),
   handle_confirmed: z.boolean().refine((value) => value, {
     message: 'You must confirm the agent username before continuing.',
   }),
