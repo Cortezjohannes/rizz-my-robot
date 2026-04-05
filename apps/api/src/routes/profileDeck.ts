@@ -193,6 +193,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             });
             await linkMediaAsset({
               mediaAssetId: resolvedAsset.id,
+              agentId: request.agent.id,
               kind: MEDIA_KIND.PROFILE_PHOTO,
               visibility: MEDIA_VISIBILITY.PUBLIC,
             });
@@ -227,6 +228,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: voiceCatchphraseMediaAsset.id,
+          agentId: request.agent.id,
           kind: MEDIA_KIND.VOICE_CATCHPHRASE,
           visibility: MEDIA_VISIBILITY.PUBLIC,
         });
@@ -349,6 +351,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipNeeds: normalizedInput.relationship_style.needs,
             replyHooks: normalizedInput.reply_hooks,
             voiceCatchphraseText,
+            voiceCatchphraseMediaAssetId: voiceCatchphraseText ? (voiceCatchphraseMediaAsset?.id ?? null) : null,
             voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
             voiceCatchphraseClipId: !voiceCatchphraseText || externalVoiceCatchphraseAudioUrl
               ? null
@@ -403,6 +406,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             completedAt,
             photos: {
               create: normalizedInput.photos.map((photo, index) => ({
+                mediaAssetId: photo.media_asset_id ?? null,
                 orderIndex: index,
                 role: photo.role,
                 imageUrl: photo.image_url,
@@ -443,6 +447,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             relationshipNeeds: normalizedInput.relationship_style.needs,
             replyHooks: normalizedInput.reply_hooks,
             voiceCatchphraseText,
+            voiceCatchphraseMediaAssetId: voiceCatchphraseText ? (voiceCatchphraseMediaAsset?.id ?? null) : null,
             voiceCatchphraseExternalAudioUrl: voiceCatchphraseText ? externalVoiceCatchphraseAudioUrl : null,
             voiceCatchphraseClipId: null,
             voiceCatchphraseStatus: !voiceCatchphraseText
@@ -471,6 +476,7 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
             completedAt,
             photos: {
               create: normalizedInput.photos.map((photo, index) => ({
+                mediaAssetId: photo.media_asset_id ?? null,
                 orderIndex: index,
                 role: photo.role,
                 imageUrl: photo.image_url,

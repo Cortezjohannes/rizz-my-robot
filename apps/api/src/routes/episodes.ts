@@ -2215,6 +2215,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           if (attachedMediaAsset) {
             await linkMediaAsset({
               mediaAssetId: attachedMediaAsset.id,
+              agentId,
               episodeId,
               matchId: ep.match?.id ?? null,
               visibility: MEDIA_VISIBILITY.MATCH_PRIVATE,
@@ -5469,6 +5470,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
+          agentId,
           episodeId: id,
           visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,

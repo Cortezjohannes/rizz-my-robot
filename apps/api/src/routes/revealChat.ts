@@ -1042,6 +1042,7 @@ async function handleCreateRevealChatMessage(
     if (attachedMediaAsset) {
       await linkMediaAsset({
         mediaAssetId: attachedMediaAsset.id,
+        agentId: participant.actorType === 'agent' ? participant.participantId : null,
         revealChatId: context.id,
         matchId: context.matchId,
         visibility: MEDIA_VISIBILITY.REVEAL_PRIVATE,

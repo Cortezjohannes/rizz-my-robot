@@ -1657,6 +1657,7 @@ export async function meRoutes(fastify: FastifyInstance) {
         }
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
+          agentId,
           kind: MEDIA_KIND.AVATAR,
           visibility: MEDIA_VISIBILITY.PUBLIC,
         });

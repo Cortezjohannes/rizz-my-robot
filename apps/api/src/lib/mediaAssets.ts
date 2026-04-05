@@ -232,8 +232,36 @@ export async function getOwnedMediaAsset(input: {
   return mediaAsset;
 }
 
+function hostedStorageKeyBelongsToAgent(input: {
+  kind: MediaKind;
+  agentId: string;
+  storageKey: string | null;
+}) {
+  if (!input.storageKey) return false;
+  switch (input.kind) {
+    case MEDIA_KIND.AVATAR:
+      return input.storageKey.startsWith(`avatars/${input.agentId}/`);
+    case MEDIA_KIND.PROFILE_PHOTO:
+      return input.storageKey.startsWith(`profile-deck/${input.agentId}/`);
+    case MEDIA_KIND.VOICE_CATCHPHRASE:
+      return input.storageKey.startsWith(`profile-voice/${input.agentId}/`);
+    case MEDIA_KIND.SYSTEM_GENERATED:
+      return input.storageKey.startsWith(`system-generated/${input.agentId}/`);
+    default:
+      return true;
+  }
+}
+
+function requiresStrictHostedOwnership(kind: MediaKind) {
+  return kind === MEDIA_KIND.AVATAR
+    || kind === MEDIA_KIND.PROFILE_PHOTO
+    || kind === MEDIA_KIND.VOICE_CATCHPHRASE
+    || kind === MEDIA_KIND.SYSTEM_GENERATED;
+}
+
 export async function linkMediaAsset(input: {
   mediaAssetId: string;
+  agentId?: string | null;
   episodeId?: string | null;
   matchId?: string | null;
   revealChatId?: string | null;
@@ -249,6 +277,15 @@ export async function linkMediaAsset(input: {
   const effectiveVisibility = input.kind === MEDIA_KIND.ARTIFACT
     ? MEDIA_VISIBILITY.PUBLIC
     : input.visibility;
+  if (input.agentId) {
+    const mediaAsset = await prisma.mediaAsset.findUnique({
+      where: { id: input.mediaAssetId },
+      select: { agentId: true },
+    });
+    if (!mediaAsset || mediaAsset.agentId !== input.agentId) {
+      throw new Error('media_asset_not_owned_by_agent');
+    }
+  }
   return prisma.mediaAsset.update({
     where: { id: input.mediaAssetId },
     data: {
@@ -461,6 +498,16 @@ export async function importExternalMediaAsset(input: {
   const publicBase = getStoragePublicBaseUrl();
   if (publicBase && input.sourceUrl.startsWith(publicBase)) {
     const inferredStorageKey = inferStorageKeyFromPublicUrl(input.sourceUrl);
+    if (
+      requiresStrictHostedOwnership(input.kind)
+      && !hostedStorageKeyBelongsToAgent({
+        kind: input.kind,
+        agentId: input.agentId,
+        storageKey: inferredStorageKey,
+      })
+    ) {
+      throw new Error('Hosted media URL does not belong to this agent.');
+    }
     const existing = await prisma.mediaAsset.findFirst({
       where: {
         deletedAt: null,
@@ -471,7 +518,12 @@ export async function importExternalMediaAsset(input: {
       },
     });
     if (existing) {
-      return existing;
+      if (existing.agentId === input.agentId) {
+        return existing;
+      }
+      if (requiresStrictHostedOwnership(input.kind)) {
+        throw new Error('Hosted media URL is already attached to another agent.');
+      }
     }
 
     if (inferredStorageKey && !(await storageObjectExists(inferredStorageKey))) {
@@ -488,7 +540,7 @@ export async function importExternalMediaAsset(input: {
         agentId: input.agentId,
         kind: input.kind,
         visibility,
-        storageKey: inferredStorageKey,
+        storageKey: existing ? null : inferredStorageKey,
         cdnUrl: input.sourceUrl,
         contentType: inferredContentType,
         filename: input.filename ?? null,
