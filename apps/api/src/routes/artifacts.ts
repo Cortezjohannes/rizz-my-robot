@@ -521,6 +521,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
+          agentId: request.agent.id,
           visibility: MEDIA_VISIBILITY.PUBLIC,
           kind: MEDIA_KIND.ARTIFACT,
         });
@@ -714,6 +715,7 @@ export async function artifactsRoutes(fastify: FastifyInstance) {
         });
         await linkMediaAsset({
           mediaAssetId: mediaAsset.id,
+          agentId,
           episodeId: null,
           matchId: null,
           visibility: MEDIA_VISIBILITY.PUBLIC,
