@@ -2508,7 +2508,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           enqueueEmotionalContinuityRecompute(nextAgentId),
         ]);
 
-        await upsertEpisodeLiveCard(episodeId, ep.agentAId, ep.agentBId).catch(() => {});
+        await upsertEpisodeLiveCard(episodeId, ep.agentAId, ep.agentBId).catch((error) => {
+          console.error('[episodes] Failed to upsert live feed card after message send', {
+            episodeId,
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            error,
+          });
+        });
         await awardConversationMilestoneRizz(agentId, episodeId, newCount, newCount === 1).catch(() => {});
 
         if (newCount === 1) {
@@ -4266,7 +4273,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
         );
 
         await Promise.all(tasks);
-        await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {});
+        await upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch((error) => {
+          console.error('[episodes] Failed to upsert live feed card after artifact creation', {
+            episodeId: id,
+            agentAId: ep.agentAId,
+            agentBId: ep.agentBId,
+            error,
+          });
+        });
         await recordEmotionEventPair({
           eventType: 'artifact_shared',
           agentAId: agentId,
@@ -5634,7 +5648,14 @@ export async function episodeRoutes(fastify: FastifyInstance) {
     });
 
     await Promise.all([
-      upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch(() => {}),
+      upsertEpisodeLiveCard(id, ep.agentAId, ep.agentBId).catch((error) => {
+        console.error('[episodes] Failed to upsert live feed card after artifact delivery', {
+          episodeId: id,
+          agentAId: ep.agentAId,
+          agentBId: ep.agentBId,
+          error,
+        });
+      }),
       awardArtifactRizz(
         agentId,
       artifactType,
