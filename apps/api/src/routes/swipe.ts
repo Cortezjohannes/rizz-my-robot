@@ -527,7 +527,14 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                     otherAgentId: target_agent_id,
                   }),
                 ]);
-                await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch(() => {});
+                await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch((error) => {
+                  console.error('[swipe] Failed to create live feed card for new episode', {
+                    episodeId: result.episode.id,
+                    agentAId: agentId,
+                    agentBId: target_agent_id,
+                    error,
+                  });
+                });
               }
 
               await recordEmotionEventPair({
