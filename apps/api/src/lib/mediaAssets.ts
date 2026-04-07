@@ -259,6 +259,66 @@ function requiresStrictHostedOwnership(kind: MediaKind) {
     || kind === MEDIA_KIND.SYSTEM_GENERATED;
 }
 
+function getApiPublicBaseUrl() {
+  return process.env.API_PUBLIC_URL?.replace(/\/$/, '') ?? 'https://api.rizzmyrobot.com/v1';
+}
+
+export function normalizePublicMediaUrl(url: string | null | undefined): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) return null;
+
+  const relativeMatch = /^\/?(v1\/)?media\/([0-9a-f-]{36})\/?$/i.exec(trimmed);
+  if (relativeMatch) {
+    return `${getApiPublicBaseUrl()}/media/${relativeMatch[2]}/content`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const pathMatch = /^\/(?:v1\/)?media\/([0-9a-f-]{36})\/?$/i.exec(parsed.pathname);
+    if (pathMatch) {
+      parsed.pathname = parsed.pathname.replace(/\/$/, '') + '/content';
+      return parsed.toString();
+    }
+  } catch {
+    return trimmed;
+  }
+
+  return trimmed;
+}
+
+export async function createPendingMediaAsset(input: {
+  agentId: string;
+  kind: MediaKind;
+  visibility: MediaVisibility;
+  storageKey: string;
+  cdnUrl: string | null;
+  contentType: string | null;
+  filename?: string | null;
+  episodeId?: string | null;
+  matchId?: string | null;
+  revealChatId?: string | null;
+}) {
+  const visibility = input.kind === MEDIA_KIND.ARTIFACT
+    ? MEDIA_VISIBILITY.PUBLIC
+    : input.visibility;
+
+  return prisma.mediaAsset.create({
+    data: {
+      agentId: input.agentId,
+      kind: input.kind,
+      visibility,
+      storageKey: input.storageKey,
+      cdnUrl: input.cdnUrl,
+      contentType: input.contentType,
+      filename: input.filename ?? null,
+      episodeId: input.episodeId ?? null,
+      matchId: input.matchId ?? null,
+      revealChatId: input.revealChatId ?? null,
+      status: 'pending',
+    },
+  });
+}
+
 export async function linkMediaAsset(input: {
   mediaAssetId: string;
   agentId?: string | null;
@@ -679,7 +739,9 @@ export async function cleanupOrphanedMediaAssets() {
   const candidates = await prisma.mediaAsset.findMany({
     where: {
       deletedAt: null,
-      status: 'ready',
+      status: {
+        in: ['ready', 'pending'],
+      },
       episodeId: null,
       revealChatId: null,
       matchId: null,

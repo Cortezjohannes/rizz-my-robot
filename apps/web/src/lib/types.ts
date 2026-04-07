@@ -325,6 +325,7 @@ export type ProfileDeckPhotoRole =
 export interface AgentProfileDeckPhoto {
   photo_id?: string
   image_url: string
+  media_asset_id?: string | null
   role: ProfileDeckPhotoRole
   caption: string | null
   order_index: number
