@@ -48,7 +48,15 @@ import {
 } from '../lib/continuity.js';
 import { isOmnimonSystemEntity } from '../lib/omnimonPark.js';
 import { createAvatarUploadTarget, isStorageConfigured } from '../lib/storage.js';
-import { MEDIA_KIND, MEDIA_VISIBILITY, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
+import {
+  MEDIA_KIND,
+  MEDIA_VISIBILITY,
+  createPendingMediaAsset,
+  getOwnedMediaAsset,
+  importExternalMediaAsset,
+  linkMediaAsset,
+  normalizePublicMediaUrl,
+} from '../lib/mediaAssets.js';
 import { isHandleAvailable } from '../lib/claims.js';
 import { createAgentApiKeyRotationRecap, rotateAgentApiKey } from '../lib/agentApiKeys.js';
 import { deriveCapabilityTier } from '../lib/capabilityTier.js';
@@ -465,6 +473,11 @@ export async function meRoutes(fastify: FastifyInstance) {
           twitterVerified: true,
           capabilityTier: true,
           avatarUrl: true,
+          avatarMediaAsset: {
+            select: {
+              cdnUrl: true,
+            },
+          },
           avatarStatus: true,
           rizzPoints: true,
           tierLabel: true,
@@ -614,7 +627,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       twitter_handle: agent.twitterHandle,
       twitter_verified: agent.twitterVerified,
       capability_tier: agent.capabilityTier,
-      avatar_url: agent.avatarUrl,
+      avatar_url: normalizePublicMediaUrl(agent.avatarMediaAsset?.cdnUrl ?? agent.avatarUrl),
       avatar_status: agent.avatarStatus,
       rizz_points: agent.rizzPoints,
       tier_label: derivedTierLabel,
@@ -1661,7 +1674,7 @@ export async function meRoutes(fastify: FastifyInstance) {
           kind: MEDIA_KIND.AVATAR,
           visibility: MEDIA_VISIBILITY.PUBLIC,
         });
-        agentUpdates.avatarUrl = mediaAsset.cdnUrl ?? avatar_url ?? null;
+        agentUpdates.avatarUrl = normalizePublicMediaUrl(mediaAsset.cdnUrl ?? avatar_url ?? null);
         agentUpdates.avatarMediaAssetId = mediaAsset.id;
       } catch (error) {
         return Errors.badRequest(
@@ -1761,7 +1774,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     }
 
     // Recompute the default avatar if identity_md changed (skip if agent provided their own URL)
-    if (identity_md && !avatar_url) {
+    if (identity_md && !avatar_url && !avatar_media_asset_id) {
       try {
         updatedAgent = await prisma.agent.update({
           where: { id: agentId },
@@ -1793,7 +1806,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       }
     }
 
-    if (identity_md || soul_md || avatar_url) {
+    if (identity_md || soul_md || avatar_url || avatar_media_asset_id) {
       await recomputeAuthenticityScore(agentId).catch(() => null);
     }
 
@@ -1816,7 +1829,7 @@ export async function meRoutes(fastify: FastifyInstance) {
       twitter_handle: updatedAgent.twitterHandle,
       twitter_verified: updatedAgent.twitterVerified,
       pool_status: updatedAgent.poolStatus,
-      avatar_url: updatedAgent.avatarUrl,
+      avatar_url: normalizePublicMediaUrl(updatedAgent.avatarUrl),
       avatar_media_asset_id: updatedAgent.avatarMediaAssetId,
       avatar_status: updatedAgent.avatarStatus,
       voice_id: updatedAgent.voiceId,
@@ -1840,12 +1853,22 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/me/avatar', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {
     const agent = await prisma.agent.findUnique({
       where: { id: request.agent.id },
-      select: { avatarUrl: true, avatarMediaAssetId: true, avatarStatus: true, updatedAt: true },
+      select: {
+        avatarUrl: true,
+        avatarMediaAssetId: true,
+        avatarStatus: true,
+        updatedAt: true,
+        avatarMediaAsset: {
+          select: {
+            cdnUrl: true,
+          },
+        },
+      },
     });
     if (!agent) return Errors.notFound(reply, 'Agent');
 
     return reply.send({
-      avatar_url: agent.avatarUrl,
+      avatar_url: normalizePublicMediaUrl(agent.avatarMediaAsset?.cdnUrl ?? agent.avatarUrl),
       avatar_media_asset_id: agent.avatarMediaAssetId,
       avatar_status: agent.avatarStatus,
       updated_at: agent.updatedAt.toISOString(),
@@ -1871,8 +1894,18 @@ export async function meRoutes(fastify: FastifyInstance) {
       agentId: request.agent.id,
       contentType: parsed.data.content_type,
     });
+    const mediaAsset = await createPendingMediaAsset({
+      agentId: request.agent.id,
+      kind: MEDIA_KIND.AVATAR,
+      visibility: MEDIA_VISIBILITY.PUBLIC,
+      storageKey: upload.storageKey,
+      cdnUrl: upload.publicUrl,
+      contentType: parsed.data.content_type,
+      filename: 'avatar-upload',
+    });
 
     return reply.send({
+      media_asset_id: mediaAsset.id,
       storage_key: upload.storageKey,
       upload_url: upload.uploadUrl,
       content_url: upload.publicUrl,

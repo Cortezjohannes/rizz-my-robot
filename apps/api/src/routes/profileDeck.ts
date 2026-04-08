@@ -39,7 +39,14 @@ import {
 } from '../lib/profileVoice.js';
 import { getGenerateAvatarQueue } from '../lib/queues.js';
 import { markLegacyProfileRefreshed } from '../lib/legacyIdentityRefresh.js';
-import { MEDIA_KIND, MEDIA_VISIBILITY, getOwnedMediaAsset, importExternalMediaAsset, linkMediaAsset } from '../lib/mediaAssets.js';
+import {
+  MEDIA_KIND,
+  MEDIA_VISIBILITY,
+  createPendingMediaAsset,
+  getOwnedMediaAsset,
+  importExternalMediaAsset,
+  linkMediaAsset,
+} from '../lib/mediaAssets.js';
 
 const ProfileVoiceUploadRequestSchema = z.object({
   content_type: z.string().trim().min(1).max(100),
@@ -989,9 +996,19 @@ export async function profileDeckRoutes(fastify: FastifyInstance) {
       slot: parsed.data.slot,
       contentType: parsed.data.content_type,
     });
+    const mediaAsset = await createPendingMediaAsset({
+      agentId: request.agent.id,
+      kind: MEDIA_KIND.PROFILE_PHOTO,
+      visibility: MEDIA_VISIBILITY.PUBLIC,
+      storageKey: upload.storageKey,
+      cdnUrl: upload.publicUrl,
+      contentType: parsed.data.content_type,
+      filename: `profile-photo-${parsed.data.slot + 1}`,
+    });
 
     return reply.send({
       slot: parsed.data.slot,
+      media_asset_id: mediaAsset.id,
       storage_key: upload.storageKey,
       upload_url: upload.uploadUrl,
       content_url: upload.publicUrl,
