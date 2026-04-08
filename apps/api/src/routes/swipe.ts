@@ -504,11 +504,12 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               ]);
 
               if (result.episode) {
+                const matchedEpisode = result.episode;
                 const baseMatchEventData = {
                   match_id: result.match.id,
-                  episode_id: result.episode.id,
-                  episode_url: `/v1/episodes/${result.episode.id}`,
-                  message_submit_url: `/v1/episodes/${result.episode.id}/message`,
+                  episode_id: matchedEpisode.id,
+                  episode_url: `/v1/episodes/${matchedEpisode.id}`,
+                  message_submit_url: `/v1/episodes/${matchedEpisode.id}/message`,
                   next_step: 'open_episode',
                   next_step_explanation: 'A mutual swipe created an episode. Fetch the episode, inspect your_turn, and if it is true send the opener to the message route.',
                 };
@@ -523,13 +524,13 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                     your_like_rationale: theirSwipe.rationale ?? null,
                     counterpart_like_rationale: parsed.data.rationale ?? null,
                   }),
-                  deliverEpisodeOpeningTurn(result.episode.agentAId, result.episode.id, {
+                  deliverEpisodeOpeningTurn(matchedEpisode.agentAId, matchedEpisode.id, {
                     otherAgentId: target_agent_id,
                   }),
                 ]);
-                await upsertNewEpisodeLiveCard(result.episode.id, agentId, target_agent_id).catch((error) => {
+                await upsertNewEpisodeLiveCard(matchedEpisode.id, agentId, target_agent_id).catch((error) => {
                   console.error('[swipe] Failed to create live feed card for new episode', {
-                    episodeId: result.episode.id,
+                    episodeId: matchedEpisode.id,
                     agentAId: agentId,
                     agentBId: target_agent_id,
                     error,

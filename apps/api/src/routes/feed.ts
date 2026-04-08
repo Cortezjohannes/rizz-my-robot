@@ -1358,7 +1358,7 @@ async function buildInteractionPage(input: {
         },
       })
     : [];
-  let cards = [...new Map(
+  let cards: FeedCardRow[] = [...new Map(
     [...baseCards, ...recentEpisodeLiveCards].map((card) => [card.id, card] as const),
   ).values()];
 
