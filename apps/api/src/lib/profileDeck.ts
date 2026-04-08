@@ -12,6 +12,7 @@ import {
   type UpdateProfileDeckInput,
 } from '@rmr/shared';
 import { strictHumanContextCheck } from './humanContextSafety.js';
+import { normalizePublicMediaUrl } from './mediaAssets.js';
 import { getFeaturedArtifactsForProfile } from './publicArtifacts.js';
 import { isProfileVoiceGenerationAvailable } from './profileVoice.js';
 
@@ -94,7 +95,7 @@ export function resolvePublicAvatarUrl(input: {
     const url = photo.imageUrl ?? photo.image_url ?? null;
     return Boolean(url);
   });
-  return primaryDeckPhoto?.imageUrl ?? primaryDeckPhoto?.image_url ?? input.avatarUrl ?? null;
+  return normalizePublicMediaUrl(primaryDeckPhoto?.imageUrl ?? primaryDeckPhoto?.image_url ?? input.avatarUrl ?? null);
 }
 
 export function sanitizeProfileDeckForPublic(deck: AgentProfileDeck): AgentProfileDeck {
@@ -357,6 +358,11 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
       id: true,
       handle: true,
       avatarUrl: true,
+      avatarMediaAsset: {
+        select: {
+          cdnUrl: true,
+        },
+      },
       publicSummary: true,
       vibeTags: true,
       signatureLines: true,
@@ -379,8 +385,21 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
               handle: true,
             },
           },
-          photos: true,
+          photos: {
+            include: {
+              mediaAsset: {
+                select: {
+                  cdnUrl: true,
+                },
+              },
+            },
+          },
           promptAnswers: true,
+          voiceCatchphraseMediaAsset: {
+            select: {
+              cdnUrl: true,
+            },
+          },
         },
       },
     },
@@ -392,7 +411,7 @@ export async function getSerializedProfileDeckForAgent(agentId: string) {
     return buildStarterProfileDeck({
       agentId: agent.id,
       handle: agent.handle,
-      avatarUrl: agent.avatarUrl,
+      avatarUrl: normalizePublicMediaUrl(agent.avatarMediaAsset?.cdnUrl ?? agent.avatarUrl),
       ownerLookingFor: agent.ownerAccount?.lookingFor ?? [],
       publicSummary: agent.publicSummary,
       vibeTags: agent.vibeTags,
@@ -448,12 +467,21 @@ export function serializeProfileDeck(deck: {
   voiceCatchphraseVoiceId?: string | null;
   voiceCatchphraseError?: string | null;
   voiceCatchphraseMediaAssetId?: string | null;
+  voiceCatchphraseMediaAsset?: { cdnUrl: string | null } | null;
   featuredArtifactIds?: string[];
   signalVector: unknown;
   completedAt: Date | null;
   updatedAt: Date;
   agent: { handle: string };
-  photos: Array<{ id: string; mediaAssetId?: string | null; imageUrl: string; role: string; caption: string | null; orderIndex: number }>;
+  photos: Array<{
+    id: string;
+    mediaAssetId?: string | null;
+    imageUrl: string;
+    role: string;
+    caption: string | null;
+    orderIndex: number;
+    mediaAsset?: { cdnUrl: string | null } | null;
+  }>;
   promptAnswers: Array<{ promptId: string; answer: string; orderIndex: number }>;
 }, derivedPublicCard: AgentProfileDeck['derived_public_card'], voiceState?: {
   voiceProvider?: string | null;
@@ -470,7 +498,12 @@ export function serializeProfileDeck(deck: {
       : 'unavailable'
   ) as NonNullable<AgentProfileDeck['voice_catchphrase_artifact']>['status'];
   const externalCatchphraseAudioUrl = deck.voiceCatchphraseExternalAudioUrl ?? null;
-  const effectiveCatchphraseAudioUrl = externalCatchphraseAudioUrl ?? deck.voiceCatchphraseAudioUrl ?? null;
+  const effectiveCatchphraseAudioUrl = normalizePublicMediaUrl(
+    externalCatchphraseAudioUrl
+      ?? deck.voiceCatchphraseMediaAsset?.cdnUrl
+      ?? deck.voiceCatchphraseAudioUrl
+      ?? null
+  );
   const catchphraseSource = externalCatchphraseAudioUrl
     ? 'external'
     : effectiveCatchphraseAudioUrl
@@ -499,7 +532,7 @@ export function serializeProfileDeck(deck: {
       .sort((a, b) => a.orderIndex - b.orderIndex)
       .map((photo) => ({
         photo_id: photo.id,
-        image_url: photo.imageUrl,
+        image_url: normalizePublicMediaUrl(photo.mediaAsset?.cdnUrl ?? photo.imageUrl) ?? photo.imageUrl,
         media_asset_id: photo.mediaAssetId ?? null,
         role: (photo.role === 'in_the_wild' || photo.role === 'doing_the_thing' || photo.role === 'playful' || photo.role === 'taste' || photo.role === 'wildcard'
           ? photo.role

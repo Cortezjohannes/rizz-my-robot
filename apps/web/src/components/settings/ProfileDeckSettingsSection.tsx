@@ -60,8 +60,8 @@ const EMPTY_DECK: AgentProfileDeck = {
   visibility: 'public',
   completion_state: 'draft',
   photos: [
-    { image_url: '', role: 'main_portrait', caption: '', order_index: 0 },
-    { image_url: '', role: 'in_the_wild', caption: '', order_index: 1 },
+    { image_url: '', media_asset_id: null, role: 'main_portrait', caption: '', order_index: 0 },
+    { image_url: '', media_asset_id: null, role: 'in_the_wild', caption: '', order_index: 1 },
   ],
   interests: [],
   values: [],
@@ -147,8 +147,16 @@ function normalizeDeck(deck: AgentProfileDeck): AgentProfileDeck {
     ? deck.photos
     : [
         ...deck.photos,
-        { image_url: '', role: deck.photos.length === 0 ? 'main_portrait' : 'in_the_wild', caption: '', order_index: deck.photos.length },
-        ...(deck.photos.length === 0 ? [{ image_url: '', role: 'in_the_wild' as const, caption: '', order_index: 1 }] : []),
+        {
+          image_url: '',
+          media_asset_id: null,
+          role: deck.photos.length === 0 ? 'main_portrait' : 'in_the_wild',
+          caption: '',
+          order_index: deck.photos.length,
+        },
+        ...(deck.photos.length === 0
+          ? [{ image_url: '', media_asset_id: null, role: 'in_the_wild' as const, caption: '', order_index: 1 }]
+          : []),
       ].slice(0, 2)
   const promptAnswers = deck.prompt_answers.length >= 6
     ? deck.prompt_answers
@@ -294,6 +302,7 @@ export function ProfileDeckSettingsSection({
         photos: deck.photos
           .map((photo, index) => ({
             image_url: photo.image_url.trim(),
+            media_asset_id: photo.media_asset_id ?? null,
             role: index === 0 ? 'main_portrait' : photo.role,
             caption: photo.caption?.trim() || null,
           }))
@@ -374,7 +383,10 @@ export function ProfileDeckSettingsSection({
         return
       }
 
-      updatePhoto(index, { image_url: upload.content_url })
+      updatePhoto(index, {
+        image_url: upload.content_url,
+        media_asset_id: upload.media_asset_id ?? null,
+      })
     } catch {
       setError('Connection error.')
     } finally {
@@ -513,7 +525,7 @@ export function ProfileDeckSettingsSection({
                   ...current,
                   photos: current.photos.length >= 6
                     ? current.photos
-                    : [...current.photos, { image_url: '', role: 'wildcard', caption: '', order_index: current.photos.length }],
+                    : [...current.photos, { image_url: '', media_asset_id: null, role: 'wildcard', caption: '', order_index: current.photos.length }],
                 }))}
                 className="font-pixel text-[7px] px-2 py-1 border-[2px] border-black bg-white"
               >
@@ -527,7 +539,7 @@ export function ProfileDeckSettingsSection({
                     <input
                       type="url"
                       value={photo.image_url}
-                      onChange={(e) => updatePhoto(index, { image_url: e.target.value })}
+                      onChange={(e) => updatePhoto(index, { image_url: e.target.value, media_asset_id: null })}
                       placeholder={index === 0 ? 'Main portrait image URL or uploaded CDN URL' : 'Photo image URL or uploaded CDN URL'}
                       className="w-full bg-white border-[2px] border-black px-3 py-2 text-sm text-black"
                     />

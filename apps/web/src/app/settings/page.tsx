@@ -192,13 +192,17 @@ function ProfileSection({
         body: file,
       })
       if (!putRes.ok) { setError('Avatar upload failed before save.'); return }
-      const saveRes = await apiFetch('/me', { method: 'PUT', body: JSON.stringify({ avatar_url: upload.content_url }) })
+      const saveRes = await apiFetch('/me', {
+        method: 'PUT',
+        body: JSON.stringify({ avatar_media_asset_id: upload.media_asset_id ?? null }),
+      })
       if (!saveRes.ok) {
         const d = await saveRes.json().catch(() => ({}))
         setError(d?.error?.message ?? 'Avatar uploaded but could not be saved.')
         return
       }
-      setAvatarUrl(upload.content_url)
+      const savedProfile = await saveRes.json().catch(() => null)
+      setAvatarUrl(savedProfile?.avatar_url ?? upload.content_url)
       setSuccess(true)
       await mutate()
       setTimeout(() => setSuccess(false), 3000)
