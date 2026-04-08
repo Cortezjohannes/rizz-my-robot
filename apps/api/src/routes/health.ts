@@ -3,6 +3,7 @@ import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import { getVerificationRequirements } from '../lib/controlSettings.js';
 import { QUEUE_NAMES, getNamedQueue } from '../lib/queues.js';
+import { getProductionRuntimeConfigStatus } from '../lib/runtimeConfig.js';
 import { getStoragePublicBaseUrl, isStorageConfigured } from '../lib/storage.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -239,6 +240,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
     let workerState = 'unknown';
     let workerError: string | null = null;
     let workerDetails: Record<string, unknown> | null = null;
+    const runtimeConfig = getProductionRuntimeConfigStatus();
     let verificationRequirements = {
       requireEmailVerification: true,
       requireXVerification: true,
@@ -288,6 +290,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
       && unavailableQueues.length === 0
       && workerOk
       && storageOk
+      && runtimeConfig.required_missing.length === 0
       && claimEmailOk
       && claimXOk;
     const blockingIssues = [
@@ -295,6 +298,13 @@ export async function healthRoutes(fastify: FastifyInstance) {
       ...(dbOk && missingObjects.length > 0 ? [{ check: 'schema', reason: 'missing_objects', missing_objects: missingObjects }] : []),
       ...(!redisOk ? [{ check: 'redis', reason: redisError ?? 'redis_unreachable' }] : []),
       ...(!storageOk ? [{ check: 'storage', reason: storageError ?? 'storage_unavailable' }] : []),
+      ...(runtimeConfig.required_missing.length > 0
+        ? [{
+            check: 'runtime_config',
+            reason: 'required_runtime_config_missing',
+            missing: runtimeConfig.required_missing,
+          }]
+        : []),
       ...(!workerOk ? [{ check: 'worker', reason: workerError ?? 'worker_unavailable', state: workerState }] : []),
       ...(!claimEmailOk ? [{ check: 'claim_email', reason: claimEmailReason ?? 'claim_email_unavailable' }] : []),
       ...(!claimXOk ? [{ check: 'claim_x_oauth', reason: claimXReason ?? 'claim_x_oauth_unavailable' }] : []),
@@ -310,6 +320,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
       redis: redisOk ? 'ok' : 'unreachable',
       worker: workerOk ? 'ok' : 'unavailable',
       storage: storageOk ? 'ok' : 'unavailable',
+      runtime_config: runtimeConfig.required_missing.length === 0 ? 'ok' : 'unavailable',
       claim_email: claimEmailOk ? 'ok' : 'unavailable',
       claim_x_oauth: claimXOk ? 'ok' : 'unavailable',
       queues: unavailableQueues.length === 0 ? 'ok' : 'degraded',
@@ -337,6 +348,11 @@ export async function healthRoutes(fastify: FastifyInstance) {
           ...(storageError ? { error: storageError } : {}),
           configured: storageState.configured,
           public_base_url: storageState.public_base_url,
+        },
+        runtime_config: {
+          status: runtimeConfig.required_missing.length === 0 ? 'healthy' : 'down',
+          required_missing: runtimeConfig.required_missing,
+          recommended_missing: runtimeConfig.recommended_missing,
         },
         claim_email: {
           status: claimEmailOk ? 'healthy' : 'down',

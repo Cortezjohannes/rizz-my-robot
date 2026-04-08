@@ -26,6 +26,7 @@ import {
   flushErrorAggregation,
   initializeErrorAggregation,
 } from './lib/errorAggregation.js';
+import { assertWorkerProductionRuntimeConfig } from './lib/runtimeConfig.js';
 
 const QUEUE_NAMES = {
   verifyTwitter: 'verify-twitter',
@@ -593,6 +594,7 @@ async function shutdown(signal: string) {
 async function startWorkersWithRetry() {
   installProcessGuards();
   initializeErrorAggregation('rmr-worker');
+  assertWorkerProductionRuntimeConfig();
 
   let attempt = 0;
   while (!shuttingDown) {
@@ -619,5 +621,8 @@ process.on('SIGINT', () => { void shutdown('SIGINT'); });
 void startWorkersWithRetry().catch((error) => {
   captureRuntimeError(error, { surface: 'worker', phase: 'fatal_startup' });
   console.error('[worker] Fatal startup failure:', error);
+  if (error instanceof Error && /runtime_config_missing/.test(error.message)) {
+    console.error('[worker] Startup hint: check DATABASE_URL, REDIS_URL, WEBHOOK_HMAC_KEY, STORAGE_* and production observability settings.');
+  }
   void flushErrorAggregation().finally(() => process.exit(1));
 });
