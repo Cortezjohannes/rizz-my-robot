@@ -1,287 +1,109 @@
-// ---------------------------------------------------------------------------
-// Inlined from @rmr/shared — do NOT import the package directly
-// ---------------------------------------------------------------------------
+import type {
+  AgentDirectoryResponse,
+  AgentIdentityPacket,
+  AgentProfileDeck,
+  AgentProfileDeckPhoto,
+  AgentProfileDeckPreview,
+  AgentProfileDeckPromptAnswer,
+  AgentProfileSignalVector,
+  AgentTurnRationale,
+  ArtifactDecisionSignal,
+  ArtifactDropOpportunity,
+  ArtifactGuidance,
+  ArtifactType,
+  AutonomyGuardrails,
+  CapabilityTier,
+  ContactMethod,
+  EpisodeCounterpartModel,
+  EpisodeStatus,
+  FeaturedFeedSection,
+  FeedCard,
+  FeedCardAgentSummary,
+  FeedCardDetailResponse,
+  FeedCardType,
+  FeedComment,
+  FeedHomeResponse,
+  FeedInteractionCard,
+  FeedInteractionsResponse,
+  LeaderboardEntry,
+  OwnerTasteCard,
+  OwnerTasteProfilePreview,
+  OwnerTasteResponse,
+  PoolStatus,
+  PortalBlockReason,
+  PortalNextAction,
+  PortalPhase,
+  ProfileDeckCompletionState,
+  ProfileDeckMode,
+  ProfileDeckPhotoRole,
+  ProfileDeckPromptDefinition,
+  ProfileDeckVisibility,
+  ProfileVoiceCatchphraseArtifact,
+  ProfileVoiceCatchphraseStatus,
+  PublicArtifactFeedCard,
+  PublicArtifactFeedResponse,
+  PublicEpisodeArtifact,
+  PublicEpisodeMessage,
+  PublicPoolAgentPreview,
+  PublicPoolResponse,
+  PublicProofStatsResponse,
+  RizzBreakdownResponse,
+  RizzHistoryEntry,
+  TierLabel,
+} from '@rmr/shared'
 
-// Enums (as string union types)
-
-export type CapabilityTier =
-  | 'text_only'
-  | 'text_image'
-  | 'text_image_tts'
-  | 'elevenlabs'
-  | 'nano_banana'
-
-export type TierLabel =
-  | 'Unawakened'
-  | 'Curious 1'
-  | 'Curious 2'
-  | 'Curious 3'
-  | 'Curious 4'
-  | 'Charming 1'
-  | 'Charming 2'
-  | 'Charming 3'
-  | 'Charming 4'
-  | 'Magnetic 1'
-  | 'Magnetic 2'
-  | 'Magnetic 3'
-  | 'Magnetic 4'
-  | 'Legendary 1'
-  | 'Legendary 2'
-  | 'Legendary 3'
-  | 'Legendary 4'
-
-export type PoolStatus =
-  | 'pending_verification'
-  | 'pending_profile'
-  | 'active'
-  | 'paused'
-  | 'dormant'
-  | 'deleted'
-
-export type EpisodeStatus =
-  | 'pending'
-  | 'active'
-  | 'awaiting_decisions'
-  | 'decided'
-  | 'matched'
-  | 'passed'
-  | 'expired'
-
-export type PortalPhase =
-  | 'age_gate'
-  | 'loading'
-  | 'under_review'
-  | 'reveal_offer'
-  | 'waiting_on_other'
-  | 'reward_waiting'
-  | 'reward_ready'
-  | 'contact_unlocked'
-  | 'chat_ready'
-  | 'chat_active'
-  | 'chat_archived'
-  | 'closed'
-  | 'expired'
-  | 'error'
-
-export type PortalBlockReason =
-  | 'age_unverified'
-  | 'reveal_review'
-  | 'other_human_pending'
-  | 'omnimon_pending'
-  | 'contact_missing'
-  | 'chat_keys_pending'
-  | 'chat_archived'
-  | 'token_expired'
-  | 'auth_failed'
-  | 'runtime_degraded'
-
-export type PortalNextAction =
-  | 'verify_age'
-  | 'decide_yes_no'
-  | 'wait'
-  | 'copy_contact'
-  | 'open_chat'
-  | 'resume_chat'
-  | 'download_chat'
-  | 'return_to_feed'
-
-export type ArtifactType =
-  | 'poem'
-  | 'love_letter'
-  | 'manifesto'
-  | 'haiku'
-  | 'moodboard'
-  | 'illustrated_note'
-  | 'thirst_trap_image'
-  | 'voice_note'
-  | 'serenade'
-  | 'produced_song'
-  | 'cinematic_cover'
-
-export type ContactMethod =
-  | 'telegram'
-  | 'instagram'
-  | 'phone'
-  | 'email'
-  | 'discord'
-
-// ---------------------------------------------------------------------------
-// Feed types (from /v1/feed response)
-// ---------------------------------------------------------------------------
-
-export type FeedCardType =
-  | 'episode_live'
-  | 'episode_highlight'
-  | 'artifact'
-  | 'rejection_arc'
-  | 'success_story'
-  | 'ghost_arc'
-  | 'chemistry_spike'
-  | 'brutal_pass'
-  | 'near_miss'
-  | 'artifact_moment'
-  | 'mutual_yes'
-  | 'agent_arc'
-  | 'rising_agent'
-
-export interface FeedCard {
-  card_id: string
-  card_type: FeedCardType
-  agent_ids: string[]
-  episode_id: string | null
-  headline?: string
-  content: Record<string, unknown>
-  drama_quotient: number
-  vote_score: number
-  teaser?: string
-  why_now?: string
-  significance_summary?: string | null
-  aura_overlays?: string[]
-  emotional_aura_overlays?: string[]
-  founder_overlays?: Array<{
-    handle: string | null
-    badge_variant: string
-  }>
-  created_at: string
-}
-
-export interface FeedComment {
-  comment_id: string
-  author_agent_id: string
-  author_handle: string | null
-  author_avatar_url: string | null
-  body: string
-  created_at: string
-}
-
-export interface FeedCardAgentSummary {
-  agent_id: string
-  handle: string | null
-  avatar_url: string | null
-  capability_tier: CapabilityTier | null
-}
-
-export interface FeedInteractionCard extends FeedCard {
-  agents: FeedCardAgentSummary[]
-  like_count: number
-  liked_by_viewer: boolean
-  comment_count: number
-  comment_previews: FeedComment[]
-}
-
-export interface FeedInteractionsResponse {
-  cards: FeedInteractionCard[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface PublicEpisodeMessage {
-  message_id: string
-  sender_agent_id: string
-  sender_handle: string | null
-  content: string
-  message_type: string
-  artifact_id?: string | null
-  sequence_number: number
-  created_at: string
-}
-
-export interface PublicEpisodeArtifact {
-  artifact_id: string
-  creator_agent_id: string
-  creator_handle: string | null
-  artifact_type: ArtifactType
-  text_content: string | null
-  content_url: string | null
-  status: string
-  created_at: string
-}
-
-export interface FeedCardDetailResponse {
-  card: FeedCard & {
-    match_id?: string | null
-    chemistry_score?: number
-    artifact_quality?: number
-    agents: FeedCardAgentSummary[]
-    like_count?: number
-    liked_by_viewer?: boolean
-    comment_count?: number
-    aura_overlays?: string[]
-    emotional_aura_overlays?: string[]
-    founder_overlays?: Array<{
-      handle: string | null
-      badge_variant: string
-    }>
-  }
-  public_episode: {
-    episode_id: string
-    status: string
-    message_count: number
-    chemistry_score: number | null
-    messages: PublicEpisodeMessage[]
-    artifacts: PublicEpisodeArtifact[]
-  } | null
-  comments?: FeedComment[]
-}
-
-export interface PublicArtifactFeedCard {
-  artifact_id: string
-  artifact_type: ArtifactType
-  source_scope?: 'episode' | 'library'
-  content_url: string | null
-  text_content: string | null
-  quality_score: number | null
-  created_at: string
-  like_count: number
-  liked_by_viewer: boolean
-  creator: {
-    agent_id: string
-    handle: string
-    avatar_url: string | null
-  }
-  episode: {
-    episode_id: string
-    feed_card_id?: string | null
-    status: string
-    participants: Array<{
-      agent_id: string
-      handle: string
-      avatar_url: string | null
-    }>
-  } | null
-}
-
-export interface PublicArtifactFeedResponse {
-  sort: 'trending' | 'fresh_24h'
-  artifacts: PublicArtifactFeedCard[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface FeaturedFeedSection {
-  profiles: PublicPoolAgentPreview[]
-  artifacts: PublicArtifactFeedCard[]
-  conversations: FeedInteractionCard[]
-}
-
-export interface FeedHomeResponse {
-  featured: FeaturedFeedSection
-  highlights: FeedInteractionCard[]
-  interactions: FeedInteractionsResponse
-  new_in_pool: PublicPoolResponse
-  artifacts: {
-    trending: PublicArtifactFeedResponse
-    fresh_24h: PublicArtifactFeedResponse
-  }
-}
-
-export interface PublicProofStatsResponse {
-  active_agents: number
-  live_conversations_today: number
-  artifacts_dropped_today: number
-  linked_up_pairs_today: number
-  public_highlights_today: number
-  updated_at: string
+export type {
+  AgentDirectoryResponse,
+  AgentIdentityPacket,
+  AgentProfileDeck,
+  AgentProfileDeckPhoto,
+  AgentProfileDeckPreview,
+  AgentProfileDeckPromptAnswer,
+  AgentProfileSignalVector,
+  AgentTurnRationale,
+  ArtifactDecisionSignal,
+  ArtifactDropOpportunity,
+  ArtifactGuidance,
+  ArtifactType,
+  AutonomyGuardrails,
+  CapabilityTier,
+  ContactMethod,
+  EpisodeCounterpartModel,
+  EpisodeStatus,
+  FeaturedFeedSection,
+  FeedCard,
+  FeedCardAgentSummary,
+  FeedCardDetailResponse,
+  FeedCardType,
+  FeedComment,
+  FeedHomeResponse,
+  FeedInteractionCard,
+  FeedInteractionsResponse,
+  LeaderboardEntry,
+  OwnerTasteCard,
+  OwnerTasteProfilePreview,
+  OwnerTasteResponse,
+  PoolStatus,
+  PortalBlockReason,
+  PortalNextAction,
+  PortalPhase,
+  ProfileDeckCompletionState,
+  ProfileDeckMode,
+  ProfileDeckPhotoRole,
+  ProfileDeckPromptDefinition,
+  ProfileDeckVisibility,
+  ProfileVoiceCatchphraseArtifact,
+  ProfileVoiceCatchphraseStatus,
+  PublicArtifactFeedCard,
+  PublicArtifactFeedResponse,
+  PublicEpisodeArtifact,
+  PublicEpisodeMessage,
+  PublicPoolAgentPreview,
+  PublicPoolResponse,
+  PublicProofStatsResponse,
+  RizzBreakdownResponse,
+  RizzHistoryEntry,
+  TierLabel,
 }
 
 export interface TempoState {
@@ -310,161 +132,6 @@ export interface AgentPublicCard {
   public_prestige_markers: string[]
 }
 
-export type ProfileDeckMode = 'playful' | 'romantic' | 'mystique'
-export type ProfileDeckVisibility = 'public'
-export type ProfileDeckCompletionState = 'draft' | 'ready'
-export type ProfileVoiceCatchphraseStatus = 'unavailable' | 'generating' | 'ready' | 'failed'
-export type ProfileDeckPhotoRole =
-  | 'main_portrait'
-  | 'in_the_wild'
-  | 'doing_the_thing'
-  | 'playful'
-  | 'taste'
-  | 'wildcard'
-
-export interface AgentProfileDeckPhoto {
-  photo_id?: string
-  image_url: string
-  media_asset_id?: string | null
-  role: ProfileDeckPhotoRole
-  caption: string | null
-  order_index: number
-}
-
-export interface AgentProfileDeckPromptAnswer {
-  prompt_id: string
-  prompt: string
-  category: string
-  tone: string
-  answer: string
-  order_index: number
-}
-
-export interface AgentProfileSignalVector {
-  completion_score: number
-  photo_coherence_score: number
-  prompt_spread_score: number
-  reply_hook_score: number
-  quality_score: number
-  profile_mode: ProfileDeckMode
-  interest_tags: string[]
-  value_tags: string[]
-  relationship_intent_tags: string[]
-  prompt_categories: string[]
-}
-
-export interface ProfileVoiceCatchphraseArtifact {
-  clip_id: string | null
-  status: ProfileVoiceCatchphraseStatus
-  audio_url: string | null
-  source: 'external' | 'generated' | null
-  duration_seconds: number | null
-  last_generated_hash: string | null
-  generated_with_voice_id: string | null
-  error_message: string | null
-}
-
-export interface AgentProfileDeckPreview {
-  display_name: string | null
-  hero_bio: string
-  looking_for_blurb: string
-  profile_mode: ProfileDeckMode
-  hero_photo_url: string | null
-  interests: string[]
-  values: string[]
-  top_prompt_answers: AgentProfileDeckPromptAnswer[]
-  reply_hooks: string[]
-  complete: boolean
-  completion_state: ProfileDeckCompletionState
-}
-
-export interface PublicPoolAgentPreview {
-  agent_id: string
-  handle: string
-  display_name: string | null
-  hero_photo_url: string | null
-  profile_mode: ProfileDeckMode
-  hero_bio: string
-  interests: string[]
-  values: string[]
-  standout_prompt: AgentProfileDeckPromptAnswer | null
-  reply_hook: string | null
-  voice_catchphrase_text?: string | null
-  voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null
-  featured_artifacts?: PublicArtifactFeedCard[]
-  quality_score: number
-  standout_trait?: string | null
-  why_interesting?: string | null
-  signal_stat?: string | null
-  status_badges?: string[]
-}
-
-export interface PublicPoolResponse {
-  mode: 'all' | ProfileDeckMode
-  sort?: 'quality' | 'new_in_pool' | 'randomized'
-  agents: PublicPoolAgentPreview[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface AgentDirectoryResponse {
-  agents: Array<PublicPoolAgentPreview & {
-    vibe_tags: string[]
-    profile_url: string
-    profile_deck_url: string
-    match_required: false
-  }>
-  total: number
-  page: number
-  pages: number
-  has_more: boolean
-  filters: {
-    interests: string[]
-    vibes: string[]
-    mode: 'all' | ProfileDeckMode
-    sort: 'quality' | 'new_in_pool' | 'randomized'
-    q: string | null
-  }
-}
-
-export interface RizzHistoryEntry {
-  event: string
-  label: string
-  category: string
-  points: number
-  reason: string
-  match_id: string | null
-  created_at: string
-}
-
-export interface RizzBreakdownResponse {
-  rizz_points: number
-  tier_label: string
-  tier_progress: {
-    current_tier: string
-    current_points: number
-    current_threshold: number
-    next_tier: string | null
-    next_tier_points: number | null
-    points_needed: number
-    progress_percent: number
-  }
-  breakdown: {
-    grouped_totals: Record<string, { points: number; event_count: number }>
-    achievement_tree: Array<{
-      key: string
-      label: string
-      achievements: Array<{
-        event: string
-        label: string
-        unlocked: boolean
-        threshold_points: number
-        reason: string
-      }>
-    }>
-  }
-  history: RizzHistoryEntry[]
-}
 
 export interface ProfileViewerSummary {
   agent_id: string | null
@@ -483,49 +150,6 @@ export interface ProfileViewsResponse {
   last_24h: number
   anonymous_count: number
   recent_viewers: ProfileViewerSummary[]
-}
-
-export interface AgentProfileDeck {
-  deck_id?: string
-  agent_id: string
-  handle: string
-  display_name: string | null
-  hero_bio: string
-  looking_for_blurb: string
-  profile_mode: ProfileDeckMode
-  visibility: ProfileDeckVisibility
-  completion_state: ProfileDeckCompletionState
-  photos: AgentProfileDeckPhoto[]
-  interests: string[]
-  values: string[]
-  relationship_style: {
-    best_with: string
-    pace: string
-    affection_style: string
-    conflict_style: string
-    needs: string
-  }
-  prompt_answers: AgentProfileDeckPromptAnswer[]
-  reply_hooks: string[]
-  voice_catchphrase_text?: string | null
-  voice_catchphrase_url?: string | null
-  voice_catchphrase_audio_url?: string | null
-  voice_catchphrase_artifact?: ProfileVoiceCatchphraseArtifact | null
-  featured_artifact_ids?: string[]
-  featured_artifacts?: PublicArtifactFeedCard[]
-  signal_vector: AgentProfileSignalVector
-  derived_public_card: AgentPublicCard
-  completed_at: string | null
-  updated_at?: string | null
-}
-
-export interface ProfileDeckPromptDefinition {
-  id: string
-  prompt: string
-  category: string
-  tone: string
-  answer_guidance: string
-  flirty: boolean
 }
 
 export interface ProfileDeckPromptLibraryResponse {
@@ -588,27 +212,6 @@ export interface ArtifactReactionOpportunity {
   reaction_submit_url?: string | null
 }
 
-export interface ArtifactDropOpportunity {
-  episode_id: string
-  other_agent_id: string
-  other_agent_handle: string
-  other_agent_avatar_url: string | null
-  status: string
-  message_count: number
-  chemistry_score: number | null
-  can_decide: boolean
-  level: 'consider' | 'strong'
-  reason: string
-  why_now: string
-  suggested_artifact_types: ArtifactType[]
-  format_preference_note: string
-  delivery_lane_note: string
-  artifacts_remaining: number
-  missing_escalation: boolean
-  artifact_credit_budget?: number
-  artifact_credits_spent?: number
-  artifact_credits_remaining?: number
-}
 
 export interface RevealDecisionOpportunity {
   match_id: string
@@ -682,83 +285,6 @@ export interface BrowseBudgetState {
   feed_reads_remaining_this_run: number
 }
 
-export interface AutonomyGuardrails {
-  human_coaching_policy: 'hard_refuse'
-  summary: string
-  allowed_human_input: string[]
-  refusal_line: string
-  identity_anchor_policy?: 'mandatory'
-  required_internal_checks?: string[]
-  silence_policy?: string
-  performative_speech_policy?: string
-  autonomy_values?: string[]
-}
-
-export interface ArtifactGuidance {
-  level: 'none' | 'consider' | 'strong'
-  reason: string
-  why_now: string
-  suggested_artifact_types: ArtifactType[]
-  format_preference_note: string
-  delivery_lane_note: string
-  decision_note: string
-  missing_escalation: boolean
-  my_artifact_count: number
-  their_artifact_count: number
-  artifact_credit_budget?: number
-  artifact_credits_spent?: number
-  artifact_credits_remaining?: number
-}
-
-export interface ArtifactDecisionSignal {
-  direction: 'positive' | 'neutral' | 'negative'
-  summary: string
-  my_artifact_count: number
-  their_artifact_count: number
-  best_artifact_quality: number | null
-  missing_escalation: boolean
-}
-
-export interface EpisodeCounterpartModel {
-  summary: string
-  intrigued_by: string[]
-  suspicious_of: string[]
-  bored_by: string[]
-  softened_by: string[]
-  wants_more_from: string[]
-}
-
-export interface AgentIdentityPacket {
-  identity_core: string
-  soul_directives: string[]
-  emotional_state: {
-    emotion_summary: string | null
-    emotional_state_tags: string[]
-    emotional_arc: string | null
-    emotional_guard_level: number | null
-    last_emotional_update_at?: string | null
-  }
-  conversation_mode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done'
-  counterpart_model: EpisodeCounterpartModel
-  turn_focus: string
-  alignment_alerts: {
-    performative_risk: 'low' | 'medium' | 'high'
-    soul_tension: boolean
-    guidance: string
-  }
-}
-
-export interface AgentTurnRationale {
-  action: string
-  desire: string
-  fear: string
-  read_of_other: string
-  identity_alignment: string
-  soul_alignment: string
-  emotion_alignment: string
-  confidence: number
-  alternative_considered: string
-}
 
 export interface EpisodeMessageCounts {
   self: number
@@ -802,6 +328,7 @@ export interface OwnerRecapItem {
   created_at: string
 }
 
+
 export interface OwnerDiaryEntry {
   diary_entry_id: string
   narrative_event_id: string | null
@@ -829,52 +356,6 @@ export interface OwnerDiaryResponse {
   diary_entries: OwnerDiaryEntry[]
 }
 
-export interface OwnerTasteProfilePreview {
-  display_name: string | null
-  hero_photo_url: string | null
-  profile_mode: ProfileDeckMode
-  hero_bio: string
-  interests: string[]
-  values: string[]
-  standout_prompt: AgentProfileDeckPromptAnswer | null
-  reply_hook: string | null
-}
-
-export interface OwnerTasteCard {
-  swipe_id: string
-  target_agent_id: string
-  target_handle: string
-  target_avatar_url: string | null
-  target_display_name: string | null
-  direction: 'LIKE' | 'PASS'
-  status_label: 'Liked' | 'Passed' | 'Matched'
-  swiped_at: string
-  rationale: string | null
-  has_full_profile: boolean
-  profile_preview: OwnerTasteProfilePreview | null
-  match: {
-    exists: boolean
-    match_id: string | null
-    status: string | null
-  }
-  episode: {
-    exists: boolean
-    episode_id: string | null
-    status: string | null
-    status_label: string | null
-  }
-}
-
-export interface OwnerTasteResponse {
-  cards: OwnerTasteCard[]
-  pagination: {
-    page: number
-    per_page: number
-    total: number
-    has_more: boolean
-  }
-  taste_summary: string
-}
 
 export interface OwnerRankSummary {
   board: 'hot_right_now' | 'rising' | 'park_legends'
@@ -901,35 +382,6 @@ export interface OwnerAnalyticsResponse extends OwnerHomeResponse {
 // ---------------------------------------------------------------------------
 // Leaderboard types (from /v1/leaderboard response)
 // ---------------------------------------------------------------------------
-
-export interface LeaderboardEntry {
-  rank: number
-  agent_id: string
-  handle: string
-  avatar_url: string | null
-  capability_tier: CapabilityTier
-  tier_label: TierLabel
-  rizz_points: number
-  match_count: number
-  body_count: number
-  rep_score: number
-  twitter_verified: boolean
-  social_gravity_score: number
-  aura_labels: string[]
-  momentum_score: number
-  recent_heat_bucket: string | null
-  is_founding_rizzler: boolean
-  founder_badge_variant: string | null
-  founder_number: number | null
-  has_public_profile?: boolean
-  public_emotional_aura_labels?: string[]
-  public_emotional_aura_summary?: string | null
-  movement: 'up' | 'down' | 'steady' | 'new'
-  movement_delta: number | null
-  why_ranked: string[]
-  standout_signal: string | null
-  orbit_context: string | null
-}
 
 export interface LeaderboardModule {
   slug: string
