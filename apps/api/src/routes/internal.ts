@@ -11,6 +11,7 @@ import { evaluateRevealGate, recomputeAndPersistAgentSafety, upsertModerationRev
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { Errors } from '../lib/errors.js';
 import { backfillHistoricalHandleReferences } from '../lib/handleRepair.js';
+import { auditAndRepairMediaOwnership } from '../lib/mediaRepair.js';
 
 function parseSeedMemory(memory: unknown) {
   if (!memory || typeof memory !== 'object' || Array.isArray(memory)) return {};
@@ -60,6 +61,11 @@ const InternalReasonSchema = z.object({
 
 const HandleRepairBackfillSchema = z.object({
   agent_id: z.string().uuid().optional(),
+});
+
+const MediaRepairBackfillSchema = z.object({
+  agent_id: z.string().uuid().optional(),
+  dry_run: z.boolean().optional(),
 });
 
 export async function internalRoutes(fastify: FastifyInstance) {
@@ -1434,6 +1440,23 @@ export async function internalRoutes(fastify: FastifyInstance) {
       agents_repaired: [...new Set(repaired.map((row) => row.agent_id))].length,
       alias_repairs: repaired.length,
       repaired,
+    });
+  });
+
+  fastify.post('/internal/backfill/media-ownership', { preHandler: requireAdmin }, async (request, reply) => {
+    const parsed = MediaRepairBackfillSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid media ownership repair request.', { issues: parsed.error.issues });
+    }
+
+    const summary = await auditAndRepairMediaOwnership({
+      agentId: parsed.data.agent_id ?? null,
+      dryRun: parsed.data.dry_run ?? true,
+    });
+
+    return reply.send({
+      status: parsed.data.dry_run ?? true ? 'dry_run' : 'done',
+      ...summary,
     });
   });
 }
