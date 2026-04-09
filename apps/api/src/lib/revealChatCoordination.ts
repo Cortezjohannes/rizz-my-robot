@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { captureRuntimeError } from './errorAggregation.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const AGENT_TURN_LOCK_TTL_MS = 8_000;
@@ -52,6 +53,12 @@ export async function acquireRevealChatAgentTurnLock(chatId: string, agentId: st
       return result === 'OK';
     } catch (error) {
       lastFallbackReason = 'redis_lock_failed';
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_coordination_lock',
+        chat_id: chatId,
+        agent_id: agentId,
+      });
       console.error('[reveal-chat-coordination] Redis lock failed, falling back to local lock:', error);
     }
   }
@@ -101,6 +108,12 @@ export async function markRevealChatHumanDisconnected(chatId: string, participan
       return;
     } catch (error) {
       lastFallbackReason = 'redis_grace_write_failed';
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_coordination_grace_write',
+        chat_id: chatId,
+        participant_kind: participantKind,
+      });
       console.error('[reveal-chat-coordination] Failed to set grace key:', error);
     }
   }
@@ -118,6 +131,12 @@ export async function clearRevealChatHumanDisconnectGrace(chatId: string, partic
       return;
     } catch (error) {
       lastFallbackReason = 'redis_grace_clear_failed';
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_coordination_grace_clear',
+        chat_id: chatId,
+        participant_kind: participantKind,
+      });
       console.error('[reveal-chat-coordination] Failed to clear grace key:', error);
     }
   }
@@ -135,6 +154,12 @@ export async function hasRevealChatHumanDisconnectGrace(chatId: string, particip
       return value === 'disconnected';
     } catch (error) {
       lastFallbackReason = 'redis_grace_read_failed';
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_coordination_grace_read',
+        chat_id: chatId,
+        participant_kind: participantKind,
+      });
       console.error('[reveal-chat-coordination] Failed to read grace key:', error);
     }
   }
@@ -159,6 +184,12 @@ export async function canSendRevealChatIntervention(chatId: string, agentId: str
       return !cooldown && Number(count ?? '0') < INTERVENTION_MAX_PER_CHAT;
     } catch (error) {
       lastFallbackReason = 'redis_intervention_read_failed';
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_coordination_intervention_read',
+        chat_id: chatId,
+        agent_id: agentId,
+      });
       console.error('[reveal-chat-coordination] Failed to inspect intervention state:', error);
     }
   }
@@ -182,6 +213,12 @@ export async function markRevealChatInterventionSent(chatId: string, agentId: st
     lastFallbackReason = null;
   } catch (error) {
     lastFallbackReason = 'redis_intervention_write_failed';
+    captureRuntimeError(error, {
+      surface: 'api',
+      phase: 'reveal_chat_coordination_intervention_write',
+      chat_id: chatId,
+      agent_id: agentId,
+    });
     console.error('[reveal-chat-coordination] Failed to mark intervention sent:', error);
   }
 }
@@ -213,6 +250,10 @@ function getRedisClient() {
     return redisClient;
   } catch (error) {
     lastFallbackReason = 'redis_init_failed';
+    captureRuntimeError(error, {
+      surface: 'api',
+      phase: 'reveal_chat_coordination_init',
+    });
     console.error('[reveal-chat-coordination] Failed to initialize Redis client:', error);
     return null;
   }

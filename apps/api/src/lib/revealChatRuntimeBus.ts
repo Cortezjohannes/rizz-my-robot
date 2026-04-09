@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
+import { captureRuntimeError } from './errorAggregation.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const REVEAL_CHAT_EVENT_CHANNEL = 'reveal-chat:events';
@@ -40,6 +41,10 @@ function createRedisClient() {
     });
     return client;
   } catch (error) {
+    captureRuntimeError(error, {
+      surface: 'api',
+      phase: 'reveal_chat_runtime_bus_init',
+    });
     console.error('[reveal-chat-runtime-bus] Failed to initialize Redis client:', error);
     return null;
   }
@@ -83,6 +88,10 @@ async function ensureSubscriptionStarted() {
           subscriberCallback(parsed);
         }
       } catch (error) {
+        captureRuntimeError(error, {
+          surface: 'api',
+          phase: 'reveal_chat_runtime_bus_parse',
+        });
         console.error('[reveal-chat-runtime-bus] Failed to parse runtime event:', error);
       }
     });
@@ -93,6 +102,10 @@ async function ensureSubscriptionStarted() {
   } catch (error) {
     subscriptionStarted = false;
     if (!isRedisUnavailableError(error)) {
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_runtime_bus_subscribe',
+      });
       console.error('[reveal-chat-runtime-bus] Failed to subscribe to Redis channel:', error);
     }
   }
@@ -117,6 +130,12 @@ export async function publishRevealChatRuntimeEvent(input: {
     return true;
   } catch (error) {
     if (!isRedisUnavailableError(error)) {
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_runtime_bus_publish',
+        chat_id: input.chatId,
+        event: input.event,
+      });
       console.error('[reveal-chat-runtime-bus] Failed to publish runtime event:', error);
     }
     return false;
@@ -145,6 +164,13 @@ export async function consumeDistributedRevealChatMessageRateLimit(input: {
     return current <= input.max;
   } catch (error) {
     if (!isRedisUnavailableError(error)) {
+      captureRuntimeError(error, {
+        surface: 'api',
+        phase: 'reveal_chat_runtime_rate_limit',
+        key: input.key,
+        max: input.max,
+        window_ms: input.windowMs,
+      });
       console.error('[reveal-chat-runtime-bus] Failed to consume distributed rate limit:', error);
     }
     return null;

@@ -1,4 +1,5 @@
 import { prisma, type Prisma } from '@rmr/db';
+import { captureRuntimeError } from './errorAggregation.js';
 
 export async function recordAutonomyTrace(input: {
   agentId: string;
@@ -22,6 +23,14 @@ export async function recordAutonomyTrace(input: {
       },
     });
   } catch (err) {
+    captureRuntimeError(err, {
+      surface: 'api',
+      phase: 'autonomy_trace_persist',
+      agent_id: input.agentId,
+      trace_type: input.traceType,
+      episode_id: input.episodeId ?? null,
+      match_id: input.matchId ?? null,
+    });
     console.error('[observability] Failed to record autonomy trace:', err);
   }
 }
