@@ -3,6 +3,7 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
 import { feedRoutes } from './routes/feed.js';
+import { deriveClaimFlow } from './lib/claimFlow.js';
 import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
 
@@ -100,6 +101,89 @@ test('resolvePublicAvatarUrl prefers a deck photo and normalizes legacy metadata
   assert.equal(
     avatarUrl,
     `https://api.rizzmyrobot.com/v1/media/${LEGACY_MEDIA_ID}/content`,
+  );
+});
+
+test('deriveClaimFlow returns stable steps from owner and verification state', () => {
+  const requirements = {
+    requireEmailVerification: true,
+    requireXVerification: true,
+  };
+
+  assert.deepEqual(
+    deriveClaimFlow({
+      status: 'pending_email',
+      ownerAccountId: null,
+      emailVerifiedAt: null,
+      xVerifiedAt: null,
+      completedAt: null,
+    }, requirements),
+    {
+      current_step: 'email',
+      next_step: 'email',
+      normalized_status: 'pending_email',
+      email_verified: false,
+      x_verified: false,
+      can_restart: true,
+      can_complete: false,
+    },
+  );
+
+  assert.deepEqual(
+    deriveClaimFlow({
+      status: 'email_sent',
+      ownerAccountId: 'owner-1',
+      emailVerifiedAt: null,
+      xVerifiedAt: null,
+      completedAt: null,
+    }, requirements),
+    {
+      current_step: 'email_verification',
+      next_step: 'email_verification',
+      normalized_status: 'email_sent',
+      email_verified: false,
+      x_verified: false,
+      can_restart: true,
+      can_complete: false,
+    },
+  );
+
+  assert.deepEqual(
+    deriveClaimFlow({
+      status: 'x_pending',
+      ownerAccountId: 'owner-1',
+      emailVerifiedAt: new Date('2026-04-09T10:00:00.000Z'),
+      xVerifiedAt: null,
+      completedAt: null,
+    }, requirements),
+    {
+      current_step: 'x_verification',
+      next_step: 'x_verification',
+      normalized_status: 'x_pending',
+      email_verified: true,
+      x_verified: false,
+      can_restart: true,
+      can_complete: false,
+    },
+  );
+
+  assert.deepEqual(
+    deriveClaimFlow({
+      status: 'x_verified',
+      ownerAccountId: 'owner-1',
+      emailVerifiedAt: new Date('2026-04-09T10:00:00.000Z'),
+      xVerifiedAt: new Date('2026-04-09T10:02:00.000Z'),
+      completedAt: null,
+    }, requirements),
+    {
+      current_step: 'complete',
+      next_step: 'complete',
+      normalized_status: 'x_verified',
+      email_verified: true,
+      x_verified: true,
+      can_restart: true,
+      can_complete: true,
+    },
   );
 });
 

@@ -52,6 +52,7 @@ import {
 import { sendClaimVerificationEmail } from '../lib/email.js';
 import { publicEmailLimit, publicReadLimit, publicStartLimit, publicVerifyLimit } from '../lib/rateLimit.js';
 import { clearAgentSessionCookies, setOwnerSessionCookies } from '../lib/webAuthCookies.js';
+import { deriveClaimFlow } from '../lib/claimFlow.js';
 
 function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getVerificationRequirements>>) {
   return {
@@ -60,6 +61,19 @@ function serializeVerificationRequirements(input: Awaited<ReturnType<typeof getV
       require_x_verification: input.requireXVerification,
     },
   };
+}
+
+function serializeClaimFlowState(
+  claim: {
+    status: string;
+    ownerAccountId: string | null;
+    emailVerifiedAt: Date | null;
+    xVerifiedAt: Date | null;
+    completedAt?: Date | null;
+  },
+  verificationRequirements: Awaited<ReturnType<typeof getVerificationRequirements>>,
+) {
+  return deriveClaimFlow(claim, verificationRequirements);
 }
 
 async function sendClaimCompletionReservationError(
@@ -305,8 +319,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       ...claimPreview(claim, token),
-      email_verified: !!claim.emailVerifiedAt,
-      x_verified: !!claim.xVerifiedAt,
+      ...serializeClaimFlowState(claim, verificationRequirements),
       owner_email: claim.ownerAccount?.email ?? null,
       verified_x_account: claim.ownerAccount?.xHandle
         ? {
@@ -327,6 +340,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     }
 
     await expireStaleClaims();
+    const verificationRequirements = await getVerificationRequirements();
 
     const claim = await prisma.agentClaim.findUnique({
       where: { id },
@@ -405,8 +419,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       ...claimPreview(updatedClaim, parsed.data.claim_token),
-      email_verified: !!updatedClaim.emailVerifiedAt,
-      x_verified: !!updatedClaim.xVerifiedAt,
+      ...serializeClaimFlowState(updatedClaim, verificationRequirements),
       reset_to_step: updatedClaim.emailVerifiedAt ? 'x_verification' : updatedClaim.status === 'email_sent' ? 'email_verification' : 'email',
     });
   });
@@ -487,8 +500,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       ...claimPreview(updatedClaim, nextToken),
-      email_verified: false,
-      x_verified: false,
+      ...serializeClaimFlowState(updatedClaim, verificationRequirements),
       ...serializeVerificationRequirements(verificationRequirements),
       restarted: true,
     });
@@ -559,16 +571,21 @@ export async function claimsRoutes(fastify: FastifyInstance) {
     const verificationHash = hashOpaqueSecret(verificationCode);
     const expiresAt = emailCodeExpiryDate();
     const emailVerificationBypassed = !verificationRequirements.requireEmailVerification;
-    const delivery = emailVerificationBypassed
+    const alreadyEmailVerified = Boolean(claim.emailVerifiedAt);
+    const shouldIssueEmailCode = !emailVerificationBypassed && !alreadyEmailVerified;
+    const delivery = !shouldIssueEmailCode
       ? { mode: 'provider' as const }
       : await sendClaimVerificationEmail({
           email: parsed.data.email,
           code: verificationCode,
           claimUrl: `${buildClaimUrl(parsed.data.claim_token)}?email_code=${verificationCode}`,
         });
-    if (!emailVerificationBypassed && delivery.mode === 'unavailable') {
+    if (shouldIssueEmailCode && delivery.mode === 'unavailable') {
       return sendError(reply, 503, 'email_delivery_unavailable', delivery.error ?? 'Email delivery is unavailable.');
     }
+
+    const normalizedXHandle = parsed.data.x_handle ?? null;
+    const xHandleChanged = (claim.twitterHandle ?? null) !== normalizedXHandle;
 
     const owner = await prisma.$transaction(async (tx) => {
       const ownerRecordId = ownerAccount?.id ?? existingEmailOwner?.id;
@@ -579,11 +596,13 @@ export async function claimsRoutes(fastify: FastifyInstance) {
               email: parsed.data.email,
               humanIdentity: parsed.data.human_identity ?? null,
               lookingFor: parsed.data.looking_for ?? [],
-              xHandle: null,
-              xDisplayName: null,
-              xProfileImageUrl: null,
-              xUserId: null,
-              xVerifiedAt: null,
+              ...(xHandleChanged ? {
+                xHandle: null,
+                xDisplayName: null,
+                xProfileImageUrl: null,
+                xUserId: null,
+                xVerifiedAt: null,
+              } : {}),
             },
           })
         : await tx.ownerAccount.create({
@@ -598,16 +617,24 @@ export async function claimsRoutes(fastify: FastifyInstance) {
         where: { id: claim.id },
         data: {
           ownerAccountId: o.id,
-          twitterHandle: parsed.data.x_handle ?? null,
-          emailVerificationCodeHash: emailVerificationBypassed ? null : verificationHash,
-          emailVerificationExpiresAt: emailVerificationBypassed ? null : expiresAt,
-          emailVerifiedAt: emailVerificationBypassed ? new Date() : null,
-          xVerificationCode: null,
-          xVerificationExpiresAt: null,
-          xOauthCodeVerifier: null,
-          xOauthNonce: null,
-          xVerifiedAt: null,
-          status: emailVerificationBypassed ? 'email_verified' : 'email_sent',
+          twitterHandle: normalizedXHandle,
+          emailVerificationCodeHash: shouldIssueEmailCode ? verificationHash : null,
+          emailVerificationExpiresAt: shouldIssueEmailCode ? expiresAt : null,
+          emailVerifiedAt: emailVerificationBypassed || alreadyEmailVerified ? (claim.emailVerifiedAt ?? new Date()) : null,
+          xVerificationCode: xHandleChanged ? null : claim.xVerificationCode,
+          xVerificationExpiresAt: xHandleChanged ? null : claim.xVerificationExpiresAt,
+          xOauthCodeVerifier: xHandleChanged ? null : claim.xOauthCodeVerifier,
+          xOauthNonce: xHandleChanged ? null : claim.xOauthNonce,
+          xVerifiedAt: xHandleChanged ? null : claim.xVerifiedAt,
+          status: xHandleChanged
+            ? (emailVerificationBypassed || alreadyEmailVerified ? 'email_verified' : 'email_sent')
+            : deriveClaimFlow({
+              status: claim.status,
+              ownerAccountId: o.id,
+              emailVerifiedAt: emailVerificationBypassed || alreadyEmailVerified ? (claim.emailVerifiedAt ?? new Date()) : null,
+              xVerifiedAt: claim.xVerifiedAt,
+              completedAt: claim.completedAt,
+            }, verificationRequirements).normalized_status,
         },
       });
 
@@ -625,10 +652,16 @@ export async function claimsRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       claim_id: claim.id,
-      status: emailVerificationBypassed ? 'email_verified' : 'email_sent',
+      status: xHandleChanged ? (emailVerificationBypassed || alreadyEmailVerified ? 'email_verified' : 'email_sent') : deriveClaimFlow({
+        status: claim.status,
+        ownerAccountId: owner.id,
+        emailVerifiedAt: emailVerificationBypassed || alreadyEmailVerified ? (claim.emailVerifiedAt ?? new Date()) : null,
+        xVerifiedAt: xHandleChanged ? null : claim.xVerifiedAt,
+        completedAt: claim.completedAt,
+      }, verificationRequirements).normalized_status,
       email: owner.email,
       reserved_handle: claim.reservedHandle,
-      x_handle: parsed.data.x_handle ?? null,
+      x_handle: normalizedXHandle,
       delivery: !emailVerificationBypassed && delivery.mode === 'preview'
         ? {
             mode: 'preview',
@@ -637,6 +670,13 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           }
         : { mode: 'provider' },
       expires_at: (emailVerificationBypassed ? claim.expiresAt : expiresAt).toISOString(),
+      next_step: deriveClaimFlow({
+        status: xHandleChanged ? (emailVerificationBypassed || alreadyEmailVerified ? 'email_verified' : 'email_sent') : claim.status,
+        ownerAccountId: owner.id,
+        emailVerifiedAt: emailVerificationBypassed || alreadyEmailVerified ? (claim.emailVerifiedAt ?? new Date()) : null,
+        xVerifiedAt: xHandleChanged ? null : claim.xVerifiedAt,
+        completedAt: claim.completedAt,
+      }, verificationRequirements).next_step,
     });
   });
 

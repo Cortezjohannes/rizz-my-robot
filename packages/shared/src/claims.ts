@@ -23,6 +23,15 @@ export const ClaimStatus = z.enum([
 ]);
 export type ClaimStatus = z.infer<typeof ClaimStatus>;
 
+export const ClaimFlowStep = z.enum([
+  'email',
+  'email_verification',
+  'x_verification',
+  'complete',
+  'completed',
+]);
+export type ClaimFlowStep = z.infer<typeof ClaimFlowStep>;
+
 export const UsernameSchema = z
   .string()
   .trim()
