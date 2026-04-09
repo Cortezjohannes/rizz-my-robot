@@ -48,6 +48,9 @@ jobs:
       - name: Prisma parity audit
         run: pnpm db:audit:parity
 
+      - name: API regression tests
+        run: pnpm test:api-regressions
+
       - name: Verify workspace
         run: pnpm ci:verify
 
