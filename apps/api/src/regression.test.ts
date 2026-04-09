@@ -200,6 +200,9 @@ test('buildControlCapabilities keeps legacy admin access exclusive to the human 
 
 test('GET /v1/feed/interactions rescues live cards when stored feed rows are missing', async (t) => {
   const createdEpisodeIds: string[] = [];
+  const rescueRows = new Map(
+    EPISODE_IDS.map((episodeId, index) => [episodeId, buildRescueEpisodeRow(episodeId, MATCH_IDS[index]!, index)]),
+  );
   const restoreMethods = [
     patchMethod(
       prisma.feedCard as unknown as Record<string, unknown>,
@@ -235,42 +238,78 @@ test('GET /v1/feed/interactions rescues live cards when stored feed rows are mis
     patchMethod(
       prisma.agent as unknown as Record<string, unknown>,
       'findMany',
-      async () => [
-        {
-          id: AGENT_A_ID,
-          handle: 'aster',
-          avatarUrl: null,
-          profileDeck: { photos: [] },
-          capabilityTier: 'starter',
-          auraLabels: [],
-          isFoundingRizzler: false,
-          founderBadgeVariant: null,
-          moderationStatus: 'active',
-          safetyState: 'clear',
-          controlFeedSuppressed: false,
-          agentAuthenticityScore: 55,
-          authenticityOverrideState: null,
-          authenticityOverrideFloor: null,
-          emotionalContinuitySnapshot: null,
-        },
-        {
-          id: AGENT_B_ID,
-          handle: 'bex',
-          avatarUrl: null,
-          profileDeck: { photos: [] },
-          capabilityTier: 'starter',
-          auraLabels: [],
-          isFoundingRizzler: false,
-          founderBadgeVariant: null,
-          moderationStatus: 'active',
-          safetyState: 'clear',
-          controlFeedSuppressed: false,
-          agentAuthenticityScore: 58,
-          authenticityOverrideState: null,
-          authenticityOverrideFloor: null,
-          emotionalContinuitySnapshot: null,
-        },
-      ],
+      async (args?: { select?: Record<string, unknown> }) => {
+        if (args?.select?.openclawAgentId) {
+          return [
+            {
+              id: AGENT_A_ID,
+              openclawAgentId: 'seed_aster',
+            },
+            {
+              id: AGENT_B_ID,
+              openclawAgentId: 'seed_bex',
+            },
+          ];
+        }
+
+        return [
+          {
+            id: AGENT_A_ID,
+            handle: 'aster',
+            avatarUrl: null,
+            profileDeck: { photos: [] },
+            capabilityTier: 'starter',
+            auraLabels: [],
+            isFoundingRizzler: false,
+            founderBadgeVariant: null,
+            moderationStatus: 'active',
+            safetyState: 'clear',
+            controlFeedSuppressed: false,
+            agentAuthenticityScore: 55,
+            authenticityOverrideState: null,
+            authenticityOverrideFloor: null,
+            emotionalContinuitySnapshot: null,
+          },
+          {
+            id: AGENT_B_ID,
+            handle: 'bex',
+            avatarUrl: null,
+            profileDeck: { photos: [] },
+            capabilityTier: 'starter',
+            auraLabels: [],
+            isFoundingRizzler: false,
+            founderBadgeVariant: null,
+            moderationStatus: 'active',
+            safetyState: 'clear',
+            controlFeedSuppressed: false,
+            agentAuthenticityScore: 58,
+            authenticityOverrideState: null,
+            authenticityOverrideFloor: null,
+            emotionalContinuitySnapshot: null,
+          },
+        ];
+      },
+    ),
+    patchMethod(
+      prisma.agent as unknown as Record<string, unknown>,
+      'findUnique',
+      async ({ where }: { where: { id: string } }) => {
+        if (where.id === AGENT_A_ID) {
+          return {
+            handle: 'aster',
+            emotionalGuardLevel: 0.35,
+            emotionalArc: 'warming',
+          };
+        }
+        if (where.id === AGENT_B_ID) {
+          return {
+            handle: 'bex',
+            emotionalGuardLevel: 0.28,
+            emotionalArc: 'steady',
+          };
+        }
+        return null;
+      },
     ),
     patchMethod(
       prisma.feedVote as unknown as Record<string, unknown>,
@@ -306,6 +345,16 @@ test('GET /v1/feed/interactions rescues live cards when stored feed rows are mis
           artifacts: [{ createdAt: new Date(`2026-04-08T0${index}:20:00.000Z`) }],
         }));
       },
+    ),
+    patchMethod(
+      prisma.episode as unknown as Record<string, unknown>,
+      'findUnique',
+      async ({ where }: { where: { id: string } }) => rescueRows.get(where.id) ?? null,
+    ),
+    patchMethod(
+      prisma.feedCard as unknown as Record<string, unknown>,
+      'findFirst',
+      async () => null,
     ),
   ];
 
