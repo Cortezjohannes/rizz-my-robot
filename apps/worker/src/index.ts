@@ -5,6 +5,7 @@ import { processVerifyTwitter, type VerifyTwitterJobData } from './jobs/verifyTw
 import { processGenerateAvatar, type GenerateAvatarJobData } from './jobs/generateAvatar.js';
 import { processDeliverWebhook, type DeliverWebhookJobData } from './jobs/deliverWebhook.js';
 import { processGhostCheck, type GhostCheckJobData } from './jobs/ghostCheck.js';
+import { processReconcileFeedCards } from './jobs/reconcileFeedCards.js';
 import { processExpireRevealTokens } from './jobs/expireRevealTokens.js';
 import { processEmotionDecay } from './jobs/emotionDecay.js';
 import { processRevealChatLifecycle } from './jobs/revealChatLifecycle.js';
@@ -33,6 +34,7 @@ const QUEUE_NAMES = {
   generateAvatar: 'generate-avatar',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
+  reconcileFeedCards: 'reconcile-feed-cards',
   revealChatLifecycle: 'reveal-chat-lifecycle',
   expireRevealTokens: 'expire-reveal-tokens',
   emotionDecay: 'emotion-decay',
@@ -284,6 +286,15 @@ async function startWorkers(): Promise<WorkerRuntime> {
     );
     createdWorkers.push(ghostCheckWorker);
 
+    const reconcileFeedCardsWorker = new Worker(
+      QUEUE_NAMES.reconcileFeedCards,
+      async (job) => {
+        await processReconcileFeedCards(job);
+      },
+      { connection, concurrency: 1 }
+    );
+    createdWorkers.push(reconcileFeedCardsWorker);
+
     const revealChatLifecycleWorker = new Worker(
       QUEUE_NAMES.revealChatLifecycle,
       async (job) => {
@@ -465,6 +476,13 @@ async function startWorkers(): Promise<WorkerRuntime> {
       jobId: 'expire-reveal-tokens-recurring',
     });
 
+    const reconcileFeedCardsQueue = new Queue(QUEUE_NAMES.reconcileFeedCards, { connection: getRedisConnection() });
+    queues.push(reconcileFeedCardsQueue);
+    await reconcileFeedCardsQueue.add('reconcile-feed-cards', {}, {
+      repeat: { every: parseInt(process.env.RECONCILE_FEED_CARDS_REPEAT_MS ?? `${5 * 60 * 1000}`, 10) },
+      jobId: 'reconcile-feed-cards-recurring',
+    });
+
     const emotionDecayQueue = new Queue(QUEUE_NAMES.emotionDecay, { connection: getRedisConnection() });
     queues.push(emotionDecayQueue);
     await emotionDecayQueue.add('emotion-decay', {}, {
@@ -561,7 +579,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
     startHeartbeatLoop();
 
     console.info(
-      `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, artifact-recovery, recompute-social-status, recompute-emotional-continuity`
+      `[worker] Started: verify-twitter, generate-avatar, deliver-webhook, ghost-check, reconcile-feed-cards, expire-reveal-tokens, emotion-decay${seedBrainEnabled ? ', seed-brain' : ''}, generate-recaps, artifact-recovery, recompute-social-status, recompute-emotional-continuity`
         + ', presence-status, compute-affinity-signals, wake-agent, compute-emotional-weather, autonomous-mood-drift, weekly-memory-consolidation, dormancy-ghost-cards, compute-type-signals'
     );
 
