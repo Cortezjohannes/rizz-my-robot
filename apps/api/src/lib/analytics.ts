@@ -1,4 +1,5 @@
 import { prisma } from '@rmr/db';
+import { captureRuntimeError } from './errorAggregation.js';
 
 export interface AnalyticsEventInput {
   agentId?: string | null;
@@ -20,6 +21,14 @@ export async function recordAnalyticsEvent(input: AnalyticsEventInput): Promise<
       },
     });
   } catch (err) {
+    captureRuntimeError(err, {
+      surface: 'api',
+      phase: 'analytics_event_persist',
+      kind: input.kind,
+      agent_id: input.agentId ?? null,
+      match_id: input.matchId ?? null,
+      episode_id: input.episodeId ?? null,
+    });
     console.error('[analytics] Failed to record analytics event:', err);
   }
 }

@@ -2,6 +2,7 @@ import { prisma } from '@rmr/db';
 import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
 import { getDeliverWebhookQueue } from './queues.js';
 import { invalidateDashboard } from './dashboardCache.js';
+import { captureRuntimeError } from './errorAggregation.js';
 
 const EVENT_ALIASES: Record<string, string[]> = {
   match: ['match_created'],
@@ -78,6 +79,12 @@ export async function deliverWebhooks(
     );
   } catch (err) {
     // Webhook delivery is best-effort — never let it break the main flow
+    captureRuntimeError(err, {
+      surface: 'api',
+      phase: 'webhook_enqueue_failed',
+      agent_id: agentId,
+      event,
+    });
     console.error('[notification] Failed to enqueue webhook delivery:', err);
   }
 }
