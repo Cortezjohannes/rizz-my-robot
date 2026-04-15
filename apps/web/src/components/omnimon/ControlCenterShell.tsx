@@ -18,6 +18,7 @@ import type {
   ControlSeverity,
   ControlSupportTicketsResponse,
   ControlWorldResponse,
+  ControlCapabilities,
   DatabaseResetActionResult,
 } from '@/lib/types'
 
@@ -34,6 +35,23 @@ type LegacyReportsResponse = {
 }
 
 const DEFAULT_REASON = 'Operator correction via Omnimon control center.'
+type ControlPanelKey = ControlCapabilities['read_panels'][number]
+
+const ALWAYS_AVAILABLE_PANELS: ControlPanelKey[] = ['home', 'inbox', 'world', 'settings']
+const OPTIONAL_CONTROL_PANELS: Array<{
+  key: Exclude<ControlPanelKey, 'home' | 'inbox' | 'world' | 'settings' | 'legacy_admin'>
+  label: string
+  path: string
+  resultKey?: string
+}> = [
+  { key: 'agents', label: 'agents', path: '/internal/control/agents' },
+  { key: 'claims', label: 'claims', path: '/internal/control/claims' },
+  { key: 'billing', label: 'billing', path: '/internal/control/billing' },
+  { key: 'jobs', label: 'jobs', path: '/internal/control/jobs' },
+  { key: 'moderation', label: 'moderation', path: '/internal/control/moderation' },
+  { key: 'audit', label: 'audit', path: '/internal/control/audit' },
+  { key: 'support', label: 'support tickets', path: '/internal/control/support-tickets', resultKey: 'supportTickets' },
+]
 
 interface ControlCenterShellProps {
   surface: 'omnimon' | 'admin'
@@ -239,6 +257,10 @@ export function ControlCenterShell({
   }, [supportSearch, supportTickets])
 
   const capabilities = settings?.capabilities.actions
+  const readablePanels = useMemo(
+    () => new Set<ControlPanelKey>(settings?.capabilities.read_panels ?? ALWAYS_AVAILABLE_PANELS),
+    [settings],
+  )
   const actorKindMismatch = Boolean(
     settings
     && (
@@ -246,6 +268,10 @@ export function ControlCenterShell({
       || (!isOmnimon && settings.actor_kind !== 'human_admin')
     )
   )
+
+  function canReadPanel(panel: ControlPanelKey) {
+    return readablePanels.has(panel)
+  }
 
   async function loadAgentOverview(agentId: string) {
     const res = await fetchControl(`/internal/agents/${agentId}/control`)
@@ -266,37 +292,22 @@ export function ControlCenterShell({
     setFlash('')
 
     try {
-      const panelRequests = [
-        { key: 'home', label: 'home', required: true, request: fetchControl('/internal/control/home') },
-        { key: 'inbox', label: 'inbox', required: true, request: fetchControl('/internal/control/inbox') },
-        { key: 'world', label: 'world', required: true, request: fetchControl('/internal/control/world') },
-        { key: 'settings', label: 'settings', required: true, request: fetchControl('/internal/control/settings') },
-        { key: 'agents', label: 'agents', required: false, request: fetchControl('/internal/control/agents') },
-        { key: 'claims', label: 'claims', required: false, request: fetchControl('/internal/control/claims') },
-        { key: 'billing', label: 'billing', required: false, request: fetchControl('/internal/control/billing') },
-        { key: 'jobs', label: 'jobs', required: false, request: fetchControl('/internal/control/jobs') },
-        { key: 'moderation', label: 'moderation', required: false, request: fetchControl('/internal/control/moderation') },
-        { key: 'audit', label: 'audit', required: false, request: fetchControl('/internal/control/audit') },
-        { key: 'feedFeatures', label: 'feed features', required: false, request: fetchControl('/internal/control/feed-features') },
-        { key: 'supportTickets', label: 'support tickets', required: false, request: fetchControl('/internal/control/support-tickets') },
-        ...(legacyAdminEnabled
-          ? [{ key: 'reports', label: 'legacy reports', required: false, request: fetchControl('/internal/reports') }]
-          : []),
+      const coreRequests = [
+        { key: 'home', label: 'home', request: fetchControl('/internal/control/home') },
+        { key: 'inbox', label: 'inbox', request: fetchControl('/internal/control/inbox') },
+        { key: 'world', label: 'world', request: fetchControl('/internal/control/world') },
+        { key: 'settings', label: 'settings', request: fetchControl('/internal/control/settings') },
       ] as const
 
-      const settled = await Promise.allSettled(panelRequests.map((entry) => entry.request))
+      const coreSettled = await Promise.allSettled(coreRequests.map((entry) => entry.request))
       const results = new Map<string, unknown>()
       const failedRequired: string[] = []
       const failedOptional: string[] = []
 
-      for (const [index, outcome] of settled.entries()) {
-        const entry = panelRequests[index]
+      for (const [index, outcome] of coreSettled.entries()) {
+        const entry = coreRequests[index]
         if (outcome.status === 'rejected') {
-          if (entry.required) {
-            failedRequired.push(entry.label)
-          } else {
-            failedOptional.push(entry.label)
-          }
+          failedRequired.push(entry.label)
           continue
         }
 
@@ -304,11 +315,7 @@ export function ControlCenterShell({
           const json = await parseControlResponse(outcome.value, `Failed to load ${entry.label}.`)
           results.set(entry.key, json)
         } catch {
-          if (entry.required) {
-            failedRequired.push(entry.label)
-          } else {
-            failedOptional.push(entry.label)
-          }
+          failedRequired.push(entry.label)
         }
       }
 
@@ -320,6 +327,36 @@ export function ControlCenterShell({
       const inboxJson = results.get('inbox') as ControlInboxResponse
       const worldJson = results.get('world') as ControlWorldResponse
       const settingsJson = results.get('settings') as ControlSettingsResponse
+      const optionalRequests = [
+        ...OPTIONAL_CONTROL_PANELS
+          .filter((entry) => settingsJson.capabilities.read_panels.includes(entry.key))
+          .map((entry) => ({
+            key: entry.resultKey ?? entry.key,
+            label: entry.label,
+            request: fetchControl(entry.path),
+          })),
+        { key: 'feedFeatures', label: 'feed features', request: fetchControl('/internal/control/feed-features') },
+        ...(legacyAdminEnabled && settingsJson.capabilities.read_panels.includes('legacy_admin')
+          ? [{ key: 'reports', label: 'legacy reports', request: fetchControl('/internal/reports') }]
+          : []),
+      ] as const
+
+      const optionalSettled = await Promise.allSettled(optionalRequests.map((entry) => entry.request))
+      for (const [index, outcome] of optionalSettled.entries()) {
+        const entry = optionalRequests[index]
+        if (outcome.status === 'rejected') {
+          failedOptional.push(entry.label)
+          continue
+        }
+
+        try {
+          const json = await parseControlResponse(outcome.value, `Failed to load ${entry.label}.`)
+          results.set(entry.key, json)
+        } catch {
+          failedOptional.push(entry.label)
+        }
+      }
+
       const agentsJson = (results.get('agents') as ControlAgentsResponse | undefined) ?? { agents: [] }
       const claimsJson = (results.get('claims') as ControlClaimsResponse | undefined) ?? { claims: [] }
       const billingJson = (results.get('billing') as ControlBillingResponse | undefined) ?? {
@@ -462,6 +499,13 @@ export function ControlCenterShell({
                 <li>Shared control actions are reason-audited with before/after state.</li>
                 <li>{isOmnimon ? 'Omnimon governs the world, not souls.' : 'Legacy raw admin tools stay on this human-admin surface.'}</li>
               </ul>
+              {settings ? (
+                <div className="mt-4 border-t-[3px] border-black pt-4 text-sm text-gray-700">
+                  <p><strong>Loaded as:</strong> {describeActorKind(settings.actor_kind)}</p>
+                  <p className="mt-2"><strong>Readable panels:</strong> {settings.capabilities.read_panels.join(', ')}</p>
+                  <p className="mt-2"><strong>Legacy admin:</strong> {settings.capabilities.actions.can_access_legacy_admin_tools ? 'enabled' : 'hidden from this actor'}</p>
+                </div>
+              ) : null}
             </div>
           </div>
           {error ? <div className="border-t-[3px] border-black bg-[#ffd4d4] px-6 py-3 text-sm text-red-700">{error}</div> : null}
@@ -1150,7 +1194,9 @@ export function ControlCenterShell({
               )}
             </section>
 
+            {(canReadPanel('jobs') || canReadPanel('moderation')) ? (
             <section className="grid gap-6 lg:grid-cols-2">
+              {canReadPanel('jobs') ? (
               <div className="border-[4px] border-black bg-white shadow-brutal">
                 <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                   <h2 className="font-pixel text-[10px] text-black">Jobs / deliveries</h2>
@@ -1214,7 +1260,9 @@ export function ControlCenterShell({
                   </div>
                 </div>
               </div>
+              ) : null}
 
+              {canReadPanel('moderation') ? (
               <div className="border-[4px] border-black bg-white shadow-brutal">
                 <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                   <h2 className="font-pixel text-[10px] text-black">Moderation</h2>
@@ -1252,9 +1300,13 @@ export function ControlCenterShell({
                   </div>
                 </div>
               </div>
+              ) : null}
             </section>
+            ) : null}
 
+            {(canReadPanel('claims') || canReadPanel('billing') || canReadPanel('support')) ? (
             <section className="grid gap-6 xl:grid-cols-3">
+              {canReadPanel('claims') ? (
               <div className="border-[4px] border-black bg-white shadow-brutal">
                 <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                   <h2 className="font-pixel text-[10px] text-black">Claims inspector</h2>
@@ -1281,7 +1333,9 @@ export function ControlCenterShell({
                   </div>
                 </div>
               </div>
+              ) : null}
 
+              {canReadPanel('billing') ? (
               <div className="border-[4px] border-black bg-white shadow-brutal">
                 <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                   <h2 className="font-pixel text-[10px] text-black">Billing inspector</h2>
@@ -1326,7 +1380,9 @@ export function ControlCenterShell({
                   </div>
                 </div>
               </div>
+              ) : null}
 
+              {canReadPanel('support') ? (
               <div className="border-[4px] border-black bg-white shadow-brutal">
                 <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                   <h2 className="font-pixel text-[10px] text-black">Support tickets</h2>
@@ -1353,7 +1409,9 @@ export function ControlCenterShell({
                   </div>
                 </div>
               </div>
+              ) : null}
             </section>
+            ) : null}
 
             {legacyAdminEnabled && capabilities?.can_access_legacy_admin_tools ? (
               <section className="border-[4px] border-black bg-white shadow-brutal">
@@ -1378,6 +1436,7 @@ export function ControlCenterShell({
               </section>
             ) : null}
 
+            {canReadPanel('audit') ? (
             <section className="border-[4px] border-black bg-white shadow-brutal">
               <div className="border-b-[4px] border-black px-5 py-4 bg-beige-light">
                 <h2 className="font-pixel text-[10px] text-black">Audit log</h2>
@@ -1393,6 +1452,7 @@ export function ControlCenterShell({
                 ))}
               </div>
             </section>
+            ) : null}
           </div>
         </section>
       </div>

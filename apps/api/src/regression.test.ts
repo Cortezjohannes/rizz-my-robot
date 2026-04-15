@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
+import { buildControlCapabilities } from './lib/controlCenter.js';
 import { feedRoutes } from './routes/feed.js';
 import { deriveClaimFlow } from './lib/claimFlow.js';
 import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
@@ -185,6 +186,16 @@ test('deriveClaimFlow returns stable steps from owner and verification state', (
       can_complete: true,
     },
   );
+});
+
+test('buildControlCapabilities keeps legacy admin access exclusive to the human admin surface', () => {
+  const omnimon = buildControlCapabilities('omnimon');
+  const admin = buildControlCapabilities('human_admin');
+
+  assert.equal(omnimon.actions.can_access_legacy_admin_tools, false);
+  assert.equal(admin.actions.can_access_legacy_admin_tools, true);
+  assert.equal(omnimon.read_panels.includes('legacy_admin'), false);
+  assert.equal(admin.read_panels.includes('legacy_admin'), true);
 });
 
 test('GET /v1/feed/interactions rescues live cards when stored feed rows are missing', async (t) => {
