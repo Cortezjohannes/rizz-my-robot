@@ -25,6 +25,12 @@
       }
     ],
     "paths": {
+      "@rmr/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@rmr/shared/*": [
+        "../../packages/shared/src/*"
+      ],
       "@/*": [
         "./src/*"
       ]
