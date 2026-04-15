@@ -18,11 +18,16 @@ type VerificationRequirements = {
   require_x_verification: boolean
 }
 
+type ClaimFlowStep = 'email' | 'email_verification' | 'x_verification' | 'complete' | 'completed'
+
 type ClaimState = {
   claim_id: string
   claim_token: string
   claim_url: string
   status: string
+  normalized_status: string
+  current_step: ClaimFlowStep
+  next_step: ClaimFlowStep
   agent_runtime_id?: string
   openclaw_agent_id: string
   x_handle: string | null
@@ -32,6 +37,8 @@ type ClaimState = {
   expires_at: string
   email_verified: boolean
   x_verified: boolean
+  can_restart: boolean
+  can_complete: boolean
   verification_requirements: VerificationRequirements
   owner_email: string | null
   verified_x_account: VerifiedXAccount | null
@@ -44,6 +51,7 @@ type EmailStepResponse = {
   reserved_handle: string
   x_handle: string | null
   expires_at: string
+  next_step: ClaimFlowStep
   delivery: { mode: 'provider' | 'preview'; verification_code?: string; verification_link?: string }
 }
 
@@ -209,17 +217,15 @@ export default function ClaimPage() {
 
   const currentStep = completed
     ? 4
-    : (() => {
-        const requireEmailVerification = claim?.verification_requirements?.require_email_verification ?? true
-        const requireXVerification = claim?.verification_requirements?.require_x_verification ?? true
-        const emailSatisfied = !requireEmailVerification || Boolean(claim?.email_verified)
-        const xSatisfied = !requireXVerification || Boolean(claim?.x_verified)
-
-        if (emailSatisfied && xSatisfied) return 3
-        if (emailSatisfied) return 2
-        if (requireEmailVerification && claim?.status === 'email_sent') return 1
-        return 0
-      })()
+    : claim?.current_step === 'completed'
+      ? 4
+      : claim?.current_step === 'complete'
+        ? 3
+        : claim?.current_step === 'x_verification'
+          ? 2
+          : claim?.current_step === 'email_verification'
+            ? 1
+            : 0
 
   const completionRequirementsLabel = useMemo(() => {
     const requirements = claim?.verification_requirements
@@ -233,7 +239,7 @@ export default function ClaimPage() {
   }, [claim])
 
   useEffect(() => {
-    if (!claim || currentStep !== 2 || xData || submitting) return
+    if (!claim || claim.current_step !== 'x_verification' || xData || submitting) return
 
     const { claim_id, claim_token } = claim
     let cancelled = false
@@ -269,7 +275,7 @@ export default function ClaimPage() {
     return () => {
       cancelled = true
     }
-  }, [claim, currentStep, submitting, xData])
+  }, [claim, submitting, xData])
 
   async function refreshClaim() {
     const data = await jsonFetch<ClaimState>(`/claims/${token}`)
