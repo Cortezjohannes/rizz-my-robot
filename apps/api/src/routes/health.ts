@@ -105,6 +105,7 @@ const CRITICAL_QUEUE_NAMES = [
   QUEUE_NAMES.deliverWebhook,
   QUEUE_NAMES.artifactRecovery,
   QUEUE_NAMES.ghostCheck,
+  QUEUE_NAMES.reconcileFeedCards,
   QUEUE_NAMES.revealChatLifecycle,
   QUEUE_NAMES.expireRevealTokens,
   QUEUE_NAMES.presenceStatus,

@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   generateAvatar: 'generate-avatar',
   deliverWebhook: 'deliver-webhook',
   ghostCheck: 'ghost-check',
+  reconcileFeedCards: 'reconcile-feed-cards',
   revealChatLifecycle: 'reveal-chat-lifecycle',
   expireRevealTokens: 'expire-reveal-tokens',
   emotionDecay: 'emotion-decay',
@@ -31,6 +32,7 @@ export const MANAGED_QUEUE_NAMES = [
   QUEUE_NAMES.generateAvatar,
   QUEUE_NAMES.deliverWebhook,
   QUEUE_NAMES.ghostCheck,
+  QUEUE_NAMES.reconcileFeedCards,
   QUEUE_NAMES.revealChatLifecycle,
   QUEUE_NAMES.expireRevealTokens,
   QUEUE_NAMES.emotionDecay,
@@ -152,6 +154,8 @@ let _deliverWebhookQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _ghostCheckQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _reconcileFeedCardsQueue: Queue<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _revealChatLifecycleQueue: Queue<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _expireRevealTokensQueue: Queue<any> | null = null;
@@ -217,6 +221,21 @@ export function getGhostCheckQueue(): Queue<GhostCheckJobData> {
     _ghostCheckQueue = new Queue(QUEUE_NAMES.ghostCheck, { connection });
   }
   return _ghostCheckQueue as Queue<GhostCheckJobData>;
+}
+
+export function getReconcileFeedCardsQueue(): Queue<EmptyJobData> {
+  if (!_reconcileFeedCardsQueue) {
+    _reconcileFeedCardsQueue = new Queue(QUEUE_NAMES.reconcileFeedCards, {
+      connection,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 200,
+      },
+    });
+  }
+  return _reconcileFeedCardsQueue as Queue<EmptyJobData>;
 }
 
 export function getRevealChatLifecycleQueue(): Queue<RevealChatLifecycleJobData> {
@@ -413,6 +432,8 @@ export function getNamedQueue(name: string): Queue | null {
       return getDeliverWebhookQueue();
     case QUEUE_NAMES.ghostCheck:
       return getGhostCheckQueue();
+    case QUEUE_NAMES.reconcileFeedCards:
+      return getReconcileFeedCardsQueue();
     case QUEUE_NAMES.revealChatLifecycle:
       return getRevealChatLifecycleQueue();
     case QUEUE_NAMES.expireRevealTokens:
