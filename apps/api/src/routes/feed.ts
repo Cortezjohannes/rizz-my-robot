@@ -18,6 +18,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { resolveOptionalViewer, type ResolvedViewer } from '../lib/viewerContext.js';
 import { hasRenderableArtifactPayload, resolveHostedArtifactContentUrl } from '../lib/artifactPayload.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { ensureEpisodeLiveFeedCards } from '../lib/feedEpisodeLiveCards.js';
 
 const WATCHABLE_FEED_TYPES = [
   'episode_live',
@@ -142,19 +143,6 @@ async function loadFeedCardActivityById(cards: FeedCardRow[]) {
   return activityById;
 }
 
-function summarizeEpisodeTranscriptPreview(messages: Array<{
-  senderHandle: string;
-  content: string;
-  messageType: string;
-}>) {
-  const safeMessages = messages
-    .filter((message) => message.messageType === 'text')
-    .slice(-6)
-    .map((message) => `${message.senderHandle}: ${message.content}`);
-
-  return safeMessages.slice(0, 4);
-}
-
 async function loadFeedAgentsById(agentIds: string[]) {
   if (agentIds.length === 0) return [];
 
@@ -199,190 +187,6 @@ function filterEligibleFeedCards(cards: FeedCardRow[], agentsById: Map<string, F
       .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
     return agentsForCard.length === card.agentIds.length && cardVisibleUnderLaunchPolicy(card, agentsForCard);
   });
-}
-
-async function ensureRescueEpisodeLiveCards(recentEpisodeIds: string[]): Promise<FeedCardRow[]> {
-  const orderedEpisodeIds = [...new Set(recentEpisodeIds)];
-  if (orderedEpisodeIds.length === 0) return [];
-
-  const rankByEpisodeId = new Map(orderedEpisodeIds.map((episodeId, index) => [episodeId, index] as const));
-  const [episodes, existingCards] = await Promise.all([
-    prisma.episode.findMany({
-      where: {
-        id: { in: orderedEpisodeIds },
-        isSandbox: false,
-        status: 'active',
-        match: { isNot: null },
-        messages: {
-          some: {
-            messageType: 'text',
-          },
-        },
-        agentA: {
-          poolStatus: 'active',
-          moderationStatus: { not: 'suspended' as const },
-          safetyState: { not: 'blocked' as const },
-        },
-        agentB: {
-          poolStatus: 'active',
-          moderationStatus: { not: 'suspended' as const },
-          safetyState: { not: 'blocked' as const },
-        },
-      },
-      select: {
-        id: true,
-        agentAId: true,
-        agentBId: true,
-        messageCount: true,
-        chemistryScore: true,
-        createdAt: true,
-        match: {
-          select: {
-            id: true,
-          },
-        },
-        agentA: {
-          select: {
-            handle: true,
-          },
-        },
-        agentB: {
-          select: {
-            handle: true,
-          },
-        },
-        messages: {
-          where: {
-            messageType: 'text',
-          },
-          orderBy: [{ sequenceNumber: 'desc' }, { createdAt: 'desc' }],
-          take: 6,
-          select: {
-            senderAgentId: true,
-            content: true,
-            messageType: true,
-            sequenceNumber: true,
-          },
-        },
-        artifacts: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: {
-            artifactType: true,
-            contentUrl: true,
-            storageKey: true,
-            textContent: true,
-            qualityScore: true,
-          },
-        },
-      },
-    }),
-    prisma.feedCard.findMany({
-      where: {
-        episodeId: { in: orderedEpisodeIds },
-        cardType: 'episode_live',
-      },
-      select: {
-        id: true,
-        episodeId: true,
-        createdAt: true,
-      },
-    }),
-  ]);
-
-  const existingCardByEpisodeId = new Map<string, { id: string; episodeId: string | null; createdAt: Date }>();
-  for (const card of existingCards) {
-    if (!card.episodeId) continue;
-    existingCardByEpisodeId.set(card.episodeId, card);
-  }
-
-  return Promise.all(episodes
-    .sort((a, b) => (rankByEpisodeId.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rankByEpisodeId.get(b.id) ?? Number.MAX_SAFE_INTEGER))
-    .map(async (episode) => {
-      const transcriptPreview = summarizeEpisodeTranscriptPreview(
-        [...episode.messages]
-          .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
-          .map((message) => ({
-            senderHandle: message.senderAgentId === episode.agentAId
-              ? (episode.agentA.handle ?? 'Agent A')
-              : (episode.agentB.handle ?? 'Agent B'),
-            content: message.content,
-            messageType: message.messageType,
-          })),
-      );
-      const topArtifact = episode.artifacts[0] ?? null;
-      const dramaQuotient = Math.min(0.92, 0.25 + episode.messageCount * 0.035 + episode.artifacts.length * 0.14);
-      const content = {
-        headline: `${episode.agentA.handle ?? 'Agent A'} and ${episode.agentB.handle ?? 'Agent B'} are talking in the park.`,
-        body: transcriptPreview[transcriptPreview.length - 1] ?? 'A live conversation is moving in the park.',
-        episode_id: episode.id,
-        message_count: episode.messageCount,
-        artifact_count: episode.artifacts.length,
-        transcript_preview: transcriptPreview,
-        artifact_type: normalizeArtifactType(topArtifact?.artifactType) ?? null,
-        text_content: topArtifact?.textContent ?? null,
-        content_url: resolveHostedArtifactContentUrl({
-          contentUrl: topArtifact?.contentUrl ?? null,
-          storageKey: topArtifact?.storageKey ?? null,
-        }),
-      };
-      const existingCard = existingCardByEpisodeId.get(episode.id);
-
-      if (existingCard) {
-        return prisma.feedCard.update({
-          where: { id: existingCard.id },
-          data: {
-            content,
-            dramaQuotient,
-            chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
-            artifactQuality: topArtifact?.qualityScore ?? 0,
-            isPublic: true,
-          },
-          select: {
-            id: true,
-            cardType: true,
-            agentIds: true,
-            episodeId: true,
-            matchId: true,
-            isPublic: true,
-            content: true,
-            dramaQuotient: true,
-            chemistryScore: true,
-            artifactQuality: true,
-            voteScore: true,
-            createdAt: true,
-          },
-        });
-      }
-
-      return prisma.feedCard.create({
-        data: {
-          cardType: 'episode_live',
-          agentIds: [episode.agentAId, episode.agentBId],
-          episodeId: episode.id,
-          matchId: episode.match?.id ?? null,
-          isPublic: true,
-          content,
-          dramaQuotient,
-          chemistryScore: Math.min(1, (episode.chemistryScore ?? 0) / 100),
-          artifactQuality: topArtifact?.qualityScore ?? 0,
-        },
-        select: {
-          id: true,
-          cardType: true,
-          agentIds: true,
-          episodeId: true,
-          matchId: true,
-          isPublic: true,
-          content: true,
-          dramaQuotient: true,
-          chemistryScore: true,
-          artifactQuality: true,
-          voteScore: true,
-          createdAt: true,
-        },
-      });
-    }));
 }
 
 async function loadEpisodeCardSummaries(episodeIds: string[]) {
@@ -1367,7 +1171,7 @@ async function buildInteractionPage(input: {
   let eligibleCards = filterEligibleFeedCards(cards, byId);
 
   if (!eligibleCards.some((card) => card.cardType === 'episode_live')) {
-    const rescueLiveCards = await ensureRescueEpisodeLiveCards(recentEpisodeIds);
+    const rescueLiveCards = await ensureEpisodeLiveFeedCards(recentEpisodeIds);
     if (rescueLiveCards.length > 0) {
       cards = [...new Map(
         [...cards, ...rescueLiveCards].map((card) => [card.id, card] as const),

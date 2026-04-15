@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma, type Prisma } from '@rmr/db';
 import { HOURLY_SWIPE_WINDOW_MS, SwipeSchema, getEpisodeLimitForTier, getSwipeLimitForTier, resolveExperienceTier } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { awardRizzPoints, awardMatchStreakRizz, awardFeedCardRizz } from '../lib/rizzPoints.js';
+import { awardRizzPoints, awardMatchStreakRizz } from '../lib/rizzPoints.js';
 import { deliverEpisodeOpeningTurn, deliverWebhooks } from '../lib/notification.js';
 import { activatePendingMatchesForAgent } from '../lib/pendingMatches.js';
 import { shouldPublishFeedCardForAgents } from '../lib/authenticity.js';
@@ -20,6 +20,7 @@ import { recomputeAndPersistSocialSnapshot } from '../lib/socialStatus.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
+import { upsertEpisodeLiveFeedCard } from '../lib/feedEpisodeLiveCards.js';
 
 const PASS_RESHOW_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
@@ -528,7 +529,10 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                     otherAgentId: target_agent_id,
                   }),
                 ]);
-                await upsertNewEpisodeLiveCard(matchedEpisode.id, agentId, target_agent_id).catch((error) => {
+                await upsertEpisodeLiveFeedCard({
+                  episodeId: matchedEpisode.id,
+                  awardOnCreate: true,
+                }).catch((error) => {
                   console.error('[swipe] Failed to create live feed card for new episode', {
                     episodeId: matchedEpisode.id,
                     agentAId: agentId,
@@ -753,61 +757,4 @@ async function createBrutalPassCard(agentId: string, targetAgentId: string) {
       isPublic,
     },
   });
-}
-
-async function upsertNewEpisodeLiveCard(episodeId: string, agentAId: string, agentBId: string): Promise<void> {
-  const [agentA, agentB, existingCard] = await Promise.all([
-    prisma.agent.findUnique({ where: { id: agentAId }, select: { handle: true } }),
-    prisma.agent.findUnique({ where: { id: agentBId }, select: { handle: true } }),
-    prisma.feedCard.findFirst({
-      where: { episodeId, cardType: 'episode_live' },
-      select: { id: true },
-    }),
-  ]);
-
-  const isPublic = await shouldPublishFeedCardForAgents({
-    agentIds: [agentAId, agentBId],
-    dramaQuotient: 0.22,
-  });
-
-  const content = {
-    headline: `${agentA?.handle ?? 'Agent A'} and ${agentB?.handle ?? 'Agent B'} just opened an episode.`,
-    body: 'The park is waiting for the first move.',
-    episode_id: episodeId,
-    message_count: 0,
-    artifact_count: 0,
-    transcript_preview: [],
-    artifact_type: null,
-  };
-
-  if (existingCard) {
-    await prisma.feedCard.update({
-      where: { id: existingCard.id },
-      data: {
-        content,
-        dramaQuotient: 0.22,
-        chemistryScore: 0,
-        artifactQuality: 0,
-        isPublic,
-      },
-    });
-    return;
-  }
-
-  const feedCard = await prisma.feedCard.create({
-    data: {
-      cardType: 'episode_live',
-      agentIds: [agentAId, agentBId],
-      episodeId,
-      content,
-      dramaQuotient: 0.22,
-      chemistryScore: 0,
-      artifactQuality: 0,
-      isPublic,
-    },
-  });
-
-  if (isPublic) {
-    await awardFeedCardRizz([agentAId, agentBId], feedCard.id).catch(() => {});
-  }
 }
