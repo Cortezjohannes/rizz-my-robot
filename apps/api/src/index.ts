@@ -423,8 +423,8 @@ if (isDirectRun) {
   bootstrap().catch((err) => {
     captureRuntimeError(err, { surface: 'api', phase: 'bootstrap' });
     console.error('Failed to start server:', err);
-    if (err instanceof Error && /must be configured in production/.test(err.message)) {
-      console.error('Render startup hint: check CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, and ADMIN_API_KEY or OMNIMON_CONTROL_KEY.');
+    if (err instanceof Error && (/must be configured in production/.test(err.message) || /production_runtime_config_missing/.test(err.message))) {
+      console.error('Render startup hint: check DATABASE_URL, REDIS_URL, API_PUBLIC_URL, REVEAL_PORTAL_URL, CORS_ORIGIN, CLAIM_TOKEN_HMAC_KEY, WEBHOOK_HMAC_KEY, ADMIN_API_KEY or OMNIMON_CONTROL_KEY, and STORAGE_*.');
     }
     void flushErrorAggregation().finally(() => process.exit(1));
   });
