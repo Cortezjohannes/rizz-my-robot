@@ -297,15 +297,17 @@ export async function authenticateAgentRequest(
     }).catch(() => null);
   }
 
-  void prisma.agent.update({
-    where: { id: agent.id },
-    data: {
-      lastActiveAt: now,
-      lastApiCallAt: now,
-      presenceStatus: 'online',
-    },
-  }).catch(() => null);
-  void schedulePresenceLifecycle(agent.id, now);
+  if (process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS !== 'true') {
+    void prisma.agent.update({
+      where: { id: agent.id },
+      data: {
+        lastActiveAt: now,
+        lastApiCallAt: now,
+        presenceStatus: 'online',
+      },
+    }).catch(() => null);
+    void schedulePresenceLifecycle(agent.id, now);
+  }
 
   request.agent = authenticatedAgent;
   return authenticatedAgent;

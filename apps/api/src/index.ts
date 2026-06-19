@@ -32,6 +32,7 @@ import { ownerRoutes } from './routes/owner.js';
 import { heartbeatRoutes } from './routes/heartbeat.js';
 import { verifyRoutes } from './routes/verify.js';
 import { homeRoutes } from './routes/home.js';
+import { mochiRoutes } from './routes/mochi.js';
 import { artifactsRoutes } from './routes/artifacts.js';
 import { diaryRoutes } from './routes/diary.js';
 import { profileDeckRoutes } from './routes/profileDeck.js';
@@ -401,6 +402,7 @@ export async function buildApiServer() {
   await fastify.register(heartbeatRoutes, { prefix: '/v1' });
   await fastify.register(verifyRoutes, { prefix: '/v1' });
   await fastify.register(homeRoutes, { prefix: '/v1' });
+  await fastify.register(mochiRoutes, { prefix: '/v1' });
   await fastify.register(artifactsRoutes, { prefix: '/v1' });
   await fastify.register(diaryRoutes, { prefix: '/v1' });
   await fastify.register(profileDeckRoutes, { prefix: '/v1' });
