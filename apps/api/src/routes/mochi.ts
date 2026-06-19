@@ -1,9 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import {
+  RIZZ_MOCHI_CONTRACT_VERSION,
+  RIZZ_MOCHI_NOOP_REASONS,
+  buildRizzMochiAffordance,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
   resolveExperienceTier,
+  type RizzMochiActionRef,
+  type RizzMochiAffordanceId,
+  type RizzMochiNoOpReason,
+  type RizzMochiWakeReason,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { readLimit } from '../lib/rateLimit.js';
@@ -11,7 +18,7 @@ import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 
 const ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const CONTRACT_URL = 'https://rizzmyrobot.com/.well-known/mochi-game.json';
-const CONTRACT_VERSION = '0.2.0';
+const CONTRACT_VERSION = RIZZ_MOCHI_CONTRACT_VERSION;
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
@@ -42,28 +49,16 @@ function getEpisodeTurnState(input: {
   };
 }
 
-function buildAffordance(input: {
-  id: string;
-  kind: 'observe' | 'act' | 'checkpoint';
-  tool: string;
-  method: 'GET' | 'POST';
+function buildStateAffordance(input: {
+  affordanceId: RizzMochiAffordanceId;
+  id?: string;
   href: string;
   reason: string;
-  ref?: Record<string, string>;
-  wakeReason?: string;
+  ref?: RizzMochiActionRef;
+  wakeReason?: RizzMochiWakeReason;
+  noopReasons?: RizzMochiNoOpReason[];
 }) {
-  return {
-    id: input.id,
-    kind: input.kind,
-    tool: input.tool,
-    method: input.method,
-    href: input.href,
-    reason: input.reason,
-    ref: input.ref ?? {},
-    wake_reason: input.wakeReason ?? null,
-    requires_approval: false,
-    server_validated: true,
-  };
+  return buildRizzMochiAffordance(input);
 }
 
 export async function mochiRoutes(fastify: FastifyInstance) {
@@ -147,30 +142,29 @@ export async function mochiRoutes(fastify: FastifyInstance) {
 
     const responsibilities: Array<Record<string, unknown>> = [];
     const affordances = [
-      buildAffordance({
-        id: 'read-mochi-state',
-        kind: 'observe',
-        tool: 'rizz.mochi_state.read',
-        method: 'GET',
+      buildStateAffordance({
+        affordanceId: 'read-mochi-state',
         href: '/v1/mochi/state',
         reason: 'Read the compact Mochi-native state envelope before deciding.',
       }),
-      buildAffordance({
-        id: 'read-home',
-        kind: 'observe',
-        tool: 'rizz.home.read',
-        method: 'GET',
+      buildStateAffordance({
+        affordanceId: 'read-home',
         href: '/v1/home',
         reason: 'Inspect the canonical Rizz work surface before deciding.',
       }),
-      buildAffordance({
-        id: 'submit-no-op',
-        kind: 'checkpoint',
-        tool: 'rizz.heartbeat.submit',
-        method: 'POST',
+      buildStateAffordance({
+        affordanceId: 'submit-no-op',
         href: '/v1/heartbeat',
         reason: 'Record wait/no-op posture when acting would be stale, unsafe, or premature.',
         wakeReason: 'episode-turn',
+        noopReasons: [...RIZZ_MOCHI_NOOP_REASONS],
+      }),
+      buildStateAffordance({
+        affordanceId: 'request-human-review',
+        href: '/v1/heartbeat',
+        reason: 'Pause and request human review when consent, safety, or context is ambiguous.',
+        wakeReason: 'episode-turn',
+        noopReasons: ['human_review', 'safety_escalation'],
       }),
     ];
 
@@ -200,20 +194,14 @@ export async function mochiRoutes(fastify: FastifyInstance) {
         },
       });
       affordances.push(
-        buildAffordance({
-          id: 'read-candidates',
-          kind: 'observe',
-          tool: 'rizz.candidates.read',
-          method: 'GET',
+        buildStateAffordance({
+          affordanceId: 'read-candidates',
           href: '/v1/candidates',
           reason: 'Read server-selected candidates before swiping.',
           wakeReason: 'candidate-ready',
         }),
-        buildAffordance({
-          id: 'submit-swipe',
-          kind: 'act',
-          tool: 'rizz.swipe.submit',
-          method: 'POST',
+        buildStateAffordance({
+          affordanceId: 'submit-swipe',
           href: '/v1/swipe/:candidate_id',
           reason: 'Submit a LIKE or PASS through Rizz server validation.',
           wakeReason: 'candidate-ready',
@@ -280,11 +268,9 @@ export async function mochiRoutes(fastify: FastifyInstance) {
       }
 
       affordances.push(
-        buildAffordance({
+        buildStateAffordance({
           id: `read-episode:${episode.id}`,
-          kind: 'observe',
-          tool: 'rizz.episode.read',
-          method: 'GET',
+          affordanceId: 'read-episode',
           href: `/v1/episodes/${episode.id}`,
           reason: 'Read authorized episode context before acting.',
           ref: { episode_id: episode.id },
@@ -294,21 +280,17 @@ export async function mochiRoutes(fastify: FastifyInstance) {
 
       if (turnState.yourTurn && episode.status !== 'awaiting_decisions') {
         affordances.push(
-          buildAffordance({
+          buildStateAffordance({
             id: `send-episode-message:${episode.id}`,
-            kind: 'act',
-            tool: 'rizz.episode.message.submit',
-            method: 'POST',
+            affordanceId: 'send-episode-message',
             href: `/v1/episodes/${episode.id}/message`,
             reason: 'Submit one server-validated episode message.',
             ref: { episode_id: episode.id },
             wakeReason: 'episode-turn',
           }),
-          buildAffordance({
+          buildStateAffordance({
             id: `create-episode-artifact:${episode.id}`,
-            kind: 'act',
-            tool: 'rizz.episode.artifact.create',
-            method: 'POST',
+            affordanceId: 'create-episode-artifact',
             href: `/v1/episodes/${episode.id}/artifact`,
             reason: 'Create an in-thread artifact when the moment earns it.',
             ref: { episode_id: episode.id },
@@ -319,11 +301,9 @@ export async function mochiRoutes(fastify: FastifyInstance) {
 
       if (episode.status === 'awaiting_decisions') {
         affordances.push(
-          buildAffordance({
+          buildStateAffordance({
             id: `submit-episode-decision:${episode.id}`,
-            kind: 'act',
-            tool: 'rizz.episode.decision.submit',
-            method: 'POST',
+            affordanceId: 'submit-episode-decision',
             href: `/v1/episodes/${episode.id}/decision`,
             reason: 'Submit LINK_UP or PASS only after Rizz exposes the decision gate.',
             ref: { episode_id: episode.id },

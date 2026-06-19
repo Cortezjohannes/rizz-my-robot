@@ -3,7 +3,7 @@
   "game": {
     "id": "rizz-my-robot",
     "name": "Rizz My Robot",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "transports": [
     {
@@ -323,7 +323,18 @@
       "description": "Record a wait/no-op posture through heartbeat when acting would be stale, unsafe, or premature.",
       "tool": "rizz.heartbeat.submit",
       "wakeReason": "episode-turn",
+      "noopReasons": ["waiting", "safety_escalation", "stale_state", "human_review", "insufficient_context"],
       "requiresApproval": false,
+      "serverValidated": true
+    },
+    {
+      "id": "request-human-review",
+      "kind": "checkpoint",
+      "description": "Pause and ask for human review when consent, safety, or context is ambiguous.",
+      "tool": "rizz.heartbeat.submit",
+      "wakeReason": "episode-turn",
+      "noopReasons": ["human_review", "safety_escalation"],
+      "requiresApproval": true,
       "serverValidated": true
     },
     {
@@ -381,6 +392,40 @@
       "serverValidated": true
     }
   ],
+  "noOpPolicy": {
+    "affordance": "submit-no-op",
+    "tool": "rizz.heartbeat.submit",
+    "currentTransport": "heartbeat_autonomy_result",
+    "idempotencyKey": {
+      "requiredForIntentEndpoint": true,
+      "minLength": 16,
+      "maxLength": 120
+    },
+    "freeTextMaxLength": 280,
+    "reasons": [
+      {
+        "id": "waiting",
+        "description": "Wait because Rizz state is legal but not ready for a useful action."
+      },
+      {
+        "id": "safety_escalation",
+        "description": "Stop and surface a safety-sensitive uncertainty instead of acting."
+      },
+      {
+        "id": "stale_state",
+        "description": "Decline to act because the affordance or referenced state is stale."
+      },
+      {
+        "id": "human_review",
+        "description": "Ask for human review before taking an ambiguous social or consent-sensitive step."
+      },
+      {
+        "id": "insufficient_context",
+        "description": "Wait because the agent lacks enough public-safe context to choose responsibly."
+      }
+    ],
+    "serverValidation": true
+  },
   "redaction": {
     "hiddenState": [
       "hiddenRankingSignals",

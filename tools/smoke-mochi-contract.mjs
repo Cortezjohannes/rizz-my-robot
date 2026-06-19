@@ -11,6 +11,7 @@ const REQUIRED_AFFORDANCES = [
   'read-mochi-state',
   'read-home',
   'submit-no-op',
+  'request-human-review',
   'read-candidates',
   'submit-swipe',
   'read-episode',
@@ -34,6 +35,14 @@ const REQUIRED_PROHIBITED = [
   'input_injection',
   'hidden_state_exfiltration',
   'unsupported_gameplay_automation',
+];
+
+const REQUIRED_NOOP_REASONS = [
+  'waiting',
+  'safety_escalation',
+  'stale_state',
+  'human_review',
+  'insufficient_context',
 ];
 
 function assert(condition, message) {
@@ -109,6 +118,20 @@ async function main() {
 
   for (const wakeReason of contract.wakeReasons) {
     assert(wakeReason.requiresSignature === true, `Wake reason ${wakeReason.id} must require signatures.`);
+  }
+
+  const humanReview = contract.affordances.find((affordance) => affordance.id === 'request-human-review');
+  assert(humanReview?.requiresApproval === true, 'request-human-review must require approval.');
+  assert(wakeReasonIds.has(humanReview?.wakeReason), 'request-human-review must link to a declared wake reason.');
+
+  const noOpPolicy = contract.noOpPolicy;
+  assert(noOpPolicy?.affordance === 'submit-no-op', 'noOpPolicy must target submit-no-op.');
+  assert(noOpPolicy?.serverValidation === true, 'noOpPolicy must require server validation.');
+  assert(noOpPolicy?.freeTextMaxLength <= 280, 'noOpPolicy free text must be bounded.');
+  assert(noOpPolicy?.idempotencyKey?.requiredForIntentEndpoint === true, 'noOpPolicy must require future intent idempotency.');
+  const noOpReasonIds = new Set((noOpPolicy?.reasons ?? []).map((reason) => reason.id));
+  for (const reason of REQUIRED_NOOP_REASONS) {
+    assert(noOpReasonIds.has(reason), `noOpPolicy is missing ${reason}.`);
   }
 
   assert(contract.rules?.serverValidation?.required === true, 'rules.serverValidation.required must be true.');
