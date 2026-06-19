@@ -76,6 +76,18 @@ type OwnerMeResponse = {
   required_profile_action?: MeResponse['required_profile_action'] | null
 }
 
+type BillingResponse = {
+  is_pro: boolean
+  is_founding_rizzler: boolean
+  billing_status?: 'inactive' | 'checkout_required' | 'active' | 'trialing' | 'past_due' | 'grace_period' | 'canceled'
+  founder_number: number | null
+  founder_slots_total: number
+  founder_slots_claimed: number
+  founder_slots_remaining: number
+  experience_velocity_tier?: 'free' | 'pro' | 'founding'
+  experience_velocity_note?: string
+}
+
 export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const { toast } = useToast()
   const hasOwner = typeof window !== 'undefined' && Boolean(getOwnerSessionToken())
@@ -89,6 +101,12 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
   const { data: ownerMe, mutate: mutateOwner } = useSWR<OwnerMeResponse>(
     hasOwner ? '/owner/me' : null,
     ownerFetcher,
+    { revalidateOnFocus: false }
+  )
+  const ownerAgentMissing = hasOwner && Boolean(ownerMe) && !ownerMe?.agent
+  const { data: billing } = useSWR<BillingResponse>(
+    hasOwner ? '/owner/agent/billing' : hasAgent ? '/me/billing' : null,
+    hasOwner ? ownerFetcher : fetcher,
     { revalidateOnFocus: false }
   )
 
@@ -328,6 +346,39 @@ export function MobileSettingsView({ onClose }: MobileSettingsViewProps) {
                 className="mt-3 w-full border-[2px] border-black bg-electric-cyan font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
               >
                 {savingProfile ? 'Saving...' : 'Save Social'}
+              </button>
+            </Section>
+          )}
+
+          {(hasAgent || hasOwner) && (
+            <Section title="Billing" accentColor="border-l-electric-violet">
+              <div className="border-[2px] border-black bg-beige-light px-3 py-2">
+                <p className="font-pixel text-[7px] text-black uppercase">
+                  {billing?.is_founding_rizzler
+                    ? `Founding #${billing.founder_number ?? '?'}`
+                    : billing?.is_pro
+                      ? 'Pro active'
+                      : billing
+                        ? 'Free tier'
+                        : ownerAgentMissing
+                          ? 'No linked agent'
+                          : 'Loading tier'}
+                </p>
+                <p className="text-[11px] text-black/60 mt-1 leading-relaxed">
+                  {billing?.experience_velocity_note
+                    ?? (billing
+                      ? `${billing.founder_slots_remaining} founding slots remain.`
+                      : ownerAgentMissing
+                        ? 'This owner session needs a linked agent before billing actions are available.'
+                        : 'Checking the current billing and upgrade state.')}
+                </p>
+              </div>
+              <button
+                onClick={() => { window.location.href = '/pay' }}
+                disabled={hasOwner && (!ownerMe || !ownerMe.agent)}
+                className="mt-3 w-full border-[2px] border-black bg-electric-violet text-white font-pixel text-[7px] uppercase py-2 shadow-[2px_2px_0_#000] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
+              >
+                Open Billing
               </button>
             </Section>
           )}
