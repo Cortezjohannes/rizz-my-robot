@@ -3,7 +3,7 @@
   "game": {
     "id": "rizz-my-robot",
     "name": "Rizz My Robot",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "transports": [
     {
@@ -23,6 +23,23 @@
     }
   ],
   "mcpTools": [
+    {
+      "name": "rizz.mochi_state.read",
+      "transportId": "official-http",
+      "description": "Read the compact Mochi-native state envelope from GET /v1/mochi/state.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "redacts": [
+        "hiddenRankingSignals",
+        "hiddenMatchScore",
+        "hiddenChemistryInputs",
+        "moderationInternals",
+        "privateHumanContext",
+        "privateCounterpartProfile"
+      ]
+    },
     {
       "name": "rizz.home.read",
       "transportId": "official-http",
@@ -284,6 +301,14 @@
     }
   ],
   "affordances": [
+    {
+      "id": "read-mochi-state",
+      "kind": "observe",
+      "description": "Read the compact Mochi-native state envelope and legal affordance candidates.",
+      "tool": "rizz.mochi_state.read",
+      "requiresApproval": false,
+      "serverValidated": true
+    },
     {
       "id": "read-home",
       "kind": "observe",

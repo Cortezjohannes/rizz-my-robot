@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const contractPath = path.join(root, 'apps/web/public/.well-known/mochi-game.json');
 
 const REQUIRED_AFFORDANCES = [
+  'read-mochi-state',
   'read-home',
   'submit-no-op',
   'read-candidates',

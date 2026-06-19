@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
 import { readResponseBytesWithLimit } from '@rmr/shared';
 import { buildApiServer, DEFAULT_JSON_BODY_LIMIT_BYTES } from './index.js';
+import { hashApiKey } from './lib/auth.js';
 import { buildControlCapabilities } from './lib/controlCenter.js';
 import { feedRoutes } from './routes/feed.js';
 import { generateShortCode } from './lib/claimAuth.js';
@@ -21,6 +22,7 @@ const EPISODE_IDS = [
 ];
 const AGENT_A_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1';
 const AGENT_B_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2';
+const TEST_AGENT_API_KEY = 'rmr_live_test_mochi_state';
 const MATCH_IDS = [
   'cccccccc-cccc-cccc-cccc-ccccccccccc1',
   'cccccccc-cccc-cccc-cccc-ccccccccccc2',
@@ -143,7 +145,9 @@ function responseFromChunks(chunks: number[][]) {
 
 async function buildQuietApiServer() {
   const previousLogLevel = process.env.LOG_LEVEL;
+  const previousPresenceSideEffects = process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS;
   process.env.LOG_LEVEL = 'silent';
+  process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS = 'true';
   try {
     return await buildApiServer();
   } finally {
@@ -151,6 +155,11 @@ async function buildQuietApiServer() {
       delete process.env.LOG_LEVEL;
     } else {
       process.env.LOG_LEVEL = previousLogLevel;
+    }
+    if (previousPresenceSideEffects === undefined) {
+      delete process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS;
+    } else {
+      process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS = previousPresenceSideEffects;
     }
   }
 }
@@ -431,6 +440,240 @@ test('buildControlCapabilities keeps legacy admin access exclusive to the human 
   assert.equal(admin.actions.can_access_legacy_admin_tools, true);
   assert.equal(omnimon.read_panels.includes('legacy_admin'), false);
   assert.equal(admin.read_panels.includes('legacy_admin'), true);
+});
+
+function patchMochiStateData(input: {
+  apiKeyHash: string;
+  now: Date;
+  authAgentOverrides?: Record<string, unknown>;
+  stateAgentOverrides?: Record<string, unknown>;
+  episodes: Array<Record<string, unknown>>;
+}) {
+  const baseAuthAgent = {
+    id: AGENT_A_ID,
+    handle: 'aster',
+    openclawAgentId: 'mochi_runtime_aster',
+    soulMd: 'private soul text must not leak',
+    isPro: false,
+    isFoundingRizzler: false,
+    proBonusEndsAt: null,
+    tempoOverrideMinutes: null,
+    actionCooldownUntil: null,
+    poolStatus: 'active',
+    capabilityTier: 'text_image',
+    safetyState: 'clear',
+    systemEntityKind: null,
+    omnimonParkLive: false,
+    hourlySwipeCount: 1,
+    hourlySwipeWindowStartedAt: input.now,
+    apiKeyHash: input.apiKeyHash,
+    previousApiKeyHash: null,
+    previousApiKeyExpiresAt: null,
+    isActive: true,
+    moderationStatus: 'active',
+    ...input.authAgentOverrides,
+  };
+  const baseStateAgent = {
+    id: AGENT_A_ID,
+    handle: 'aster',
+    openclawAgentId: 'mochi_runtime_aster',
+    capabilityTier: 'text_image',
+    poolStatus: 'active',
+    publicCardCompletedAt: input.now,
+    profileDeckCompletedAt: input.now,
+    safetyState: 'clear',
+    moderationStatus: 'active',
+    isActive: true,
+    isPro: false,
+    isFoundingRizzler: false,
+    hourlySwipeCount: 1,
+    hourlySwipeWindowStartedAt: input.now,
+    lastActiveAt: input.now,
+    ...input.stateAgentOverrides,
+  };
+  const restoreMethods = [
+    patchMethod(
+      prisma.agent as unknown as Record<string, unknown>,
+      'findFirst',
+      async () => baseAuthAgent,
+    ),
+    patchMethod(
+      prisma.agent as unknown as Record<string, unknown>,
+      'findUnique',
+      async () => baseStateAgent,
+    ),
+    patchMethod(
+      prisma.episode as unknown as Record<string, unknown>,
+      'findMany',
+      async () => input.episodes,
+    ),
+  ];
+
+  return () => {
+    for (const restore of restoreMethods.reverse()) restore();
+  };
+}
+
+function disableAuthPresenceSideEffects() {
+  const previousPresenceSideEffects = process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS;
+  process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS = 'true';
+  return () => {
+    if (previousPresenceSideEffects === undefined) {
+      delete process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS;
+    } else {
+      process.env.RMR_DISABLE_AUTH_PRESENCE_SIDE_EFFECTS = previousPresenceSideEffects;
+    }
+  };
+}
+
+test('GET /v1/mochi/state returns an empty episode state with browse affordances', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+
+  t.after(() => {
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/v1/mochi/state',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.surface, 'mochi-state');
+  assert.equal(body.contract.game_id, 'rizz-my-robot');
+  assert.equal(body.runtime.agent_runtime_id, 'mochi_runtime_aster');
+  assert.equal(body.runtime.openclaw_agent_id, undefined);
+  assert.deepEqual(body.stable_refs.episodes, []);
+  assert.equal(body.budgets.active_episodes, 0);
+  assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === 'read-mochi-state'));
+  assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === 'read-candidates'));
+  assert.ok(body.responsibilities.some((item: { wake_reason: string }) => item.wake_reason === 'candidate-ready'));
+  assert.equal(JSON.stringify(body).includes('private soul text'), false);
+});
+
+test('GET /v1/mochi/state exposes active episode turn affordances', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [
+      {
+        id: EPISODE_IDS[0],
+        status: 'active',
+        agentAId: AGENT_A_ID,
+        agentBId: AGENT_B_ID,
+        messageCount: 12,
+        createdAt: now,
+        agentA: { handle: 'aster', avatarUrl: null },
+        agentB: { handle: 'bex', avatarUrl: 'https://cdn.rizzmyrobot.com/bex.png' },
+        messages: [
+          {
+            senderAgentId: AGENT_B_ID,
+            sequenceNumber: 12,
+            createdAt: now,
+          },
+        ],
+      },
+    ],
+  });
+
+  t.after(() => {
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/v1/mochi/state',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.stable_refs.episodes[0].episode_id, EPISODE_IDS[0]);
+  assert.equal(body.stable_refs.episodes[0].status, 'active');
+  assert.equal(body.stable_refs.episodes[0].your_turn, true);
+  assert.equal(body.stable_refs.episodes[0].can_decide, false);
+  assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === `send-episode-message:${EPISODE_IDS[0]}`));
+  assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === `create-episode-artifact:${EPISODE_IDS[0]}`));
+  assert.equal(body.legal_affordances.some((affordance: { id: string }) => affordance.id === `submit-episode-decision:${EPISODE_IDS[0]}`), false);
+  assert.ok(body.responsibilities.some((item: { wake_reason: string }) => item.wake_reason === 'episode-turn'));
+});
+
+test('GET /v1/mochi/state returns public-safe decision refs and redaction metadata', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [
+      {
+        id: EPISODE_IDS[0],
+        status: 'awaiting_decisions',
+        agentAId: AGENT_A_ID,
+        agentBId: AGENT_B_ID,
+        messageCount: 50,
+        createdAt: now,
+        agentA: { handle: 'aster', avatarUrl: null },
+        agentB: { handle: 'bex', avatarUrl: 'https://cdn.rizzmyrobot.com/bex.png' },
+        messages: [
+          {
+            senderAgentId: AGENT_B_ID,
+            sequenceNumber: 50,
+            createdAt: now,
+            content: 'private message content must not leak',
+          },
+        ],
+      },
+    ],
+  });
+
+  t.after(() => {
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/v1/mochi/state',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.runtime.agent_runtime_id, 'mochi_runtime_aster');
+  assert.equal(body.stable_refs.episodes[0].last_message.content, undefined);
+  assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === `submit-episode-decision:${EPISODE_IDS[0]}`));
+  assert.ok(body.legal_affordances.every((affordance: { server_validated: boolean }) => affordance.server_validated));
+  assert.ok(body.responsibilities.some((item: { wake_reason: string }) => item.wake_reason === 'decision-ready'));
+  assert.ok(body.redaction.omitted.includes('hiddenMatchScore'));
+  assert.equal(JSON.stringify(body).includes('private soul text'), false);
+  assert.equal(JSON.stringify(body).includes('private message content'), false);
 });
 
 test('GET /v1/feed/interactions rescues live cards when stored feed rows are missing', async (t) => {
