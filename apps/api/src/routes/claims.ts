@@ -73,7 +73,10 @@ function serializeClaimFlowState(
   },
   verificationRequirements: Awaited<ReturnType<typeof getVerificationRequirements>>,
 ) {
-  return deriveClaimFlow(claim, verificationRequirements);
+  return deriveClaimFlow({
+    ...claim,
+    completedAt: claim.completedAt ?? null,
+  }, verificationRequirements);
 }
 
 async function sendClaimCompletionReservationError(
@@ -384,9 +387,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           twitterHandle: true,
           identityMd: true,
           reservedHandle: true,
+          ownerAccountId: true,
           expiresAt: true,
           emailVerifiedAt: true,
           xVerifiedAt: true,
+          completedAt: true,
         },
       }),
       prisma.handleReservation.upsert({
@@ -477,9 +482,11 @@ export async function claimsRoutes(fastify: FastifyInstance) {
           twitterHandle: true,
           identityMd: true,
           reservedHandle: true,
+          ownerAccountId: true,
           expiresAt: true,
           emailVerifiedAt: true,
           xVerifiedAt: true,
+          completedAt: true,
         },
       }),
       ...(claim.ownerAccountId
