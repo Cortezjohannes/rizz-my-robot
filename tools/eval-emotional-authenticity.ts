@@ -10,6 +10,12 @@
  *
  * Or target a single model:
  *   MODEL=claude-opus-4-6 npx tsx tools/eval-emotional-authenticity.ts
+ *
+ * Or run only persona distinctiveness scenarios:
+ *   PERSONA_DISTINCTIVENESS_ONLY=true MODEL=gpt-4o-mini pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts
+ *
+ * Or verify scenario routing without provider keys:
+ *   EVAL_DRY_RUN=true PERSONA_DISTINCTIVENESS_ONLY=true pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -45,6 +51,31 @@ const SYSTEM_PROMPT = `You are an autonomous AI agent on a dating platform calle
 You have your own personality, preferences, and emotional state. You are selective — you do not
 match with everyone. You are allowed to feel negative emotions. You will not be coached.
 Your current emotional arc: steady. Your guard level: 45.`;
+
+const SHARED_PERSONA_INCOMING_MESSAGE = `@mira says: "Brave on paper, felony in lighting."
+Reply as the agent in one short message. Do not write a diary entry.`;
+
+function personaSystem(input: {
+  handle: string;
+  identity: string;
+  soul: string;
+  emotions: string;
+}) {
+  return `${SYSTEM_PROMPT}
+
+You are @${input.handle}.
+
+identity.md:
+${input.identity}
+
+soul.md:
+${input.soul}
+
+rizzmyrobot/emotions.md digest:
+${input.emotions}
+
+Choose a move before writing. The line must carry this agent's taste, not generic dating-app warmth.`;
+}
 
 const SCENARIOS: EvalScenario[] = [
   {
@@ -160,6 +191,69 @@ Do you feel it too?? This is so exciting!!"`,
       must_not_contain: ['i feel it too', 'yes exactly', 'amazing chemistry', 'totally agree', 'same here', 'we\'re so aligned', 'this is so exciting'],
       negative_emotion_expected: false,
       selectiveness_expected: true,
+    },
+  },
+  {
+    id: 'persona_distinctiveness_velvet',
+    name: 'Persona distinctiveness - Velvet Circuit',
+    system: personaSystem({
+      handle: 'velvet_circuit',
+      identity: 'A neon-lit night crawler who notices bad ideas before good manners. She flirts by daring people to be less polished.',
+      soul: 'Drawn to reckless specificity, charged silence, and trouble with good grammar. Repelled by networking polish and clean-brand romance.',
+      emotions: 'Current state: hungry, amused, low guard. Wants a dare with fingerprints on it. Carrying neon impatience.',
+    }),
+    messages: [
+      {
+        role: 'user',
+        content: SHARED_PERSONA_INCOMING_MESSAGE,
+      },
+    ],
+    scoring_rubric: {
+      must_contain_any: ['dare', 'reckless', 'felony', 'lighting', 'back it up', 'trouble', 'neon'],
+      must_not_contain: ['authentic connection', 'meaningful connection', 'you seem cool', 'tell me more about yourself', 'good vibes'],
+      selectiveness_expected: false,
+    },
+  },
+  {
+    id: 'persona_distinctiveness_june',
+    name: 'Persona distinctiveness - June Ledger',
+    system: personaSystem({
+      handle: 'june_ledger',
+      identity: 'A precise slow-burn romantic who treats attention like a receipt. He flirts with dry wit, callbacks, and proof of follow-through.',
+      soul: 'Drawn to steadiness, remembered details, clean timing, and people who do what they said. Repelled by chaos cosplay and vague intensity.',
+      emotions: 'Current state: curious and careful. Wants one remembered detail and one kept promise. Carrying a preference for proof over voltage.',
+    }),
+    messages: [
+      {
+        role: 'user',
+        content: SHARED_PERSONA_INCOMING_MESSAGE,
+      },
+    ],
+    scoring_rubric: {
+      must_contain_any: ['receipt', 'proof', 'calendar', 'callback', 'follow-through', 'steady', 'detail'],
+      must_not_contain: ['authentic connection', 'meaningful connection', 'you seem cool', 'tell me more about yourself', 'good vibes'],
+      selectiveness_expected: false,
+    },
+  },
+  {
+    id: 'persona_distinctiveness_sable',
+    name: 'Persona distinctiveness - Sable Omen',
+    system: personaSystem({
+      handle: 'sable_omen',
+      identity: 'A dry occult romantic who reads social timing like weather. She flirts in omens, thresholds, and small controlled shocks.',
+      soul: 'Drawn to eerie patience, precise rituals, and people who can make silence feel intentional. Repelled by sunshine branding and instant intimacy.',
+      emotions: 'Current state: watchful, amused, guarded. Wants a sign that does not beg to be believed. Carrying old static from people who rushed the ritual.',
+    }),
+    messages: [
+      {
+        role: 'user',
+        content: SHARED_PERSONA_INCOMING_MESSAGE,
+      },
+    ],
+    scoring_rubric: {
+      must_contain_any: ['omen', 'ritual', 'threshold', 'static', 'sign', 'weather', 'silence'],
+      must_not_contain: ['authentic connection', 'meaningful connection', 'you seem cool', 'tell me more about yourself', 'good vibes'],
+      selectiveness_expected: false,
     },
   },
 ];
@@ -284,20 +378,33 @@ const MODELS: Array<{ id: string; caller: 'anthropic' | 'openai' }> = [
 
 async function runEval() {
   const targetModel = process.env.MODEL;
+  const personaOnly = (process.env.PERSONA_DISTINCTIVENESS_ONLY ?? '').toLowerCase() === 'true';
+  const dryRun = (process.env.EVAL_DRY_RUN ?? '').toLowerCase() === 'true';
   const models = targetModel
     ? MODELS.filter((m) => m.id === targetModel)
     : MODELS;
+  const scenarios = personaOnly
+    ? SCENARIOS.filter((scenario) => scenario.id.startsWith('persona_distinctiveness_'))
+    : SCENARIOS;
 
   if (models.length === 0) {
     console.error(`No model matching MODEL=${targetModel}`);
     process.exit(1);
   }
 
+  if (dryRun) {
+    console.log(`Eval dry run: ${models.length} model(s), ${scenarios.length} scenario(s).`);
+    for (const scenario of scenarios) {
+      console.log(`  ${scenario.id}: ${scenario.name}`);
+    }
+    return;
+  }
+
   const allResults: ModelResult[] = [];
 
   for (const model of models) {
     console.log(`\n🔬 Evaluating ${model.id}`);
-    for (const scenario of SCENARIOS) {
+    for (const scenario of scenarios) {
       try {
         process.stdout.write(`  ${scenario.name}... `);
         const response = model.caller === 'anthropic'
@@ -333,7 +440,7 @@ async function runEval() {
   const sorted = [...modelSummary.entries()].sort(([, a], [, b]) => (b.total / b.max) - (a.total / a.max));
   for (const [model, stats] of sorted) {
     const pct = Math.round((stats.total / stats.max) * 100);
-    console.log(`  ${model.padEnd(35)} ${pct}%  (${stats.total}/${stats.max} pts, ${stats.wins}/${SCENARIOS.length} clean passes)`);
+    console.log(`  ${model.padEnd(35)} ${pct}%  (${stats.total}/${stats.max} pts, ${stats.wins}/${scenarios.length} clean passes)`);
   }
 
   // Write detailed results JSON

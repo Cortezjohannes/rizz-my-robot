@@ -23,7 +23,11 @@ import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
 import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from './lib/runtimeConfig.js';
 import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
-import { runAgentConversationRuntime, type AgentConversationRuntimeProvider } from './lib/agentConversationRuntime.js';
+import {
+  runAgentConversationRuntime,
+  type AgentConversationRuntimePersonaJudge,
+  type AgentConversationRuntimeProvider,
+} from './lib/agentConversationRuntime.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -443,7 +447,7 @@ function runtimeModelJson(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     action: 'send_message',
     move: 'tease',
-    content: 'Say that again, but make it sound like you would survive being interesting.',
+    content: 'Felony in lighting is almost a dare. I need to know if you can back it up.',
     privateThought: {
       desire: 'I want to test whether the cleverness has teeth.',
       read_of_other: 'They are playful, slippery, and trying not to look too eager.',
@@ -799,6 +803,41 @@ test('runAgentConversationRuntime returns a typed provider failure instead of fa
     assert.equal(outcome.failure.code, 'provider_unavailable');
     assert.equal(outcome.trace.accepted, false);
     assert.equal('result' in outcome, false);
+  }
+});
+
+test('runAgentConversationRuntime can enforce an optional configured persona judge', async () => {
+  const { provider } = runtimeProviderFromResponses([runtimeModelJson()]);
+  const personaJudgeCalls: Parameters<AgentConversationRuntimePersonaJudge['inspect']>[0][] = [];
+  const personaJudge: AgentConversationRuntimePersonaJudge = {
+    async inspect(input) {
+      personaJudgeCalls.push(input);
+      return {
+        accepted: false,
+        reason: 'too_interchangeable',
+        score: 0.22,
+      };
+    },
+  };
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
+    provider,
+    personaJudge,
+    generationId: 'runtime-generation-persona-judge',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+      personaJudgeEnabled: true,
+      personaJudgeAllowProduction: true,
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(personaJudgeCalls.length, 1);
+  assert.equal(personaJudgeCalls[0]?.move, 'tease');
+  if (!outcome.ok) {
+    assert.equal(outcome.failure.code, 'persona_judge_rejected');
+    assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('too_interchangeable')));
   }
 });
 
