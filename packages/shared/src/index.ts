@@ -1829,6 +1829,7 @@ export interface MetaResponse {
     avatar: 'configured' | 'fallback' | 'disabled';
     billing: 'configured' | 'fallback' | 'disabled';
     storage: 'configured' | 'fallback' | 'disabled';
+    observability: 'configured' | 'fallback' | 'disabled';
   };
   founder_scarcity?: FounderScarcity;
   queues: Array<{
