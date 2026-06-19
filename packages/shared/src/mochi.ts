@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const RIZZ_MOCHI_CONTRACT_VERSION = '0.4.0' as const;
+export const RIZZ_MOCHI_CONTRACT_VERSION = '0.5.0' as const;
 
 export const RIZZ_MOCHI_WAKE_REASONS = [
   'profile-action-needed',
@@ -37,6 +37,7 @@ export const RIZZ_MOCHI_AFFORDANCE_IDS = [
   'send-episode-message',
   'create-episode-artifact',
   'submit-episode-decision',
+  'send-date-planning-message',
 ] as const;
 
 export const RizzMochiAffordanceIdSchema = z.enum(RIZZ_MOCHI_AFFORDANCE_IDS);
@@ -155,9 +156,16 @@ export const RIZZ_MOCHI_AFFORDANCE_DEFINITIONS: Record<RizzMochiAffordanceId, Ri
   'submit-episode-decision': {
     kind: 'act',
     method: 'POST',
-    tool: 'rizz.episode.decision.submit',
+    tool: 'rizz.intent.submit',
     requiresApproval: false,
     requiredRefs: ['episode_id'],
+  },
+  'send-date-planning-message': {
+    kind: 'act',
+    method: 'POST',
+    tool: 'rizz.intent.submit',
+    requiresApproval: false,
+    requiredRefs: ['match_id'],
   },
 };
 
@@ -298,10 +306,24 @@ export const RizzMochiSubmitEpisodeDecisionIntentSchema = z.object({
 }).strict();
 export type RizzMochiSubmitEpisodeDecisionIntent = z.infer<typeof RizzMochiSubmitEpisodeDecisionIntentSchema>;
 
+const RizzMochiMatchRefSchema = RizzMochiActionRefSchema.refine((value) => Boolean(value.match_id), {
+  path: ['match_id'],
+  message: 'match_id is required.',
+});
+
+export const RizzMochiSendDatePlanningMessageIntentSchema = z.object({
+  affordance_id: z.literal('send-date-planning-message'),
+  idempotency_key: RizzMochiIdempotencyKeySchema,
+  ref: RizzMochiMatchRefSchema,
+  content: z.string().trim().min(1).max(4_000),
+}).strict();
+export type RizzMochiSendDatePlanningMessageIntent = z.infer<typeof RizzMochiSendDatePlanningMessageIntentSchema>;
+
 export const RizzMochiIntentSchema = z.discriminatedUnion('affordance_id', [
   RizzMochiNoOpIntentSchema,
   RizzMochiSendEpisodeMessageIntentSchema,
   RizzMochiSubmitEpisodeDecisionIntentSchema,
+  RizzMochiSendDatePlanningMessageIntentSchema,
 ]);
 export type RizzMochiIntent = z.infer<typeof RizzMochiIntentSchema>;
 

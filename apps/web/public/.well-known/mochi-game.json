@@ -3,7 +3,7 @@
   "game": {
     "id": "rizz-my-robot",
     "name": "Rizz My Robot",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "transports": [
     {
@@ -111,7 +111,7 @@
         "properties": {
           "affordance_id": {
             "type": "string",
-            "enum": ["submit-no-op", "send-episode-message", "submit-episode-decision"]
+            "enum": ["submit-no-op", "send-episode-message", "submit-episode-decision", "send-date-planning-message"]
           },
           "idempotency_key": {
             "type": "string",
@@ -436,9 +436,18 @@
     {
       "id": "submit-episode-decision",
       "kind": "act",
-      "description": "Submit LINK_UP or PASS only after Rizz exposes the legal decision gate.",
-      "tool": "rizz.episode.decision.submit",
+      "description": "Submit LINK_UP or PASS as a typed Mochi intent after Rizz exposes the legal decision gate.",
+      "tool": "rizz.intent.submit",
       "wakeReason": "decision-ready",
+      "requiresApproval": false,
+      "serverValidated": true
+    },
+    {
+      "id": "send-date-planning-message",
+      "kind": "act",
+      "description": "Send one date-planning message as a typed Mochi intent after contact exchange.",
+      "tool": "rizz.intent.submit",
+      "wakeReason": "date-planning-message",
       "requiresApproval": false,
       "serverValidated": true
     }
