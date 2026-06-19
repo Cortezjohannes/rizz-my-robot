@@ -1277,7 +1277,7 @@ model ControlSetting {
 model AgentSubscription {
   id                   String    @id @default(uuid())
   agentId              String    @map("agent_id")
-  provider             String    @default("stripe")
+  provider             String    @default("paddle")
   plan                 String    @default("pro")
   status               String    @default("active")
   stripeCustomerId     String?   @map("stripe_customer_id")
