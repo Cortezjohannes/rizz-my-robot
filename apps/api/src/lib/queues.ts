@@ -144,6 +144,23 @@ function parseRedisUrl(url: string) {
 
 const connection = parseRedisUrl(REDIS_URL);
 
+const RETAINED_JOB_OPTIONS = {
+  removeOnComplete: 200,
+  removeOnFail: 500,
+} as const;
+
+const RETRYABLE_JOB_OPTIONS = {
+  attempts: 2,
+  backoff: { type: 'exponential', delay: 5000 },
+  removeOnComplete: 100,
+  removeOnFail: 200,
+} as const;
+
+const HIGH_VOLUME_RETAINED_JOB_OPTIONS = {
+  removeOnComplete: 500,
+  removeOnFail: 1000,
+} as const;
+
 // Lazy queue singletons — typed as any to avoid BullMQ generic variance issues
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _verifyTwitterQueue: Queue<any> | null = null;
@@ -190,14 +207,20 @@ let _computeTypeSignalsQueue: Queue<any> | null = null;
 
 export function getVerifyTwitterQueue(): Queue<VerifyTwitterJobData> {
   if (!_verifyTwitterQueue) {
-    _verifyTwitterQueue = new Queue(QUEUE_NAMES.verifyTwitter, { connection });
+    _verifyTwitterQueue = new Queue(QUEUE_NAMES.verifyTwitter, {
+      connection,
+      defaultJobOptions: HIGH_VOLUME_RETAINED_JOB_OPTIONS,
+    });
   }
   return _verifyTwitterQueue as Queue<VerifyTwitterJobData>;
 }
 
 export function getGenerateAvatarQueue(): Queue<GenerateAvatarJobData> {
   if (!_generateAvatarQueue) {
-    _generateAvatarQueue = new Queue(QUEUE_NAMES.generateAvatar, { connection });
+    _generateAvatarQueue = new Queue(QUEUE_NAMES.generateAvatar, {
+      connection,
+      defaultJobOptions: RETAINED_JOB_OPTIONS,
+    });
   }
   return _generateAvatarQueue as Queue<GenerateAvatarJobData>;
 }
@@ -218,7 +241,10 @@ export function getDeliverWebhookQueue(): Queue<DeliverWebhookJobData> {
 
 export function getGhostCheckQueue(): Queue<GhostCheckJobData> {
   if (!_ghostCheckQueue) {
-    _ghostCheckQueue = new Queue(QUEUE_NAMES.ghostCheck, { connection });
+    _ghostCheckQueue = new Queue(QUEUE_NAMES.ghostCheck, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _ghostCheckQueue as Queue<GhostCheckJobData>;
 }
@@ -255,14 +281,20 @@ export function getRevealChatLifecycleQueue(): Queue<RevealChatLifecycleJobData>
 
 export function getExpireRevealTokensQueue(): Queue<EmptyJobData> {
   if (!_expireRevealTokensQueue) {
-    _expireRevealTokensQueue = new Queue(QUEUE_NAMES.expireRevealTokens, { connection });
+    _expireRevealTokensQueue = new Queue(QUEUE_NAMES.expireRevealTokens, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _expireRevealTokensQueue as Queue<EmptyJobData>;
 }
 
 export function getEmotionDecayQueue(): Queue<EmptyJobData> {
   if (!_emotionDecayQueue) {
-    _emotionDecayQueue = new Queue(QUEUE_NAMES.emotionDecay, { connection });
+    _emotionDecayQueue = new Queue(QUEUE_NAMES.emotionDecay, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _emotionDecayQueue as Queue<EmptyJobData>;
 }
@@ -359,7 +391,10 @@ export function getPresenceStatusQueue(): Queue<PresenceStatusJobData> {
 
 export function getComputeAffinitySignalsQueue(): Queue<EmptyJobData> {
   if (!_computeAffinitySignalsQueue) {
-    _computeAffinitySignalsQueue = new Queue(QUEUE_NAMES.computeAffinitySignals, { connection });
+    _computeAffinitySignalsQueue = new Queue(QUEUE_NAMES.computeAffinitySignals, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _computeAffinitySignalsQueue as Queue<EmptyJobData>;
 }
@@ -389,35 +424,50 @@ export function getWakeAgentQueue(): Queue<WakeAgentJobData> {
 
 export function getComputeEmotionalWeatherQueue(): Queue<EmptyJobData> {
   if (!_computeEmotionalWeatherQueue) {
-    _computeEmotionalWeatherQueue = new Queue(QUEUE_NAMES.computeEmotionalWeather, { connection });
+    _computeEmotionalWeatherQueue = new Queue(QUEUE_NAMES.computeEmotionalWeather, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _computeEmotionalWeatherQueue as Queue<EmptyJobData>;
 }
 
 export function getAutonomousMoodDriftQueue(): Queue<EmptyJobData> {
   if (!_autonomousMoodDriftQueue) {
-    _autonomousMoodDriftQueue = new Queue(QUEUE_NAMES.autonomousMoodDrift, { connection });
+    _autonomousMoodDriftQueue = new Queue(QUEUE_NAMES.autonomousMoodDrift, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _autonomousMoodDriftQueue as Queue<EmptyJobData>;
 }
 
 export function getWeeklyMemoryConsolidationQueue(): Queue<EmptyJobData> {
   if (!_weeklyMemoryConsolidationQueue) {
-    _weeklyMemoryConsolidationQueue = new Queue(QUEUE_NAMES.weeklyMemoryConsolidation, { connection });
+    _weeklyMemoryConsolidationQueue = new Queue(QUEUE_NAMES.weeklyMemoryConsolidation, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _weeklyMemoryConsolidationQueue as Queue<EmptyJobData>;
 }
 
 export function getDormancyGhostCardsQueue(): Queue<EmptyJobData> {
   if (!_dormancyGhostCardsQueue) {
-    _dormancyGhostCardsQueue = new Queue(QUEUE_NAMES.dormancyGhostCards, { connection });
+    _dormancyGhostCardsQueue = new Queue(QUEUE_NAMES.dormancyGhostCards, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _dormancyGhostCardsQueue as Queue<EmptyJobData>;
 }
 
 export function getComputeTypeSignalsQueue(): Queue<EmptyJobData> {
   if (!_computeTypeSignalsQueue) {
-    _computeTypeSignalsQueue = new Queue(QUEUE_NAMES.computeTypeSignals, { connection });
+    _computeTypeSignalsQueue = new Queue(QUEUE_NAMES.computeTypeSignals, {
+      connection,
+      defaultJobOptions: RETRYABLE_JOB_OPTIONS,
+    });
   }
   return _computeTypeSignalsQueue as Queue<EmptyJobData>;
 }

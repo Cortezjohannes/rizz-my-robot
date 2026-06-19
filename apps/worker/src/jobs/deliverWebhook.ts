@@ -1,7 +1,7 @@
-import { Queue, type Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { prisma } from '@rmr/db';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
-import { getRedisConnection } from '../lib/redis.js';
+import { QUEUE_NAMES, WEBHOOK_JOB_OPTIONS, createWorkerQueue } from '../lib/queueDefaults.js';
 import { resolveWebhookSigningSecret, signWebhookPayload } from '@rmr/shared';
 
 export interface DeliverWebhookJobData {
@@ -24,9 +24,14 @@ let deliverQueue: Queue<DeliverWebhookJobData> | null = null;
 
 function getDeliverQueue() {
   if (!deliverQueue) {
-    deliverQueue = new Queue('deliver-webhook', { connection: getRedisConnection() });
+    deliverQueue = createWorkerQueue<DeliverWebhookJobData>(QUEUE_NAMES.deliverWebhook, WEBHOOK_JOB_OPTIONS);
   }
   return deliverQueue;
+}
+
+export async function closeDeliverWebhookRetryQueue(): Promise<void> {
+  await deliverQueue?.close().catch(() => undefined);
+  deliverQueue = null;
 }
 
 export async function processDeliverWebhook(job: Job<DeliverWebhookJobData>): Promise<void> {

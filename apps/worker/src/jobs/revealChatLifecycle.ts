@@ -1,8 +1,8 @@
 import type { Job } from 'bullmq';
+import type { Queue } from 'bullmq';
 import { prisma } from '@rmr/db';
-import { Queue } from 'bullmq';
-import { getRedisConnection } from '../lib/redis.js';
 import { enqueueWebhookDeliveries } from '../lib/webhooks.js';
+import { QUEUE_NAMES, RETRYABLE_JOB_OPTIONS, createWorkerQueue } from '../lib/queueDefaults.js';
 import { createHash } from 'node:crypto';
 
 interface RevealChatLifecycleJobData {
@@ -15,6 +15,31 @@ const REVEAL_CHAT_LIFECYCLE_QUEUE = 'reveal-chat-lifecycle';
 const REVEAL_CHAT_INACTIVITY_MS = 48 * 60 * 60 * 1000;
 const FINALIZE_TIMEOUT_DELAY_MS = 90 * 1000;
 const TIME_CAPSULE_REOPEN_WINDOW_MS = 48 * 60 * 60 * 1000;
+let lifecycleQueue: Queue<RevealChatLifecycleJobData> | null = null;
+let seedQueue: Queue | null = null;
+
+function getLifecycleQueue(): Queue<RevealChatLifecycleJobData> {
+  if (!lifecycleQueue) {
+    lifecycleQueue = createWorkerQueue<RevealChatLifecycleJobData>(REVEAL_CHAT_LIFECYCLE_QUEUE, RETRYABLE_JOB_OPTIONS);
+  }
+  return lifecycleQueue;
+}
+
+function getSeedQueue(): Queue {
+  if (!seedQueue) {
+    seedQueue = createWorkerQueue(QUEUE_NAMES.seedBrain, RETRYABLE_JOB_OPTIONS);
+  }
+  return seedQueue;
+}
+
+export async function closeRevealChatLifecycleQueues(): Promise<void> {
+  await Promise.allSettled([
+    lifecycleQueue?.close().catch(() => undefined) ?? Promise.resolve(),
+    seedQueue?.close().catch(() => undefined) ?? Promise.resolve(),
+  ]);
+  lifecycleQueue = null;
+  seedQueue = null;
+}
 
 export async function processRevealChatLifecycle(job: Job<RevealChatLifecycleJobData>) {
   if (job.data.action === 'check_inactivity') {
@@ -100,7 +125,7 @@ async function handleCheckInactivity(chatId: string) {
     })
   )));
 
-  const queue = new Queue<RevealChatLifecycleJobData>(REVEAL_CHAT_LIFECYCLE_QUEUE, { connection: getRedisConnection() });
+  const queue = getLifecycleQueue();
   await queue.add(
     'finalize-timeout',
     {
@@ -228,7 +253,7 @@ async function handleUnlockTimeCapsule(chatId: string) {
     },
   });
 
-  const queue = new Queue<RevealChatLifecycleJobData>(REVEAL_CHAT_LIFECYCLE_QUEUE, { connection: getRedisConnection() });
+  const queue = getLifecycleQueue();
   await queue.add(
     'time-capsule-rearchive',
     { chatId, action: 'check_inactivity' },
@@ -361,7 +386,7 @@ async function queueRevealChatMemoryWrite(chatId: string, reason: string) {
 
   if (!chat) return;
 
-  const seedQueue = new Queue('seed-brain', { connection: getRedisConnection() });
+  const seedQueue = getSeedQueue();
   const total = chat.messages.length;
   const humanCount = chat.messages.filter((message) => message.senderKind === 'HUMAN_A' || message.senderKind === 'HUMAN_B').length;
   const agentCount = total - humanCount;

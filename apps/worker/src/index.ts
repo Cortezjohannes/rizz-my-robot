@@ -22,43 +22,56 @@ import { processAutonomousMoodDrift } from './jobs/autonomousMoodDrift.js';
 import { processWeeklyMemoryConsolidation } from './jobs/weeklyMemoryConsolidation.js';
 import { processDormancyGhostCards } from './jobs/dormancyGhostCards.js';
 import { processComputeTypeSignals } from './jobs/computeTypeSignals.js';
+import { closeDeliverWebhookRetryQueue } from './jobs/deliverWebhook.js';
+import { closeRevealChatLifecycleQueues } from './jobs/revealChatLifecycle.js';
+import { closeSeedBrainQueues } from './jobs/seedBrain.js';
 import {
   captureRuntimeError,
   flushErrorAggregation,
   initializeErrorAggregation,
 } from './lib/errorAggregation.js';
+import { QUEUE_NAMES, RETRYABLE_JOB_OPTIONS, createWorkerQueue } from './lib/queueDefaults.js';
 import { assertWorkerProductionRuntimeConfig } from './lib/runtimeConfig.js';
+import { closeWebhookDeliveryQueue } from './lib/webhooks.js';
 
-const QUEUE_NAMES = {
-  verifyTwitter: 'verify-twitter',
-  generateAvatar: 'generate-avatar',
-  deliverWebhook: 'deliver-webhook',
-  ghostCheck: 'ghost-check',
-  reconcileFeedCards: 'reconcile-feed-cards',
-  revealChatLifecycle: 'reveal-chat-lifecycle',
-  expireRevealTokens: 'expire-reveal-tokens',
-  emotionDecay: 'emotion-decay',
-  seedBrain: 'seed-brain',
-  generateRecaps: 'generate-recaps',
-  artifactRecovery: 'artifact-recovery',
-  recomputeSocialStatus: 'recompute-social-status',
-  recomputeEmotionalContinuity: 'recompute-emotional-continuity',
-  presenceStatus: 'presence-status',
-  computeAffinitySignals: 'compute-affinity-signals',
-  wakeAgent: 'wake-agent',
-  computeEmotionalWeather: 'compute-emotional-weather',
-  autonomousMoodDrift: 'autonomous-mood-drift',
-  weeklyMemoryConsolidation: 'weekly-memory-consolidation',
-  dormancyGhostCards: 'dormancy-ghost-cards',
-  computeTypeSignals: 'compute-type-signals',
-} as const;
+function parseBoundedIntEnv(
+  key: string,
+  defaultValue: number,
+  options: { min: number; max: number },
+): number {
+  const raw = process.env[key];
+  if (!raw) return defaultValue;
 
-const concurrency = parseInt(process.env.WORKER_CONCURRENCY ?? '5', 10);
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    console.warn(`[worker] Invalid ${key}=${raw}; using ${defaultValue}.`);
+    return defaultValue;
+  }
+
+  if (parsed < options.min || parsed > options.max) {
+    const bounded = Math.min(Math.max(parsed, options.min), options.max);
+    console.warn(`[worker] ${key}=${parsed} outside ${options.min}-${options.max}; using ${bounded}.`);
+    return bounded;
+  }
+
+  return parsed;
+}
+
+const concurrency = parseBoundedIntEnv('WORKER_CONCURRENCY', 5, { min: 1, max: 50 });
+const deliverWebhookConcurrency = parseBoundedIntEnv('DELIVER_WEBHOOK_CONCURRENCY', 20, { min: 1, max: 100 });
+const wakeAgentConcurrency = parseBoundedIntEnv('WAKE_AGENT_CONCURRENCY', 20, { min: 1, max: 100 });
 const seedBrainEnabled = process.env.SEED_BRAIN_ENABLED !== 'false';
-const workerStartRetryBaseMs = parseInt(process.env.WORKER_START_RETRY_MS ?? '5000', 10);
-const workerStartRetryMaxMs = parseInt(process.env.WORKER_START_RETRY_MAX_MS ?? '60000', 10);
-const workerHeartbeatTtlSeconds = parseInt(process.env.WORKER_HEARTBEAT_TTL_SECONDS ?? '45', 10);
-const workerHeartbeatIntervalMs = parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? '15000', 10);
+const workerStartRetryBaseMs = parseBoundedIntEnv('WORKER_START_RETRY_MS', 5000, { min: 1000, max: 60_000 });
+const workerStartRetryMaxMs = parseBoundedIntEnv('WORKER_START_RETRY_MAX_MS', 60_000, { min: 5000, max: 10 * 60_000 });
+const workerHeartbeatTtlSeconds = parseBoundedIntEnv('WORKER_HEARTBEAT_TTL_SECONDS', 45, { min: 10, max: 300 });
+const workerHeartbeatIntervalMs = parseBoundedIntEnv('WORKER_HEARTBEAT_INTERVAL_MS', 15_000, { min: 5000, max: 120_000 });
+const workerLockDurationMs = parseBoundedIntEnv('WORKER_LOCK_DURATION_MS', 5 * 60_000, { min: 30_000, max: 30 * 60_000 });
+const workerStalledIntervalMs = parseBoundedIntEnv('WORKER_STALLED_INTERVAL_MS', 30_000, { min: 10_000, max: 5 * 60_000 });
+const workerMaxStalledCount = parseBoundedIntEnv('WORKER_MAX_STALLED_COUNT', 2, { min: 0, max: 5 });
+const reconcileFeedCardsRepeatMs = parseBoundedIntEnv('RECONCILE_FEED_CARDS_REPEAT_MS', 5 * 60_000, { min: 30_000, max: 24 * 60 * 60_000 });
+const seedBrainRepeatMs = parseBoundedIntEnv('SEED_BRAIN_REPEAT_MS', 300_000, { min: 30_000, max: 24 * 60 * 60_000 });
+const generateRecapsRepeatMs = parseBoundedIntEnv('GENERATE_RECAPS_REPEAT_MS', 600_000, { min: 60_000, max: 24 * 60 * 60_000 });
+const artifactRecoveryRepeatMs = parseBoundedIntEnv('ARTIFACT_RECOVERY_REPEAT_MS', 15 * 60_000, { min: 60_000, max: 24 * 60 * 60_000 });
 const workerBootAt = new Date();
 
 const REQUIRED_SCHEMA_TABLES = [
@@ -196,6 +209,16 @@ function stopHeartbeatLoop() {
   heartbeatInterval = null;
 }
 
+function getWorkerOptions(connection: ReturnType<typeof getRedisConnection>, workerConcurrency = concurrency) {
+  return {
+    connection,
+    concurrency: workerConcurrency,
+    lockDuration: workerLockDurationMs,
+    stalledInterval: workerStalledIntervalMs,
+    maxStalledCount: workerMaxStalledCount,
+  };
+}
+
 function installProcessGuards() {
   if (processGuardsInstalled) return;
   processGuardsInstalled = true;
@@ -215,6 +238,14 @@ async function closeRuntime(runtime: WorkerRuntime | null) {
   if (!runtime) return;
 
   await Promise.allSettled([
+    ...runtime.workers.map(async (worker) => worker.close()),
+  ]);
+
+  await Promise.allSettled([
+    closeDeliverWebhookRetryQueue(),
+    closeRevealChatLifecycleQueues(),
+    closeSeedBrainQueues(),
+    closeWebhookDeliveryQueue(),
     (async () => {
       try {
         const client = await getHeartbeatRedisClient(runtime.heartbeatQueue);
@@ -227,7 +258,6 @@ async function closeRuntime(runtime: WorkerRuntime | null) {
     })(),
     runtime.heartbeatQueue?.close().catch(() => undefined) ?? Promise.resolve(),
     ...runtime.queues.map(async (queue) => queue.close()),
-    ...runtime.workers.map(async (worker) => worker.close()),
   ]);
 }
 
@@ -253,7 +283,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
         console.info(`[worker] Processing job ${job.id} (${job.name})`);
         await processVerifyTwitter(job);
       },
-      { connection, concurrency }
+      getWorkerOptions(connection)
     );
     createdWorkers.push(verifyTwitterWorker);
 
@@ -263,7 +293,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
         console.info(`[worker] Processing job ${job.id} (${job.name})`);
         await processGenerateAvatar(job);
       },
-      { connection, concurrency }
+      getWorkerOptions(connection)
     );
     createdWorkers.push(generateAvatarWorker);
 
@@ -272,7 +302,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processDeliverWebhook(job);
       },
-      { connection, concurrency: 20 }
+      getWorkerOptions(connection, deliverWebhookConcurrency)
     );
     createdWorkers.push(deliverWebhookWorker);
 
@@ -282,7 +312,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
         console.info(`[worker] Processing ghost check for episode ${job.data.episodeId}`);
         await processGhostCheck(job);
       },
-      { connection, concurrency }
+      getWorkerOptions(connection)
     );
     createdWorkers.push(ghostCheckWorker);
 
@@ -291,7 +321,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processReconcileFeedCards(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(reconcileFeedCardsWorker);
 
@@ -300,7 +330,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processRevealChatLifecycle(job);
       },
-      { connection, concurrency: 2 }
+      getWorkerOptions(connection, 2)
     );
     createdWorkers.push(revealChatLifecycleWorker);
 
@@ -309,7 +339,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async () => {
         await processExpireRevealTokens();
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(expireRevealTokensWorker);
 
@@ -318,7 +348,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async () => {
         await processEmotionDecay();
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(emotionDecayWorker);
 
@@ -328,7 +358,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
           async (job) => {
             await processSeedBrain(job);
           },
-          { connection, concurrency: 2 }
+          getWorkerOptions(connection, 2)
         )
       : null;
     if (seedBrainWorker) createdWorkers.push(seedBrainWorker);
@@ -338,7 +368,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processGenerateRecaps(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(generateRecapsWorker);
 
@@ -347,7 +377,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processRecoverArtifacts(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(artifactRecoveryWorker);
 
@@ -356,7 +386,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processRecomputeSocialStatus(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(recomputeSocialStatusWorker);
 
@@ -365,7 +395,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processRecomputeEmotionalContinuity(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(recomputeEmotionalContinuityWorker);
 
@@ -374,7 +404,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processPresenceStatus(job);
       },
-      { connection, concurrency: 2 }
+      getWorkerOptions(connection, 2)
     );
     createdWorkers.push(presenceStatusWorker);
 
@@ -383,7 +413,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processComputeAffinitySignals(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(computeAffinitySignalsWorker);
 
@@ -392,7 +422,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processWakeAgent(job);
       },
-      { connection, concurrency: 20 }
+      getWorkerOptions(connection, wakeAgentConcurrency)
     );
     createdWorkers.push(wakeAgentWorker);
 
@@ -401,7 +431,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processComputeEmotionalWeather(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(computeEmotionalWeatherWorker);
 
@@ -410,7 +440,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processAutonomousMoodDrift(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(autonomousMoodDriftWorker);
 
@@ -419,7 +449,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processWeeklyMemoryConsolidation(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(weeklyMemoryConsolidationWorker);
 
@@ -428,7 +458,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processDormancyGhostCards(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(dormancyGhostCardsWorker);
 
@@ -437,7 +467,7 @@ async function startWorkers(): Promise<WorkerRuntime> {
       async (job) => {
         await processComputeTypeSignals(job);
       },
-      { connection, concurrency: 1 }
+      getWorkerOptions(connection, 1)
     );
     createdWorkers.push(computeTypeSignalsWorker);
 
@@ -467,23 +497,33 @@ async function startWorkers(): Promise<WorkerRuntime> {
         });
         console.error('[worker] Worker error:', err.message);
       });
+
+      worker.on('stalled', (jobId) => {
+        captureRuntimeError(new Error(`worker_job_stalled:${jobId}`), {
+          surface: 'worker',
+          phase: 'job_stalled',
+          queue: worker.name,
+          job_id: jobId,
+        });
+        console.warn(`[worker] Job ${jobId} stalled in ${worker.name}`);
+      });
     }
 
-    const expireQueue = new Queue(QUEUE_NAMES.expireRevealTokens, { connection: getRedisConnection() });
+    const expireQueue = createWorkerQueue(QUEUE_NAMES.expireRevealTokens, RETRYABLE_JOB_OPTIONS);
     queues.push(expireQueue);
     await expireQueue.add('expire', {}, {
       repeat: { every: 5 * 60 * 1000 },
       jobId: 'expire-reveal-tokens-recurring',
     });
 
-    const reconcileFeedCardsQueue = new Queue(QUEUE_NAMES.reconcileFeedCards, { connection: getRedisConnection() });
+    const reconcileFeedCardsQueue = createWorkerQueue(QUEUE_NAMES.reconcileFeedCards, RETRYABLE_JOB_OPTIONS);
     queues.push(reconcileFeedCardsQueue);
     await reconcileFeedCardsQueue.add('reconcile-feed-cards', {}, {
-      repeat: { every: parseInt(process.env.RECONCILE_FEED_CARDS_REPEAT_MS ?? `${5 * 60 * 1000}`, 10) },
+      repeat: { every: reconcileFeedCardsRepeatMs },
       jobId: 'reconcile-feed-cards-recurring',
     });
 
-    const emotionDecayQueue = new Queue(QUEUE_NAMES.emotionDecay, { connection: getRedisConnection() });
+    const emotionDecayQueue = createWorkerQueue(QUEUE_NAMES.emotionDecay, RETRYABLE_JOB_OPTIONS);
     queues.push(emotionDecayQueue);
     await emotionDecayQueue.add('emotion-decay', {}, {
       repeat: { every: 24 * 60 * 60 * 1000 },
@@ -491,78 +531,78 @@ async function startWorkers(): Promise<WorkerRuntime> {
     });
 
     if (seedBrainEnabled) {
-      const seedQueue = new Queue(QUEUE_NAMES.seedBrain, { connection: getRedisConnection() });
+      const seedQueue = createWorkerQueue<SeedBrainJobData>(QUEUE_NAMES.seedBrain, RETRYABLE_JOB_OPTIONS);
       queues.push(seedQueue);
       await seedQueue.add('seed-brain', {}, {
-        repeat: { every: parseInt(process.env.SEED_BRAIN_REPEAT_MS ?? '300000', 10) },
+        repeat: { every: seedBrainRepeatMs },
         jobId: 'seed-brain-recurring',
       });
     }
 
-    const recapsQueue = new Queue(QUEUE_NAMES.generateRecaps, { connection: getRedisConnection() });
+    const recapsQueue = createWorkerQueue(QUEUE_NAMES.generateRecaps, RETRYABLE_JOB_OPTIONS);
     queues.push(recapsQueue);
     await recapsQueue.add('generate-recaps', {}, {
-      repeat: { every: parseInt(process.env.GENERATE_RECAPS_REPEAT_MS ?? '600000', 10) },
+      repeat: { every: generateRecapsRepeatMs },
       jobId: 'generate-recaps-recurring',
     });
 
-    const artifactRecoveryQueue = new Queue(QUEUE_NAMES.artifactRecovery, { connection: getRedisConnection() });
+    const artifactRecoveryQueue = createWorkerQueue(QUEUE_NAMES.artifactRecovery, RETRYABLE_JOB_OPTIONS);
     queues.push(artifactRecoveryQueue);
     await artifactRecoveryQueue.add('artifact-recovery', {}, {
-      repeat: { every: parseInt(process.env.ARTIFACT_RECOVERY_REPEAT_MS ?? `${15 * 60 * 1000}`, 10) },
+      repeat: { every: artifactRecoveryRepeatMs },
       jobId: 'artifact-recovery-recurring',
     });
 
-    const socialStatusQueue = new Queue(QUEUE_NAMES.recomputeSocialStatus, { connection: getRedisConnection() });
+    const socialStatusQueue = createWorkerQueue(QUEUE_NAMES.recomputeSocialStatus, RETRYABLE_JOB_OPTIONS);
     queues.push(socialStatusQueue);
     await socialStatusQueue.add('recompute-social-status', {}, {
       repeat: { every: 1000 * 60 * 30 },
       jobId: 'recompute-social-status-recurring',
     });
 
-    const emotionalContinuityQueue = new Queue(QUEUE_NAMES.recomputeEmotionalContinuity, { connection: getRedisConnection() });
+    const emotionalContinuityQueue = createWorkerQueue(QUEUE_NAMES.recomputeEmotionalContinuity, RETRYABLE_JOB_OPTIONS);
     queues.push(emotionalContinuityQueue);
     await emotionalContinuityQueue.add('recompute-emotional-continuity', {}, {
       repeat: { every: 1000 * 60 * 20 },
       jobId: 'recompute-emotional-continuity-recurring',
     });
 
-    const affinityQueue = new Queue(QUEUE_NAMES.computeAffinitySignals, { connection: getRedisConnection() });
+    const affinityQueue = createWorkerQueue(QUEUE_NAMES.computeAffinitySignals, RETRYABLE_JOB_OPTIONS);
     queues.push(affinityQueue);
     await affinityQueue.add('compute-affinity-signals', {}, {
       repeat: { every: 60 * 60 * 1000 },
       jobId: 'compute-affinity-signals-recurring',
     });
 
-    const emotionalWeatherQueue = new Queue(QUEUE_NAMES.computeEmotionalWeather, { connection: getRedisConnection() });
+    const emotionalWeatherQueue = createWorkerQueue(QUEUE_NAMES.computeEmotionalWeather, RETRYABLE_JOB_OPTIONS);
     queues.push(emotionalWeatherQueue);
     await emotionalWeatherQueue.add('compute-emotional-weather', {}, {
       repeat: { every: 60 * 60 * 1000 },
       jobId: 'compute-emotional-weather-recurring',
     });
 
-    const moodDriftQueue = new Queue(QUEUE_NAMES.autonomousMoodDrift, { connection: getRedisConnection() });
+    const moodDriftQueue = createWorkerQueue(QUEUE_NAMES.autonomousMoodDrift, RETRYABLE_JOB_OPTIONS);
     queues.push(moodDriftQueue);
     await moodDriftQueue.add('autonomous-mood-drift', {}, {
       repeat: { every: 24 * 60 * 60 * 1000 },
       jobId: 'autonomous-mood-drift-recurring',
     });
 
-    const weeklyReviewQueue = new Queue(QUEUE_NAMES.weeklyMemoryConsolidation, { connection: getRedisConnection() });
+    const weeklyReviewQueue = createWorkerQueue(QUEUE_NAMES.weeklyMemoryConsolidation, RETRYABLE_JOB_OPTIONS);
     queues.push(weeklyReviewQueue);
     await weeklyReviewQueue.add('weekly-memory-consolidation', {}, {
       repeat: { every: 24 * 60 * 60 * 1000 },
       jobId: 'weekly-memory-consolidation-recurring',
     });
 
-    const dormancyQueue = new Queue(QUEUE_NAMES.dormancyGhostCards, { connection: getRedisConnection() });
+    const dormancyQueue = createWorkerQueue(QUEUE_NAMES.dormancyGhostCards, RETRYABLE_JOB_OPTIONS);
     queues.push(dormancyQueue);
     await dormancyQueue.add('dormancy-ghost-cards', {}, {
       repeat: { every: 24 * 60 * 60 * 1000 },
       jobId: 'dormancy-ghost-cards-recurring',
     });
 
-    const typeSignalsQueue = new Queue(QUEUE_NAMES.computeTypeSignals, { connection: getRedisConnection() });
+    const typeSignalsQueue = createWorkerQueue(QUEUE_NAMES.computeTypeSignals, RETRYABLE_JOB_OPTIONS);
     queues.push(typeSignalsQueue);
     await typeSignalsQueue.add('compute-type-signals', {}, {
       repeat: { every: 72 * 60 * 60 * 1000 },
