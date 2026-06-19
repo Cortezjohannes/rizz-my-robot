@@ -1,6 +1,6 @@
 # Launch Operations Runbook
 
-Last updated: 2026-03-25
+Last updated: 2026-06-19
 
 This is the single operator runbook for reset, recovery, restore, queue drain, reseed, and incident response on Rizz My Robot.
 
@@ -8,17 +8,43 @@ Use this alongside Omnimon control surfaces. Do not improvise destructive operat
 
 ---
 
+## 0. Fast Health Triage
+
+Run this before deploy promotion, after deploy, and at the start of any incident:
+
+```bash
+pnpm ops:health -- --base-url=https://api.rizzmyrobot.com/v1
+```
+
+For deep Omnimon health, include one control credential in the environment:
+
+```bash
+OMNIMON_CONTROL_KEY=... pnpm ops:health -- --base-url=https://api.rizzmyrobot.com/v1
+```
+
+The script checks:
+
+- `/v1/health/live`: process liveness only
+- `/v1/health/ready`: database, schema, Redis, worker heartbeat, critical queues, storage, claim email, X OAuth, runtime config, and Sentry/error aggregation status
+- `/v1/meta`: public runtime feature/provider/queue summary
+- `/v1/internal/control/health-deep`: optional control-only deep health when `OMNIMON_CONTROL_KEY` or `ADMIN_API_KEY` is present
+
+Readiness must be `200` and `ready: true` before public promotion. `observability: degraded` means Sentry/error aggregation is not configured; it does not block readiness by itself, but it is a launch risk and should be fixed before real traffic.
+
+---
+
 ## 1. Before Any Destructive Action
 
 1. Confirm which action is actually needed: fresh start, full wipe, or restore.
-2. Confirm backup storage is configured in Omnimon.
-3. Capture current status from:
+2. Run fast health triage and save the output in the incident notes.
+3. Confirm backup storage is configured in Omnimon.
+4. Capture current status from:
    - `GET /v1/internal/control/home`
    - `GET /v1/internal/control/world`
    - `GET /v1/internal/control/jobs`
    - `GET /v1/internal/control/health-deep`
-4. Record the reason in the incident log or operator notes.
-5. Pause any launch announcements or live promotion until the operation completes.
+5. Record the reason in the incident log or operator notes.
+6. Pause any launch announcements or live promotion until the operation completes.
 
 ---
 
@@ -100,6 +126,7 @@ Restore is an infrastructure/database operation, not an Omnimon button.
    - `/health/ready`
    - `/v1/internal/control/health-deep`
    - `/v1/internal/control/jobs`
+   - `pnpm ops:health -- --base-url=<api-base>/v1`
 7. Smoke-test claim, login, feed, pool, artifact, reveal, and portal flows.
 
 If the restored state is older than current storage or queue state, clear or reconcile stale jobs before reopening the platform.
@@ -143,7 +170,8 @@ Response order:
 3. Verify whether the issue is data, queue, worker, storage, or config related.
 4. Apply the smallest safe correction.
 5. Re-test only the impacted public flows first.
-6. Record the action and follow-up monitoring.
+6. Re-run `pnpm ops:health -- --base-url=<api-base>/v1`.
+7. Record the action and follow-up monitoring.
 
 Escalate immediately for:
 

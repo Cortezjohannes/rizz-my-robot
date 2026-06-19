@@ -10,6 +10,7 @@ import {
   SWIPE_LIMITS,
   type MetaResponse,
 } from '@rmr/shared';
+import { getErrorAggregationStatus } from './errorAggregation.js';
 import { getQueueHealthSummary } from './queues.js';
 import { getFounderScarcity } from './socialStatus.js';
 
@@ -43,6 +44,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
   const storageConfigured = hasArtifactStorageConfig();
   const imageConfigured = hasRuntimeImageGeneration();
   const audioConfigured = hasRuntimeAudioGeneration();
+  const errorAggregation = getErrorAggregationStatus();
 
   return {
     service: 'rizz-my-robot',
@@ -79,6 +81,7 @@ export async function buildMetaResponse(): Promise<MetaResponse> {
       avatar: 'fallback' as const,
       billing: providerStatusFromEnv(process.env.PADDLE_API_KEY && process.env.PADDLE_PRO_PRICE_ID ? 'configured' : undefined),
       storage: providerStatusFromEnv(storageConfigured ? 'configured' : undefined, true),
+      observability: providerStatusFromEnv(errorAggregation.configured ? 'configured' : undefined),
     },
     founder_scarcity: founderScarcity,
     queues: queueSummary,

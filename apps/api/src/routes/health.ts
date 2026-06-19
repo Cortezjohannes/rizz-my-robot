@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma, prisma } from '@rmr/db';
 import Redis from 'ioredis';
 import { getVerificationRequirements } from '../lib/controlSettings.js';
+import { getErrorAggregationStatus } from '../lib/errorAggregation.js';
 import { QUEUE_NAMES, getNamedQueue } from '../lib/queues.js';
 import { getProductionRuntimeConfigStatus } from '../lib/runtimeConfig.js';
 import { getStoragePublicBaseUrl, isStorageConfigured } from '../lib/storage.js';
@@ -242,6 +243,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
     let workerError: string | null = null;
     let workerDetails: Record<string, unknown> | null = null;
     const runtimeConfig = getProductionRuntimeConfigStatus();
+    const errorAggregation = getErrorAggregationStatus();
     let verificationRequirements = {
       requireEmailVerification: true,
       requireXVerification: true,
@@ -322,6 +324,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
       worker: workerOk ? 'ok' : 'unavailable',
       storage: storageOk ? 'ok' : 'unavailable',
       runtime_config: runtimeConfig.required_missing.length === 0 ? 'ok' : 'unavailable',
+      observability: errorAggregation.configured ? 'ok' : 'degraded',
       claim_email: claimEmailOk ? 'ok' : 'unavailable',
       claim_x_oauth: claimXOk ? 'ok' : 'unavailable',
       queues: unavailableQueues.length === 0 ? 'ok' : 'degraded',
@@ -354,6 +357,12 @@ export async function healthRoutes(fastify: FastifyInstance) {
           status: runtimeConfig.required_missing.length === 0 ? 'healthy' : 'down',
           required_missing: runtimeConfig.required_missing,
           recommended_missing: runtimeConfig.recommended_missing,
+        },
+        error_aggregation: {
+          status: errorAggregation.configured ? 'healthy' : 'degraded',
+          configured: errorAggregation.configured,
+          environment: errorAggregation.environment,
+          traces_sample_rate: errorAggregation.traces_sample_rate,
         },
         claim_email: {
           status: claimEmailOk ? 'healthy' : 'down',

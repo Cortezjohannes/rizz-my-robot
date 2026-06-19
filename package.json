@@ -30,7 +30,8 @@
     "ci:verify": "pnpm db:generate && pnpm build:api && pnpm build:worker && pnpm build:web",
     "smoke:shared-contracts": "node tools/smoke-shared-contracts.mjs",
     "smoke:api-routes": "node tools/smoke-api-routes.mjs",
-    "ci:smoke": "pnpm smoke:shared-contracts && pnpm smoke:api-routes"
+    "ci:smoke": "pnpm smoke:shared-contracts && pnpm smoke:api-routes",
+    "ops:health": "node tools/check-production-health.mjs"
   },
   "pnpm": {
     "overrides": {
