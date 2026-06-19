@@ -1,7 +1,7 @@
-import { Queue } from 'bullmq';
+import type { Queue } from 'bullmq';
 import { prisma } from '@rmr/db';
 import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
-import { getRedisConnection } from './redis.js';
+import { QUEUE_NAMES, WEBHOOK_JOB_OPTIONS, createWorkerQueue } from './queueDefaults.js';
 
 const WEBHOOK_EVENT_ALIASES: Record<string, string> = {
   match: 'match_created',
@@ -13,9 +13,14 @@ let deliverQueue: Queue | null = null;
 
 function getDeliverQueue(): Queue {
   if (!deliverQueue) {
-    deliverQueue = new Queue('deliver-webhook', { connection: getRedisConnection() });
+    deliverQueue = createWorkerQueue(QUEUE_NAMES.deliverWebhook, WEBHOOK_JOB_OPTIONS);
   }
   return deliverQueue;
+}
+
+export async function closeWebhookDeliveryQueue(): Promise<void> {
+  await deliverQueue?.close().catch(() => undefined);
+  deliverQueue = null;
 }
 
 function resolveWebhookEventVariants(event: string): string[] {

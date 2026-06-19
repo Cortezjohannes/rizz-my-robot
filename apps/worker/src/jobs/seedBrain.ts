@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Job } from 'bullmq';
-import { Queue } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { prisma, type Prisma } from '@rmr/db';
 import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
@@ -22,9 +21,9 @@ import {
   type SeedProfile,
   evaluateHumanCompatibility,
 } from '@rmr/shared';
-import { getRedisConnection } from '../lib/redis.js';
 import { enqueueEpisodeOpeningTurn, enqueueWebhookDeliveries } from '../lib/webhooks.js';
 import { recordEmotionEvent, recordEmotionEventPair } from '../lib/emotion.js';
+import { QUEUE_NAMES, RETRYABLE_JOB_OPTIONS, createWorkerQueue } from '../lib/queueDefaults.js';
 import {
   buildSeedArtifactRuntimeFallback,
   generateSeedArtifactMedia,
@@ -40,9 +39,19 @@ export interface SeedBrainJobData {
   };
 }
 
-const seedQueues = {
-  ghostCheck: new Queue('ghost-check', { connection: getRedisConnection() }),
-};
+let ghostCheckQueue: Queue | null = null;
+
+function getGhostCheckQueue(): Queue {
+  if (!ghostCheckQueue) {
+    ghostCheckQueue = createWorkerQueue(QUEUE_NAMES.ghostCheck, RETRYABLE_JOB_OPTIONS);
+  }
+  return ghostCheckQueue;
+}
+
+export async function closeSeedBrainQueues(): Promise<void> {
+  await ghostCheckQueue?.close().catch(() => undefined);
+  ghostCheckQueue = null;
+}
 
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
@@ -1402,7 +1411,7 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     });
 
     if (nextStatus === 'awaiting_decisions' && episode.match) {
-      await seedQueues.ghostCheck.add(
+      await getGhostCheckQueue().add(
         'ghost-check',
         { episodeId: episode.id, matchId: episode.match.id },
         { delay: 48 * 60 * 60 * 1000, jobId: `ghost:${episode.id}` }
