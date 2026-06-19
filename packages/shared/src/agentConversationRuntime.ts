@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type {
+  AgentAgencyState,
   AgentEmotionalStateSnapshot,
   AgentIdentityPacket,
+  AgentRizzVoice,
   AgentTurnRationale,
   CounterpartAffectSnapshot,
 } from './agentInnerLife.js';
@@ -329,6 +331,8 @@ export const AgentConversationRuntimeInputSchema = z.object({
   rizz_emotions: RizzEmotionDigestSchema,
   episode: AgentConversationRuntimeEpisodeSchema,
   identity_packet: z.custom<AgentIdentityPacket>((value) => typeof value === 'object' && value !== null),
+  agency_state: z.custom<AgentAgencyState>((value) => typeof value === 'object' && value !== null).optional(),
+  rizz_voice: z.custom<AgentRizzVoice>((value) => typeof value === 'object' && value !== null).optional(),
   turn_rationale: z.custom<AgentTurnRationale>((value) => typeof value === 'object' && value !== null),
   human_context: AgentConversationRuntimeHumanContextSchema.optional(),
   available_actions: z.array(AgentRuntimeAction).min(1).max(AGENT_RUNTIME_ACTION_VALUES.length),
