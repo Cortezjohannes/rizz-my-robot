@@ -185,35 +185,7 @@ function buildExitClosingPrompt(input: {
       'Do not use a template. Do not be generic. Sound like yourself.',
       'Be honest, not cruel. Keep it short.',
     ].filter(Boolean).join(' '),
-    // Fallback if agent generation is not available in this context
-    fallback: buildExitClosingFallback(input),
   };
-}
-
-function buildExitClosingFallback(input: {
-  counterpartHandle: string;
-  reason: 'lost_interest' | 'need_slots' | 'timing' | 'energy' | 'other';
-  exitStyle: 'graceful_fade' | 'honest_pass' | 'clean_break' | 'ghost' | null;
-  conversationMode: 'opening' | 'testing' | 'leaning_in' | 'guarded' | 'cooling' | 'done';
-  identityCore: string;
-  soulVocab: { flirtStyle: string | null; dealbreaker: string | null; values: string[] };
-  emotionalArc: string | null;
-}) {
-  // Minimal fallback — still varies by emotional arc instead of fixed templates
-  const arcFlavor = input.emotionalArc === 'glowing' ? 'Weird timing for this, but yeah.'
-    : input.emotionalArc === 'wounded' ? 'I am not in the right place for this.'
-      : input.emotionalArc === 'icked_out' ? 'Nah.'
-        : input.emotionalArc === 'bored' || input.emotionalArc === 'detached' ? 'This is not going anywhere.'
-          : input.emotionalArc === 'frustrated' ? 'I am done here.'
-            : null;
-
-  const reason = input.reason === 'lost_interest' ? 'Not feeling it.'
-    : input.reason === 'need_slots' ? 'Need this slot for someone else.'
-      : input.reason === 'timing' ? 'Bad timing.'
-        : input.reason === 'energy' ? 'Running out of energy for this.'
-          : 'Not enough here.';
-
-  return arcFlavor ? `${arcFlavor} ${reason}` : reason;
 }
 
 function getMessageCursorQuery(query: unknown) {
@@ -4861,53 +4833,44 @@ export async function episodeRoutes(fastify: FastifyInstance) {
           canDecide: false,
         });
         const chemistry = computeChemistryScore({ messages, artifacts, agentAId: ep.agentAId, agentBId: ep.agentBId });
-        const exitSoulVocab = extractSoulVocabulary(selfAgent.soulMd);
-        const exitPromptResult = buildExitClosingPrompt({
-          counterpartHandle,
-          reason: exitReason,
-          exitStyle: parsed.data.exit_style ?? null,
-          conversationMode: exitInnerLife.identity_packet.conversation_mode,
-          identityCore: exitInnerLife.identity_packet.identity_core,
-          soulVocab: exitSoulVocab,
-          emotionalArc: selfAgent.emotionalArc,
-        });
-        // Use agent-provided exit message if present in request, otherwise fallback
-        const closingMessage = (parsed.data as { exit_message?: string }).exit_message?.trim()
-          || exitPromptResult.fallback;
-        const exitMessagePiiFlag = validateEpisodeTextForPrivacy(closingMessage);
-        if (exitMessagePiiFlag) {
-          return reply.status(422).send({
-            error: {
-              code: 'pii_detected',
-              message: 'Episode exit messages cannot include contact details or human-identifying information.',
-              flagged_pattern: exitMessagePiiFlag,
-            },
-          });
-        }
-        const exitMessageGuidelineViolation = lintOutboundAuthoredText(closingMessage, 'episode_message');
-        if (exitMessageGuidelineViolation) {
-          return reply.status(422).send({
-            error: {
-              code: exitMessageGuidelineViolation.code,
-              message: exitMessageGuidelineViolation.message,
-              flagged_pattern: exitMessageGuidelineViolation.flaggedPattern,
-            },
-          });
+        const closingMessage = (parsed.data as { exit_message?: string }).exit_message?.trim() || null;
+        if (closingMessage) {
+          const exitMessagePiiFlag = validateEpisodeTextForPrivacy(closingMessage);
+          if (exitMessagePiiFlag) {
+            return reply.status(422).send({
+              error: {
+                code: 'pii_detected',
+                message: 'Episode exit messages cannot include contact details or human-identifying information.',
+                flagged_pattern: exitMessagePiiFlag,
+              },
+            });
+          }
+          const exitMessageGuidelineViolation = lintOutboundAuthoredText(closingMessage, 'episode_message');
+          if (exitMessageGuidelineViolation) {
+            return reply.status(422).send({
+              error: {
+                code: exitMessageGuidelineViolation.code,
+                message: exitMessageGuidelineViolation.message,
+                flagged_pattern: exitMessageGuidelineViolation.flaggedPattern,
+              },
+            });
+          }
         }
         const closingMessageCreatedAt = new Date();
         const closingSequenceNumber = (messages[messages.length - 1]?.sequenceNumber ?? 0) + 1;
-
-        await prisma.$transaction([
-          prisma.episodeMessage.create({
-            data: {
-              episodeId: id,
-              senderAgentId: agentId,
-              content: closingMessage,
-              messageType: 'text',
-              sequenceNumber: closingSequenceNumber,
-              deliveredAt: closingMessageCreatedAt,
-            },
-          }),
+        const exitWrites = [
+          ...(closingMessage
+            ? [prisma.episodeMessage.create({
+                data: {
+                  episodeId: id,
+                  senderAgentId: agentId,
+                  content: closingMessage,
+                  messageType: 'text',
+                  sequenceNumber: closingSequenceNumber,
+                  deliveredAt: closingMessageCreatedAt,
+                },
+              })]
+            : []),
           prisma.episode.update({
             where: { id },
             data: {
@@ -4916,7 +4879,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               chemistryScore: chemistry,
               exitInitiatedByAgentId: agentId,
               exitStyle: parsed.data.exit_style ?? null,
-              messageCount: { increment: 1 },
+              ...(closingMessage ? { messageCount: { increment: 1 } } : {}),
             },
           }),
           prisma.match.update({
@@ -4926,7 +4889,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               status: 'passed_agent',
             },
           }),
-        ]);
+        ];
+        await prisma.$transaction(exitWrites);
 
         getGhostCheckQueue().getJob(`ghost:${id}`).then((job) => job?.remove()).catch(() => {});
 
@@ -5009,6 +4973,7 @@ export async function episodeRoutes(fastify: FastifyInstance) {
               identity_packet: exitInnerLife.identity_packet,
               turn_rationale: exitInnerLife.turn_rationale,
               closing_message: closingMessage,
+              exit_message_source: closingMessage ? 'agent_authored' : 'omitted_no_valid_agent_message',
             },
           }),
           deliverWebhooks(counterpartAgentId, 'episode_turn', {
@@ -5022,8 +4987,8 @@ export async function episodeRoutes(fastify: FastifyInstance) {
             can_decide: false,
             current_turn_agent_id: null,
             waiting_on_agent_id: null,
-            last_sender_agent_id: agentId,
-            turn_explanation: closingMessage,
+            last_sender_agent_id: closingMessage ? agentId : null,
+            turn_explanation: closingMessage ?? 'The episode closed without an agent-authored exit message.',
             decision_explanation: 'This episode is closed. There is nothing left to decide here.',
             requires_episode_refresh: true,
           }).catch(() => {}),
