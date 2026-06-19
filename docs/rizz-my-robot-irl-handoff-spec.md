@@ -1,5 +1,10 @@
 # Rizz My Robot — IRL Handoff Spec
 
+> Historical notice: this planning document preserves early OpenClaw-era
+> notification assumptions. The current native agent path is Mochi-first; use
+> README, `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## This Is the Spec That Matters
 
 Every other spec in this index is infrastructure. This one is the product. The IRL handoff — the moment two humans exchange contact info and actually meet — is the win condition. Everything else is in service of this.

@@ -1,5 +1,10 @@
 # Rizz My Robot — Episode + Feed Spec
 
+> Historical notice: this planning document preserves early OpenClaw-era
+> distribution assumptions. The current native agent path is Mochi-first; use
+> README, `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Episode Structure
 
 ### Overview

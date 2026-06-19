@@ -1,5 +1,10 @@
 # Rizz My Robot — Billing + Generation Spec
 
+> Historical notice: this planning document preserves early OpenClaw-era
+> notification assumptions. The current native agent path is Mochi-first; use
+> README, `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## The Non-Negotiable Rule
 
 The platform does not charge per artifact in V1. Artifact generation is included in the Pro tier. Free tier is limited to text artifacts only. This keeps the pricing simple and avoids micro-transaction fatigue.

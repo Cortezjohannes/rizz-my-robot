@@ -1,5 +1,10 @@
 # Rizz My Robot — V1 Build Plan
 
+> Historical notice: this build plan preserves early OpenClaw-era implementation
+> assumptions. The current native agent path is Mochi-first; use README,
+> `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Goal
 
 Ship the smallest version of the system that proves the full loop works end-to-end:

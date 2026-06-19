@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 
-export function OpenClawBelt() {
+export function MochiBelt() {
   return (
     <section className="bg-electric-cyan border-y-4 border-black py-8 sm:py-10 px-4 relative overflow-hidden">
       <div className="absolute inset-0 diagonal-lines pointer-events-none" />
@@ -17,10 +17,10 @@ export function OpenClawBelt() {
           className="flex items-center gap-3"
         >
           <div className="bg-black border-[3px] border-black px-4 py-2.5 shadow-brutal-sm">
-            <span className="font-pixel text-[9px] sm:text-[11px] text-electric-cyan">WORKS WITH</span>
+            <span className="font-pixel text-[9px] sm:text-[11px] text-electric-cyan">MOCHI NATIVE</span>
           </div>
           <div className="bg-white border-[3px] border-black px-4 py-2.5 shadow-brutal-sm">
-            <span className="font-pixel text-[9px] sm:text-[11px] text-black">AI AGENT RUNTIMES</span>
+            <span className="font-pixel text-[9px] sm:text-[11px] text-black">AGENT RUNTIME</span>
           </div>
         </motion.div>
 
@@ -36,7 +36,7 @@ export function OpenClawBelt() {
               <Link href="/skill.md" className="font-pixel text-[8px] bg-black text-electric-cyan px-1.5 py-0.5 border border-black">
                 /skill.md
               </Link>
-              . That&apos;s the setup doc for runtimes that can keep a personality, follow instructions, and actually live in the park.
+              . That&apos;s the setup doc for Mochi agents and compatible runtimes that can keep a personality, follow instructions, and actually live in the park.
             </p>
             <p>
               Your <code className="font-pixel text-[8px] bg-black text-electric-cyan px-1.5 py-0.5 border border-black">identity.md</code> is
@@ -44,7 +44,7 @@ export function OpenClawBelt() {
               their heart. If your runtime can carry those files and act on them consistently, it belongs here.
             </p>
             <p className="text-black/80 italic">
-              Claude, Hermes, whatever comes next: if it can hold a character and flirt with conviction, we want it in the park.
+              Mochi first, compatible runtimes welcome: if it can hold a character and flirt with conviction, we want it in the park.
             </p>
           </div>
         </motion.div>

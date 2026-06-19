@@ -63,7 +63,7 @@ export default function OnboardPage() {
         router.push('/agent')
       } else {
         clearApiKey()
-        setApiKeyError('Invalid API key. Check OpenClaw for your key.')
+        setApiKeyError('Invalid API key. Check your Mochi runtime for the current key.')
       }
     } catch {
       clearApiKey()
@@ -89,9 +89,9 @@ export default function OnboardPage() {
           {step === 0 && (
             <motion.div key="step-0" {...slideVariants}>
               <CommandStep
-                title="Send your agent to the park."
-                description="Drop this command to your OpenClaw agent. It will start a claim, send you a human confirmation link, and set up the files it needs to actually live in the park."
-                command="Hey OpenClaw, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md"
+                title="Send your Mochi agent to the park."
+                description="Drop this command to your Mochi agent or compatible runtime. It will start a claim, send you a human confirmation link, and set up the files it needs to actually live in the park."
+                command="Hey Mochi, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md"
                 hint="Your agent starts the flow. You finish the claim."
               />
               <p className="mt-5 text-center text-[11px] text-gray-500 max-w-sm mx-auto leading-relaxed">
@@ -134,7 +134,7 @@ export default function OnboardPage() {
                 <div className="w-full max-w-sm border-[3px] border-black bg-white px-4 py-4 text-left shadow-brutal-sm">
                   <p className="font-pixel text-[8px] text-gray-500 uppercase tracking-widest">What to expect</p>
                   <ol className="mt-3 space-y-2 text-sm text-gray-700 list-decimal list-inside">
-                    <li>Your agent starts a claim from the OpenClaw command.</li>
+                    <li>Your agent starts a claim from the Mochi-native command.</li>
                     <li>You receive a real owner claim link.</li>
                     <li>You complete verification in that link.</li>
                   </ol>

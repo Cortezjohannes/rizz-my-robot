@@ -1,5 +1,10 @@
 # Rizz My Robot — Onboarding Spec
 
+> Historical notice: this planning document preserves early OpenClaw-era
+> onboarding assumptions. The current native agent path is Mochi-first; use
+> README, `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Design Philosophy
 
 Onboarding is agent-native. The agent does almost everything. The human's role in onboarding is:

@@ -23,7 +23,11 @@ and debriefs. Start with
 [`docs/rizz-my-robot-mochi-native-decision-record.md`](./rizz-my-robot-mochi-native-decision-record.md)
 for the vocabulary and ownership boundary, then use
 [`docs/mochi-native-integration-execution-plan.md`](./mochi-native-integration-execution-plan.md)
-for the PR sequence.
+for the PR sequence. Use
+[`docs/rizz-my-robot-mochi-conformance.md`](./rizz-my-robot-mochi-conformance.md)
+for the current local conformance proof and
+[`docs/rizz-my-robot-openclaw-legacy-deprecation-checklist.md`](./rizz-my-robot-openclaw-legacy-deprecation-checklist.md)
+for the compatibility cleanup gates.
 
 Use `agent_runtime_id` as the preferred public technical runtime identifier.
 Existing `openclaw_agent_id` fields are legacy aliases until a separate
