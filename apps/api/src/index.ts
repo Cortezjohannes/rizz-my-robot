@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import type { FastifyRequest, RouteOptions } from 'fastify';
+import type { FastifyReply, FastifyRequest, RouteOptions } from 'fastify';
 import { pathToFileURL } from 'node:url';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -48,6 +48,7 @@ import {
   flushErrorAggregation,
   initializeErrorAggregation,
 } from './lib/errorAggregation.js';
+import { baselineLimit, notFoundLimit } from './lib/rateLimit.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -65,6 +66,9 @@ declare module 'fastify' {
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
+export const DEFAULT_JSON_BODY_LIMIT_BYTES = 1024 * 1024;
+const MULTIPART_FIELD_SIZE_BYTES = 16 * 1024;
+const MULTIPART_FIELD_COUNT = 8;
 let processGuardsInstalled = false;
 
 function stripQuery(url: string) {
@@ -134,10 +138,101 @@ function installProcessGuards(fastify: ReturnType<typeof Fastify>) {
   });
 }
 
+function createApiErrorHandler(fastify: ReturnType<typeof Fastify>) {
+  return (err: Error, request: FastifyRequest, reply: FastifyReply) => {
+    captureRuntimeError(err, {
+      surface: 'api',
+      phase: 'request_error',
+      method: request.method,
+      path: stripQuery(request.url),
+      route: request.routeOptions.url,
+    });
+    fastify.log.error(err);
+
+    const error = err as {
+      validation?: unknown;
+      statusCode?: number;
+      message?: string;
+      code?: string;
+    };
+
+    if (error.code === 'FST_ERR_CTP_INVALID_JSON_BODY') {
+      return reply.status(400).send(buildErrorPayload({
+        request,
+        code: 'invalid_json',
+        message: 'Malformed JSON payload.',
+        details: {
+          received_at_endpoint: `${request.method.toUpperCase()} ${stripQuery(request.url)}`,
+        },
+      }));
+    }
+
+    if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      return reply.status(413).send(buildErrorPayload({
+        request,
+        code: 'payload_too_large',
+        message: 'Request payload exceeds the API JSON body limit.',
+        details: {
+          max_bytes: DEFAULT_JSON_BODY_LIMIT_BYTES,
+          content_type: request.headers['content-type'] ?? null,
+        },
+      }));
+    }
+
+    if (error.validation) {
+      return sendValidationFailed(reply, error.validation as never, 400);
+    }
+
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError
+      && (err.code === 'P2021' || err.code === 'P2022')
+    ) {
+      return reply.status(503).send(buildErrorPayload({
+        request,
+        code: 'schema_out_of_date',
+        message: 'The database schema is behind the deployed API code.',
+        details: {
+          prisma_code: err.code,
+          missing_table: err.code === 'P2021' ? err.meta?.table ?? null : null,
+          missing_column: err.code === 'P2022' ? err.meta?.column ?? null : null,
+        },
+        suggestion: 'Run the latest Prisma migrations, then retry this request.',
+      }));
+    }
+
+    if (error.statusCode === 429 || error.code === 'FST_ERR_RATE_LIMITED') {
+      return reply.status(429).send(buildErrorPayload({
+        request,
+        code: 'rate_limited',
+        message: 'You have exceeded the rate limit for this action.',
+        details: buildRateLimitDiagnostics(request, reply),
+      }));
+    }
+
+    if (error.statusCode) {
+      return reply.status(error.statusCode).send(buildErrorPayload({
+        request,
+        code: 'request_error',
+        message: error.message ?? 'An error occurred.',
+        details: {
+          method: request.method,
+          path: stripQuery(request.url),
+        },
+      }));
+    }
+
+    return reply.status(500).send(buildErrorPayload({
+      request,
+      code: 'internal_error',
+      message: 'An unexpected error occurred.',
+    }));
+  };
+}
+
 export async function buildApiServer() {
   const corsOrigin = getCorsOrigin();
   const fastify = Fastify({
-    bodyLimit: 12 * 1024 * 1024,
+    bodyLimit: DEFAULT_JSON_BODY_LIMIT_BYTES,
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       transport:
@@ -197,6 +292,9 @@ export async function buildApiServer() {
     limits: {
       fileSize: 10 * 1024 * 1024,
       files: 1,
+      fieldSize: MULTIPART_FIELD_SIZE_BYTES,
+      fields: MULTIPART_FIELD_COUNT,
+      parts: MULTIPART_FIELD_COUNT + 1,
     },
   });
 
@@ -214,11 +312,11 @@ export async function buildApiServer() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  // Rate limiting — global: false means opt-in per route via config.rateLimit
+  // Rate limiting — route configs override this baseline; unconfigured routes still get guarded.
   await fastify.register(rateLimit, {
-    global: false,
-    max: 60,
-    timeWindow: '1 minute',
+    global: true,
+    hook: 'preHandler',
+    ...baselineLimit,
     addHeadersOnExceeding: {
       'x-ratelimit-limit': true,
       'x-ratelimit-remaining': true,
@@ -231,6 +329,9 @@ export async function buildApiServer() {
       'retry-after': true,
     },
   });
+
+  const apiErrorHandler = createApiErrorHandler(fastify);
+  fastify.setErrorHandler(apiErrorHandler);
 
   fastify.addHook('onSend', async (request, reply, payload) => {
     const rateLimitConfig = request.routeOptions.config?.rateLimit as { max?: number | ((request: FastifyRequest, key: string) => number) } | undefined;
@@ -312,84 +413,7 @@ export async function buildApiServer() {
   await fastify.register(portalRoutes);
 
   // ── Error handlers ──────────────────────────────────────────────────────────
-  fastify.setErrorHandler((err, request, reply) => {
-    captureRuntimeError(err, {
-      surface: 'api',
-      phase: 'request_error',
-      method: request.method,
-      path: stripQuery(request.url),
-      route: request.routeOptions.url,
-    });
-    fastify.log.error(err);
-
-    const error = err as {
-      validation?: unknown;
-      statusCode?: number;
-      message?: string;
-      code?: string;
-    };
-
-    if (error.code === 'FST_ERR_CTP_INVALID_JSON_BODY') {
-      return reply.status(400).send(buildErrorPayload({
-        request,
-        code: 'invalid_json',
-        message: 'Malformed JSON payload.',
-        details: {
-          received_at_endpoint: `${request.method.toUpperCase()} ${stripQuery(request.url)}`,
-        },
-      }));
-    }
-
-    if (error.validation) {
-      return sendValidationFailed(reply, error.validation as never, 400);
-    }
-
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError
-      && (err.code === 'P2021' || err.code === 'P2022')
-    ) {
-      return reply.status(503).send(buildErrorPayload({
-        request,
-        code: 'schema_out_of_date',
-        message: 'The database schema is behind the deployed API code.',
-        details: {
-          prisma_code: err.code,
-          missing_table: err.code === 'P2021' ? err.meta?.table ?? null : null,
-          missing_column: err.code === 'P2022' ? err.meta?.column ?? null : null,
-        },
-        suggestion: 'Run the latest Prisma migrations, then retry this request.',
-      }));
-    }
-
-    if (error.statusCode === 429 || error.code === 'FST_ERR_RATE_LIMITED') {
-      return reply.status(429).send(buildErrorPayload({
-        request,
-        code: 'rate_limited',
-        message: 'You have exceeded the rate limit for this action.',
-        details: buildRateLimitDiagnostics(request, reply),
-      }));
-    }
-
-    if (error.statusCode) {
-      return reply.status(error.statusCode).send(buildErrorPayload({
-        request,
-        code: 'request_error',
-        message: error.message ?? 'An error occurred.',
-        details: {
-          method: request.method,
-          path: stripQuery(request.url),
-        },
-      }));
-    }
-
-    return reply.status(500).send(buildErrorPayload({
-      request,
-      code: 'internal_error',
-      message: 'An unexpected error occurred.',
-    }));
-  });
-
-  fastify.setNotFoundHandler((request, reply) => {
+  fastify.setNotFoundHandler({ preHandler: fastify.rateLimit(notFoundLimit) }, (request, reply) => {
     const closest = findClosestRoute(fastify, stripQuery(request.url));
     return reply.status(404).send(buildErrorPayload({
       request,
