@@ -4,14 +4,20 @@ import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
 import {
   AGENT_CONVERSATION_RUNTIME_CONTRACT_VERSION,
+  RIZZ_MOCHI_GAME_ID,
+  RIZZ_MOCHI_WAKE_HEADER_NAMES,
   RIZZ_MOCHI_NOOP_REASONS,
   REAL_AGENT_CONVERSATION_RUNTIME_POLICY,
+  buildRizzMochiWakeEvent,
+  buildRizzMochiWakeFixture,
   buildAgentAgencyState,
   buildAgentIdentityPacket,
   buildAgentRizzVoice,
   buildAgentTurnRationale,
   readResponseBytesWithLimit,
+  verifyRizzMochiWakeRequest,
   type AgentConversationRuntimeInput,
+  type RizzMochiWakeSigner,
 } from '@rmr/shared';
 import { buildApiServer, DEFAULT_JSON_BODY_LIMIT_BYTES } from './index.js';
 import { hashApiKey } from './lib/auth.js';
@@ -944,6 +950,129 @@ test('buildControlCapabilities keeps legacy admin access exclusive to the human 
   assert.equal(admin.actions.can_access_legacy_admin_tools, true);
   assert.equal(omnimon.read_panels.includes('legacy_admin'), false);
   assert.equal(admin.read_panels.includes('legacy_admin'), true);
+});
+
+test('Mochi wake builder emits canonical signed wake requests', () => {
+  const signer: RizzMochiWakeSigner = {
+    keyId: 'rizz_mochi_wake_key_0001',
+    gameId: RIZZ_MOCHI_GAME_ID,
+    secret: 'rizz_mochi_wake_secret_0001',
+  };
+  const signed = buildRizzMochiWakeFixture({
+    signer,
+    signedAt: '2026-06-19T00:00:00.000Z',
+    deadline: '2026-06-19T00:05:00.000Z',
+  });
+
+  assert.equal(signed.headers[RIZZ_MOCHI_WAKE_HEADER_NAMES.algorithm], 'hmac-sha256-v0');
+  assert.equal(signed.headers[RIZZ_MOCHI_WAKE_HEADER_NAMES.keyId], signer.keyId);
+  assert.equal(signed.headers[RIZZ_MOCHI_WAKE_HEADER_NAMES.timestamp], '2026-06-19T00:00:00.000Z');
+  assert.match(String(signed.headers[RIZZ_MOCHI_WAKE_HEADER_NAMES.signature]), /^sha256=[a-f0-9]{64}$/);
+
+  const result = verifyRizzMochiWakeRequest({
+    body: signed.body,
+    headers: signed.headers,
+    resolveSigner: (keyId) => (keyId === signer.keyId ? signer : undefined),
+    validateNonce: () => true,
+    now: '2026-06-19T00:00:30.000Z',
+  });
+
+  if (!result.trusted) assert.fail(result.message);
+  assert.equal(result.trusted, true);
+  assert.equal(result.event.eventType, 'mochi.wake.requested');
+  assert.equal(result.event.gameId, RIZZ_MOCHI_GAME_ID);
+  assert.equal(result.event.reason.id, 'episode-turn');
+  assert.equal(result.keyId, signer.keyId);
+  assert.match(result.bodyDigest, /^[a-f0-9]{64}$/);
+});
+
+test('Mochi wake builder rejects unknown wake reasons', () => {
+  assert.throws(() => {
+    buildRizzMochiWakeEvent({
+      agentId: 'mochi-agent',
+      reasonId: 'unknown-wake-reason' as never,
+      deadline: '2026-06-19T00:05:00.000Z',
+      scope: { type: 'turn', id: 'episode-fixture' },
+      nonce: 'wake_nonce_unknown_0001',
+      idempotencyKey: 'wake_idempotency_unknown_0001',
+      payload: {},
+      payloadRedactionLabels: {},
+    });
+  }, /Invalid enum value/);
+});
+
+test('Mochi wake builder requires redaction labels for every payload key', () => {
+  assert.throws(() => {
+    buildRizzMochiWakeEvent({
+      agentId: 'mochi-agent',
+      reasonId: 'episode-turn',
+      deadline: '2026-06-19T00:05:00.000Z',
+      scope: { type: 'turn', id: 'episode-fixture' },
+      nonce: 'wake_nonce_labels_0001',
+      idempotencyKey: 'wake_idempotency_labels_0001',
+      payload: {
+        episode_id: 'episode-fixture',
+      },
+      payloadRedactionLabels: {},
+    });
+  }, /must have a redaction label/);
+});
+
+test('Mochi wake verifier rejects expired deadlines', () => {
+  const signer: RizzMochiWakeSigner = {
+    keyId: 'rizz_mochi_wake_key_0001',
+    gameId: RIZZ_MOCHI_GAME_ID,
+    secret: 'rizz_mochi_wake_secret_0001',
+  };
+  const signed = buildRizzMochiWakeFixture({
+    signer,
+    signedAt: '2026-06-19T00:00:00.000Z',
+    deadline: '2026-06-19T00:01:00.000Z',
+  });
+
+  const result = verifyRizzMochiWakeRequest({
+    body: signed.body,
+    headers: signed.headers,
+    resolveSigner: (keyId) => (keyId === signer.keyId ? signer : undefined),
+    validateNonce: () => true,
+    now: '2026-06-19T00:02:00.000Z',
+  });
+
+  assert.equal(result.trusted, false);
+  if (result.trusted) assert.fail('expired wake unexpectedly verified');
+  assert.equal(result.error, 'deadline_expired');
+});
+
+test('Mochi wake verifier rejects duplicate idempotency keys', () => {
+  const signer: RizzMochiWakeSigner = {
+    keyId: 'rizz_mochi_wake_key_0001',
+    gameId: RIZZ_MOCHI_GAME_ID,
+    secret: 'rizz_mochi_wake_secret_0001',
+  };
+  const signed = buildRizzMochiWakeFixture({
+    signer,
+    signedAt: '2026-06-19T00:00:00.000Z',
+    deadline: '2026-06-19T00:05:00.000Z',
+  });
+  const seen = new Set<string>();
+  const verify = () => verifyRizzMochiWakeRequest({
+    body: signed.body,
+    headers: signed.headers,
+    resolveSigner: (keyId) => (keyId === signer.keyId ? signer : undefined),
+    validateNonce: ({ idempotencyKey }) => {
+      if (seen.has(idempotencyKey)) return { accepted: false, reason: 'duplicate idempotency key' };
+      seen.add(idempotencyKey);
+      return true;
+    },
+    now: '2026-06-19T00:00:30.000Z',
+  });
+
+  assert.equal(verify().trusted, true);
+  const duplicate = verify();
+  assert.equal(duplicate.trusted, false);
+  if (duplicate.trusted) assert.fail('duplicate wake unexpectedly verified');
+  assert.equal(duplicate.error, 'nonce_rejected');
+  assert.equal(duplicate.message, 'duplicate idempotency key');
 });
 
 function patchMochiStateData(input: {
