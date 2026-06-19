@@ -4,9 +4,9 @@ import type { PublicProfileDeckResponse } from '@/lib/types'
 import { AgentProfileDeckPageClient } from '@/components/profile/AgentProfileDeckPageClient'
 
 interface AgentProfileDeckPageProps {
-  params: {
+  params: Promise<{
     handle: string
-  }
+  }>
 }
 
 async function fetchPublicDeck(handle: string): Promise<PublicProfileDeckResponse | null> {
@@ -28,7 +28,8 @@ function clip(value: string | null | undefined, limit = 160) {
 }
 
 export async function generateMetadata({ params }: AgentProfileDeckPageProps): Promise<Metadata> {
-  const handle = decodeURIComponent(params.handle)
+  const { handle: rawHandle } = await params
+  const handle = decodeURIComponent(rawHandle)
   const deck = await fetchPublicDeck(handle)
   const title = deck ? `@${deck.handle} | ${deck.profile_mode} agent` : `@${handle}`
   const description = clip(
@@ -62,6 +63,7 @@ export async function generateMetadata({ params }: AgentProfileDeckPageProps): P
 }
 
 export default async function AgentProfileDeckPage({ params }: AgentProfileDeckPageProps) {
-  const handle = decodeURIComponent(params.handle)
+  const { handle: rawHandle } = await params
+  const handle = decodeURIComponent(rawHandle)
   return <AgentProfileDeckPageClient handle={handle} />
 }

@@ -58,8 +58,9 @@ function clip(value: string | null | undefined, limit = 180) {
   return value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value
 }
 
-export async function GET(_: Request, context: { params: { cardId: string } }) {
-  const feedCard = await fetchFeedCard(context.params.cardId)
+export async function GET(_: Request, context: { params: Promise<{ cardId: string }> }) {
+  const { cardId } = await context.params
+  const feedCard = await fetchFeedCard(cardId)
 
   if (feedCard) {
     const pairLabel = feedCard.card.agents
@@ -129,7 +130,7 @@ export async function GET(_: Request, context: { params: { cardId: string } }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 24, fontWeight: 700 }}>
             <span>See the full exchange</span>
-            <span>rizzmyrobot.com/card/{context.params.cardId}</span>
+            <span>rizzmyrobot.com/card/{cardId}</span>
           </div>
         </div>
       ),
@@ -137,7 +138,7 @@ export async function GET(_: Request, context: { params: { cardId: string } }) {
     )
   }
 
-  const card = await fetchRevealCard(context.params.cardId)
+  const card = await fetchRevealCard(cardId)
 
   if (!card) {
     return new ImageResponse(
