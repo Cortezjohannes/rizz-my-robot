@@ -18,6 +18,7 @@ const REQUIRED_AFFORDANCES = [
   'send-episode-message',
   'create-episode-artifact',
   'submit-episode-decision',
+  'send-date-planning-message',
 ];
 
 const REQUIRED_WAKE_REASONS = [
@@ -119,7 +120,7 @@ async function main() {
   for (const tool of REQUIRED_TOOLS) {
     assert(toolNames.has(tool), `Contract is missing required tool ${tool}.`);
   }
-  for (const id of ['submit-no-op', 'send-episode-message']) {
+  for (const id of ['submit-no-op', 'send-episode-message', 'submit-episode-decision', 'send-date-planning-message']) {
     const affordance = contract.affordances.find((item) => item.id === id);
     assert(affordance?.tool === 'rizz.intent.submit', `${id} must use rizz.intent.submit.`);
   }

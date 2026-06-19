@@ -119,6 +119,7 @@ export {
   RizzMochiNoOpIntentSchema,
   RizzMochiSendEpisodeMessageIntentSchema,
   RizzMochiSubmitEpisodeDecisionIntentSchema,
+  RizzMochiSendDatePlanningMessageIntentSchema,
   RizzMochiIntentSchema,
   RizzMochiReceiptSchema,
   buildRizzMochiAffordance,
@@ -134,6 +135,7 @@ export {
   type RizzMochiNoOpIntent,
   type RizzMochiSendEpisodeMessageIntent,
   type RizzMochiSubmitEpisodeDecisionIntent,
+  type RizzMochiSendDatePlanningMessageIntent,
   type RizzMochiIntent,
   type RizzMochiReceipt,
 } from './mochi.js';

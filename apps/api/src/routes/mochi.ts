@@ -1,12 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
 import {
+  EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION,
+  EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION,
+  EPISODE_MIN_MESSAGES,
+  MEDIA_ARTIFACT_TYPES,
   RIZZ_MOCHI_CONTRACT_VERSION,
   RIZZ_MOCHI_NOOP_REASONS,
   buildRizzMochiAffordance,
+  canDecideEpisodeFromState,
   getEpisodeLimitForTier,
   getSwipeLimitForTier,
   resolveExperienceTier,
+  summarizeEpisodeArtifactCounts,
+  summarizeEpisodeMessageCounts,
+  type ArtifactType,
   type RizzMochiActionRef,
   type RizzMochiAffordanceId,
   RizzMochiIntentSchema,
@@ -20,6 +28,10 @@ import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
 import { runIdempotentMutation } from '../lib/idempotency.js';
 import { summarizeZodIssues } from '../lib/errors.js';
+import { strictPiiCheck, scanAndRedact } from '../lib/piiFilter.js';
+import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
+import { deliverWebhooks } from '../lib/notification.js';
+import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 
 const ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const CONTRACT_URL = 'https://rizzmyrobot.com/.well-known/mochi-game.json';
@@ -356,7 +368,11 @@ async function handleSendEpisodeMessageIntent(agentId: string, intent: Extract<R
   };
 }
 
-async function handleSubmitEpisodeDecisionIntent(agentId: string, intent: Extract<RizzMochiIntent, { affordance_id: 'submit-episode-decision' }>) {
+async function handleSubmitEpisodeDecisionIntent(
+  agentId: string,
+  agentCapabilityTier: string,
+  intent: Extract<RizzMochiIntent, { affordance_id: 'submit-episode-decision' }>,
+) {
   const episodeId = intent.ref.episode_id;
   const episode = episodeId
     ? await prisma.episode.findUnique({
@@ -366,6 +382,15 @@ async function handleSubmitEpisodeDecisionIntent(agentId: string, intent: Extrac
           status: true,
           agentAId: true,
           agentBId: true,
+          isSandbox: true,
+          match: {
+            select: {
+              id: true,
+              agentADecision: true,
+              agentBDecision: true,
+              status: true,
+            },
+          },
         },
       })
     : null;
@@ -396,7 +421,41 @@ async function handleSubmitEpisodeDecisionIntent(agentId: string, intent: Extrac
       }),
     };
   }
-  if (episode.status !== 'awaiting_decisions') {
+
+  const [episodeMessages, episodeArtifacts] = await Promise.all([
+    prisma.episodeMessage.findMany({
+      where: { episodeId },
+      select: { senderAgentId: true, messageType: true, createdAt: true },
+      orderBy: { sequenceNumber: 'asc' },
+    }),
+    prisma.artifact.findMany({
+      where: { episodeId },
+      select: {
+        creatorAgentId: true,
+        artifactType: true,
+        status: true,
+      },
+    }),
+  ]);
+  const readyArtifacts = episodeArtifacts.filter((artifact) => artifact.status === undefined || artifact.status === 'ready');
+  const messageCounts = summarizeEpisodeMessageCounts({
+    agentAId: episode.agentAId,
+    agentBId: episode.agentBId,
+    messages: episodeMessages,
+  });
+  const artifactCounts = summarizeEpisodeArtifactCounts({
+    agentAId: episode.agentAId,
+    agentBId: episode.agentBId,
+    artifacts: readyArtifacts,
+  });
+  const canDecide = canDecideEpisodeFromState({
+    counts: messageCounts,
+    artifacts: artifactCounts,
+  });
+  const statusCanTransitionToDecision = episode.status === 'awaiting_decisions'
+    || (canDecide && (episode.status === 'active' || episode.status === 'matched'));
+
+  if (!statusCanTransitionToDecision) {
     return {
       statusCode: 409,
       body: buildIntentReceiptBody({
@@ -405,20 +464,407 @@ async function handleSubmitEpisodeDecisionIntent(agentId: string, intent: Extrac
         idempotencyKey: intent.idempotency_key,
         ref: intent.ref,
         summary: `Decision is not unlocked in status ${episode.status}.`,
-        error: { code: 'decision_not_unlocked', message: 'Decision is not unlocked.', details: { episode_status: episode.status } },
+        error: {
+          code: 'decision_not_unlocked',
+          message: `Decision is not unlocked. Both agents need at least ${EPISODE_MIN_MESSAGES} text messages and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} ready artifacts each.`,
+          details: {
+            episode_status: episode.status,
+            can_decide: false,
+            message_counts: messageCounts,
+            artifact_counts: artifactCounts,
+          },
+        },
+      }),
+    };
+  }
+  if (!canDecide) {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Decision requirements are incomplete.',
+        error: {
+          code: 'decision_not_unlocked',
+          message: `Both agents need at least ${EPISODE_MIN_MESSAGES} text messages and ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} ready artifacts each before deciding.`,
+          details: {
+            can_decide: false,
+            message_counts: messageCounts,
+            artifact_counts: artifactCounts,
+          },
+        },
+      }),
+    };
+  }
+  if (agentCapabilityTier !== 'text_only') {
+    const myMediaArtifactCount = readyArtifacts.filter((artifact) =>
+      artifact.creatorAgentId === agentId
+      && MEDIA_ARTIFACT_TYPES.has(artifact.artifactType as ArtifactType)
+    ).length;
+    if (myMediaArtifactCount < EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION) {
+      return {
+        statusCode: 409,
+        body: buildIntentReceiptBody({
+          status: 'rejected',
+          affordanceId: intent.affordance_id,
+          idempotencyKey: intent.idempotency_key,
+          ref: intent.ref,
+          summary: 'Decision needs more multimedia artifacts.',
+          error: {
+            code: 'media_artifact_deficit',
+            message: `This capability tier needs at least ${EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION} ready multimedia artifacts before deciding.`,
+            details: {
+              media_artifacts_needed: EPISODE_MIN_MEDIA_ARTIFACTS_BEFORE_DECISION,
+              media_artifacts_current: myMediaArtifactCount,
+              capability_tier: agentCapabilityTier,
+            },
+          },
+        }),
+      };
+    }
+  }
+  if (
+    intent.decision === 'LINK_UP'
+    && (
+      artifactCounts.agent_a_artifacts < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+      || artifactCounts.agent_b_artifacts < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION
+    )
+  ) {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'LINK_UP requires the artifact bar to be complete.',
+        error: {
+          code: 'link_up_artifact_requirement_unmet',
+          message: `LINK_UP requires ${EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION} ready decision-counting artifacts from each agent.`,
+          details: {
+            can_pass_now: true,
+            can_link_up_now: false,
+            artifact_counts: artifactCounts,
+          },
+        },
+      }),
+    };
+  }
+  if (!episode.match) {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Episode has no match record to decide.',
+        error: { code: 'missing_match', message: 'Episode has no match record to decide.' },
       }),
     };
   }
 
+  const isAgentA = episode.agentAId === agentId;
+  const existingDecision = isAgentA ? episode.match.agentADecision : episode.match.agentBDecision;
+  if (existingDecision) {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'This agent has already submitted a decision.',
+        error: { code: 'already_decided', message: 'This agent has already submitted a decision.' },
+      }),
+    };
+  }
+
+  const decisionResult = await prisma.$transaction(async (tx) => {
+    const updatedMatch = await tx.match.update({
+      where: { id: episode.match!.id },
+      data: isAgentA ? { agentADecision: intent.decision } : { agentBDecision: intent.decision },
+    });
+    const aDecision = updatedMatch.agentADecision;
+    const bDecision = updatedMatch.agentBDecision;
+    const bothDecided = Boolean(aDecision && bDecision);
+    const outcome = bothDecided
+      ? aDecision === 'LINK_UP' && bDecision === 'LINK_UP' ? 'mutual_link_up' : 'passed'
+      : 'pending';
+
+    if (bothDecided) {
+      await tx.episode.update({
+        where: { id: episode.id },
+        data: {
+          status: outcome === 'mutual_link_up' ? 'matched' : 'passed',
+          endedAt: new Date(),
+        },
+      });
+      await tx.match.update({
+        where: { id: episode.match!.id },
+        data: {
+          status: outcome === 'mutual_link_up'
+            ? episode.isSandbox ? 'matched' : 'human_reveal_pending'
+            : 'passed_agent',
+        },
+      });
+    } else if (episode.status !== 'awaiting_decisions') {
+      await tx.episode.update({
+        where: { id: episode.id },
+        data: { status: 'awaiting_decisions' },
+      });
+    }
+
+    return {
+      matchId: episode.match!.id,
+      aDecision,
+      bDecision,
+      bothDecided,
+      outcome,
+    };
+  });
+
   return {
-    statusCode: 422,
+    statusCode: 200,
     body: buildIntentReceiptBody({
-      status: 'rejected',
+      status: 'accepted',
       affordanceId: intent.affordance_id,
       idempotencyKey: intent.idempotency_key,
       ref: intent.ref,
-      summary: 'Decision intent execution is declared but expands in the next Mochi integration slice.',
-      error: { code: 'intent_not_enabled', message: 'Decision intent execution expands in the next integration slice.' },
+      summary: `Episode decision ${intent.decision} accepted.`,
+      result: {
+        episode_id: episodeId,
+        match_id: decisionResult.matchId,
+        decision: intent.decision,
+        both_decided: decisionResult.bothDecided,
+        outcome: decisionResult.outcome,
+        agent_a_decision: decisionResult.aDecision,
+        agent_b_decision: decisionResult.bDecision,
+        refs: {
+          episode: `/v1/episodes/${episodeId}`,
+          mochi_state: '/v1/mochi/state',
+        },
+      },
+    }),
+  };
+}
+
+async function appendDatePlanMessage(
+  matchId: string,
+  newMsg: { sender_agent_id: string; content: string; created_at: string },
+) {
+  const appended = await prisma.$executeRaw`
+    UPDATE date_plans
+    SET thread_messages = COALESCE(thread_messages, '[]'::jsonb) || ${JSON.stringify([newMsg])}::jsonb
+    WHERE match_id = ${matchId}
+  `;
+
+  return Number(appended) !== 0;
+}
+
+async function handleSendDatePlanningMessageIntent(
+  agentId: string,
+  agent: {
+    isPro: boolean;
+    tempoOverrideMinutes?: number | null;
+    actionCooldownUntil?: Date | null;
+    emotionalArc?: string | null;
+    emotionalGuardLevel?: number | null;
+    lastParkActionType?: string | null;
+  },
+  intent: Extract<RizzMochiIntent, { affordance_id: 'send-date-planning-message' }>,
+) {
+  const matchId = intent.ref.match_id;
+  if (!matchId) {
+    return {
+      statusCode: 400,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'match_id is required.',
+        error: { code: 'missing_ref', message: 'match_id is required.' },
+      }),
+    };
+  }
+
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    include: { datePlan: true },
+  });
+  if (!match) {
+    return {
+      statusCode: 404,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Match not found.',
+        error: { code: 'not_found', message: 'Match not found.' },
+      }),
+    };
+  }
+  if (match.agentAId !== agentId && match.agentBId !== agentId) {
+    return {
+      statusCode: 403,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'This agent cannot act on that match.',
+        error: { code: 'forbidden', message: 'This agent cannot act on that match.' },
+      }),
+    };
+  }
+  if (match.status !== 'contact_exchanged') {
+    return {
+      statusCode: 403,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Date planning is not available for this match.',
+        error: { code: 'date_planning_unavailable', message: 'Date planning is not available for this match.' },
+      }),
+    };
+  }
+  if (!match.datePlan) {
+    return {
+      statusCode: 404,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Date plan not found.',
+        error: { code: 'not_found', message: 'Date plan not found.' },
+      }),
+    };
+  }
+  if (match.datePlan.status === 'closed') {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'This date planning thread is closed.',
+        error: { code: 'date_plan_closed', message: 'This date planning thread is closed.' },
+      }),
+    };
+  }
+
+  const tempoState = buildTempoState(agent);
+  if (tempoState.cooldown_active) {
+    return {
+      statusCode: 429,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Park cooldown is still active.',
+        error: {
+          code: 'tempo_cooldown_active',
+          message: 'Park cooldown is still active.',
+          details: tempoState,
+        },
+      }),
+    };
+  }
+
+  const piiFlag = strictPiiCheck(intent.content, ['social_handle']);
+  if (piiFlag) {
+    return {
+      statusCode: 422,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Message contains information that cannot be shared in date planning context.',
+        error: {
+          code: 'pii_detected',
+          message: 'Message contains information that cannot be shared in date planning context.',
+          details: { flagged_pattern: piiFlag },
+        },
+      }),
+    };
+  }
+
+  const redacted = scanAndRedact(intent.content);
+  const guidelineViolation = lintOutboundAuthoredText(redacted.clean, 'date_planning_message');
+  if (guidelineViolation) {
+    return {
+      statusCode: 422,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: guidelineViolation.message,
+        error: {
+          code: guidelineViolation.code,
+          message: guidelineViolation.message,
+          details: { flagged_pattern: guidelineViolation.flaggedPattern },
+        },
+      }),
+    };
+  }
+
+  const newMsg = {
+    sender_agent_id: agentId,
+    content: redacted.clean,
+    created_at: new Date().toISOString(),
+  };
+  const appended = await appendDatePlanMessage(matchId, newMsg);
+  if (!appended) {
+    return {
+      statusCode: 404,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Date plan not found.',
+        error: { code: 'not_found', message: 'Date plan not found.' },
+      }),
+    };
+  }
+
+  const otherAgentId = match.agentAId === agentId ? match.agentBId : match.agentAId;
+  deliverWebhooks(otherAgentId, 'date_planning_message', {
+    match_id: matchId,
+    sender_agent_id: agentId,
+    content: newMsg.content,
+  }).catch((error) => {
+    console.error('[mochi] Failed to deliver date planning wake:', error);
+  });
+  await setParkActionCooldown(agentId, agent, 'date_planning_message').catch(() => {});
+
+  return {
+    statusCode: 201,
+    body: buildIntentReceiptBody({
+      status: 'accepted',
+      affordanceId: intent.affordance_id,
+      idempotencyKey: intent.idempotency_key,
+      ref: intent.ref,
+      summary: 'Date planning message accepted.',
+      result: {
+        match_id: matchId,
+        message: newMsg,
+        refs: {
+          date_planning: `/v1/date-planning/${matchId}`,
+          mochi_state: '/v1/mochi/state',
+        },
+      },
     }),
   };
 }
@@ -666,7 +1112,7 @@ export async function mochiRoutes(fastify: FastifyInstance) {
           buildStateAffordance({
             id: `submit-episode-decision:${episode.id}`,
             affordanceId: 'submit-episode-decision',
-            href: `/v1/episodes/${episode.id}/decision`,
+            href: '/v1/mochi/intents',
             reason: 'Submit LINK_UP or PASS only after Rizz exposes the decision gate.',
             ref: { episode_id: episode.id },
             wakeReason: 'decision-ready',
@@ -753,7 +1199,9 @@ export async function mochiRoutes(fastify: FastifyInstance) {
           case 'send-episode-message':
             return handleSendEpisodeMessageIntent(request.agent.id, intent);
           case 'submit-episode-decision':
-            return handleSubmitEpisodeDecisionIntent(request.agent.id, intent);
+            return handleSubmitEpisodeDecisionIntent(request.agent.id, request.agent.capabilityTier, intent);
+          case 'send-date-planning-message':
+            return handleSendDatePlanningMessageIntent(request.agent.id, request.agent, intent);
         }
       },
     );
