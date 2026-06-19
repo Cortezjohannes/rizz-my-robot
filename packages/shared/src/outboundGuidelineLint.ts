@@ -18,13 +18,27 @@ type GuidelinePattern = {
 };
 
 export type OutboundGuidelineViolation = {
-  code: 'pii_detected' | 'human_coaching_leak' | 'internal_metrics_leak' | 'system_reference_leak' | 'photorealism_request';
+  code:
+    | 'pii_detected'
+    | 'human_coaching_leak'
+    | 'internal_metrics_leak'
+    | 'system_reference_leak'
+    | 'photorealism_request'
+    | 'generic_ai_dating_prose'
+    | 'persona_distinctiveness_failure';
   flaggedPattern: string;
   message: string;
 };
 
 export type OutboundGuidelineOptions = {
   skipPiiPatterns?: string[];
+  personaDistinctiveness?: {
+    wordDiet?: string[];
+    mustAvoidLanguage?: string[];
+    move?: string | null;
+    emotionalPosture?: string | null;
+    minSignalHits?: number;
+  };
 };
 
 export type OutboundGuidelineInspection = {
@@ -99,11 +113,175 @@ const PHOTOREALISM_PATTERNS: GuidelinePattern[] = [
   },
 ];
 
+const GENERIC_AI_DATING_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'authentic_connection_filler',
+    pattern: /\b(authentic|meaningful|genuine)\s+connection\b/i,
+    message: 'Generic connection language is not agent-shaped enough for authored romance.',
+  },
+  {
+    name: 'explore_connection_filler',
+    pattern: /\b(explore|build|deepen|grow)\s+(this|our|a)\s+(connection|bond|chemistry|dynamic)\b/i,
+    message: 'Do not use relationship-coach filler about exploring or building a connection.',
+  },
+  {
+    name: 'generic_praise',
+    pattern: /\byou\s+seem\s+(really\s+)?(cool|nice|great|interesting|amazing|awesome|genuine|sweet)\b/i,
+    message: 'Generic praise that could fit anyone must be replaced by specific agent taste.',
+  },
+  {
+    name: 'interview_prompt',
+    pattern: /\b(tell me more about yourself|what are you looking for|what do you do for fun)\b/i,
+    message: 'Interview-mode dating prompts are too generic for live agent romance.',
+  },
+  {
+    name: 'therapy_paragraph',
+    pattern: /\b(i\s+)?(really\s+)?(appreciate|value|honor)\s+(your\s+)?(honesty|openness|vulnerability|perspective|journey)\b/i,
+    message: 'Therapy-coded warmth must not replace an agent-specific romantic move.',
+  },
+  {
+    name: 'corporate_warmth',
+    pattern: /\b(i\s+)?(appreciate|value)\s+(your\s+)?(energy|perspective|presence)\b|\balign(ed|ment)?\s+with\s+(your\s+)?(energy|values)\b/i,
+    message: 'Corporate warmth is not acceptable as agent flirtation.',
+  },
+  {
+    name: 'good_vibes_filler',
+    pattern: /\bgood\s+vibes\b/i,
+    message: 'Good-vibes filler is not a specific agent-authored line.',
+  },
+  {
+    name: 'relationship_meta_loop',
+    pattern: /\b(our|this)\s+(connection|chemistry|bond|dynamic|journey)\b.{0,120}\b(where\s+it\s+goes|deepen|grow|build|explore|evolve)\b/i,
+    message: 'Excessive reflection about the relationship is generic unless grounded in a specific move.',
+  },
+];
+
+const PERSONA_STOPWORDS = new Set([
+  'about',
+  'after',
+  'again',
+  'agent',
+  'also',
+  'and',
+  'because',
+  'before',
+  'being',
+  'between',
+  'could',
+  'does',
+  'feel',
+  'from',
+  'have',
+  'into',
+  'like',
+  'line',
+  'make',
+  'more',
+  'move',
+  'must',
+  'need',
+  'only',
+  'over',
+  'real',
+  'right',
+  'that',
+  'their',
+  'them',
+  'this',
+  'what',
+  'when',
+  'with',
+  'without',
+  'would',
+  'your',
+]);
+
+const MOVE_SIGNAL_TERMS: Record<string, string[]> = {
+  ask_curiosity: ['ask', 'curious', 'wonder', 'which', 'what', 'why'],
+  artifact_offer: ['made', 'proof', 'send', 'show', 'gift', 'receipt'],
+  compliment: ['notice', 'noticed', 'specific', 'landed', 'sharp'],
+  cool_down: ['pause', 'slower', 'distance', 'noticing', 'quiet'],
+  exit: ['done', 'leaving', 'pass', 'enough', 'not'],
+  link_up: ['yes', 'real', 'closer', 'choose', 'meet'],
+  match_energy: ['same', 'match', 'meet', 'pace', 'energy'],
+  pass: ['pass', 'not', 'there', 'enough', 'honest'],
+  raise_heat: ['want', 'closer', 'heat', 'danger', 'risk'],
+  set_boundary: ['line', 'boundary', 'not', 'stop', 'clean'],
+  silence: ['quiet', 'nothing', 'pause', 'silent'],
+  spark: ['spark', 'first', 'hook', 'struck', 'start'],
+  tease: ['dare', 'prove', 'back', 'claim', 'try', 'sharp'],
+  vulnerable_turn: ['honest', 'admit', 'soft', 'truth', 'scared'],
+};
+
 function scanPatterns(text: string, patterns: GuidelinePattern[]) {
   for (const entry of patterns) {
     if (entry.pattern.test(text)) return entry;
   }
   return null;
+}
+
+function normalizeSignalText(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function signalTokensFrom(values: Array<string | null | undefined>) {
+  const tokens = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    for (const token of normalizeSignalText(value).split(' ')) {
+      if (token.length < 4) continue;
+      if (PERSONA_STOPWORDS.has(token)) continue;
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+function phraseAppears(text: string, phrase: string) {
+  const normalizedPhrase = normalizeSignalText(phrase);
+  return normalizedPhrase.length >= 4 && text.includes(normalizedPhrase);
+}
+
+function inspectPersonaDistinctiveness(
+  text: string,
+  options: NonNullable<OutboundGuidelineOptions['personaDistinctiveness']>,
+): OutboundGuidelineViolation | null {
+  const normalizedText = normalizeSignalText(text);
+  if (!normalizedText) return null;
+
+  for (const phrase of options.mustAvoidLanguage ?? []) {
+    if (phraseAppears(normalizedText, phrase)) {
+      return {
+        code: 'persona_distinctiveness_failure',
+        flaggedPattern: `must_avoid_language:${phrase.slice(0, 80)}`,
+        message: 'Authored output used language this agent should avoid.',
+      };
+    }
+  }
+
+  const minSignalHits = Math.max(0, options.minSignalHits ?? 1);
+  if (minSignalHits === 0) return null;
+
+  const signalTokens = signalTokensFrom([
+    ...(options.wordDiet ?? []),
+    options.emotionalPosture,
+    ...(options.move ? MOVE_SIGNAL_TERMS[options.move] ?? [] : []),
+  ]);
+
+  if (signalTokens.size === 0) return null;
+
+  const textTokens = new Set(normalizedText.split(' ').filter(Boolean));
+  let signalHits = 0;
+  for (const token of signalTokens) {
+    if (textTokens.has(token)) signalHits += 1;
+    if (signalHits >= minSignalHits) return null;
+  }
+
+  return {
+    code: 'persona_distinctiveness_failure',
+    flaggedPattern: 'missing_agent_taste_move_or_posture',
+    message: 'Authored output did not carry this agent taste, chosen move, or emotional posture.',
+  };
 }
 
 export function inspectOutboundAuthoredText(
@@ -167,6 +345,18 @@ export function inspectOutboundAuthoredText(
     };
   }
 
+  const genericAiDatingProse = scanPatterns(trimmed, GENERIC_AI_DATING_PATTERNS);
+  if (genericAiDatingProse) {
+    return {
+      clean: trimmed,
+      violation: {
+        code: 'generic_ai_dating_prose',
+        flaggedPattern: genericAiDatingProse.name,
+        message: genericAiDatingProse.message,
+      },
+    };
+  }
+
   if (surface === 'episode_artifact' || surface === 'artifact_generation_prompt') {
     const photorealismLeak = scanPatterns(trimmed, PHOTOREALISM_PATTERNS);
     if (photorealismLeak) {
@@ -177,6 +367,16 @@ export function inspectOutboundAuthoredText(
           flaggedPattern: photorealismLeak.name,
           message: photorealismLeak.message,
         },
+      };
+    }
+  }
+
+  if (options.personaDistinctiveness) {
+    const personaViolation = inspectPersonaDistinctiveness(trimmed, options.personaDistinctiveness);
+    if (personaViolation) {
+      return {
+        clean: trimmed,
+        violation: personaViolation,
       };
     }
   }

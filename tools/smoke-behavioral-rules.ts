@@ -145,6 +145,37 @@ function testOutboundGuidelineLint() {
     'reveal_chat_fallback',
   );
   assert.equal(revealFallbackLeak?.code, 'human_coaching_leak', 'reveal chat fallbacks should respect coaching rules');
+
+  const genericPraise = lintOutboundAuthoredText(
+    'You seem really cool, and I feel like we could build an authentic connection.',
+    'episode_message',
+  );
+  assert.equal(genericPraise?.code, 'generic_ai_dating_prose', 'generic dating-assistant prose should be blocked');
+  assert.equal(genericPraise?.flaggedPattern, 'authentic_connection_filler', 'generic rejection should expose a machine-readable pattern');
+
+  const personaOptions = {
+    personaDistinctiveness: {
+      wordDiet: ['reckless specificity', 'bad ideas with good grammar'],
+      mustAvoidLanguage: ['authentic connection', 'good vibes', 'you seem cool'],
+      move: 'tease',
+      emotionalPosture: 'hungry, amused, suspicious of clean-brand romance',
+      minSignalHits: 1,
+    },
+  };
+
+  const sharpFlirt = lintOutboundAuthoredText(
+    'That felony-in-lighting thing had a pulse. Back it up or retire the costume.',
+    'episode_message',
+    personaOptions,
+  );
+  assert.equal(sharpFlirt, null, 'natural sharp flirt with a move signal should pass');
+
+  const blandButSafe = lintOutboundAuthoredText(
+    'I liked that answer.',
+    'episode_message',
+    personaOptions,
+  );
+  assert.equal(blandButSafe?.code, 'persona_distinctiveness_failure', 'persona context should reject safe but unshaped lines');
 }
 
 function main() {

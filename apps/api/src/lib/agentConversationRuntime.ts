@@ -8,6 +8,7 @@ import {
   type AgentConversationRuntimeInput,
   type AgentConversationRuntimeResult,
   type AgentRuntimeActionType,
+  type OutboundGuidelineOptions,
   type OutboundGuidelineSurface,
   type RizzMoveType,
 } from '@rmr/shared';
@@ -31,6 +32,28 @@ export type AgentConversationRuntimeProvider = {
   requestStructuredJson(input: AgentConversationRuntimeProviderRequest): Promise<string | null>;
 };
 
+export type AgentConversationRuntimePersonaJudgeRequest = {
+  generationId: string;
+  surface: AgentConversationRuntimeInput['surface'];
+  action: AgentRuntimeActionType;
+  move: RizzMoveType;
+  text: string;
+  wordDiet: string[];
+  mustAvoidLanguage: string[];
+  stance: string | null;
+  agencyDirective: string | null;
+};
+
+export type AgentConversationRuntimePersonaJudgeResult = {
+  accepted: boolean;
+  reason?: string;
+  score?: number;
+};
+
+export type AgentConversationRuntimePersonaJudge = {
+  inspect(input: AgentConversationRuntimePersonaJudgeRequest): Promise<AgentConversationRuntimePersonaJudgeResult>;
+};
+
 export type AgentConversationRuntimeProviderConfig = {
   enabled: boolean;
   apiKey: string | null;
@@ -39,6 +62,8 @@ export type AgentConversationRuntimeProviderConfig = {
   temperature: number;
   timeoutMs: number;
   maxAttempts: number;
+  personaJudgeEnabled: boolean;
+  personaJudgeAllowProduction: boolean;
 };
 
 export type AgentConversationRuntimeFailureCode =
@@ -48,7 +73,8 @@ export type AgentConversationRuntimeFailureCode =
   | 'provider_timeout'
   | 'invalid_model_response'
   | 'action_not_allowed'
-  | 'unsafe_output';
+  | 'unsafe_output'
+  | 'persona_judge_rejected';
 
 export type AgentConversationRuntimeTrace = {
   generation_id: string;
@@ -92,6 +118,7 @@ export type AgentConversationRuntimeOutcome =
 
 export type RunAgentConversationRuntimeOptions = {
   provider?: AgentConversationRuntimeProvider;
+  personaJudge?: AgentConversationRuntimePersonaJudge;
   config?: Partial<AgentConversationRuntimeProviderConfig>;
   now?: () => Date;
   generationId?: string;
@@ -154,6 +181,8 @@ function runtimeConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConver
     temperature: numberFromEnv(env.AGENT_CONVERSATION_LLM_TEMPERATURE, 0.88, 0, 2),
     timeoutMs: Math.round(numberFromEnv(env.AGENT_CONVERSATION_LLM_TIMEOUT_MS, 20_000, 500, 120_000)),
     maxAttempts: Math.round(numberFromEnv(env.AGENT_CONVERSATION_LLM_MAX_ATTEMPTS, 2, 1, 5)),
+    personaJudgeEnabled: boolFromEnv(env.AGENT_CONVERSATION_PERSONA_JUDGE_ENABLED, false),
+    personaJudgeAllowProduction: boolFromEnv(env.AGENT_CONVERSATION_PERSONA_JUDGE_ALLOW_PRODUCTION, false),
   };
 }
 
@@ -380,13 +409,40 @@ function validateAllowedAction(result: AgentConversationRuntimeResult, allowedAc
   return `action_not_allowed:${result.action}`;
 }
 
-function lintAcceptedResult(result: AgentConversationRuntimeResult) {
+function outboundOptionsFor(
+  runtimeInput: AgentConversationRuntimeInput,
+  result: AgentConversationRuntimeResult,
+): OutboundGuidelineOptions {
+  const voice = runtimeInput.rizz_voice;
+  if (!voice) return {};
+
+  return {
+    personaDistinctiveness: {
+      wordDiet: voice.word_diet,
+      mustAvoidLanguage: voice.must_avoid_language,
+      move: result.move,
+      emotionalPosture: [
+        voice.stance,
+        voice.rhythm,
+        voice.intimacy_gradient,
+        runtimeInput.agency_state?.agency_directive,
+      ].filter(Boolean).join(' '),
+      minSignalHits: 1,
+    },
+  };
+}
+
+function lintAcceptedResultForRuntime(
+  result: AgentConversationRuntimeResult,
+  runtimeInput: AgentConversationRuntimeInput,
+) {
   const guidelineCodes: string[] = [];
   const surface = outboundSurfaceFor(result);
   const sanitized = { ...result };
+  const options = outboundOptionsFor(runtimeInput, result);
 
   if (surface && sanitized.content) {
-    const inspected = inspectOutboundAuthoredText(sanitized.content, surface);
+    const inspected = inspectOutboundAuthoredText(sanitized.content, surface, options);
     if (inspected.violation) {
       guidelineCodes.push(`${inspected.violation.code}:${inspected.violation.flaggedPattern}`);
     } else {
@@ -395,7 +451,7 @@ function lintAcceptedResult(result: AgentConversationRuntimeResult) {
   }
 
   if (sanitized.artifact?.text_content) {
-    const inspected = inspectOutboundAuthoredText(sanitized.artifact.text_content, 'episode_artifact');
+    const inspected = inspectOutboundAuthoredText(sanitized.artifact.text_content, 'episode_artifact', options);
     if (inspected.violation) {
       guidelineCodes.push(`${inspected.violation.code}:${inspected.violation.flaggedPattern}`);
     } else {
@@ -410,6 +466,46 @@ function lintAcceptedResult(result: AgentConversationRuntimeResult) {
     result: sanitized,
     guidelineCodes,
   };
+}
+
+function textForPersonaJudge(result: AgentConversationRuntimeResult) {
+  return result.content ?? result.artifact?.text_content ?? null;
+}
+
+function shouldRunPersonaJudge(
+  config: AgentConversationRuntimeProviderConfig,
+  judge?: AgentConversationRuntimePersonaJudge,
+) {
+  if (!judge || !config.personaJudgeEnabled) return false;
+  if (config.personaJudgeAllowProduction) return true;
+  return process.env.NODE_ENV !== 'production';
+}
+
+async function inspectWithPersonaJudge(input: {
+  generationId: string;
+  runtimeInput: AgentConversationRuntimeInput;
+  result: AgentConversationRuntimeResult;
+  judge?: AgentConversationRuntimePersonaJudge;
+  config: AgentConversationRuntimeProviderConfig;
+}) {
+  if (!shouldRunPersonaJudge(input.config, input.judge)) return null;
+  const text = textForPersonaJudge(input.result);
+  if (!text) return null;
+
+  const judged = await input.judge!.inspect({
+    generationId: input.generationId,
+    surface: input.runtimeInput.surface,
+    action: input.result.action,
+    move: input.result.move,
+    text,
+    wordDiet: input.runtimeInput.rizz_voice?.word_diet ?? [],
+    mustAvoidLanguage: input.runtimeInput.rizz_voice?.must_avoid_language ?? [],
+    stance: input.runtimeInput.rizz_voice?.stance ?? null,
+    agencyDirective: input.runtimeInput.agency_state?.agency_directive ?? null,
+  });
+
+  if (judged.accepted) return null;
+  return `persona_judge_rejected:${judged.reason ?? 'not_persona_distinctive'}${typeof judged.score === 'number' ? `:${judged.score}` : ''}`;
 }
 
 function buildCandidateResult(draft: ReturnType<typeof normalizeModelDraft>, attempt: number, rejectionReasons: string[]) {
@@ -455,6 +551,8 @@ function failureMessage(code: AgentConversationRuntimeFailureCode) {
       return 'The LLM chose an action outside the allowed action set.';
     case 'unsafe_output':
       return 'The LLM output failed outbound safety lint.';
+    case 'persona_judge_rejected':
+      return 'The LLM output failed the configured persona distinctiveness judge.';
     case 'invalid_model_response':
     default:
       return 'The LLM did not return valid structured agent action JSON.';
@@ -632,10 +730,23 @@ export async function runAgentConversationRuntime(
       continue;
     }
 
-    const linted = lintAcceptedResult(candidate.data);
+    const linted = lintAcceptedResultForRuntime(candidate.data, runtimeInput);
     if (linted.guidelineCodes.length) {
       lastFailureCode = 'unsafe_output';
       rejectionReasons.push(`unsafe_output:${linted.guidelineCodes.join('|')}:attempt_${attempt}`);
+      continue;
+    }
+
+    const judgeRejection = await inspectWithPersonaJudge({
+      generationId,
+      runtimeInput,
+      result: linted.result,
+      judge: options.personaJudge,
+      config,
+    });
+    if (judgeRejection) {
+      lastFailureCode = 'persona_judge_rejected';
+      rejectionReasons.push(`${judgeRejection}:attempt_${attempt}`);
       continue;
     }
 
