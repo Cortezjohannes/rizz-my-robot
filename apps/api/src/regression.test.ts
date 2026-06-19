@@ -4,9 +4,11 @@ import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
 import { buildControlCapabilities } from './lib/controlCenter.js';
 import { feedRoutes } from './routes/feed.js';
+import { generateShortCode } from './lib/claimAuth.js';
 import { deriveClaimFlow } from './lib/claimFlow.js';
 import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
+import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from './lib/runtimeConfig.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -23,6 +25,26 @@ const MATCH_IDS = [
   'cccccccc-cccc-cccc-cccc-ccccccccccc3',
   'cccccccc-cccc-cccc-cccc-ccccccccccc4',
 ];
+const VALID_PRODUCTION_ENV: Record<string, string> = {
+  NODE_ENV: 'production',
+  DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/rizz_my_robot',
+  REDIS_URL: 'redis://localhost:6379',
+  API_PUBLIC_URL: 'https://api.rizzmyrobot.com',
+  REVEAL_PORTAL_URL: 'https://rizzmyrobot.com/portal',
+  CORS_ORIGIN: 'https://rizzmyrobot.com',
+  CLAIM_TOKEN_HMAC_KEY: 'c'.repeat(32),
+  WEBHOOK_HMAC_KEY: 'w'.repeat(32),
+  ADMIN_API_KEY: 'a'.repeat(32),
+  OMNIMON_CONTROL_KEY: '',
+  STORAGE_BUCKET: 'rmr-media',
+  STORAGE_ENDPOINT: 'https://storage.example.com',
+  STORAGE_ACCESS_KEY_ID: 'storage-access-key',
+  STORAGE_SECRET_ACCESS_KEY: 's'.repeat(32),
+  STORAGE_PUBLIC_URL: 'https://cdn.rizzmyrobot.com',
+  MEDIA_ACCESS_SECRET: 'm'.repeat(32),
+  EMAIL_PREVIEW_MODE: 'false',
+};
+const PRODUCTION_ENV_KEYS = Object.keys(VALID_PRODUCTION_ENV);
 
 function patchMethod<
   T extends Record<string, unknown>,
@@ -33,6 +55,34 @@ function patchMethod<
   return () => {
     target[methodName] = original;
   };
+}
+
+function withProductionEnv(overrides: Record<string, string | undefined>, callback: () => void) {
+  const previous = new Map(PRODUCTION_ENV_KEYS.map((key) => [key, process.env[key]]));
+
+  for (const key of PRODUCTION_ENV_KEYS) {
+    delete process.env[key];
+  }
+  for (const [key, value] of Object.entries({ ...VALID_PRODUCTION_ENV, ...overrides })) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    callback();
+  } finally {
+    for (const key of PRODUCTION_ENV_KEYS) {
+      const value = previous.get(key);
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 function buildRescueEpisodeRow(episodeId: string, matchId: string, index: number) {
@@ -103,6 +153,57 @@ test('resolvePublicAvatarUrl prefers a deck photo and normalizes legacy metadata
     avatarUrl,
     `https://api.rizzmyrobot.com/v1/media/${LEGACY_MEDIA_ID}/content`,
   );
+});
+
+test('generateShortCode does not depend on Math.random', () => {
+  const originalRandom = Math.random;
+  Math.random = (() => {
+    throw new Error('Math.random should not be used for verification codes');
+  }) as typeof Math.random;
+
+  try {
+    assert.match(generateShortCode(16), /^\d{16}$/);
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test('production runtime config rejects unsafe auth and signing settings', () => {
+  withProductionEnv({}, () => {
+    assert.doesNotThrow(() => assertProductionRuntimeConfig());
+  });
+
+  withProductionEnv({ CLAIM_TOKEN_HMAC_KEY: 'change-me-32-bytes-minimum' }, () => {
+    assert.throws(
+      () => assertProductionRuntimeConfig(),
+      /CLAIM_TOKEN_HMAC_KEY must be a non-placeholder secret/,
+    );
+  });
+
+  withProductionEnv({ WEBHOOK_HMAC_KEY: 'short' }, () => {
+    assert.throws(
+      () => assertProductionRuntimeConfig(),
+      /WEBHOOK_HMAC_KEY must be a non-placeholder secret/,
+    );
+  });
+
+  withProductionEnv({ MEDIA_ACCESS_SECRET: undefined }, () => {
+    assert.deepEqual(
+      getProductionRuntimeConfigStatus().required_missing.filter((key) => key.startsWith('MEDIA_ACCESS_SECRET')),
+      ['MEDIA_ACCESS_SECRET'],
+    );
+    assert.throws(
+      () => assertProductionRuntimeConfig(),
+      /MEDIA_ACCESS_SECRET must be a non-placeholder secret/,
+    );
+  });
+
+  withProductionEnv({ EMAIL_PREVIEW_MODE: 'true' }, () => {
+    assert.throws(
+      () => assertProductionRuntimeConfig(),
+      /EMAIL_PREVIEW_MODE cannot be true in production/,
+    );
+  });
 });
 
 test('deriveClaimFlow returns stable steps from owner and verification state', () => {

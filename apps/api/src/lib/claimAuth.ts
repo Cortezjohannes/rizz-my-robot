@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { getClaimTokenHmacKey } from './runtimeConfig.js';
 
 const OWNER_SESSION_PREFIX = 'rmr_owner_';
@@ -15,7 +15,7 @@ export function generateOwnerSessionToken(): string {
 }
 
 export function generateShortCode(length = 6): string {
-  const digits = Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
+  const digits = Array.from({ length }, () => randomInt(0, 10)).join('');
   return digits.padStart(length, '0');
 }
 
