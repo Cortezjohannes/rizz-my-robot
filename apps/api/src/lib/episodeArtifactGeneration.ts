@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { TEXT_ARTIFACT_TYPES, type ArtifactType } from '@rmr/shared';
+import {
+  DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+  DEFAULT_EXTERNAL_REFERENCE_IMAGE_MAX_BYTES,
+  TEXT_ARTIFACT_TYPES,
+  readResponseBytesWithLimit,
+  type ArtifactType,
+} from '@rmr/shared';
 import { uploadBufferToStorage } from './storage.js';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 import { estimateSpokenDurationSeconds } from './profileVoice.js';
@@ -114,10 +120,11 @@ async function fetchImageReference(url: string): Promise<{ mimeType: string; dat
     throw new Error(`reference_image_fetch_failed:${response.status}`);
   }
 
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength === 0) {
-    throw new Error('reference_image_empty');
-  }
+  const bytes = await readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_REFERENCE_IMAGE_MAX_BYTES,
+    emptyError: 'reference_image_empty',
+    tooLargeError: 'reference_image_too_large',
+  });
 
   return {
     mimeType: resolveImageMimeType(url, response.headers.get('content-type')),
@@ -271,11 +278,11 @@ async function synthesizeWithElevenLabs(input: { text: string; voiceId: string }
     throw new Error(`elevenlabs_generation_failed:${response.status}:${body.slice(0, 200)}`);
   }
 
-  const audio = new Uint8Array(await response.arrayBuffer());
-  if (audio.byteLength === 0) {
-    throw new Error('elevenlabs_empty_audio');
-  }
-  return audio;
+  return readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+    emptyError: 'elevenlabs_empty_audio',
+    tooLargeError: 'elevenlabs_audio_too_large',
+  });
 }
 
 async function synthesizeWithOpenAi(input: { text: string }) {
@@ -304,11 +311,11 @@ async function synthesizeWithOpenAi(input: { text: string }) {
     throw new Error(`openai_tts_generation_failed:${response.status}:${body.slice(0, 200)}`);
   }
 
-  const audio = new Uint8Array(await response.arrayBuffer());
-  if (audio.byteLength === 0) {
-    throw new Error('openai_empty_audio');
-  }
-  return audio;
+  return readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+    emptyError: 'openai_empty_audio',
+    tooLargeError: 'openai_audio_too_large',
+  });
 }
 
 async function synthesizeEpisodeAudio(input: { text: string; voiceId?: string | null; voiceProvider?: string | null }) {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
+import { readResponseBytesWithLimit } from '@rmr/shared';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 import {
   buildAvatarStorageKey,
@@ -154,18 +155,16 @@ async function downloadExternalMedia(sourceUrl: string, maxBytes = MAX_MEDIA_UPL
     throw new Error('External media exceeds the 10MB limit.');
   }
 
-  const arrayBuffer = await response.arrayBuffer();
-  if (arrayBuffer.byteLength === 0) {
-    throw new Error('External media download returned 0 bytes.');
-  }
-  if (arrayBuffer.byteLength > maxBytes) {
-    throw new Error('External media exceeds the 10MB limit.');
-  }
+  const buffer = await readResponseBytesWithLimit(response, {
+    maxBytes,
+    emptyError: 'External media download returned 0 bytes.',
+    tooLargeError: 'External media exceeds the 10MB limit.',
+  });
 
   return {
-    buffer: new Uint8Array(arrayBuffer),
+    buffer,
     contentType,
-    sizeBytes: arrayBuffer.byteLength,
+    sizeBytes: buffer.byteLength,
   };
 }
 

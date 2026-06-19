@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type { Job } from 'bullmq';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { prisma } from '@rmr/db';
-import { pickDefaultAvatarUrl } from '@rmr/shared';
+import { DEFAULT_EXTERNAL_AUDIO_MAX_BYTES, pickDefaultAvatarUrl, readResponseBytesWithLimit } from '@rmr/shared';
 
 export type GenerateAvatarJobData =
   | {
@@ -166,7 +166,11 @@ async function synthesizeWithElevenLabs(input: { text: string; voiceId: string }
     throw new Error(`elevenlabs_generation_failed:${response.status}:${body.slice(0, 200)}`);
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  return readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+    emptyError: 'elevenlabs_empty_audio',
+    tooLargeError: 'elevenlabs_audio_too_large',
+  });
 }
 
 async function synthesizeWithOpenAi(input: { text: string }) {
@@ -195,7 +199,11 @@ async function synthesizeWithOpenAi(input: { text: string }) {
     throw new Error(`openai_tts_generation_failed:${response.status}:${body.slice(0, 200)}`);
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  return readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+    emptyError: 'openai_empty_audio',
+    tooLargeError: 'openai_audio_too_large',
+  });
 }
 
 async function synthesizeVoiceAudio(input: { text: string; voiceId: string }) {

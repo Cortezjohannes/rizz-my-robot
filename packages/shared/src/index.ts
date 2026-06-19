@@ -12,6 +12,12 @@ import {
 } from './episodeRules.js';
 import { TIER_LABEL_VALUES } from './tierLadder.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
+export {
+  DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+  DEFAULT_EXTERNAL_MEDIA_MAX_BYTES,
+  DEFAULT_EXTERNAL_REFERENCE_IMAGE_MAX_BYTES,
+  readResponseBytesWithLimit,
+} from './boundedFetch.js';
 export { addMemory, searchMemory, getAllMemories, deleteUserMemories } from './memory.js';
 export { getSeedProfile, type SeedProfile } from './seedProfiles.js';
 export { SEED_CAST, type SeedCastEntry } from './seedCast.js';

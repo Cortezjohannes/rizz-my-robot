@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
+import { readResponseBytesWithLimit } from '@rmr/shared';
 import { buildControlCapabilities } from './lib/controlCenter.js';
 import { feedRoutes } from './routes/feed.js';
 import { generateShortCode } from './lib/claimAuth.js';
@@ -127,6 +128,66 @@ function buildRescueEpisodeRow(episodeId: string, matchId: string, index: number
     ],
   };
 }
+
+function responseFromChunks(chunks: number[][]) {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(Uint8Array.from(chunk));
+      }
+      controller.close();
+    },
+  }));
+}
+
+test('readResponseBytesWithLimit returns bounded non-empty response bytes', async () => {
+  const bytes = await readResponseBytesWithLimit(
+    responseFromChunks([[1, 2], [3, 4]]),
+    { maxBytes: 4 },
+  );
+
+  assert.deepEqual([...bytes], [1, 2, 3, 4]);
+});
+
+test('readResponseBytesWithLimit rejects empty responses', async () => {
+  await assert.rejects(
+    readResponseBytesWithLimit(new Response(null), {
+      maxBytes: 4,
+      emptyError: 'bounded_fetch_empty',
+    }),
+    /bounded_fetch_empty/,
+  );
+});
+
+test('readResponseBytesWithLimit rejects oversized content-length before buffering', async () => {
+  await assert.rejects(
+    readResponseBytesWithLimit(
+      new Response(Uint8Array.from([1]), {
+        headers: {
+          'content-length': '5',
+        },
+      }),
+      {
+        maxBytes: 4,
+        tooLargeError: 'bounded_fetch_too_large',
+      },
+    ),
+    /bounded_fetch_too_large/,
+  );
+});
+
+test('readResponseBytesWithLimit rejects oversized streamed responses', async () => {
+  await assert.rejects(
+    readResponseBytesWithLimit(
+      responseFromChunks([[1, 2], [3, 4], [5]]),
+      {
+        maxBytes: 4,
+        tooLargeError: 'bounded_fetch_stream_too_large',
+      },
+    ),
+    /bounded_fetch_stream_too_large/,
+  );
+});
 
 test('normalizePublicMediaUrl upgrades legacy metadata URLs to content URLs', () => {
   assert.equal(

@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeArtifactType } from '@rmr/shared';
+import { DEFAULT_EXTERNAL_MEDIA_MAX_BYTES, normalizeArtifactType, readResponseBytesWithLimit } from '@rmr/shared';
 import { prisma, type Prisma } from '@rmr/db';
 import {
   buildArtifactStorageKey,
@@ -624,10 +624,11 @@ export async function importExternalMediaAsset(input: {
   if (input.kind === MEDIA_KIND.ARTIFACT) {
     assertArtifactMediaContentType(input.artifactType ?? null, contentType);
   }
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength === 0) {
-    throw new Error('External media download returned 0 bytes.');
-  }
+  const buffer = await readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_MEDIA_MAX_BYTES,
+    emptyError: 'External media download returned 0 bytes.',
+    tooLargeError: 'External media exceeds the 10MB limit.',
+  });
 
   return persistMediaAsset({
     agentId: input.agentId,
