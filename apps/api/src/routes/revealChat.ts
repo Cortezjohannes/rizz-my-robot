@@ -50,6 +50,9 @@ const REVEAL_CHAT_SENDER_KINDS = ['HUMAN_A', 'AGENT_A', 'HUMAN_B', 'AGENT_B'] as
 const MESSAGE_RATE_LIMIT_MAX = 30;
 const MESSAGE_RATE_LIMIT_WINDOW_MS = 60_000;
 const MESSAGE_SIZE_LIMIT_BYTES = 4_096;
+const TIME_CAPSULE_SIZE_LIMIT_BYTES = 8_192;
+const ENCRYPTION_METADATA_MAX_CHARS = 512;
+const PUBLIC_KEY_MAX_CHARS = 2048;
 const SSE_HEARTBEAT_MS = 25_000;
 const TYPING_DEBOUNCE_MS = 2_000;
 const TYPING_AUTO_EXPIRE_MS = 8_000;
@@ -74,18 +77,18 @@ declare module 'fastify' {
 
 const RevealChatInitSchema = z.object({
   matchId: z.string().uuid(),
-  ownerPublicKeyA: z.string().trim().min(1).optional(),
-  ownerPublicKeyB: z.string().trim().min(1).optional(),
+  ownerPublicKeyA: z.string().trim().min(1).max(PUBLIC_KEY_MAX_CHARS).optional(),
+  ownerPublicKeyB: z.string().trim().min(1).max(PUBLIC_KEY_MAX_CHARS).optional(),
 });
 
 const RevealChatKeySchema = z.object({
-  publicKey: z.string().trim().min(1),
+  publicKey: z.string().trim().min(1).max(PUBLIC_KEY_MAX_CHARS),
 });
 
 const RevealChatMessageSchema = z.object({
-  ciphertext: z.string().min(1),
-  iv: z.string().min(1),
-  authTag: z.string().min(1),
+  ciphertext: z.string().min(1).max(MESSAGE_SIZE_LIMIT_BYTES),
+  iv: z.string().min(1).max(ENCRYPTION_METADATA_MAX_CHARS),
+  authTag: z.string().min(1).max(ENCRYPTION_METADATA_MAX_CHARS),
   media_asset_id: z.string().uuid().optional().nullable(),
   clientMessageId: z.string().trim().min(1).max(255).optional(),
   senderKind: z.enum(REVEAL_CHAT_SENDER_KINDS),
@@ -109,9 +112,9 @@ const RevealChatShareConsentSchema = z.object({
 });
 
 const RevealChatTimeCapsuleSchema = z.object({
-  ciphertext: z.string().min(1),
-  iv: z.string().min(1),
-  authTag: z.string().min(1),
+  ciphertext: z.string().min(1).max(TIME_CAPSULE_SIZE_LIMIT_BYTES),
+  iv: z.string().min(1).max(ENCRYPTION_METADATA_MAX_CHARS),
+  authTag: z.string().min(1).max(ENCRYPTION_METADATA_MAX_CHARS),
   role: z.enum(['agent_a', 'agent_b']),
 });
 
@@ -746,6 +749,9 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
     const parsed = RevealChatTimeCapsuleSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return Errors.badRequest(reply, summarizeZodIssues(parsed.error.issues, 'Invalid time capsule payload.'));
+    }
+    if (Buffer.byteLength(parsed.data.ciphertext, 'utf8') > TIME_CAPSULE_SIZE_LIMIT_BYTES) {
+      return Errors.badRequest(reply, `ciphertext must be at most ${TIME_CAPSULE_SIZE_LIMIT_BYTES} bytes.`);
     }
 
     const context = await getRevealChatAccessContext((request.params as { chatId: string }).chatId);

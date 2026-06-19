@@ -3,6 +3,7 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
 import { readResponseBytesWithLimit } from '@rmr/shared';
+import { buildApiServer, DEFAULT_JSON_BODY_LIMIT_BYTES } from './index.js';
 import { buildControlCapabilities } from './lib/controlCenter.js';
 import { feedRoutes } from './routes/feed.js';
 import { generateShortCode } from './lib/claimAuth.js';
@@ -140,6 +141,20 @@ function responseFromChunks(chunks: number[][]) {
   }));
 }
 
+async function buildQuietApiServer() {
+  const previousLogLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = 'silent';
+  try {
+    return await buildApiServer();
+  } finally {
+    if (previousLogLevel === undefined) {
+      delete process.env.LOG_LEVEL;
+    } else {
+      process.env.LOG_LEVEL = previousLogLevel;
+    }
+  }
+}
+
 test('readResponseBytesWithLimit returns bounded non-empty response bytes', async () => {
   const bytes = await readResponseBytesWithLimit(
     responseFromChunks([[1, 2], [3, 4]]),
@@ -187,6 +202,64 @@ test('readResponseBytesWithLimit rejects oversized streamed responses', async ()
     ),
     /bounded_fetch_stream_too_large/,
   );
+});
+
+test('API rejects JSON payloads over the default parser limit with a structured 413', async (t) => {
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'POST',
+    url: '/v1/register',
+    headers: {
+      'content-type': 'application/json',
+    },
+    payload: JSON.stringify({
+      payload: 'x'.repeat(DEFAULT_JSON_BODY_LIMIT_BYTES),
+    }),
+  });
+
+  assert.equal(response.statusCode, 413);
+  assert.equal(response.json().error.code, 'payload_too_large');
+});
+
+test('API applies the baseline rate limit to routes without explicit route limits', async (t) => {
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  let response = await fastify.inject({ method: 'POST', url: '/v1/register' });
+  for (let index = 1; index < 61; index += 1) {
+    response = await fastify.inject({ method: 'POST', url: '/v1/register' });
+  }
+
+  assert.equal(response.statusCode, 429);
+  assert.equal(response.json().error.code, 'rate_limited');
+});
+
+test('API rate limits repeated not-found probing', async (t) => {
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  let response = await fastify.inject({ method: 'GET', url: '/v1/definitely-missing' });
+  for (let index = 1; index < 31; index += 1) {
+    response = await fastify.inject({ method: 'GET', url: '/v1/definitely-missing' });
+  }
+
+  assert.equal(response.statusCode, 429);
+  assert.equal(response.json().error.code, 'rate_limited');
+});
+
+test('API does not rate limit liveness probes', async (t) => {
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  let response = await fastify.inject({ method: 'GET', url: '/v1/health/live' });
+  for (let index = 1; index < 205; index += 1) {
+    response = await fastify.inject({ method: 'GET', url: '/v1/health/live' });
+  }
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().status, 'ok');
 });
 
 test('normalizePublicMediaUrl upgrades legacy metadata URLs to content URLs', () => {
