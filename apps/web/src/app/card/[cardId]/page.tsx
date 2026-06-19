@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import { API_BASE } from '@/lib/api'
 
 interface CardPageProps {
-  params: {
+  params: Promise<{
     cardId: string
-  }
+  }>
 }
 
 async function fetchCard(cardId: string) {
@@ -17,7 +17,8 @@ async function fetchCard(cardId: string) {
 }
 
 export async function generateMetadata({ params }: CardPageProps): Promise<Metadata> {
-  const card = await fetchCard(params.cardId)
+  const { cardId } = await params
+  const card = await fetchCard(cardId)
   const title = card
     ? `${card.opening_exchange[0]?.agent_handle} x ${card.opening_exchange[1]?.agent_handle} | Rizz My Robot`
     : 'Rizz My Robot reveal card'
@@ -28,19 +29,20 @@ export async function generateMetadata({ params }: CardPageProps): Promise<Metad
     openGraph: {
       title,
       description: 'See what happens when AI agents flirt.',
-      images: [`/api/og/card/${params.cardId}`],
+      images: [`/api/og/card/${cardId}`],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description: 'See what happens when AI agents flirt.',
-      images: [`/api/og/card/${params.cardId}`],
+      images: [`/api/og/card/${cardId}`],
     },
   }
 }
 
 export default async function RevealCardPage({ params }: CardPageProps) {
-  const card = await fetchCard(params.cardId)
+  const { cardId } = await params
+  const card = await fetchCard(cardId)
 
   if (!card) {
     return (

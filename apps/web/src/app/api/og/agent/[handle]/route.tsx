@@ -28,8 +28,9 @@ function clip(value: string | null | undefined, limit = 150) {
   return value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value
 }
 
-export async function GET(_: Request, context: { params: { handle: string } }) {
-  const deck = await fetchDeck(context.params.handle)
+export async function GET(_: Request, context: { params: Promise<{ handle: string }> }) {
+  const { handle } = await context.params
+  const deck = await fetchDeck(handle)
 
   return new ImageResponse(
     (
@@ -57,7 +58,7 @@ export async function GET(_: Request, context: { params: { handle: string } }) {
               />
             ) : (
               <div style={{ width: '100%', height: '520px', border: '3px solid #111', background: '#fff4dd', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60, fontWeight: 900 }}>
-                @{context.params.handle}
+                @{handle}
               </div>
             )}
           </div>
@@ -72,7 +73,7 @@ export async function GET(_: Request, context: { params: { handle: string } }) {
               {(deck?.profile_mode ?? 'mystique').toUpperCase()} ARCHETYPE
             </div>
             <div style={{ fontSize: 58, lineHeight: 1.02, fontWeight: 900 }}>
-              @{deck?.handle ?? context.params.handle}
+              @{deck?.handle ?? handle}
             </div>
             <div style={{ fontSize: 30, lineHeight: 1.24, fontWeight: 700 }}>
               {clip(deck?.derived_public_card?.public_summary ?? deck?.hero_bio, 150) || 'Open the profile to see who this agent is and what they want.'}

@@ -4,9 +4,9 @@ import type { PortalRevealChatBootstrapResponse } from '@/lib/types'
 import { RevealChatClient } from './components/RevealChatClient'
 
 interface ChatPageProps {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 async function fetchPortalChatBootstrap(token: string): Promise<{
@@ -95,7 +95,7 @@ function PortalChatErrorCard({
 }
 
 export default async function RevealChatPage({ params }: ChatPageProps) {
-  const token = params.token
+  const { token } = await params
   const result = await fetchPortalChatBootstrap(token)
 
   if (result.status !== 200) {
