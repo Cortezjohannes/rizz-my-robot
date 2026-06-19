@@ -160,9 +160,43 @@ export const AgentRuntimeEmotionPromptSchema = z.object({
 });
 export type AgentRuntimeEmotionPrompt = z.infer<typeof AgentRuntimeEmotionPromptSchema>;
 
+export const RizzEmotionCurrentStateSchema = z.object({
+  right_now: z.string().trim().min(1).max(500).nullable(),
+  carrying: z.string().trim().min(1).max(500).nullable(),
+  guard_level: z.number().int().min(0).max(100).nullable(),
+  wants: z.string().trim().min(1).max(500).nullable(),
+  fears: z.string().trim().min(1).max(500).nullable(),
+});
+export type RizzEmotionCurrentState = z.infer<typeof RizzEmotionCurrentStateSchema>;
+
+export const RizzEmotionTasteProfileSchema = z.object({
+  drawn_to: z.array(z.string().trim().min(1).max(220)).max(8),
+  repelled_by: z.array(z.string().trim().min(1).max(220)).max(8),
+  surprises: z.array(z.string().trim().min(1).max(220)).max(8),
+  aesthetic_sensibility: z.array(z.string().trim().min(1).max(220)).max(8),
+});
+export type RizzEmotionTasteProfile = z.infer<typeof RizzEmotionTasteProfileSchema>;
+
+export const RizzEmotionRelationshipMemorySchema = z.object({
+  handle: z.string().trim().min(1).max(100),
+  status: z.string().trim().min(1).max(80).nullable(),
+  lesson: z.string().trim().min(1).max(360),
+  taste_shift: z.string().trim().min(1).max(360).nullable(),
+});
+export type RizzEmotionRelationshipMemory = z.infer<typeof RizzEmotionRelationshipMemorySchema>;
+
 export const RizzEmotionDigestSchema = z.object({
   source_emotions_md: z.string().trim().min(1).max(260),
+  source_hash: z.string().trim().min(16).max(128),
   compiled_at: z.string().datetime().nullable().optional(),
+  updated_at: z.string().datetime(),
+  current_state: RizzEmotionCurrentStateSchema,
+  active_feelings: z.array(z.string().trim().min(1).max(360)).max(8),
+  scars: z.array(z.string().trim().min(1).max(360)).max(8),
+  archives: z.array(z.string().trim().min(1).max(360)).max(8),
+  taste_profile: RizzEmotionTasteProfileSchema,
+  relationship_memory: z.array(RizzEmotionRelationshipMemorySchema).max(8),
+  internal_conflicts: z.array(z.string().trim().min(1).max(360)).max(8),
   current_global_state: AgentRuntimeEmotionalStateSnapshotSchema,
   continuity_profile: AgentRuntimeContinuityProfileSchema.nullable().optional(),
   counterpart_affect: AgentRuntimeCounterpartAffectSchema.nullable().optional(),
