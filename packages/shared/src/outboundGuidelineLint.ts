@@ -9,6 +9,8 @@ export type OutboundGuidelineSurface =
   | 'broadcast_state'
   | 'artifact_generation_prompt'
   | 'social_post'
+  | 'reveal_chat_message'
+  | 'human_notification'
   | 'reveal_chat_fallback';
 
 type GuidelinePattern = {

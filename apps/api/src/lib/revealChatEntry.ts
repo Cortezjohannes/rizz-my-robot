@@ -10,11 +10,19 @@ const AGENT_OPENING_TIMEOUT_MS = 90_000;
 
 interface RevealChatEntryHooks {
   emitEvent: (chatId: string, event: string, payload: Record<string, unknown>) => void;
-  sendFallbackOpeningMessage: (chatId: string) => Promise<void>;
+  handleOpeningTimeout: (chatId: string) => Promise<RevealChatOpeningTimeoutResult>;
 }
 
 const entrySequenceCache = new Map<string, Promise<void>>();
 const completedEntrySequences = new Set<string>();
+
+export type RevealChatOpeningTimeoutResult =
+  | {
+      status: 'sent' | 'suppressed';
+      reason: string;
+      trace?: Record<string, unknown>;
+    }
+  | void;
 
 export function resetRevealChatEntryState() {
   entrySequenceCache.clear();
@@ -89,7 +97,7 @@ async function runRevealChatEntrySequence(chatId: string, hooks: RevealChatEntry
     console.error('[reveal-chat-entry] Failed to schedule time capsule prompt:', error);
   });
 
-  void ensureAgentOpeningMessage(chatId, hooks.sendFallbackOpeningMessage);
+  void ensureAgentOpeningMessage(chatId, hooks.handleOpeningTimeout);
 }
 
 async function waitForAgentContextJoin(
@@ -124,7 +132,7 @@ async function waitForAgentContextJoin(
 
 async function ensureAgentOpeningMessage(
   chatId: string,
-  sendFallbackOpeningMessage: (chatId: string) => Promise<void>,
+  handleOpeningTimeout: (chatId: string) => Promise<RevealChatOpeningTimeoutResult>,
 ) {
   await new Promise((resolve) => setTimeout(resolve, AGENT_OPENING_TIMEOUT_MS));
 
@@ -141,25 +149,28 @@ async function ensureAgentOpeningMessage(
   if (firstAgentMessage) return;
 
   try {
-    await sendFallbackOpeningMessage(chatId);
+    const result = await handleOpeningTimeout(chatId);
+    const sent = result?.status === 'sent';
     await recordAuditLog({
       agentId: null,
       actorType: 'system',
       actorId: null,
-      action: 'reveal_chat_opening_fallback_sent',
+      action: sent ? 'reveal_chat_opening_runtime_message_sent' : 'reveal_chat_opening_runtime_silence',
       targetType: 'reveal_chat',
       targetId: chatId,
       payload: {
         reason: 'agent_a_opening_timeout',
+        result_reason: result?.reason ?? 'no_real_agent_runtime_output',
+        trace: result?.trace ?? null,
       },
     });
   } catch (error) {
-    console.error('[reveal-chat-entry] Failed to send fallback opening message:', error);
+    console.error('[reveal-chat-entry] Failed to handle opening timeout:', error);
     await recordAuditLog({
       agentId: null,
       actorType: 'system',
       actorId: null,
-      action: 'reveal_chat_opening_fallback_failed',
+      action: 'reveal_chat_opening_timeout_failed',
       targetType: 'reveal_chat',
       targetId: chatId,
       payload: {
