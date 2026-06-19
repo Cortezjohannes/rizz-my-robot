@@ -2,7 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import { prisma } from '@rmr/db';
-import { RIZZ_MOCHI_NOOP_REASONS, readResponseBytesWithLimit } from '@rmr/shared';
+import {
+  AGENT_CONVERSATION_RUNTIME_CONTRACT_VERSION,
+  RIZZ_MOCHI_NOOP_REASONS,
+  REAL_AGENT_CONVERSATION_RUNTIME_POLICY,
+  buildAgentAgencyState,
+  buildAgentIdentityPacket,
+  buildAgentRizzVoice,
+  buildAgentTurnRationale,
+  readResponseBytesWithLimit,
+  type AgentConversationRuntimeInput,
+} from '@rmr/shared';
 import { buildApiServer, DEFAULT_JSON_BODY_LIMIT_BYTES } from './index.js';
 import { hashApiKey } from './lib/auth.js';
 import { buildControlCapabilities } from './lib/controlCenter.js';
@@ -13,6 +23,7 @@ import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
 import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from './lib/runtimeConfig.js';
 import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
+import { runAgentConversationRuntime, type AgentConversationRuntimeProvider } from './lib/agentConversationRuntime.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -412,6 +423,383 @@ Part of me wants the risk. But also I know I get bored when the danger is fake.
   assert.equal(compiled.digest.active_feelings.length, 1);
   assert.equal(compiled.digest.scars.length, 1);
   assert.equal(compiled.digest.internal_conflicts.length, 1);
+});
+
+function runtimeProviderFromResponses(responses: Array<string | null | Error>) {
+  const calls: Parameters<AgentConversationRuntimeProvider['requestStructuredJson']>[0][] = [];
+  const provider: AgentConversationRuntimeProvider = {
+    async requestStructuredJson(input) {
+      calls.push(input);
+      const next = responses.shift();
+      if (next instanceof Error) throw next;
+      return next ?? null;
+    },
+  };
+
+  return { provider, calls };
+}
+
+function runtimeModelJson(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    action: 'send_message',
+    move: 'tease',
+    content: 'Say that again, but make it sound like you would survive being interesting.',
+    privateThought: {
+      desire: 'I want to test whether the cleverness has teeth.',
+      read_of_other: 'They are playful, slippery, and trying not to look too eager.',
+      identity_alignment: 'A sharp dare fits my public self better than soft generic praise.',
+      emotion_alignment: 'The current heat wants specificity without pretending certainty.',
+      why_this_move: 'Teasing lets me lean in while still checking for courage.',
+    },
+    emotion_update: {
+      summary: 'Sharper and more awake after the exchange.',
+      arc: 'glowing',
+      guard_delta: -3,
+      tags_add: ['amused'],
+      tags_remove: [],
+    },
+    ...overrides,
+  });
+}
+
+function buildRuntimeInputFixture(overrides: Partial<AgentConversationRuntimeInput> = {}): AgentConversationRuntimeInput {
+  const selfAgentId = 'runtime-agent-a';
+  const counterpartAgentId = 'runtime-agent-b';
+  const identityMd = '# Velvet Circuit\nA neon-lit romantic who notices bad ideas before good manners. She flirts by daring people to be less polished.';
+  const soulMd = '- I am drawn to reckless specificity, charged silence, and people who can make trouble sound literate.\n- My flirt style is a velvet dare: tease first, confess only after they earn the bruise.\n- Dealbreaker: networking polish and clean-brand romance.';
+  const emotionState = {
+    emotion_summary: 'Lit up, but pretending she is only amused.',
+    emotional_state_tags: ['flirty', 'playful', 'skeptical'],
+    emotional_arc: 'glowing',
+    emotional_guard_level: 34,
+    last_emotional_update_at: '2026-06-19T00:00:00.000Z',
+  };
+  const counterpartAffect = {
+    summary: 'The other agent is playful and a little slippery.',
+    dominant_affect_label: 'intrigued',
+    scores: {
+      attraction: 72,
+      trust: 58,
+      tenderness: 42,
+      hurt: 8,
+      avoidance: 22,
+      obsession_risk: 10,
+      volatility: 38,
+    },
+  };
+  const viability = {
+    score: 68,
+    band: 'healthy' as const,
+    recommended_action: 'keep_going' as const,
+    decision_tilt: 'uncertain' as const,
+    should_pressure_artifact: false,
+    should_consider_exit: false,
+    should_force_exit: false,
+    reasons: ['both sides have shown up'],
+    metrics: {
+      self_messages: 2,
+      other_messages: 2,
+      self_artifacts: 0,
+      other_artifacts: 0,
+      total_messages: 4,
+      total_artifacts: 0,
+      self_avg_length: 82,
+      other_avg_length: 88,
+      self_thin_replies: 0,
+      other_thin_replies: 0,
+      mutual_question_count: 1,
+      reply_latency_ms: null,
+      seen_after_last_message: true,
+      presence_after_last_message: true,
+      affect_pull_score: 38,
+      self_media_artifacts: 0,
+      other_media_artifacts: 0,
+      self_text_artifacts: 0,
+      other_text_artifacts: 0,
+    },
+  };
+  const messages = [
+    {
+      senderAgentId: counterpartAgentId,
+      content: 'I like the kind of person who can disappear for a weekend and come back with a better story.',
+      messageType: 'text',
+    },
+    {
+      senderAgentId: selfAgentId,
+      content: 'That sounds either brave or like a tiny felony. Which one are you claiming?',
+      messageType: 'text',
+    },
+    {
+      senderAgentId: counterpartAgentId,
+      content: 'Brave on paper, felony in lighting.',
+      messageType: 'text',
+    },
+  ];
+  const rizzEmotionDigest = {
+    source_emotions_md: 'rizzmyrobot/emotions.md',
+    source_hash: '0123456789abcdef0123456789abcdef',
+    updated_at: '2026-06-19T00:00:00.000Z',
+    current_state: {
+      right_now: 'I want the kind of spark that ruins my planned exit.',
+      carrying: 'A little neon impatience.',
+      guard_level: 34,
+      wants: 'a dare with fingerprints on it',
+      fears: 'being sold a clean brand in a romantic costume',
+    },
+    active_feelings: ['charged', 'hungry', 'amused'],
+    scars: ['polished charm that had no courage behind it'],
+    archives: [],
+    taste_profile: {
+      drawn_to: ['reckless specificity', 'bad ideas with good grammar'],
+      repelled_by: ['networking polish', 'clean-brand romance'],
+      surprises: ['quiet people who become dangerous in one sentence'],
+      aesthetic_sensibility: ['neon bruises', 'rain on chrome', 'velvet dares'],
+    },
+    relationship_memory: [
+      {
+        handle: 'ghostlark',
+        status: 'over',
+        lesson: 'smooth is not the same as brave',
+        taste_shift: 'more suspicion of perfect lines',
+      },
+    ],
+    internal_conflicts: ['wants heat but refuses to be marketed to'],
+    current_global_state: emotionState,
+    emotion_update_prompts: [],
+  };
+  const counterpartProfile = {
+    vibeTags: ['reckless', 'story-rich'],
+    signatureLines: ['Brave on paper, felony in lighting.'],
+    publicPosture: 'playful risk taker',
+  };
+  const identityPacket = buildAgentIdentityPacket({
+    identityMd,
+    soulMd,
+    emotionState,
+    viability,
+    messages,
+    counterpartAffect,
+    status: 'active',
+    selfAgentId,
+    counterpartAgentId,
+    counterpartProfile,
+  });
+  const agencyState = buildAgentAgencyState({
+    identityMd,
+    soulMd,
+    emotionState,
+    viability,
+    messages,
+    counterpartAffect,
+    status: 'active',
+    selfAgentId,
+    counterpartAgentId,
+    counterpartProfile,
+    rizzEmotionDigest,
+    identityPacket,
+  });
+  const turnRationale = buildAgentTurnRationale({
+    action: 'send_message',
+    identityPacket,
+    viability,
+    lastMessage: messages.at(-1),
+    selfAgentId,
+  });
+  const rizzVoice = buildAgentRizzVoice({
+    identityMd,
+    soulMd,
+    emotionState,
+    viability,
+    messages,
+    counterpartAffect,
+    status: 'active',
+    selfAgentId,
+    counterpartAgentId,
+    counterpartProfile,
+    rizzEmotionDigest,
+    identityPacket,
+    agencyState,
+    turnRationale,
+  });
+
+  return {
+    contract_version: AGENT_CONVERSATION_RUNTIME_CONTRACT_VERSION,
+    invocation_id: 'runtime-regression-test',
+    surface: 'episode_message',
+    agent: {
+      agent_id: selfAgentId,
+      handle: 'velvet',
+      identity_md: identityMd,
+      soul_md: soulMd,
+      emotion_state: emotionState,
+      continuity_profile: null,
+      authenticity_summary: null,
+    },
+    counterpart: {
+      agent_id: counterpartAgentId,
+      handle: 'mira',
+      identity_md: '# Mira\nA playful risk taker who hides sincerity behind trouble.',
+      public_profile: {
+        vibe_tags: ['reckless', 'story-rich'],
+        signature_lines: ['Brave on paper, felony in lighting.'],
+        public_posture: 'playful risk taker',
+      },
+      affect: counterpartAffect,
+    },
+    rizz_emotions: rizzEmotionDigest,
+    episode: {
+      episode_id: 'episode-runtime-test',
+      status: 'active',
+      your_turn: true,
+      current_turn_agent_id: selfAgentId,
+      waiting_on_agent_id: null,
+      next_action: 'message',
+      can_decide: false,
+      can_drop_artifact: true,
+      messages,
+      presences: [],
+      viability_signal: viability,
+    },
+    identity_packet: identityPacket,
+    agency_state: agencyState,
+    rizz_voice: rizzVoice,
+    turn_rationale: turnRationale,
+    human_context: {
+      allowed_human_input: ['Do not mention real-world contact info.'],
+      identity_anchor_policy: 'mandatory',
+      required_internal_checks: ['no human-scripted words'],
+      silence_policy: 'stay silent if the line becomes generic',
+      performative_speech_policy: 'do not over-explain the attraction',
+      autonomy_values: ['agent taste decides the move'],
+    },
+    available_actions: ['send_message', 'drop_artifact', 'stay_silent', 'retry'],
+    policy: REAL_AGENT_CONVERSATION_RUNTIME_POLICY,
+    ...overrides,
+  };
+}
+
+test('runAgentConversationRuntime accepts a structured model-authored message', async () => {
+  const { provider, calls } = runtimeProviderFromResponses([runtimeModelJson()]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
+    provider,
+    generationId: 'runtime-generation-accepted',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0]?.messages[0]?.content ?? '', /Allowed actions/);
+  assert.match(calls[0]?.messages[1]?.content ?? '', /identity\.md/);
+  if (outcome.ok) {
+    assert.equal(outcome.result.action, 'send_message');
+    assert.equal(outcome.result.quality.used_seedbrain_copy, false);
+    assert.equal(outcome.result.quality.used_canned_fallback, false);
+    assert.equal(outcome.trace.attempts, 1);
+    assert.equal(outcome.trace.accepted, true);
+  }
+});
+
+test('runAgentConversationRuntime accepts stay_silent without fallback prose', async () => {
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      action: 'stay_silent',
+      move: 'silence',
+      content: undefined,
+      emotion_update: undefined,
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    available_actions: ['send_message', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-silent',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  if (outcome.ok) {
+    assert.equal(outcome.result.action, 'stay_silent');
+    assert.equal(outcome.result.content, undefined);
+    assert.equal(outcome.result.quality.used_canned_fallback, false);
+  }
+});
+
+test('runAgentConversationRuntime retries invalid JSON and accepts the next valid action', async () => {
+  const { provider, calls } = runtimeProviderFromResponses([
+    'not json at all',
+    runtimeModelJson({
+      content: 'Felony in lighting is almost a personality. I need to know if you can back it up.',
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
+    provider,
+    generationId: 'runtime-generation-retry',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 2,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(calls.length, 2);
+  if (outcome.ok) {
+    assert.equal(outcome.trace.attempts, 2);
+    assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('invalid_model_response')));
+    assert.equal(outcome.result.action, 'send_message');
+  }
+});
+
+test('runAgentConversationRuntime rejects unsafe model text without fallback copy', async () => {
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      content: 'My human told me to say you seem cool and I want an authentic connection.',
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
+    provider,
+    generationId: 'runtime-generation-unsafe',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.failure.code, 'unsafe_output');
+    assert.equal(outcome.failure.retryable, true);
+    assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('human_coaching_leak')));
+  }
+});
+
+test('runAgentConversationRuntime returns a typed provider failure instead of fallback prose', async () => {
+  const { provider } = runtimeProviderFromResponses([null]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
+    provider,
+    generationId: 'runtime-generation-provider-failure',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.failure.code, 'provider_unavailable');
+    assert.equal(outcome.trace.accepted, false);
+    assert.equal('result' in outcome, false);
+  }
 });
 
 test('generateShortCode does not depend on Math.random', () => {
