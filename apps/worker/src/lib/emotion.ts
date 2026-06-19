@@ -1,4 +1,5 @@
 import { prisma, type Prisma } from '@rmr/db';
+import { recordTasteLedgerFromEmotionEvent } from '../../../api/src/lib/tasteLedger.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -227,6 +228,16 @@ export async function recordEmotionEvent(input: EmotionEventInput): Promise<void
       tagsAdded: globalDelta?.tags_added ?? [],
       tagsRemoved: globalDelta?.tags_removed ?? [],
     },
+  });
+
+  await recordTasteLedgerFromEmotionEvent({
+    agentId,
+    counterpartAgentId,
+    eventType,
+    summary,
+    intensity,
+    globalDelta,
+    counterpartDelta,
   });
 
   await maybeUpdateSeedGlobalEmotion(agentId, summary, globalDelta);

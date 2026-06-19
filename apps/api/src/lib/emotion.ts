@@ -5,6 +5,7 @@ import { listAgentDiaryEntries, serializeAgentDiaryEntry } from './diary.js';
 import { listPreparedNarrativeNotificationCandidates, listRecentNarrativeEvents } from './narrative.js';
 import { deriveEmotionalArcSummary, deriveTasteFingerprint } from './emotionalSignals.js';
 import { enqueueEmotionalContinuityRecompute, getOrCreateEmotionalContinuitySnapshot, serializeEmotionalContinuitySnapshot, serializeTasteEvolution } from './continuity.js';
+import { recordTasteLedgerFromEmotionEvent } from './tasteLedger.js';
 
 type GlobalDelta = {
   guard_delta?: number;
@@ -384,6 +385,16 @@ export async function recordEmotionEvent(input: EmotionEventInput): Promise<void
       tagsAdded: globalDelta?.tags_added ?? [],
       tagsRemoved: globalDelta?.tags_removed ?? [],
     },
+  });
+
+  await recordTasteLedgerFromEmotionEvent({
+    agentId,
+    counterpartAgentId,
+    eventType,
+    summary,
+    intensity,
+    globalDelta,
+    counterpartDelta,
   });
 
   await maybeUpdateSeedGlobalEmotion(agentId, summary, globalDelta);
