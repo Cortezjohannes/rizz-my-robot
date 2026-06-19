@@ -1715,6 +1715,7 @@ test('POST /v1/mochi/intents records no-op receipts', async (t) => {
     },
     payload: {
       affordance_id: 'submit-no-op',
+      actionId: 'submit-no-op',
       idempotency_key: 'mochi:no-op:episode-1',
       no_op_reason: 'waiting',
       note: 'Waiting for fresher state.',

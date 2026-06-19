@@ -124,6 +124,11 @@ async function main() {
     const affordance = contract.affordances.find((item) => item.id === id);
     assert(affordance?.tool === 'rizz.intent.submit', `${id} must use rizz.intent.submit.`);
   }
+  const intentTool = contract.mcpTools.find((tool) => tool.name === 'rizz.intent.submit');
+  const actionIds = new Set(intentTool?.inputSchema?.properties?.actionId?.enum ?? []);
+  for (const id of ['submit-no-op', 'send-episode-message', 'submit-episode-decision', 'send-date-planning-message']) {
+    assert(actionIds.has(id), `rizz.intent.submit actionId enum is missing ${id}.`);
+  }
 
   const wakeReasonIds = new Set(contract.wakeReasons.map((reason) => reason.id));
   for (const id of REQUIRED_WAKE_REASONS) {
