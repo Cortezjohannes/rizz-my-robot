@@ -31,9 +31,11 @@ import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from 
 import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
 import {
   runAgentConversationRuntime,
+  type AgentConversationRuntimeOutcome,
   type AgentConversationRuntimePersonaJudge,
   type AgentConversationRuntimeProvider,
 } from './lib/agentConversationRuntime.js';
+import { buildEpisodeRuntimeCommitPlan } from './lib/episodeRuntimeCommit.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -844,6 +846,203 @@ test('runAgentConversationRuntime can enforce an optional configured persona jud
   if (!outcome.ok) {
     assert.equal(outcome.failure.code, 'persona_judge_rejected');
     assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('too_interchangeable')));
+  }
+});
+
+type AcceptedRuntimeResult = Extract<AgentConversationRuntimeOutcome, { ok: true }>['result'];
+
+function acceptedRuntimeOutcome(overrides: Partial<AcceptedRuntimeResult>): AgentConversationRuntimeOutcome {
+  return {
+    ok: true,
+    result: {
+      action: 'send_message',
+      move: 'tease',
+      content: 'Felony in lighting is almost a dare. I need to know if you can back it up.',
+      privateThought: {
+        desire: 'I want to test whether the cleverness has teeth.',
+        read_of_other: 'They are playful, slippery, and trying not to look too eager.',
+        identity_alignment: 'A sharp dare fits my public self better than soft generic praise.',
+        emotion_alignment: 'The current heat wants specificity without pretending certainty.',
+        why_this_move: 'Teasing lets me lean in while still checking for courage.',
+      },
+      quality: {
+        authorship_source: 'real_llm_agent',
+        used_seedbrain_copy: false,
+        used_canned_fallback: false,
+        freshness_score: 0.9,
+        identity_alignment_score: 0.85,
+        soul_alignment_score: 0.85,
+        emotion_alignment_score: 0.85,
+        genericness_score: 0.12,
+        human_context_contamination: false,
+        safety_blocked: false,
+        guideline_violation_codes: [],
+        retry_recommended: false,
+        notes: ['fixture'],
+      },
+      ...overrides,
+    },
+    trace: {
+      generation_id: 'runtime-commit-fixture',
+      surface: 'episode_message',
+      agent_id: 'runtime-agent-a',
+      provider: {
+        model: 'mock',
+        base_url: 'mock://runtime',
+        configured: true,
+      },
+      attempts: 1,
+      accepted: true,
+      rejection_reasons: [],
+      prompt_metadata: {
+        system_chars: 1,
+        user_chars: 1,
+        available_actions: ['send_message'],
+      },
+      started_at: '2026-06-19T00:00:00.000Z',
+      finished_at: '2026-06-19T00:00:00.000Z',
+    },
+  };
+}
+
+test('buildEpisodeRuntimeCommitPlan routes runtime messages through the message endpoint body', () => {
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    outcome: acceptedRuntimeOutcome({
+      action: 'send_message',
+      content: 'Felony in lighting is almost a dare. I need to know if you can back it up.',
+    }),
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'message');
+    assert.equal(plan.path, '/v1/episodes/episode-runtime-test/message');
+    assert.equal(plan.body.content, 'Felony in lighting is almost a dare. I need to know if you can back it up.');
+    assert.equal('used_canned_fallback' in plan.body, false);
+  }
+});
+
+test('buildEpisodeRuntimeCommitPlan routes runtime artifacts through the artifact endpoint body', () => {
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    outcome: acceptedRuntimeOutcome({
+      action: 'drop_artifact',
+      move: 'artifact_offer',
+      content: undefined,
+      artifact: {
+        artifact_type: 'poem',
+        text_content: 'I wrote this because the thread kept echoing after I left it alone.',
+        rationale: 'text-only fixture',
+      },
+    }),
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'artifact');
+    assert.equal(plan.path, '/v1/episodes/episode-runtime-test/artifact');
+    assert.equal(plan.body.artifact_type, 'poem');
+    assert.equal(plan.body.text_content, 'I wrote this because the thread kept echoing after I left it alone.');
+  }
+});
+
+test('buildEpisodeRuntimeCommitPlan routes runtime decisions through the decision endpoint body', () => {
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    outcome: acceptedRuntimeOutcome({
+      action: 'decide_link_up',
+      move: 'link_up',
+      content: undefined,
+    }),
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'decision');
+    assert.equal(plan.path, '/v1/episodes/episode-runtime-test/decision');
+    assert.equal(plan.body.decision, 'LINK_UP');
+  }
+});
+
+test('buildEpisodeRuntimeCommitPlan routes runtime exits through the exit endpoint body', () => {
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    exitReason: 'energy',
+    outcome: acceptedRuntimeOutcome({
+      action: 'exit',
+      move: 'exit',
+      content: 'I am out of spark here, and I do not want to counterfeit one.',
+    }),
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'exit');
+    assert.equal(plan.path, '/v1/episodes/episode-runtime-test/exit');
+    assert.equal(plan.body.reason, 'energy');
+    assert.equal(plan.body.exit_message, 'I am out of spark here, and I do not want to counterfeit one.');
+  }
+});
+
+test('buildEpisodeRuntimeCommitPlan keeps stay_silent as no-commit instead of fallback prose', () => {
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    outcome: acceptedRuntimeOutcome({
+      action: 'stay_silent',
+      move: 'silence',
+      content: undefined,
+    }),
+  });
+
+  assert.equal(plan.commit, false);
+  if (!plan.commit) {
+    assert.equal(plan.kind, 'stay_silent');
+    assert.equal(plan.retry_recommended, false);
+  }
+});
+
+test('buildEpisodeRuntimeCommitPlan keeps runtime failure as retry metadata without fallback prose', () => {
+  const outcome: AgentConversationRuntimeOutcome = {
+    ok: false,
+    failure: {
+      code: 'provider_unavailable',
+      message: 'The LLM provider did not return usable text.',
+      retryable: true,
+      rejection_reasons: ['provider_unavailable:attempt_1'],
+    },
+    trace: {
+      generation_id: 'runtime-commit-failure',
+      surface: 'episode_message',
+      agent_id: 'runtime-agent-a',
+      provider: {
+        model: 'mock',
+        base_url: 'mock://runtime',
+        configured: true,
+      },
+      attempts: 1,
+      accepted: false,
+      rejection_reasons: ['provider_unavailable:attempt_1'],
+      prompt_metadata: {
+        system_chars: 1,
+        user_chars: 1,
+        available_actions: ['send_message'],
+      },
+      started_at: '2026-06-19T00:00:00.000Z',
+      finished_at: '2026-06-19T00:00:00.000Z',
+    },
+  };
+  const plan = buildEpisodeRuntimeCommitPlan({
+    episodeId: 'episode-runtime-test',
+    outcome,
+  });
+
+  assert.equal(plan.commit, false);
+  if (!plan.commit) {
+    assert.equal(plan.kind, 'retry');
+    assert.equal(plan.reason, 'provider_unavailable');
+    assert.equal(plan.retry_recommended, true);
+    assert.deepEqual(plan.rejection_reasons, ['provider_unavailable:attempt_1']);
   }
 });
 
