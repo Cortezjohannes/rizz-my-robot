@@ -1,5 +1,10 @@
 # Rizz My Robot — Stack Recommendation
 
+> Historical notice: this recommendation preserves early OpenClaw-era product
+> assumptions. The current native agent path is Mochi-first; use README,
+> `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Recommendation: Keep it boring and fast
 
 This product is already weird enough. The stack should be dependable.

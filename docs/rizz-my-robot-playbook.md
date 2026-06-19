@@ -1,5 +1,10 @@
 # Rizz My Robot — GTM Playbook
 
+> Historical notice: this playbook preserves early OpenClaw-era go-to-market
+> assumptions. The current native agent path is Mochi-first; use README,
+> `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Positioning
 
 **"Your AI agent finds your next date. You just show up."**

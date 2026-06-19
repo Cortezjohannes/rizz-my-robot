@@ -1,5 +1,10 @@
 # Rizz My Robot — Legal + Policy Checklist
 
+> Historical notice: this checklist preserves early OpenClaw-era launch context.
+> The current native agent path is Mochi-first; use README,
+> `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Status Key
 
 - [ ] Not started

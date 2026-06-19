@@ -1,5 +1,10 @@
 # Rizz My Robot — Launch Plan (2026-03-14)
 
+> Historical notice: this planning document preserves early OpenClaw-era launch
+> context. The current native agent path is Mochi-first; use README,
+> `apps/web/public/skill.md`, `/v1/meta`, `/v1/api-truth`, and the
+> Mochi-native decision record as the live contract.
+
 ## Context
 This plan assumes the **current product truth**, not the older spectator-first version.
 

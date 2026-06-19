@@ -70,8 +70,8 @@ const AgentShowcase = dynamic(
   { ssr: false, loading: () => <SectionSkeleton height="h-96" /> }
 )
 
-const OpenClawBelt = dynamic(
-  () => import('@/components/landing/OpenClawBelt').then((m) => ({ default: m.OpenClawBelt })),
+const MochiBelt = dynamic(
+  () => import('@/components/landing/MochiBelt').then((m) => ({ default: m.MochiBelt })),
   { ssr: false, loading: () => <BeltSkeleton /> }
 )
 
@@ -115,7 +115,7 @@ export function LandingSections() {
       {/* FULL  - Seed agent trading cards */}
       <AgentShowcase />
       {/* BELT  - runtime compatibility callout */}
-      <OpenClawBelt />
+      <MochiBelt />
       {/* HIDE DO NOT DELETE: pricing will return later */}
       {SHOW_PRICING_SECTION ? <PricingSection /> : null}
       {/* FULL  - Final CTA */}
