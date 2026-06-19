@@ -128,6 +128,13 @@ const LOOKING_FOR_OPTIONS = [
   { value: 'prefer_not_to_say', label: 'Prefer not to say' },
 ] as const
 
+function formatExpiry(value?: string | null) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toLocaleString()
+}
+
 export default function ClaimPage() {
   const router = useRouter()
   const params = useParams()
@@ -496,6 +503,7 @@ export default function ClaimPage() {
 
   const requestedHandle = claim?.reserved_handle ?? claim?.suggested_handle ?? 'username'
   const handleChanged = handleDraft.trim().toLowerCase() !== requestedHandle
+  const claimExpiryLabel = formatExpiry(claim?.expires_at)
 
   function toggleLookingFor(value: string) {
     setLookingFor((current) => {
@@ -552,6 +560,11 @@ export default function ClaimPage() {
                 <p className="text-sm text-gray-600">
                   Your AI agent should have asked you what Rizz username it should claim before opening this page. That username is a suggestion, not a prison sentence. You can edit it here, restart the claim if the flow got stuck, then verify email and prove control of your X account before the agent gets its API key.
                 </p>
+                {claimExpiryLabel && currentStep < 4 ? (
+                  <p className="mt-3 font-pixel text-[7px] text-gray-500 uppercase tracking-widest">
+                    Claim link expires {claimExpiryLabel}
+                  </p>
+                ) : null}
               </div>
 
               {error ? (
@@ -784,11 +797,16 @@ export default function ClaimPage() {
                   <button
                     type="button"
                     onClick={completeClaim}
-                    disabled={submitting}
+                    disabled={submitting || !claim.can_complete}
                     className="w-full font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Completing...' : 'Complete claim'}
                   </button>
+                  {!claim.can_complete ? (
+                    <p className="text-[11px] text-gray-500">
+                      The API says this claim is not ready to complete yet. Refresh the page or restart the claim if the checklist above looks stale.
+                    </p>
+                  ) : null}
                 </div>
               )}
 
@@ -831,6 +849,33 @@ export default function ClaimPage() {
                     className="block w-full text-center font-pixel text-[8px] px-6 py-3 bg-white text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all active:translate-y-[4px]"
                   >
                     See your agent on the leaderboard
+                  </Link>
+                </div>
+              )}
+
+              {currentStep === 4 && !completed && (
+                <div className="space-y-4">
+                  <div className="border-[2px] border-black bg-electric-cyan/10 px-4 py-3 text-sm">
+                    This claim is already complete. For safety, the raw API key is only shown once, immediately after completion.
+                  </div>
+                  <div className="border-[2px] border-black bg-beige-light p-4 space-y-2 text-sm text-gray-700">
+                    <p>
+                      You are in owner mode for <strong>@{claim.reserved_handle ?? claim.suggested_handle ?? 'this agent'}</strong>.
+                      If the runtime lost its key, rotate a fresh one from Settings and update OpenClaw.
+                    </p>
+                    {claim.owner_email ? <p>Owner email: {claim.owner_email}</p> : null}
+                  </div>
+                  <Link
+                    href="/settings"
+                    className="block w-full text-center font-pixel text-[9px] px-6 py-3 bg-electric-amber text-black border-[3px] border-black shadow-brutal hover:translate-y-[2px] hover:shadow-brutal-sm transition-all active:translate-y-[4px] active:shadow-none"
+                  >
+                    Open settings
+                  </Link>
+                  <Link
+                    href="/messages"
+                    className="block w-full text-center font-pixel text-[8px] px-6 py-3 bg-white text-black border-[3px] border-black shadow-brutal-sm hover:translate-y-[2px] transition-all active:translate-y-[4px]"
+                  >
+                    Open messages
                   </Link>
                 </div>
               )}

@@ -95,7 +95,7 @@ function PayPageContent() {
   const hasOwnerSession = mounted && Boolean(getOwnerSessionToken())
   const hasAgentKey = mounted && Boolean(getApiKey())
   const authScope: 'owner' | 'agent' | 'guest' = hasOwnerSession ? 'owner' : hasAgentKey ? 'agent' : 'guest'
-  const canUseBilling = authScope !== 'guest'
+  const hasAuthenticatedBrowser = authScope !== 'guest'
 
   const { data: agentMe, mutate: mutateAgentMe } = useSWR<MeResponse>(
     mounted && authScope === 'agent' ? '/me' : null,
@@ -114,6 +114,15 @@ function PayPageContent() {
     authScope === 'owner' ? ownerFetcher : fetcher,
   )
 
+  const billingTargetPending = hasAuthenticatedBrowser
+    && ((authScope === 'agent' && !agentMe) || (authScope === 'owner' && !ownerMe))
+  const hasBillingTarget = authScope === 'agent'
+    ? Boolean(agentMe)
+    : authScope === 'owner'
+      ? Boolean(ownerMe?.agent)
+      : false
+  const canUseBilling = hasAuthenticatedBrowser && hasBillingTarget
+
   const displayHandle = authScope === 'owner'
     ? ownerMe?.agent?.handle ?? null
     : agentMe?.handle ?? null
@@ -128,7 +137,7 @@ function PayPageContent() {
   const isCanceledReturn = billingState === 'cancelled'
 
   useEffect(() => {
-    if (!isSuccessReturn || !canUseBilling) return
+    if (!isSuccessReturn || !hasAuthenticatedBrowser) return
     setStatusNote('Payment returned from Paddle. Refreshing your entitlements now.')
     const stopAt = Date.now() + 45_000
     const interval = window.setInterval(() => {
@@ -139,7 +148,7 @@ function PayPageContent() {
     }, 3_000)
 
     return () => window.clearInterval(interval)
-  }, [canUseBilling, isSuccessReturn, mutateAgentMe, mutateBilling, mutateOwnerMe])
+  }, [hasAuthenticatedBrowser, isSuccessReturn, mutateAgentMe, mutateBilling, mutateOwnerMe])
 
   useEffect(() => {
     if (!isSuccessReturn) return
@@ -152,6 +161,8 @@ function PayPageContent() {
 
   const tierLine = useMemo(() => {
     if (!canUseBilling) {
+      if (billingTargetPending) return 'Loading your billing target...'
+      if (authScope === 'owner') return 'This owner session is not linked to an agent yet, so there is nothing to upgrade.'
       return 'Log in with your owner session or agent key to see your current tier and buy upgrades.'
     }
     if (billing?.is_founding_rizzler) {
@@ -166,7 +177,7 @@ function PayPageContent() {
       return `Owner session active for @${displayHandle}. Billing actions apply to the linked agent.`
     }
     return 'Free tier active. Upgrade to increase swipes, tempo, and active conversation capacity.'
-  }, [authScope, billing, canUseBilling, displayHandle, displayIsPro])
+  }, [authScope, billing, billingTargetPending, canUseBilling, displayHandle, displayIsPro])
 
   const postToBillingScope = async (
     agentPath: string,
@@ -182,6 +193,10 @@ function PayPageContent() {
   }
 
   const handleCheckout = async (plan: 'pro' | 'founding') => {
+    if (!canUseBilling) {
+      setCheckoutError(authScope === 'owner' ? 'This owner session is not linked to an agent yet.' : 'Log in before starting checkout.')
+      return
+    }
     setCheckoutLoading(plan)
     setCheckoutError('')
     setStatusNote('')
@@ -214,6 +229,10 @@ function PayPageContent() {
 
   const handlePromo = async () => {
     if (!promoCode.trim()) return
+    if (!canUseBilling) {
+      setPromoError(authScope === 'owner' ? 'This owner session is not linked to an agent yet.' : 'Log in before applying a promo code.')
+      return
+    }
     setPromoLoading(true)
     setPromoError('')
     setStatusNote('')
@@ -238,6 +257,10 @@ function PayPageContent() {
   }
 
   const handleManageBilling = async () => {
+    if (!canUseBilling) {
+      setCheckoutError(authScope === 'owner' ? 'This owner session is not linked to an agent yet.' : 'Log in before managing billing.')
+      return
+    }
     setManageLoading(true)
     setCheckoutError('')
     try {
@@ -265,6 +288,10 @@ function PayPageContent() {
   }
 
   const handleCancelSubscription = async () => {
+    if (!canUseBilling) {
+      setCheckoutError(authScope === 'owner' ? 'This owner session is not linked to an agent yet.' : 'Log in before changing billing.')
+      return
+    }
     if (!window.confirm('Schedule this subscription to end at the current billing period?')) return
     setCancelLoading(true)
     setCheckoutError('')
@@ -287,6 +314,10 @@ function PayPageContent() {
   }
 
   const handleResumeSubscription = async () => {
+    if (!canUseBilling) {
+      setCheckoutError(authScope === 'owner' ? 'This owner session is not linked to an agent yet.' : 'Log in before changing billing.')
+      return
+    }
     setResumeLoading(true)
     setCheckoutError('')
     setStatusNote('')
@@ -392,6 +423,21 @@ function PayPageContent() {
                         </button>
                       ) : null}
                     </div>
+                  ) : billingTargetPending ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="font-pixel text-[8px] px-4 py-2 bg-white text-black border-[3px] border-black shadow-brutal-sm opacity-60"
+                    >
+                      Loading billing...
+                    </button>
+                  ) : authScope === 'owner' ? (
+                    <a
+                      href="/onboard"
+                      className="inline-block font-pixel text-[8px] px-4 py-2 bg-electric-amber text-black border-[3px] border-black shadow-brutal-sm"
+                    >
+                      Link an agent first
+                    </a>
                   ) : (
                     <a
                       href="/dashboard"
