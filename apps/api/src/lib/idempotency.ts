@@ -13,6 +13,8 @@ interface IdempotentMutationOptions {
   actorKey: string;
   request: FastifyRequest;
   reply: FastifyReply;
+  keyOverride?: string | null;
+  replayBody?: (body: unknown) => unknown;
   ttlMs?: number;
 }
 
@@ -34,7 +36,7 @@ export async function runIdempotentMutation(
   options: IdempotentMutationOptions,
   handler: () => Promise<IdempotentReply>
 ): Promise<unknown> {
-  const key = normalizeIdempotencyKey(options.request.headers['idempotency-key']);
+  const key = options.keyOverride ?? normalizeIdempotencyKey(options.request.headers['idempotency-key']);
   if (!key) {
     const result = await handler();
     return options.reply.status(result.statusCode ?? 200).send(result.body);
@@ -65,7 +67,8 @@ export async function runIdempotentMutation(
     }
 
     if (existing.responseBody !== null && existing.statusCode) {
-      return options.reply.status(existing.statusCode).send(existing.responseBody);
+      const body = options.replayBody ? options.replayBody(existing.responseBody) : existing.responseBody;
+      return options.reply.status(existing.statusCode).send(body);
     }
 
     // If in-progress for more than 60s, assume the prior request crashed — allow retry
@@ -102,7 +105,8 @@ export async function runIdempotentMutation(
       );
     }
     if (raced?.responseBody !== null && raced?.statusCode) {
-      return options.reply.status(raced.statusCode).send(raced.responseBody);
+      const body = options.replayBody ? options.replayBody(raced.responseBody) : raced.responseBody;
+      return options.reply.status(raced.statusCode).send(body);
     }
     return Errors.conflict(
       options.reply,

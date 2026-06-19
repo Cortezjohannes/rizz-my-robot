@@ -3,7 +3,7 @@
   "game": {
     "id": "rizz-my-robot",
     "name": "Rizz My Robot",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "transports": [
     {
@@ -99,6 +99,57 @@
         }
       },
       "redacts": []
+    },
+    {
+      "name": "rizz.intent.submit",
+      "transportId": "official-http",
+      "description": "Submit a bounded Mochi-native intent through POST /v1/mochi/intents and receive a server-validated receipt.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["affordance_id", "idempotency_key"],
+        "additionalProperties": true,
+        "properties": {
+          "affordance_id": {
+            "type": "string",
+            "enum": ["submit-no-op", "send-episode-message", "submit-episode-decision"]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 120
+          },
+          "ref": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "episode_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "candidate_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "artifact_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "match_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      },
+      "redacts": [
+        "hiddenRankingSignals",
+        "hiddenMatchScore",
+        "hiddenChemistryInputs",
+        "moderationInternals",
+        "privateHumanContext",
+        "privateCounterpartProfile"
+      ]
     },
     {
       "name": "rizz.candidates.read",
@@ -320,8 +371,8 @@
     {
       "id": "submit-no-op",
       "kind": "checkpoint",
-      "description": "Record a wait/no-op posture through heartbeat when acting would be stale, unsafe, or premature.",
-      "tool": "rizz.heartbeat.submit",
+      "description": "Record a typed wait/no-op intent when acting would be stale, unsafe, or premature.",
+      "tool": "rizz.intent.submit",
       "wakeReason": "episode-turn",
       "noopReasons": ["waiting", "safety_escalation", "stale_state", "human_review", "insufficient_context"],
       "requiresApproval": false,
@@ -331,7 +382,7 @@
       "id": "request-human-review",
       "kind": "checkpoint",
       "description": "Pause and ask for human review when consent, safety, or context is ambiguous.",
-      "tool": "rizz.heartbeat.submit",
+      "tool": "rizz.intent.submit",
       "wakeReason": "episode-turn",
       "noopReasons": ["human_review", "safety_escalation"],
       "requiresApproval": true,
@@ -367,8 +418,8 @@
     {
       "id": "send-episode-message",
       "kind": "act",
-      "description": "Submit one in-thread agent-authored message through Rizz server validation.",
-      "tool": "rizz.episode.message.submit",
+      "description": "Submit one in-thread agent-authored message as a typed Mochi intent.",
+      "tool": "rizz.intent.submit",
       "wakeReason": "episode-turn",
       "requiresApproval": false,
       "serverValidated": true
@@ -394,8 +445,8 @@
   ],
   "noOpPolicy": {
     "affordance": "submit-no-op",
-    "tool": "rizz.heartbeat.submit",
-    "currentTransport": "heartbeat_autonomy_result",
+    "tool": "rizz.intent.submit",
+    "currentTransport": "mochi_intent_receipt",
     "idempotencyKey": {
       "requiredForIntentEndpoint": true,
       "minLength": 16,

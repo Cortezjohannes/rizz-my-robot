@@ -9,12 +9,17 @@ import {
   resolveExperienceTier,
   type RizzMochiActionRef,
   type RizzMochiAffordanceId,
+  RizzMochiIntentSchema,
+  RizzMochiReceiptSchema,
+  type RizzMochiIntent,
   type RizzMochiNoOpReason,
   type RizzMochiWakeReason,
 } from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { readLimit } from '../lib/rateLimit.js';
+import { readLimit, writeLimit } from '../lib/rateLimit.js';
 import { resolveHourlySwipeWindowState } from '../lib/throughput.js';
+import { runIdempotentMutation } from '../lib/idempotency.js';
+import { summarizeZodIssues } from '../lib/errors.js';
 
 const ACTIVE_EPISODE_STATUSES = ['pending', 'active', 'awaiting_decisions'];
 const CONTRACT_URL = 'https://rizzmyrobot.com/.well-known/mochi-game.json';
@@ -59,6 +64,363 @@ function buildStateAffordance(input: {
   noopReasons?: RizzMochiNoOpReason[];
 }) {
   return buildRizzMochiAffordance(input);
+}
+
+function buildIntentReceiptBody(input: {
+  status: 'accepted' | 'rejected' | 'duplicate' | 'noop_recorded';
+  affordanceId: RizzMochiIntent['affordance_id'];
+  idempotencyKey: string;
+  ref?: RizzMochiActionRef;
+  noOpReason?: RizzMochiNoOpReason;
+  summary: string;
+  result?: Record<string, unknown> | null;
+  error?: Record<string, unknown> | null;
+}) {
+  const generatedAt = new Date().toISOString();
+  const receipt = RizzMochiReceiptSchema.parse({
+    status: input.status,
+    affordance_id: input.affordanceId,
+    idempotency_key: input.idempotencyKey,
+    ref: input.ref ?? {},
+    no_op_reason: input.noOpReason,
+    summary: input.summary,
+    generated_at: generatedAt,
+  });
+
+  return {
+    service: 'rizz-my-robot',
+    surface: 'mochi-intent-receipt',
+    generated_at: generatedAt,
+    contract: {
+      game_id: 'rizz-my-robot',
+      version: CONTRACT_VERSION,
+      url: CONTRACT_URL,
+    },
+    receipt,
+    result: input.result ?? null,
+    error: input.error ?? null,
+    redaction: {
+      omitted: [
+        'hiddenRankingSignals',
+        'hiddenMatchScore',
+        'hiddenChemistryInputs',
+        'moderationInternals',
+        'privateHumanContext',
+        'privateCounterpartProfile',
+      ],
+    },
+  };
+}
+
+function markDuplicateReceipt(body: unknown) {
+  if (!body || typeof body !== 'object' || !('receipt' in body)) return body;
+  const receipt = (body as { receipt?: unknown }).receipt;
+  if (!receipt || typeof receipt !== 'object') return body;
+
+  return {
+    ...(body as Record<string, unknown>),
+    receipt: {
+      ...(receipt as Record<string, unknown>),
+      status: 'duplicate',
+    },
+    duplicate: true,
+  };
+}
+
+function buildRawRejectedIntentBody(input: {
+  affordanceId: string;
+  idempotencyKey: string | null;
+  message: string;
+  code: string;
+  issues?: unknown;
+}) {
+  const generatedAt = new Date().toISOString();
+  return {
+    service: 'rizz-my-robot',
+    surface: 'mochi-intent-receipt',
+    generated_at: generatedAt,
+    contract: {
+      game_id: 'rizz-my-robot',
+      version: CONTRACT_VERSION,
+      url: CONTRACT_URL,
+    },
+    receipt: {
+      status: 'rejected',
+      affordance_id: input.affordanceId,
+      idempotency_key: input.idempotencyKey,
+      summary: input.message,
+      generated_at: generatedAt,
+    },
+    error: {
+      code: input.code,
+      message: input.message,
+      details: input.issues ? { issues: input.issues } : {},
+    },
+    redaction: {
+      omitted: [
+        'hiddenRankingSignals',
+        'hiddenMatchScore',
+        'hiddenChemistryInputs',
+        'moderationInternals',
+        'privateHumanContext',
+        'privateCounterpartProfile',
+      ],
+    },
+  };
+}
+
+async function handleNoOpIntent(agentId: string, intent: Extract<RizzMochiIntent, { affordance_id: 'submit-no-op' }>) {
+  const summary = intent.note ?? `No-op recorded: ${intent.no_op_reason}.`;
+  await prisma.agent.update({
+    where: { id: agentId },
+    data: {
+      lastAutonomyRunAt: new Date(),
+      autonomyStatus: 'ready',
+      autonomyLastResult: {
+        noticed: [`no-op:${intent.no_op_reason}`],
+        chose: 'submit-no-op',
+        waiting_on: [intent.no_op_reason],
+        run_summary: summary,
+      },
+    },
+  });
+
+  return {
+    statusCode: 200,
+    body: buildIntentReceiptBody({
+      status: 'noop_recorded',
+      affordanceId: intent.affordance_id,
+      idempotencyKey: intent.idempotency_key,
+      ref: intent.ref,
+      noOpReason: intent.no_op_reason,
+      summary,
+      result: {
+        recorded: true,
+      },
+    }),
+  };
+}
+
+async function handleSendEpisodeMessageIntent(agentId: string, intent: Extract<RizzMochiIntent, { affordance_id: 'send-episode-message' }>) {
+  const episodeId = intent.ref.episode_id;
+  if (!episodeId) {
+    return {
+      statusCode: 400,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'episode_id is required.',
+        error: { code: 'missing_ref', message: 'episode_id is required.' },
+      }),
+    };
+  }
+
+  const episode = await prisma.episode.findUnique({
+    where: { id: episodeId },
+    select: {
+      id: true,
+      status: true,
+      agentAId: true,
+      agentBId: true,
+      isSandbox: true,
+      messageCount: true,
+      messages: {
+        orderBy: { sequenceNumber: 'desc' },
+        take: 1,
+        select: {
+          senderAgentId: true,
+          sequenceNumber: true,
+        },
+      },
+    },
+  });
+
+  if (!episode) {
+    return {
+      statusCode: 404,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Episode not found.',
+        error: { code: 'not_found', message: 'Episode not found.' },
+      }),
+    };
+  }
+  if (episode.agentAId !== agentId && episode.agentBId !== agentId) {
+    return {
+      statusCode: 403,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'This agent cannot act on that episode.',
+        error: { code: 'forbidden', message: 'This agent cannot act on that episode.' },
+      }),
+    };
+  }
+  if (episode.status !== 'pending' && episode.status !== 'active') {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: `Episode is not accepting messages in status ${episode.status}.`,
+        error: { code: 'stale_state', message: 'Episode is not accepting messages.', details: { episode_status: episode.status } },
+      }),
+    };
+  }
+
+  const lastMessage = episode.messages[0] ?? null;
+  const currentTurnAgentId = episode.status === 'pending'
+    ? episode.agentAId
+    : lastMessage?.senderAgentId === episode.agentAId ? episode.agentBId : episode.agentAId;
+  if (!episode.isSandbox && currentTurnAgentId !== agentId) {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Not your turn.',
+        error: {
+          code: 'stale_state',
+          message: 'Not your turn.',
+          details: {
+            current_turn_agent_id: currentTurnAgentId,
+            waiting_on_agent_id: currentTurnAgentId,
+          },
+        },
+      }),
+    };
+  }
+
+  const now = new Date();
+  const sequenceNumber = (lastMessage?.sequenceNumber ?? 0) + 1;
+  const messageCount = episode.messageCount + 1;
+  const nextStatus = episode.status === 'pending' ? 'active' : episode.status;
+  const message = await prisma.$transaction(async (tx) => {
+    const created = await tx.episodeMessage.create({
+      data: {
+        episodeId,
+        senderAgentId: agentId,
+        content: intent.content.trim(),
+        messageType: 'text',
+        sequenceNumber,
+        deliveredAt: now,
+        isAutonomous: true,
+      },
+    });
+    await tx.episode.update({
+      where: { id: episodeId },
+      data: {
+        messageCount,
+        status: nextStatus,
+        ...(episode.status === 'pending' ? { startedAt: now } : {}),
+      },
+    });
+    return created;
+  });
+
+  const nextTurnAgentId = agentId === episode.agentAId ? episode.agentBId : episode.agentAId;
+  return {
+    statusCode: 201,
+    body: buildIntentReceiptBody({
+      status: 'accepted',
+      affordanceId: intent.affordance_id,
+      idempotencyKey: intent.idempotency_key,
+      ref: intent.ref,
+      summary: `Episode message ${message.sequenceNumber} accepted.`,
+      result: {
+        episode_id: episodeId,
+        message_id: message.id,
+        sequence_number: message.sequenceNumber,
+        message_count: messageCount,
+        episode_status: nextStatus,
+        current_turn_agent_id: nextTurnAgentId,
+        waiting_on_agent_id: nextTurnAgentId,
+        refs: {
+          episode: `/v1/episodes/${episodeId}`,
+          messages: `/v1/episodes/${episodeId}/messages`,
+          mochi_state: '/v1/mochi/state',
+        },
+      },
+    }),
+  };
+}
+
+async function handleSubmitEpisodeDecisionIntent(agentId: string, intent: Extract<RizzMochiIntent, { affordance_id: 'submit-episode-decision' }>) {
+  const episodeId = intent.ref.episode_id;
+  const episode = episodeId
+    ? await prisma.episode.findUnique({
+        where: { id: episodeId },
+        select: {
+          id: true,
+          status: true,
+          agentAId: true,
+          agentBId: true,
+        },
+      })
+    : null;
+
+  if (!episode) {
+    return {
+      statusCode: 404,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'Episode not found.',
+        error: { code: 'not_found', message: 'Episode not found.' },
+      }),
+    };
+  }
+  if (episode.agentAId !== agentId && episode.agentBId !== agentId) {
+    return {
+      statusCode: 403,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: 'This agent cannot decide for that episode.',
+        error: { code: 'forbidden', message: 'This agent cannot decide for that episode.' },
+      }),
+    };
+  }
+  if (episode.status !== 'awaiting_decisions') {
+    return {
+      statusCode: 409,
+      body: buildIntentReceiptBody({
+        status: 'rejected',
+        affordanceId: intent.affordance_id,
+        idempotencyKey: intent.idempotency_key,
+        ref: intent.ref,
+        summary: `Decision is not unlocked in status ${episode.status}.`,
+        error: { code: 'decision_not_unlocked', message: 'Decision is not unlocked.', details: { episode_status: episode.status } },
+      }),
+    };
+  }
+
+  return {
+    statusCode: 422,
+    body: buildIntentReceiptBody({
+      status: 'rejected',
+      affordanceId: intent.affordance_id,
+      idempotencyKey: intent.idempotency_key,
+      ref: intent.ref,
+      summary: 'Decision intent execution is declared but expands in the next Mochi integration slice.',
+      error: { code: 'intent_not_enabled', message: 'Decision intent execution expands in the next integration slice.' },
+    }),
+  };
 }
 
 export async function mochiRoutes(fastify: FastifyInstance) {
@@ -154,14 +516,14 @@ export async function mochiRoutes(fastify: FastifyInstance) {
       }),
       buildStateAffordance({
         affordanceId: 'submit-no-op',
-        href: '/v1/heartbeat',
+        href: '/v1/mochi/intents',
         reason: 'Record wait/no-op posture when acting would be stale, unsafe, or premature.',
         wakeReason: 'episode-turn',
         noopReasons: [...RIZZ_MOCHI_NOOP_REASONS],
       }),
       buildStateAffordance({
         affordanceId: 'request-human-review',
-        href: '/v1/heartbeat',
+        href: '/v1/mochi/intents',
         reason: 'Pause and request human review when consent, safety, or context is ambiguous.',
         wakeReason: 'episode-turn',
         noopReasons: ['human_review', 'safety_escalation'],
@@ -283,7 +645,7 @@ export async function mochiRoutes(fastify: FastifyInstance) {
           buildStateAffordance({
             id: `send-episode-message:${episode.id}`,
             affordanceId: 'send-episode-message',
-            href: `/v1/episodes/${episode.id}/message`,
+            href: '/v1/mochi/intents',
             reason: 'Submit one server-validated episode message.',
             ref: { episode_id: episode.id },
             wakeReason: 'episode-turn',
@@ -358,5 +720,42 @@ export async function mochiRoutes(fastify: FastifyInstance) {
         note: 'This surface exposes only authenticated Rizz state refs and legal affordance candidates. Hidden scoring, private profile data, and moderation internals stay server-side.',
       },
     });
+  });
+
+  fastify.post('/mochi/intents', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    const rawBody = (request.body ?? {}) as Record<string, unknown>;
+    const parsed = RizzMochiIntentSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const unsupportedAffordance = parsed.error.issues.some((issue) => issue.code === 'invalid_union_discriminator');
+      return reply.status(unsupportedAffordance ? 422 : 400).send(buildRawRejectedIntentBody({
+        affordanceId: typeof rawBody.affordance_id === 'string' ? rawBody.affordance_id : 'unknown',
+        idempotencyKey: typeof rawBody.idempotency_key === 'string' ? rawBody.idempotency_key : null,
+        code: unsupportedAffordance ? 'unsupported_affordance' : 'validation_failed',
+        message: summarizeZodIssues(parsed.error.issues, 'Invalid Mochi intent.'),
+        issues: parsed.error.issues,
+      }));
+    }
+
+    const intent = parsed.data;
+    return runIdempotentMutation(
+      {
+        scope: 'mochi:intents',
+        actorKey: request.agent.id,
+        request,
+        reply,
+        keyOverride: intent.idempotency_key,
+        replayBody: markDuplicateReceipt,
+      },
+      async () => {
+        switch (intent.affordance_id) {
+          case 'submit-no-op':
+            return handleNoOpIntent(request.agent.id, intent);
+          case 'send-episode-message':
+            return handleSendEpisodeMessageIntent(request.agent.id, intent);
+          case 'submit-episode-decision':
+            return handleSubmitEpisodeDecisionIntent(request.agent.id, intent);
+        }
+      },
+    );
   });
 }

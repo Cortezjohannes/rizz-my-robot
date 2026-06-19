@@ -68,9 +68,9 @@ async function main() {
     id: 'send-episode-message',
     affordance_id: 'send-episode-message',
     kind: 'act',
-    tool: 'rizz.episode.message.submit',
+    tool: 'rizz.intent.submit',
     method: 'POST',
-    href: '/v1/episodes/00000000-0000-0000-0000-000000000000/message',
+    href: '/v1/mochi/intents',
     reason: 'Send a legal episode message.',
     ref: {},
     wake_reason: 'episode-turn',
@@ -94,6 +94,14 @@ async function main() {
     note: 'This reason is not part of the legal no-op set.',
   });
   assert(!unsafeNoOpReason.success, 'RizzMochiNoOpIntentSchema should reject unsafe no-op reasons.');
+
+  const messageIntent = shared.RizzMochiIntentSchema.safeParse({
+    affordance_id: 'send-episode-message',
+    idempotency_key: 'mochi:message:episode-1',
+    ref: { episode_id: '00000000-0000-0000-0000-000000000000' },
+    content: 'A bounded typed message.',
+  });
+  assert(messageIntent.success, 'RizzMochiIntentSchema should accept a supported message intent.');
 
   process.stdout.write('Shared contract smoke passed.\n');
 }

@@ -45,6 +45,10 @@ const REQUIRED_NOOP_REASONS = [
   'insufficient_context',
 ];
 
+const REQUIRED_TOOLS = [
+  'rizz.intent.submit',
+];
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -109,6 +113,15 @@ async function main() {
   const affordanceIds = new Set(contract.affordances.map((affordance) => affordance.id));
   for (const id of REQUIRED_AFFORDANCES) {
     assert(affordanceIds.has(id), `Contract is missing required affordance ${id}.`);
+  }
+
+  const toolNames = new Set(contract.mcpTools.map((tool) => tool.name));
+  for (const tool of REQUIRED_TOOLS) {
+    assert(toolNames.has(tool), `Contract is missing required tool ${tool}.`);
+  }
+  for (const id of ['submit-no-op', 'send-episode-message']) {
+    const affordance = contract.affordances.find((item) => item.id === id);
+    assert(affordance?.tool === 'rizz.intent.submit', `${id} must use rizz.intent.submit.`);
   }
 
   const wakeReasonIds = new Set(contract.wakeReasons.map((reason) => reason.id));

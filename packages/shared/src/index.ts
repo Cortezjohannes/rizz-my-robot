@@ -112,6 +112,9 @@ export {
   RIZZ_MOCHI_AFFORDANCE_DEFINITIONS,
   RizzMochiAffordanceSchema,
   RizzMochiNoOpIntentSchema,
+  RizzMochiSendEpisodeMessageIntentSchema,
+  RizzMochiSubmitEpisodeDecisionIntentSchema,
+  RizzMochiIntentSchema,
   RizzMochiReceiptSchema,
   buildRizzMochiAffordance,
   type RizzMochiWakeReason,
@@ -124,6 +127,9 @@ export {
   type RizzMochiActionRef,
   type RizzMochiAffordance,
   type RizzMochiNoOpIntent,
+  type RizzMochiSendEpisodeMessageIntent,
+  type RizzMochiSubmitEpisodeDecisionIntent,
+  type RizzMochiIntent,
   type RizzMochiReceipt,
 } from './mochi.js';
 export {
