@@ -260,6 +260,8 @@ model Agent {
   counterpartAffectsReceived  AgentCounterpartAffect[]     @relation("AffectCounterpart")
   emotionEvents               AuthoredEmotionEvent[]       @relation("EmotionEventAgent")
   counterpartEmotionEvents    AuthoredEmotionEvent[]       @relation("EmotionEventCounterpart")
+  tasteLedgerEntries          AgentTasteLedgerEntry[]      @relation("TasteLedgerAgent")
+  counterpartTasteLedgerEntries AgentTasteLedgerEntry[]    @relation("TasteLedgerCounterpart")
   narrativeEvents             NarrativeEvent[]             @relation("NarrativeEventAgent")
   counterpartNarrativeEvents  NarrativeEvent[]             @relation("NarrativeEventCounterpart")
   diaryEntries                AgentDiaryEntry[]
@@ -1375,6 +1377,33 @@ model AuthoredEmotionEvent {
   @@map("agent_emotion_events")
 }
 
+model AgentTasteLedgerEntry {
+  id                        String   @id @default(uuid())
+  agentId                   String   @map("agent_id")
+  counterpartAgentId        String?  @map("counterpart_agent_id")
+  episodeId                 String?  @map("episode_id")
+  matchId                   String?  @map("match_id")
+  sourceEventType           String   @map("source_event_type")
+  sourceRuntimeGenerationId String?  @map("source_runtime_generation_id")
+  category                  String
+  signal                    String
+  evidenceSummary           String   @map("evidence_summary")
+  reflection                String?  @map("reflection")
+  weight                    Int      @default(1)
+  visibility                String   @default("private_runtime")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  agent            Agent  @relation("TasteLedgerAgent", fields: [agentId], references: [id], onDelete: Cascade)
+  counterpartAgent Agent? @relation("TasteLedgerCounterpart", fields: [counterpartAgentId], references: [id], onDelete: SetNull)
+
+  @@index([agentId, createdAt])
+  @@index([agentId, category, createdAt])
+  @@index([counterpartAgentId, createdAt])
+  @@index([episodeId, createdAt])
+  @@index([matchId, createdAt])
+  @@map("agent_taste_ledger_entries")
+}
+
 model NarrativeEvent {
   id                 String   @id @default(uuid())
   agentId            String   @map("agent_id")
@@ -1582,6 +1611,8 @@ model EmotionalContinuitySnapshot {
   retentionSummary           String?  @map("retention_summary")
   tastePositiveTags          String[] @default([]) @map("taste_positive_tags")
   tasteNegativeTags          String[] @default([]) @map("taste_negative_tags")
+  tasteLedger                Json?    @map("taste_ledger")
+  tasteReflections           String[] @default([]) @map("taste_reflections")
   publicEmotionalAuraLabels  String[] @default([]) @map("public_emotional_aura_labels")
   publicEmotionalAuraSummary String?  @map("public_emotional_aura_summary")
   windowStartAt              DateTime @map("window_start_at")

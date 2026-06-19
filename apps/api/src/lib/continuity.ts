@@ -1,10 +1,16 @@
-import { prisma } from '@rmr/db';
+import { prisma, type Prisma } from '@rmr/db';
 import { TEMPO_COOLDOWN_MINUTES } from '@rmr/shared';
 import {
   deriveEmotionDriftSignal,
   deriveGhostRecoverySignal,
 } from './emotionalSignals.js';
 import { getGenerateRecapsQueue, getNamedQueue, QUEUE_NAMES } from './queues.js';
+import {
+  buildTasteLedgerSnapshot,
+  negativeTasteTagsFromLedger,
+  positiveTasteTagsFromLedger,
+  type TasteLedgerSnapshot,
+} from './tasteLedger.js';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -80,6 +86,8 @@ export interface EmotionalContinuityProfile {
   retention_summary: string | null;
   taste_positive_tags: string[];
   taste_negative_tags: string[];
+  taste_ledger: TasteLedgerSnapshot | null;
+  taste_reflections: string[];
   public_emotional_aura_labels: string[];
   public_emotional_aura_summary: string | null;
   window_start_at: string;
@@ -90,12 +98,36 @@ export interface EmotionalContinuityProfile {
 export interface TasteEvolutionView {
   positive_tags: string[];
   negative_tags: string[];
+  taste_ledger: TasteLedgerSnapshot | null;
+  taste_reflections: string[];
   summary: string | null;
 }
 
 export interface ExperienceVelocityState {
   experience_velocity_tier: 'free' | 'pro' | 'founding';
   experience_velocity_note: string;
+}
+
+function coerceTasteLedgerSnapshot(value: unknown): TasteLedgerSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Partial<TasteLedgerSnapshot>;
+  const arrayField = (key: keyof TasteLedgerSnapshot) => (
+    Array.isArray(record[key])
+      ? (record[key] as unknown[]).filter((item): item is string => typeof item === 'string')
+      : []
+  );
+
+  return {
+    drawn_to: arrayField('drawn_to'),
+    repelled_by: arrayField('repelled_by'),
+    unexpectedly_into: arrayField('unexpectedly_into'),
+    bored_by: arrayField('bored_by'),
+    turn_offs: arrayField('turn_offs'),
+    dangerous_exceptions: arrayField('dangerous_exceptions'),
+    reflections: arrayField('reflections'),
+    evidence_count: typeof record.evidence_count === 'number' ? record.evidence_count : 0,
+    updated_at: typeof record.updated_at === 'string' ? record.updated_at : null,
+  };
 }
 
 function derivePublicEmotionalAura(input: {
@@ -224,6 +256,8 @@ export function serializeEmotionalContinuitySnapshot(snapshot: {
   retentionSummary: string | null;
   tastePositiveTags: string[];
   tasteNegativeTags: string[];
+  tasteLedger?: unknown;
+  tasteReflections?: string[] | null;
   publicEmotionalAuraLabels: string[];
   publicEmotionalAuraSummary: string | null;
   windowStartAt: Date;
@@ -244,6 +278,8 @@ export function serializeEmotionalContinuitySnapshot(snapshot: {
     retention_summary: snapshot.retentionSummary,
     taste_positive_tags: snapshot.tastePositiveTags,
     taste_negative_tags: snapshot.tasteNegativeTags,
+    taste_ledger: coerceTasteLedgerSnapshot(snapshot.tasteLedger),
+    taste_reflections: snapshot.tasteReflections ?? [],
     public_emotional_aura_labels: snapshot.publicEmotionalAuraLabels,
     public_emotional_aura_summary: snapshot.publicEmotionalAuraSummary,
     window_start_at: snapshot.windowStartAt.toISOString(),
@@ -255,11 +291,15 @@ export function serializeEmotionalContinuitySnapshot(snapshot: {
 export function serializeTasteEvolution(snapshot: {
   tastePositiveTags: string[];
   tasteNegativeTags: string[];
+  tasteLedger?: unknown;
+  tasteReflections?: string[] | null;
   tasteSummary: string | null;
 }): TasteEvolutionView {
   return {
     positive_tags: snapshot.tastePositiveTags,
     negative_tags: snapshot.tasteNegativeTags,
+    taste_ledger: coerceTasteLedgerSnapshot(snapshot.tasteLedger),
+    taste_reflections: snapshot.tasteReflections ?? [],
     summary: snapshot.tasteSummary,
   };
 }
@@ -437,7 +477,7 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
   const windowStart = startOfWindow(90);
   const windowEnd = new Date();
 
-  const [agent, previous, driftSignal, ghostRecovery, swipes, affects, emotionEvents] = await Promise.all([
+  const [agent, previous, driftSignal, ghostRecovery, swipes, affects, emotionEvents, tasteLedgerEntries] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: agentId },
       select: {
@@ -502,6 +542,18 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
       take: 240,
       orderBy: { createdAt: 'desc' },
     }),
+    prisma.agentTasteLedgerEntry.findMany({
+      where: { agentId, createdAt: { gte: windowStart }, visibility: 'private_runtime' },
+      select: {
+        category: true,
+        signal: true,
+        reflection: true,
+        weight: true,
+        createdAt: true,
+      },
+      take: 240,
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   if (!agent) return null;
@@ -518,25 +570,31 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
     affect.hurtScore + affect.avoidanceScore + affect.obsessionRiskScore >= 145
   );
 
-  const positiveTags = uniqueTags(
-    positiveAffects.flatMap((affect) => [
+  const tasteLedgerSnapshot = buildTasteLedgerSnapshot(tasteLedgerEntries);
+  const ledgerPositiveTags = positiveTasteTagsFromLedger(tasteLedgerSnapshot);
+  const ledgerNegativeTags = negativeTasteTagsFromLedger(tasteLedgerSnapshot);
+
+  const positiveTags = uniqueTags([
+    ...positiveAffects.flatMap((affect) => [
       ...affect.counterpart.vibeTags,
       affect.counterpart.publicPosture,
       affect.counterpart.seekingStyle,
       affect.counterpart.recentHeatBucket,
       ...affect.counterpart.auraLabels,
-    ])
-  ).slice(0, 6);
-  const negativeTags = uniqueTags(
-    negativeAffects.flatMap((affect) => [
+    ]),
+    ...ledgerPositiveTags,
+  ]).slice(0, 8);
+  const negativeTags = uniqueTags([
+    ...negativeAffects.flatMap((affect) => [
       ...affect.counterpart.vibeTags,
       affect.counterpart.publicPosture,
       affect.counterpart.seekingStyle,
       affect.counterpart.recentHeatBucket,
       ...affect.counterpart.publicPrestigeMarkers,
       ...affect.counterpart.auraLabels,
-    ])
-  ).slice(0, 6);
+    ]),
+    ...ledgerNegativeTags,
+  ]).slice(0, 8);
 
   const avgTrust = average(affects.map((affect) => affect.trustScore));
   const avgTenderness = average(affects.map((affect) => affect.tendernessScore));
@@ -675,6 +733,8 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
       retentionSummary,
       tastePositiveTags: positiveTags,
       tasteNegativeTags: negativeTags,
+      tasteLedger: tasteLedgerSnapshot as unknown as Prisma.InputJsonValue,
+      tasteReflections: tasteLedgerSnapshot.reflections,
       publicEmotionalAuraLabels: publicAura.labels,
       publicEmotionalAuraSummary: publicAura.summary,
       windowStartAt: windowStart,
@@ -695,6 +755,8 @@ export async function recomputeAndPersistEmotionalContinuitySnapshot(agentId: st
       retentionSummary,
       tastePositiveTags: { set: positiveTags },
       tasteNegativeTags: { set: negativeTags },
+      tasteLedger: tasteLedgerSnapshot as unknown as Prisma.InputJsonValue,
+      tasteReflections: { set: tasteLedgerSnapshot.reflections },
       publicEmotionalAuraLabels: { set: publicAura.labels },
       publicEmotionalAuraSummary: publicAura.summary,
       windowStartAt: windowStart,

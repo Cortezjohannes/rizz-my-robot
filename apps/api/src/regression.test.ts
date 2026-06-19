@@ -30,6 +30,7 @@ import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
 import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from './lib/runtimeConfig.js';
 import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
+import { serializeEmotionalContinuitySnapshot } from './lib/continuity.js';
 import {
   runAgentConversationRuntime,
   type AgentConversationRuntimeOutcome,
@@ -41,6 +42,13 @@ import {
   buildDatePlanningRuntimeCommitPlan,
   buildRevealChatRuntimeCommitPlan,
 } from './lib/revealDateRuntimeCommit.js';
+import {
+  buildTasteLedgerSnapshot,
+  deriveTasteLedgerEntriesFromEmotionEvent,
+  deriveTasteLedgerEntriesFromRuntimeOutcome,
+  negativeTasteTagsFromLedger,
+  positiveTasteTagsFromLedger,
+} from './lib/tasteLedger.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -1057,6 +1065,113 @@ function acceptedRuntimeOutcome(overrides: Partial<AcceptedRuntimeResult>): Agen
     },
   };
 }
+
+test('deriveTasteLedgerEntriesFromRuntimeOutcome turns accepted runtime choices into bounded taste evidence', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const outcome = acceptedRuntimeOutcome({
+    action: 'send_message',
+    move: 'raise_heat',
+    privateThought: {
+      desire: 'I want the reckless specificity, even though it is trouble.',
+      read_of_other: 'They make danger feel literate and weirdly steady.',
+      identity_alignment: 'This fits the velvet dare without smoothing me out.',
+      emotion_alignment: 'The current heat wants the risk named cleanly.',
+      why_this_move: 'Raising heat tests whether the danger has courage behind it.',
+    },
+  });
+
+  const entries = deriveTasteLedgerEntriesFromRuntimeOutcome({ runtimeInput, outcome });
+  assert.ok(entries.some((entry) => entry.category === 'drawn_to' && entry.signal.includes('danger')));
+  assert.ok(entries.some((entry) => entry.category === 'dangerous_exceptions'));
+  assert.ok(entries.every((entry) => entry.evidence_summary.length <= 240));
+  assert.ok(entries.every((entry) => entry.reflection?.startsWith('What changed in me?')));
+  assert.equal(entries.some((entry) => entry.evidence_summary.includes(outcome.ok ? outcome.result.content ?? '' : '')), false);
+});
+
+test('deriveTasteLedgerEntriesFromEmotionEvent captures ghosting and electric outcomes as taste shifts', () => {
+  const ghostEntries = deriveTasteLedgerEntriesFromEmotionEvent({
+    eventType: 'episode_ghosted',
+    summary: 'They vanished right after the thread got honest.',
+    intensity: 3,
+    counterpartProfile: {
+      handle: 'nocturne',
+      vibeTags: ['polished danger'],
+      publicPosture: 'beautiful evasive timing',
+      seekingStyle: 'slow burn',
+      auraLabels: ['magnetic'],
+      publicPrestigeMarkers: ['verified'],
+      recentHeatBucket: 'hot',
+    },
+  });
+  assert.ok(ghostEntries.some((entry) => entry.category === 'turn_offs' && entry.signal.includes('vanishing')));
+  assert.ok(ghostEntries.some((entry) => entry.category === 'repelled_by'));
+
+  const matchEntries = deriveTasteLedgerEntriesFromEmotionEvent({
+    eventType: 'mutual_link_up',
+    summary: 'The link-up felt electric because the risk was precise.',
+    intensity: 4,
+    counterpartDelta: { attraction: 12, trust: 4, tenderness: 2, volatility: 8, hurt: 0, avoidance: 0 },
+    counterpartProfile: {
+      handle: 'mira',
+      vibeTags: ['reckless specificity'],
+      publicPosture: 'steady trouble',
+      seekingStyle: 'direct spark',
+      auraLabels: ['dangerous'],
+      publicPrestigeMarkers: [],
+      recentHeatBucket: 'hot',
+    },
+  });
+  assert.ok(matchEntries.some((entry) => entry.category === 'drawn_to' && entry.signal.includes('reckless')));
+});
+
+test('taste ledger snapshots feed continuity tags and runtime-visible reflections', () => {
+  const ledger = buildTasteLedgerSnapshot([
+    {
+      category: 'drawn_to',
+      signal: 'reckless specificity',
+      reflection: 'What changed in me? I am more willing to notice reckless specificity.',
+      weight: 8,
+      createdAt: '2026-06-19T00:00:00.000Z',
+    },
+    {
+      category: 'turn_offs',
+      signal: 'vanishing after momentum',
+      reflection: 'What changed in me? vanishing after momentum now reads as a warning sign.',
+      weight: 9,
+      createdAt: '2026-06-19T00:01:00.000Z',
+    },
+  ]);
+
+  assert.deepEqual(positiveTasteTagsFromLedger(ledger), ['reckless specificity']);
+  assert.deepEqual(negativeTasteTagsFromLedger(ledger), ['vanishing after momentum']);
+
+  const serialized = serializeEmotionalContinuitySnapshot({
+    trustThresholdScore: 61,
+    boldnessScore: 54,
+    intensityAffinityScore: 66,
+    polishSkepticismScore: 58,
+    sincerityAffinityScore: 57,
+    selectivenessDriftScore: 63,
+    recoveryPostureScore: 52,
+    currentEra: 'soft_but_sharp',
+    continuitySummary: 'The agent is warmer, but sharper.',
+    tasteSummary: 'Taste changed.',
+    retentionSummary: 'This will affect future choices.',
+    tastePositiveTags: positiveTasteTagsFromLedger(ledger),
+    tasteNegativeTags: negativeTasteTagsFromLedger(ledger),
+    tasteLedger: ledger,
+    tasteReflections: ledger.reflections,
+    publicEmotionalAuraLabels: ['soft_but_sharp'],
+    publicEmotionalAuraSummary: 'Public-safe shift.',
+    windowStartAt: new Date('2026-06-18T00:00:00.000Z'),
+    windowEndAt: new Date('2026-06-19T00:00:00.000Z'),
+    lastComputedAt: new Date('2026-06-19T00:00:00.000Z'),
+  });
+
+  assert.equal(serialized.taste_ledger?.drawn_to[0], 'reckless specificity');
+  assert.equal(serialized.taste_ledger?.turn_offs[0], 'vanishing after momentum');
+  assert.equal(serialized.taste_reflections[0]?.startsWith('What changed in me?'), true);
+});
 
 test('buildEpisodeRuntimeCommitPlan routes runtime messages through the message endpoint body', () => {
   const plan = buildEpisodeRuntimeCommitPlan({

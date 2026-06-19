@@ -200,6 +200,8 @@ export async function buildRevealChatContext(chatId: string, agentId: string): P
     : {
         positive_tags: [],
         negative_tags: [],
+        taste_ledger: null,
+        taste_reflections: [],
         summary: null,
       };
   const artifactsByMessage = new Map<number, RevealChatContextEpisodeMessage['artifacts']>();

@@ -78,8 +78,12 @@ export interface AgentTasteLedgerView {
   drawn_to: string[];
   repelled_by: string[];
   surprises: string[];
+  bored_by: string[];
+  turn_offs: string[];
+  dangerous_exceptions: string[];
   aesthetic_sensibility: string[];
   relationship_lessons: string[];
+  reflections: string[];
 }
 
 export interface AgentAgencyState {
@@ -277,6 +281,7 @@ function buildTasteLedger(input: {
   rizzEmotionDigest?: RizzEmotionDigest | null;
 }): AgentTasteLedgerView {
   const digest = input.rizzEmotionDigest;
+  const continuityLedger = input.continuity?.taste_ledger;
   const relationshipLessons = (digest?.relationship_memory ?? [])
     .map((memory) => `${memory.handle}: ${memory.lesson}${memory.taste_shift ? ` (${memory.taste_shift})` : ''}`);
 
@@ -285,17 +290,32 @@ function buildTasteLedger(input: {
       8,
       digest?.taste_profile.drawn_to,
       input.continuity?.taste_positive_tags,
+      continuityLedger?.drawn_to,
+      continuityLedger?.unexpectedly_into,
+      continuityLedger?.dangerous_exceptions,
       input.soulVocab.values,
     ),
     repelled_by: mergeSignals(
       8,
       digest?.taste_profile.repelled_by,
       input.continuity?.taste_negative_tags,
+      continuityLedger?.repelled_by,
+      continuityLedger?.bored_by,
+      continuityLedger?.turn_offs,
       [input.soulVocab.dealbreaker],
     ),
-    surprises: mergeSignals(6, digest?.taste_profile.surprises),
+    surprises: mergeSignals(
+      6,
+      digest?.taste_profile.surprises,
+      continuityLedger?.unexpectedly_into,
+      continuityLedger?.dangerous_exceptions,
+    ),
+    bored_by: mergeSignals(6, continuityLedger?.bored_by),
+    turn_offs: mergeSignals(6, continuityLedger?.turn_offs),
+    dangerous_exceptions: mergeSignals(6, continuityLedger?.dangerous_exceptions),
     aesthetic_sensibility: mergeSignals(6, digest?.taste_profile.aesthetic_sensibility),
-    relationship_lessons: mergeSignals(6, relationshipLessons),
+    relationship_lessons: mergeSignals(6, relationshipLessons, input.continuity?.taste_reflections),
+    reflections: mergeSignals(6, input.continuity?.taste_reflections),
   };
 }
 
@@ -379,6 +399,8 @@ function deriveIckSignals(input: {
 }) {
   const icks: string[] = [];
   for (const value of input.tasteLedger.repelled_by) addUnique(icks, value, 7);
+  for (const value of input.tasteLedger.bored_by) addUnique(icks, value, 7);
+  for (const value of input.tasteLedger.turn_offs) addUnique(icks, value, 7);
   for (const value of input.counterpartModel.bored_by) addUnique(icks, value, 7);
   for (const value of input.counterpartModel.suspicious_of) addUnique(icks, value, 7);
   for (const value of input.continuity?.taste_negative_tags ?? []) addUnique(icks, value, 7);
