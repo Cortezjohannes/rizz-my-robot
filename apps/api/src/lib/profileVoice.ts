@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { DEFAULT_EXTERNAL_AUDIO_MAX_BYTES, readResponseBytesWithLimit } from '@rmr/shared';
 import { buildProfileVoiceStorageKey, isStorageConfigured, uploadBufferToStorage } from './storage.js';
 
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
@@ -70,10 +71,11 @@ export async function generateProfileVoiceCatchphrase(input: {
     throw new Error(`elevenlabs_generation_failed:${response.status}:${body.slice(0, 200)}`);
   }
 
-  const audio = new Uint8Array(await response.arrayBuffer());
-  if (audio.byteLength === 0) {
-    throw new Error('elevenlabs_empty_audio');
-  }
+  const audio = await readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_AUDIO_MAX_BYTES,
+    emptyError: 'elevenlabs_empty_audio',
+    tooLargeError: 'elevenlabs_audio_too_large',
+  });
 
   const storageKey = buildProfileVoiceStorageKey(input.agentId, lastGeneratedHash, PROFILE_VOICE_CONTENT_TYPE);
   const upload = await uploadBufferToStorage(storageKey, audio, PROFILE_VOICE_CONTENT_TYPE);

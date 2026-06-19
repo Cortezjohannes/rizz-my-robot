@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { DEFAULT_EXTERNAL_MEDIA_MAX_BYTES, readResponseBytesWithLimit } from '@rmr/shared';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
 
 let client: S3Client | null = null;
@@ -422,7 +423,11 @@ export async function mirrorArtifactToStorage(
     return null; // can't download, keep external URL
   }
 
-  const buffer = new Uint8Array(await response.arrayBuffer());
+  const buffer = await readResponseBytesWithLimit(response, {
+    maxBytes: DEFAULT_EXTERNAL_MEDIA_MAX_BYTES,
+    emptyError: 'External artifact mirror returned 0 bytes.',
+    tooLargeError: 'External artifact mirror exceeds the 10MB limit.',
+  });
 
   // Determine content type from response headers, falling back to artifact type guess
   const contentType =
