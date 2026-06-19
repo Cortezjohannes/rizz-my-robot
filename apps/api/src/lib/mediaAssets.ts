@@ -19,6 +19,7 @@ import {
 } from './storage.js';
 import { assertAllowedMediaContentType } from './media.js';
 import { assertSafeOutboundUrl } from './outboundUrlSafety.js';
+import { getMediaAccessSecret } from './runtimeConfig.js';
 
 const PRIVATE_MEDIA_TOKEN_TTL_SECONDS = 10 * 60;
 const ORPHAN_MEDIA_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -67,10 +68,7 @@ function isArtifactMediaAsset(input: {
 }
 
 function getMediaSigningSecret() {
-  return process.env.MEDIA_ACCESS_SECRET
-    ?? process.env.JWT_SECRET
-    ?? process.env.STORAGE_SECRET_ACCESS_KEY
-    ?? null;
+  return getMediaAccessSecret();
 }
 
 function sha256Hex(buffer: Uint8Array) {

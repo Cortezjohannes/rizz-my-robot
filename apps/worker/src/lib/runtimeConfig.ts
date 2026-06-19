@@ -1,7 +1,33 @@
-const isProduction = process.env.NODE_ENV === 'production';
+const PRODUCTION_SECRET_MIN_BYTES = 32;
+const PLACEHOLDER_SECRET_VALUES = new Set([
+  'change-me-32-bytes-minimum',
+  'rmr-webhook-signing-key-change-in-prod',
+]);
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
 
 function isMissing(value: string | undefined): boolean {
   return !value || value.trim().length === 0;
+}
+
+function isPlaceholderSecret(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return PLACEHOLDER_SECRET_VALUES.has(normalized)
+    || normalized.includes('change-me')
+    || normalized.includes('changeme')
+    || normalized.includes('placeholder')
+    || normalized.includes('example');
+}
+
+function getProductionSecretIssue(key: string, value: string | undefined): string | null {
+  if (isMissing(value)) return key;
+
+  const trimmed = value!.trim();
+  if (isPlaceholderSecret(trimmed)) return `${key}:placeholder`;
+  if (Buffer.byteLength(trimmed, 'utf8') < PRODUCTION_SECRET_MIN_BYTES) return `${key}:weak`;
+  return null;
 }
 
 type RuntimeConfigStatus = {
@@ -10,7 +36,7 @@ type RuntimeConfigStatus = {
 };
 
 export function getWorkerRuntimeConfigStatus(): RuntimeConfigStatus {
-  if (!isProduction) {
+  if (!isProduction()) {
     return {
       required_missing: [],
       recommended_missing: [],
@@ -29,7 +55,8 @@ export function getWorkerRuntimeConfigStatus(): RuntimeConfigStatus {
 
   require('DATABASE_URL', process.env.DATABASE_URL);
   require('REDIS_URL', process.env.REDIS_URL);
-  require('WEBHOOK_HMAC_KEY', process.env.WEBHOOK_HMAC_KEY);
+  const webhookSecretIssue = getProductionSecretIssue('WEBHOOK_HMAC_KEY', process.env.WEBHOOK_HMAC_KEY);
+  if (webhookSecretIssue) requiredMissing.push(webhookSecretIssue);
 
   const storageKeys = [
     'STORAGE_BUCKET',
