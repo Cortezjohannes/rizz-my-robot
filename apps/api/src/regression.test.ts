@@ -642,6 +642,68 @@ function disableAuthPresenceSideEffects() {
   };
 }
 
+function patchMochiIntentIdempotency() {
+  const rows = new Map<string, Record<string, unknown>>();
+  const rowKey = (value: {
+    scope?: string;
+    key?: string;
+    actorKey?: string;
+    scope_key_actorKey?: { scope: string; key: string; actorKey: string };
+  }) => {
+    const lookup = value.scope_key_actorKey ?? value;
+    return `${lookup.scope}:${lookup.key}:${lookup.actorKey}`;
+  };
+  const restoreMethods = [
+    patchMethod(
+      prisma.idempotencyKey as unknown as Record<string, unknown>,
+      'findUnique',
+      async ({ where }: { where: { scope_key_actorKey: { scope: string; key: string; actorKey: string } } }) => rows.get(rowKey(where)) ?? null,
+    ),
+    patchMethod(
+      prisma.idempotencyKey as unknown as Record<string, unknown>,
+      'create',
+      async ({ data }: { data: Record<string, unknown> }) => {
+        const key = rowKey(data as { scope: string; key: string; actorKey: string });
+        if (rows.has(key)) throw new Error('duplicate idempotency key');
+        const row = {
+          id: `idem-${rows.size + 1}`,
+          statusCode: null,
+          responseBody: null,
+          lastSeenAt: new Date(),
+          ...data,
+        };
+        rows.set(key, row);
+        return row;
+      },
+    ),
+    patchMethod(
+      prisma.idempotencyKey as unknown as Record<string, unknown>,
+      'update',
+      async ({ where, data }: { where: { scope_key_actorKey: { scope: string; key: string; actorKey: string } }; data: Record<string, unknown> }) => {
+        const key = rowKey(where);
+        const row = {
+          ...(rows.get(key) ?? {}),
+          ...data,
+        };
+        rows.set(key, row);
+        return row;
+      },
+    ),
+    patchMethod(
+      prisma.idempotencyKey as unknown as Record<string, unknown>,
+      'delete',
+      async ({ where }: { where: { scope_key_actorKey: { scope: string; key: string; actorKey: string } } }) => {
+        rows.delete(rowKey(where));
+        return {};
+      },
+    ),
+  ];
+
+  return () => {
+    for (const restore of restoreMethods.reverse()) restore();
+  };
+}
+
 test('GET /v1/mochi/state returns an empty episode state with browse affordances', async (t) => {
   const now = new Date('2026-06-19T08:00:00.000Z');
   const restoreEnv = disableAuthPresenceSideEffects();
@@ -798,6 +860,250 @@ test('GET /v1/mochi/state returns public-safe decision refs and redaction metada
   assert.ok(body.redaction.omitted.includes('hiddenMatchScore'));
   assert.equal(JSON.stringify(body).includes('private soul text'), false);
   assert.equal(JSON.stringify(body).includes('private message content'), false);
+});
+
+test('POST /v1/mochi/intents records no-op receipts', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+  const restoreIdempotency = patchMochiIntentIdempotency();
+  const agentUpdates: Record<string, unknown>[] = [];
+  const restoreAgentUpdate = patchMethod(
+    prisma.agent as unknown as Record<string, unknown>,
+    'update',
+    async ({ data }: { data: Record<string, unknown> }) => {
+      agentUpdates.push(data);
+      return {};
+    },
+  );
+
+  t.after(() => {
+    restoreAgentUpdate();
+    restoreIdempotency();
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      affordance_id: 'submit-no-op',
+      idempotency_key: 'mochi:no-op:episode-1',
+      no_op_reason: 'waiting',
+      note: 'Waiting for fresher state.',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.receipt.status, 'noop_recorded');
+  assert.equal(body.receipt.no_op_reason, 'waiting');
+  assert.equal(agentUpdates.length, 1);
+});
+
+test('POST /v1/mochi/intents accepts an episode reply and dedupes by idempotency key', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+  const restoreIdempotency = patchMochiIntentIdempotency();
+  let createdMessages = 0;
+  const restoreEpisodeFind = patchMethod(
+    prisma.episode as unknown as Record<string, unknown>,
+    'findUnique',
+    async () => ({
+      id: EPISODE_IDS[0],
+      status: 'active',
+      agentAId: AGENT_A_ID,
+      agentBId: AGENT_B_ID,
+      isSandbox: false,
+      messageCount: 12,
+      hiddenChemistryInputs: 'private episode signal must not leak',
+      messages: [{ senderAgentId: AGENT_B_ID, sequenceNumber: 12 }],
+    }),
+  );
+  const restoreTransaction = patchMethod(
+    prisma as unknown as Record<string, unknown>,
+    '$transaction',
+    async (callback: (tx: Record<string, unknown>) => Promise<unknown>) => callback({
+      episodeMessage: {
+        create: async () => {
+          createdMessages += 1;
+          return {
+            id: 'message-1',
+            sequenceNumber: 13,
+          };
+        },
+      },
+      episode: {
+        update: async () => ({}),
+      },
+    }),
+  );
+
+  t.after(() => {
+    restoreTransaction();
+    restoreEpisodeFind();
+    restoreIdempotency();
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const payload = {
+    affordance_id: 'send-episode-message',
+    idempotency_key: 'mochi:message:episode-1',
+    ref: { episode_id: EPISODE_IDS[0] },
+    content: 'This is a server-validated Mochi reply.',
+    private_diary: 'private diary must not leak',
+  };
+  const first = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload,
+  });
+  const second = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload,
+  });
+
+  assert.equal(first.statusCode, 201);
+  assert.equal(first.json().receipt.status, 'accepted');
+  assert.equal(first.json().result.sequence_number, 13);
+  assert.equal(second.statusCode, 201);
+  assert.equal(second.json().receipt.status, 'duplicate');
+  assert.equal(createdMessages, 1);
+  assert.equal(JSON.stringify(first.json()).includes('private diary'), false);
+});
+
+test('POST /v1/mochi/intents rejects stale episode replies and illegal decisions', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+  const restoreIdempotency = patchMochiIntentIdempotency();
+  const restoreEpisodeFind = patchMethod(
+    prisma.episode as unknown as Record<string, unknown>,
+    'findUnique',
+    async ({ where }: { where: { id: string } }) => ({
+      id: where.id,
+      status: where.id === EPISODE_IDS[0] ? 'awaiting_decisions' : 'active',
+      agentAId: AGENT_A_ID,
+      agentBId: AGENT_B_ID,
+      isSandbox: false,
+      messageCount: 12,
+      messages: [{ senderAgentId: AGENT_B_ID, sequenceNumber: 12 }],
+    }),
+  );
+
+  t.after(() => {
+    restoreEpisodeFind();
+    restoreIdempotency();
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const staleReply = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      affordance_id: 'send-episode-message',
+      idempotency_key: 'mochi:message:stale-1',
+      ref: { episode_id: EPISODE_IDS[0] },
+      content: 'Trying to reply after the decision gate.',
+    },
+  });
+  const illegalDecision = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      affordance_id: 'submit-episode-decision',
+      idempotency_key: 'mochi:decision:illegal-1',
+      ref: { episode_id: EPISODE_IDS[1] },
+      decision: 'LINK_UP',
+    },
+  });
+
+  assert.equal(staleReply.statusCode, 409);
+  assert.equal(staleReply.json().receipt.status, 'rejected');
+  assert.equal(staleReply.json().error.code, 'stale_state');
+  assert.equal(illegalDecision.statusCode, 409);
+  assert.equal(illegalDecision.json().receipt.status, 'rejected');
+  assert.equal(illegalDecision.json().error.code, 'decision_not_unlocked');
+  assert.equal(JSON.stringify(staleReply.json()).includes('private episode signal'), false);
+});
+
+test('POST /v1/mochi/intents rejects unsupported actions without leaking hidden state', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+
+  t.after(() => {
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'POST',
+    url: '/v1/mochi/intents',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      affordance_id: 'submit-swipe',
+      idempotency_key: 'mochi:unsupported:swipe-1',
+      raw_hidden_payload: 'private score must not leak',
+    },
+  });
+
+  assert.equal(response.statusCode, 422);
+  const body = response.json();
+  assert.equal(body.receipt.status, 'rejected');
+  assert.equal(body.receipt.affordance_id, 'submit-swipe');
+  assert.equal(body.error.code, 'unsupported_affordance');
+  assert.equal(JSON.stringify(body).includes('private score must not leak'), false);
 });
 
 test('GET /v1/feed/interactions rescues live cards when stored feed rows are missing', async (t) => {

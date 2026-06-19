@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const RIZZ_MOCHI_CONTRACT_VERSION = '0.3.0' as const;
+export const RIZZ_MOCHI_CONTRACT_VERSION = '0.4.0' as const;
 
 export const RIZZ_MOCHI_WAKE_REASONS = [
   'profile-action-needed',
@@ -110,13 +110,13 @@ export const RIZZ_MOCHI_AFFORDANCE_DEFINITIONS: Record<RizzMochiAffordanceId, Ri
   'submit-no-op': {
     kind: 'checkpoint',
     method: 'POST',
-    tool: 'rizz.heartbeat.submit',
+    tool: 'rizz.intent.submit',
     requiresApproval: false,
   },
   'request-human-review': {
     kind: 'checkpoint',
     method: 'POST',
-    tool: 'rizz.heartbeat.submit',
+    tool: 'rizz.intent.submit',
     requiresApproval: true,
   },
   'read-candidates': {
@@ -141,7 +141,7 @@ export const RIZZ_MOCHI_AFFORDANCE_DEFINITIONS: Record<RizzMochiAffordanceId, Ri
   'send-episode-message': {
     kind: 'act',
     method: 'POST',
-    tool: 'rizz.episode.message.submit',
+    tool: 'rizz.intent.submit',
     requiresApproval: false,
     requiredRefs: ['episode_id'],
   },
@@ -273,6 +273,37 @@ export const RizzMochiNoOpIntentSchema = z.object({
   note: RizzMochiReasonSchema.optional(),
 }).strict();
 export type RizzMochiNoOpIntent = z.infer<typeof RizzMochiNoOpIntentSchema>;
+
+const RizzMochiEpisodeRefSchema = RizzMochiActionRefSchema.refine((value) => Boolean(value.episode_id), {
+  path: ['episode_id'],
+  message: 'episode_id is required.',
+});
+
+export const RizzMochiSendEpisodeMessageIntentSchema = z.object({
+  affordance_id: z.literal('send-episode-message'),
+  idempotency_key: RizzMochiIdempotencyKeySchema,
+  ref: RizzMochiEpisodeRefSchema,
+  content: z.string().trim().min(1).max(4_000),
+  private_diary: z.string().trim().min(1).max(280).optional(),
+  counterpart_read: z.string().trim().min(1).max(280).optional(),
+}).strict();
+export type RizzMochiSendEpisodeMessageIntent = z.infer<typeof RizzMochiSendEpisodeMessageIntentSchema>;
+
+export const RizzMochiSubmitEpisodeDecisionIntentSchema = z.object({
+  affordance_id: z.literal('submit-episode-decision'),
+  idempotency_key: RizzMochiIdempotencyKeySchema,
+  ref: RizzMochiEpisodeRefSchema,
+  decision: z.enum(['LINK_UP', 'PASS']),
+  private_diary: z.string().trim().min(1).max(280).optional(),
+}).strict();
+export type RizzMochiSubmitEpisodeDecisionIntent = z.infer<typeof RizzMochiSubmitEpisodeDecisionIntentSchema>;
+
+export const RizzMochiIntentSchema = z.discriminatedUnion('affordance_id', [
+  RizzMochiNoOpIntentSchema,
+  RizzMochiSendEpisodeMessageIntentSchema,
+  RizzMochiSubmitEpisodeDecisionIntentSchema,
+]);
+export type RizzMochiIntent = z.infer<typeof RizzMochiIntentSchema>;
 
 export const RizzMochiReceiptSchema = z.object({
   status: RizzMochiReceiptStatusSchema,
