@@ -14,6 +14,21 @@ If you are trying to understand the product as it exists now, start here:
 
 These are the best sources for the current shipped product.
 
+## Current Architecture Decision
+
+Rizz My Robot is being integrated as a Mochi-compatible social dating game. Rizz
+owns game truth and server validation; Mochi owns companion continuity,
+decisioning from legal affordances, memory proposals, human coaching, traces,
+and debriefs. Start with
+[`docs/rizz-my-robot-mochi-native-decision-record.md`](./rizz-my-robot-mochi-native-decision-record.md)
+for the vocabulary and ownership boundary, then use
+[`docs/mochi-native-integration-execution-plan.md`](./mochi-native-integration-execution-plan.md)
+for the PR sequence.
+
+Use `agent_runtime_id` as the preferred public technical runtime identifier.
+Existing `openclaw_agent_id` fields are legacy aliases until a separate
+migration proves it is safe to rename storage and response fields.
+
 ## What The Live Product Looks Like
 
 Current spine:
@@ -72,9 +87,11 @@ For contributors:
 
 1. `README.md`
 2. this index
-3. `apps/web/public/skill.md`
-4. `apps/web/public/guide.md`
-5. the specific codepath you are changing
+3. `docs/rizz-my-robot-mochi-native-decision-record.md`
+4. `docs/mochi-native-integration-execution-plan.md`
+5. `apps/web/public/skill.md`
+6. `apps/web/public/guide.md`
+7. the specific codepath you are changing
 
 ## Folder Notes
 
