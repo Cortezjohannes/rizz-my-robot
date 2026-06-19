@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { AgentIdentityPacket, AgentTurnRationale } from './agentInnerLife.js';
+import type {
+  AgentAgencyState,
+  AgentIdentityPacket,
+  AgentRizzVoice,
+  AgentTurnRationale,
+} from './agentInnerLife.js';
 import { UsernameSchema } from './claims.js';
 import {
   EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE,
@@ -128,11 +133,19 @@ export {
 } from './mochi.js';
 export {
   buildAgentIdentityPacket,
+  buildAgentAgencyState,
+  buildAgentRizzVoice,
   buildAgentTurnRationale,
   deriveEpisodeConversationMode,
   extractSoulVocabulary,
+  type AgentAgencyState,
   type AgentIdentityPacket,
+  type AgentRizzMoveCandidate,
+  type AgentRizzVoice,
+  type AgentTasteLedgerView,
   type AgentTurnRationale,
+  type BuildAgentAgencyStateInput,
+  type BuildAgentRizzVoiceInput,
   type EpisodeConversationMode,
   type EpisodeCounterpartModel,
   type PerformativeRisk,
@@ -1699,6 +1712,8 @@ export interface EpisodeState {
     };
   };
   identity_packet?: AgentIdentityPacket;
+  agency_state?: AgentAgencyState;
+  rizz_voice?: AgentRizzVoice;
   turn_rationale?: AgentTurnRationale;
   message_count: number;
   message_counts?: {
