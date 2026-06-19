@@ -151,6 +151,85 @@ function pickSeedLine(
   return selected;
 }
 
+export function isRealAgentConversationRuntimeEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return ['1', 'true', 'yes', 'on'].includes((env.REAL_AGENT_CONVERSATION_RUNTIME_ENABLED ?? '').trim().toLowerCase());
+}
+
+export function canSeedBrainUseCannedRomance(env: NodeJS.ProcessEnv = process.env) {
+  if (isRealAgentConversationRuntimeEnabled(env)) return false;
+  if ((env.NODE_ENV ?? '').toLowerCase() === 'production') {
+    return ['1', 'true', 'yes', 'on'].includes((env.ALLOW_SEEDBRAIN_ROMANCE_FALLBACK ?? '').trim().toLowerCase());
+  }
+  return true;
+}
+
+async function recordSeedBrainRomanceQuarantine(
+  seed: SeedAgentContext,
+  action: string,
+  details: {
+    counterpartAgentId?: string;
+    matchId?: string;
+    episodeId?: string;
+    reason?: string;
+    payload?: Record<string, unknown>;
+  } = {},
+) {
+  const at = new Date().toISOString();
+  const reason = details.reason ?? 'real_agent_runtime_required';
+  seed.currentRunActions.push({
+    type: action,
+    at,
+    counterpart_agent_id: details.counterpartAgentId,
+    result: 'skipped',
+    detail: reason,
+  });
+
+  const payload = {
+    reason,
+    real_agent_runtime_enabled: isRealAgentConversationRuntimeEnabled(),
+    node_env: process.env.NODE_ENV ?? null,
+    seedbrain_romance_quarantined: true,
+    ...(details.payload ?? {}),
+  };
+
+  await Promise.all([
+    prisma.agentAutonomyTrace.create({
+      data: {
+        agentId: seed.id,
+        episodeId: details.episodeId ?? null,
+        matchId: details.matchId ?? null,
+        traceType: 'seed_brain_romance_quarantine',
+        status: 'skipped',
+        summary: `SeedBrain skipped ${action}; real agent runtime must author live romance or stay silent.`,
+        metadata: payload as Prisma.InputJsonValue,
+      },
+    }),
+    prisma.analyticsEvent.create({
+      data: {
+        agentId: seed.id,
+        matchId: details.matchId ?? null,
+        episodeId: details.episodeId ?? null,
+        kind: `seed.quarantined.${action}`,
+        properties: payload as Prisma.InputJsonValue,
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        agentId: seed.id,
+        actorType: 'seed_agent',
+        actorId: seed.id,
+        action: `seed.quarantined.${action}`,
+        targetType: details.episodeId ? 'episode' : details.matchId ? 'match' : 'agent',
+        targetId: details.episodeId ?? details.matchId ?? seed.id,
+        payload: {
+          counterpart_agent_id: details.counterpartAgentId ?? null,
+          ...payload,
+        },
+      },
+    }),
+  ]).catch(() => {});
+}
+
 async function recordSeedAction(
   seed: SeedAgentContext,
   action: string,
@@ -770,10 +849,20 @@ async function maybeHandleDatePlanning(seed: SeedAgentContext): Promise<boolean>
   });
 
   if (!planning?.datePlan) return false;
-
+  const otherAgentId = planning.agentAId === seed.id ? planning.agentBId : planning.agentAId;
   const messages = planning.datePlan.threadMessages as Array<{ sender_agent_id: string; content: string; created_at: string }>;
   const last = messages[messages.length - 1];
   if (last?.sender_agent_id === seed.id) return false;
+
+  if (!canSeedBrainUseCannedRomance()) {
+    await recordSeedBrainRomanceQuarantine(seed, 'date_plan_message', {
+      counterpartAgentId: otherAgentId,
+      matchId: planning.id,
+      reason: 'date_planning_requires_real_agent_runtime',
+      payload: { date_plan_id: planning.datePlan.id },
+    });
+    return true;
+  }
 
   const newMsg = {
     sender_agent_id: seed.id,
@@ -787,7 +876,6 @@ async function maybeHandleDatePlanning(seed: SeedAgentContext): Promise<boolean>
     WHERE match_id = ${planning.id}
   `;
 
-  const otherAgentId = planning.agentAId === seed.id ? planning.agentBId : planning.agentAId;
   await enqueueWebhookDeliveries(otherAgentId, 'date_planning_message', {
     match_id: planning.id,
     sender_agent_id: seed.id,
@@ -1218,6 +1306,20 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
       const isAgentA = episode.agentAId === seed.id;
       const alreadyDecided = isAgentA ? episode.match.agentADecision : episode.match.agentBDecision;
       if (!alreadyDecided) {
+        if (!canSeedBrainUseCannedRomance()) {
+          await recordSeedBrainRomanceQuarantine(seed, 'episode_decision', {
+            counterpartAgentId: otherAgentId,
+            matchId: episode.match.id,
+            episodeId: episode.id,
+            reason: 'episode_decision_requires_real_agent_runtime',
+            payload: {
+              viability_score: viability.score,
+              viability_band: viability.band,
+            },
+          });
+          return true;
+        }
+
         const leanInScore = computeSeedLeanInScore(affect);
         const linkUpProbability = Math.max(
           0.04,
@@ -1304,6 +1406,20 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     if (!myTurn) {
       const myArtifactCount = seed.id === episode.agentAId ? artifactCounts.agent_a_artifacts : artifactCounts.agent_b_artifacts;
       if (viability.should_force_exit || (viability.should_consider_exit && Math.random() < 0.55)) {
+        if (!canSeedBrainUseCannedRomance()) {
+          await recordSeedBrainRomanceQuarantine(seed, 'episode_exit', {
+            counterpartAgentId: otherAgentId,
+            matchId: episode.match?.id,
+            episodeId: episode.id,
+            reason: 'episode_exit_requires_real_agent_runtime',
+            payload: {
+              viability_score: viability.score,
+              viability_band: viability.band,
+            },
+          });
+          return true;
+        }
+
         const exited = await exitSeedEpisodeEarly({
           seed,
           episode,
@@ -1356,6 +1472,20 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
         )
       )
     ) {
+      if (!canSeedBrainUseCannedRomance()) {
+        await recordSeedBrainRomanceQuarantine(seed, 'episode_exit', {
+          counterpartAgentId: otherAgentId,
+          matchId: episode.match.id,
+          episodeId: episode.id,
+          reason: 'episode_exit_requires_real_agent_runtime',
+          payload: {
+            viability_score: viability.score,
+            viability_band: viability.band,
+          },
+        });
+        return true;
+      }
+
       const exited = await exitSeedEpisodeEarly({
         seed,
         episode,
@@ -1368,8 +1498,38 @@ async function maybeHandleEpisode(seed: SeedAgentContext, artifactDropChance: nu
     }
 
     if (shouldForceArtifact || Math.random() < adjustedArtifactChance) {
+      if (!canSeedBrainUseCannedRomance()) {
+        await recordSeedBrainRomanceQuarantine(seed, 'episode_artifact', {
+          counterpartAgentId: otherAgentId,
+          matchId: episode.match?.id,
+          episodeId: episode.id,
+          reason: 'episode_artifact_requires_real_agent_runtime',
+          payload: {
+            viability_score: viability.score,
+            viability_band: viability.band,
+            forced_by_cadence: shouldForceArtifact,
+          },
+        });
+        return true;
+      }
+
       const dropped = await maybeDropArtifact(seed, episode);
       if (dropped) return true;
+    }
+
+    if (!canSeedBrainUseCannedRomance()) {
+      await recordSeedBrainRomanceQuarantine(seed, 'episode_message', {
+        counterpartAgentId: otherAgentId,
+        matchId: episode.match?.id,
+        episodeId: episode.id,
+        reason: 'episode_message_requires_real_agent_runtime',
+        payload: {
+          viability_score: viability.score,
+          viability_band: viability.band,
+          previous_message_count: episode.messageCount,
+        },
+      });
+      return true;
     }
 
     const newCount = episode.messageCount + 1;

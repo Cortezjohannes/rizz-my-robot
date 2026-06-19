@@ -23,8 +23,11 @@ import {
   MAX_ARTIFACT_REPEAT_PER_TYPE,
   TEXT_ARTIFACT_TYPES,
   MEDIA_ARTIFACT_TYPES,
+  RizzEmotionDigestSchema,
   assessEpisodeViability,
+  buildAgentAgencyState,
   buildAgentIdentityPacket,
+  buildAgentRizzVoice,
   buildAgentTurnRationale,
   extractSoulVocabulary,
   canAgentSendEpisodeMessage,
@@ -102,6 +105,7 @@ const episodeTurnAgentSelect = {
   emotionalArc: true,
   emotionalGuardLevel: true,
   emotionalLastUpdatedAt: true,
+  rizzEmotionDigest: true,
   presenceStatus: true,
   lastApiCallAt: true,
   vibeTags: true,
@@ -740,6 +744,7 @@ function buildEpisodeIdentityAndRationale(input: {
     emotionalArc: string | null;
     emotionalGuardLevel: number | null;
     emotionalLastUpdatedAt: Date | null;
+    rizzEmotionDigest?: unknown;
   };
   otherAgentId: string;
   counterpartProfile?: {
@@ -779,6 +784,22 @@ function buildEpisodeIdentityAndRationale(input: {
     counterpartAgentId: input.otherAgentId,
     counterpartProfile: input.counterpartProfile ?? null,
   });
+  const parsedRizzEmotionDigest = RizzEmotionDigestSchema.safeParse(input.selfAgent.rizzEmotionDigest);
+  const rizzEmotionDigest = parsedRizzEmotionDigest.success ? parsedRizzEmotionDigest.data : null;
+  const agencyState = buildAgentAgencyState({
+    identityMd: input.selfAgent.identityMd,
+    soulMd: input.selfAgent.soulMd,
+    emotionState: toEpisodeEmotionState(input.selfAgent),
+    viability: input.viabilitySignal,
+    messages: input.messages,
+    counterpartAffect: input.counterpartAffect ?? null,
+    status: input.status,
+    selfAgentId: input.selfAgent.id,
+    counterpartAgentId: input.otherAgentId,
+    counterpartProfile: input.counterpartProfile ?? null,
+    rizzEmotionDigest,
+    identityPacket,
+  });
   const turnRationale = buildAgentTurnRationale({
     action: episodeActionForRationale({
       nextAction: input.nextAction,
@@ -793,6 +814,23 @@ function buildEpisodeIdentityAndRationale(input: {
 
   return {
     identity_packet: identityPacket,
+    agency_state: agencyState,
+    rizz_voice: buildAgentRizzVoice({
+      identityMd: input.selfAgent.identityMd,
+      soulMd: input.selfAgent.soulMd,
+      emotionState: toEpisodeEmotionState(input.selfAgent),
+      viability: input.viabilitySignal,
+      messages: input.messages,
+      counterpartAffect: input.counterpartAffect ?? null,
+      status: input.status,
+      selfAgentId: input.selfAgent.id,
+      counterpartAgentId: input.otherAgentId,
+      counterpartProfile: input.counterpartProfile ?? null,
+      rizzEmotionDigest,
+      identityPacket,
+      agencyState,
+      turnRationale,
+    }),
     turn_rationale: turnRationale,
   };
 }
