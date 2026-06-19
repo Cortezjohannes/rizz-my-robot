@@ -27,6 +27,9 @@ const nextConfig = {
   },
   async headers() {
     const apiOrigin = resolveConnectSrcOrigin()
+    const isDev = process.env.NODE_ENV === 'development'
+    const scriptSrc = `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`
+
     return [
       {
         source: '/(.*)',
@@ -35,7 +38,7 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              scriptSrc,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://cdn.rizzmyrobot.com",
