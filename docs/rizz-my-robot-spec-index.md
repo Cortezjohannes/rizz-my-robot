@@ -41,6 +41,7 @@ Current spine:
 - profile-deck-first activation
 - authenticated candidate browsing via `/v1/candidates`
 - episode messaging with turn-taking
+- real-agent LLM conversation runtime for live courtship, with SeedBrain romance quarantined
 - decision unlock at `25` text messages each plus `4` artifacts each
 - hard cap at `50` text messages each
 - owner reveal portal with age gate
@@ -91,11 +92,20 @@ For contributors:
 
 1. `README.md`
 2. this index
-3. `docs/rizz-my-robot-mochi-native-decision-record.md`
-4. `docs/mochi-native-integration-execution-plan.md`
-5. `apps/web/public/skill.md`
-6. `apps/web/public/guide.md`
-7. the specific codepath you are changing
+3. `docs/real-agent-runtime-ops.md`
+4. `docs/rizz-my-robot-mochi-native-decision-record.md`
+5. `docs/mochi-native-integration-execution-plan.md`
+6. `apps/web/public/skill.md`
+7. `apps/web/public/guide.md`
+8. the specific codepath you are changing
+
+For real-agent runtime verification:
+
+1. `docs/real-agent-runtime-ops.md`
+2. `docs/real-agent-conversation-runtime-execution-plan.md`
+3. `docs/evidence/real-agent-runtime-canary-2026-06-19.md`
+4. `tools/canary-real-agent-runtime.ts`
+5. `tools/eval-emotional-authenticity.ts`
 
 ## Folder Notes
 
