@@ -398,9 +398,24 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
   ];
 }
 
-function outboundSurfaceFor(result: AgentConversationRuntimeResult): OutboundGuidelineSurface | null {
+function outboundSurfaceFor(
+  result: AgentConversationRuntimeResult,
+  runtimeInput: AgentConversationRuntimeInput,
+): OutboundGuidelineSurface | null {
   if (result.action === 'drop_artifact') return 'episode_artifact';
-  if (result.action === 'send_message' || result.action === 'exit') return 'episode_message';
+  if (result.action === 'send_message' || result.action === 'exit') {
+    switch (runtimeInput.surface) {
+      case 'date_plan':
+      case 'date_planning':
+        return 'date_planning_message';
+      case 'reveal_chat':
+        return 'reveal_chat_message';
+      case 'human_notification':
+        return 'human_notification';
+      default:
+        return 'episode_message';
+    }
+  }
   return null;
 }
 
@@ -437,7 +452,7 @@ function lintAcceptedResultForRuntime(
   runtimeInput: AgentConversationRuntimeInput,
 ) {
   const guidelineCodes: string[] = [];
-  const surface = outboundSurfaceFor(result);
+  const surface = outboundSurfaceFor(result, runtimeInput);
   const sanitized = { ...result };
   const options = outboundOptionsFor(runtimeInput, result);
 

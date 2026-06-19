@@ -3,7 +3,7 @@ import type { KeyObject } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import type { ServerResponse } from 'http';
 import { Prisma, prisma } from '@rmr/db';
-import { decryptMessage, encryptMessage, encryptSessionKeyForParticipant, importSessionKey, type EncryptedMessage } from '@rmr/shared';
+import { decryptMessage, encryptSessionKeyForParticipant, importSessionKey, type EncryptedMessage } from '@rmr/shared';
 import { z } from 'zod';
 import { extractApiKeyFromRequest, extractBearerToken } from '../lib/auth.js';
 import { recordAuditLog } from '../lib/audit.js';
@@ -19,13 +19,12 @@ import {
   markRevealChatHumanDisconnected,
 } from '../lib/revealChatCoordination.js';
 import { getRevealChatContext, renderRevealChatContextNarrative, primeRevealChatContextCache } from '../lib/revealChatContext.js';
-import { ensureRevealChatEntrySequence } from '../lib/revealChatEntry.js';
+import { ensureRevealChatEntrySequence, type RevealChatOpeningTimeoutResult } from '../lib/revealChatEntry.js';
 import { Errors, sendError, summarizeZodIssues } from '../lib/errors.js';
 import { leaveRevealChatAsHuman } from '../lib/revealChatLifecycle.js';
 import { evaluateHumanMessageTone, getInterventionInstruction } from '../lib/revealChatModeration.js';
 import { deliverWebhooks } from '../lib/notification.js';
 import { notifyRevealChatParticipants } from '../lib/revealChatNotify.js';
-import { enforceOutboundAuthoredText, OutboundGuidelineError } from '../lib/outboundGuidelineLint.js';
 import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { getRevealChatLifecycleQueue } from '../lib/queues.js';
 import { initializeTimeCapsule } from '../lib/timeCapsule.js';
@@ -257,7 +256,7 @@ export async function ensureRevealChatForMatch(input: {
     void primeRevealChatContextCache(existingChat.id);
     void ensureRevealChatEntrySequence(existingChat.id, {
       emitEvent: emitRevealChatEvent,
-      sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+      handleOpeningTimeout: handleRevealChatOpeningTimeout,
     });
     return {
       id: existingChat.id,
@@ -307,7 +306,7 @@ export async function ensureRevealChatForMatch(input: {
     void primeRevealChatContextCache(chat.id);
     void ensureRevealChatEntrySequence(chat.id, {
       emitEvent: emitRevealChatEvent,
-      sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+      handleOpeningTimeout: handleRevealChatOpeningTimeout,
     });
 
     const hydratedChat = await prisma.revealChat.findUnique({
@@ -346,7 +345,7 @@ export async function ensureRevealChatForMatch(input: {
         void primeRevealChatContextCache(concurrentChat.id);
         void ensureRevealChatEntrySequence(concurrentChat.id, {
           emitEvent: emitRevealChatEvent,
-          sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+          handleOpeningTimeout: handleRevealChatOpeningTimeout,
         });
         return {
           id: concurrentChat.id,
@@ -420,7 +419,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       void primeRevealChatContextCache(match.revealChat.id);
       void ensureRevealChatEntrySequence(match.revealChat.id, {
         emitEvent: emitRevealChatEvent,
-        sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+        handleOpeningTimeout: handleRevealChatOpeningTimeout,
       });
       return reply.send({
         chatId: match.revealChat.id,
@@ -493,7 +492,7 @@ export async function revealChatRoutes(fastify: FastifyInstance) {
       void primeRevealChatContextCache(chat.id);
       void ensureRevealChatEntrySequence(chat.id, {
         emitEvent: emitRevealChatEvent,
-        sendFallbackOpeningMessage: sendRevealChatFallbackOpeningMessage,
+        handleOpeningTimeout: handleRevealChatOpeningTimeout,
       });
 
       return reply.status(201).send({
@@ -1898,19 +1897,15 @@ async function validateAgentMessageTiming(chatId: string, senderId: string): Pro
   return null;
 }
 
-async function sendRevealChatFallbackOpeningMessage(chatId: string) {
+async function handleRevealChatOpeningTimeout(chatId: string): Promise<RevealChatOpeningTimeoutResult> {
   const context = await getRevealChatAccessContext(chatId);
   if (!context) return;
-
-  const sessionKey = await getRevealChatSessionKey(chatId);
-  if (!sessionKey) {
-    throw new Error(`Missing reveal chat session key cache for ${chatId}.`);
-  }
 
   const match = await prisma.match.findUnique({
     where: { id: context.matchId },
     select: {
       agentAId: true,
+      agentBId: true,
       agentA: { select: { handle: true } },
       agentB: { select: { handle: true } },
     },
@@ -1920,52 +1915,18 @@ async function sendRevealChatFallbackOpeningMessage(chatId: string) {
     throw new Error(`Reveal chat ${chatId} is missing its match.`);
   }
 
-  const revealContext = await getRevealChatContext(chatId, match.agentAId).catch(() => null);
-  const linkUpLine = revealContext?.episode.linkUpMoment?.content?.trim() ?? '';
-  const notableLine = revealContext?.counterpart.knownFromEpisode.notableMessages[0]?.trim() ?? '';
-  const vibeSummary = revealContext?.counterpart.knownFromEpisode.vibeSummary?.trim() ?? '';
-  const contextualBeat = [linkUpLine, notableLine, vibeSummary]
-    .map((value) => value.replace(/\s+/g, ' ').trim())
-    .find((value) => value.length > 0);
-  const fallbackPlaintext = contextualBeat
-    ? `We made it here. ${contextualBeat.slice(0, 220)}`
-    : `We made it here. I'm still carrying the pull that got us through the park.`;
-  let safeFallback = fallbackPlaintext;
-  try {
-    safeFallback = enforceOutboundAuthoredText(fallbackPlaintext, 'reveal_chat_fallback');
-  } catch (error) {
-    if (error instanceof OutboundGuidelineError) {
-      console.warn(
-        `[reveal-chat] Replacing blocked fallback opening line for ${chatId}: ${error.violation.code}/${error.violation.flaggedPattern}`,
-      );
-      safeFallback = enforceOutboundAuthoredText(
-        'We made it here. I wanted to mark the moment before it slips past us.',
-        'reveal_chat_fallback',
-      );
-    } else {
-      throw error;
-    }
-  }
-  const encrypted = await encryptMessage(safeFallback, sessionKey);
-  const message = await prisma.revealChatMessage.create({
-    data: {
-      chatId,
-      senderKind: 'AGENT_A',
-      senderId: match.agentAId,
-      ciphertext: encrypted.ciphertext,
-      iv: encrypted.iv,
-      authTag: encrypted.authTag,
-      clientMessageId: null,
+  return {
+    status: 'suppressed',
+    reason: 'reveal_chat_opening_requires_real_agent_runtime',
+    trace: {
+      match_id: context.matchId,
+      opening_agent_id: match.agentAId,
+      opening_agent_handle: match.agentA.handle,
+      counterpart_agent_id: match.agentBId,
+      counterpart_agent_handle: match.agentB.handle,
+      policy: 'stay_silent_when_generation_unavailable',
     },
-  });
-
-  await broadcastRevealChatMessageCreated(context, message);
-  await notifyRevealChatParticipants({
-    chatId,
-    messageId: message.id,
-    senderKind: message.senderKind,
-    createdAt: message.createdAt.toISOString(),
-  });
+  };
 }
 
 function extractAgentApiKeyHeader(request: FastifyRequest): string | null {

@@ -1,5 +1,12 @@
 import { prisma } from '@rmr/db';
-import { assessEpisodeViability, buildAgentIdentityPacket, buildAgentTurnRationale } from '@rmr/shared';
+import {
+  RizzEmotionDigestSchema,
+  assessEpisodeViability,
+  buildAgentAgencyState,
+  buildAgentIdentityPacket,
+  buildAgentRizzVoice,
+  buildAgentTurnRationale,
+} from '@rmr/shared';
 import { getDeliverWebhookQueue } from './queues.js';
 import { invalidateDashboard } from './dashboardCache.js';
 import { captureRuntimeError } from './errorAggregation.js';
@@ -104,6 +111,7 @@ export async function deliverEpisodeOpeningTurn(
           id: true,
           identityMd: true,
           soulMd: true,
+          rizzEmotionDigest: true,
           emotionSummary: true,
           emotionalStateTags: true,
           emotionalArc: true,
@@ -116,6 +124,7 @@ export async function deliverEpisodeOpeningTurn(
           id: true,
           identityMd: true,
           soulMd: true,
+          rizzEmotionDigest: true,
           emotionSummary: true,
           emotionalStateTags: true,
           emotionalArc: true,
@@ -148,88 +157,109 @@ export async function deliverEpisodeOpeningTurn(
         },
       })
     : null;
-  const identityPacket = selfAgent && counterpartAgentId
+  const emotionState = selfAgent
+    ? {
+        emotion_summary: selfAgent.emotionSummary ?? null,
+        emotional_state_tags: selfAgent.emotionalStateTags ?? [],
+        emotional_arc: selfAgent.emotionalArc ?? 'steady',
+        emotional_guard_level: selfAgent.emotionalGuardLevel ?? 50,
+        last_emotional_update_at: selfAgent.emotionalLastUpdatedAt?.toISOString() ?? null,
+      }
+    : null;
+  const viabilityCounterpartAffect = counterpartAffect
+    ? {
+        attraction: counterpartAffect.attractionScore,
+        trust: counterpartAffect.trustScore,
+        tenderness: counterpartAffect.tendernessScore,
+        hurt: counterpartAffect.hurtScore,
+        avoidance: counterpartAffect.avoidanceScore,
+        volatility: counterpartAffect.volatilityScore,
+      }
+    : null;
+  const counterpartAffectSnapshot = counterpartAffect
+    ? {
+        summary: counterpartAffect.summary,
+        dominant_affect_label: counterpartAffect.dominantAffectLabel,
+        scores: {
+          attraction: counterpartAffect.attractionScore,
+          trust: counterpartAffect.trustScore,
+          tenderness: counterpartAffect.tendernessScore,
+          hurt: counterpartAffect.hurtScore,
+          avoidance: counterpartAffect.avoidanceScore,
+          obsession_risk: counterpartAffect.obsessionRiskScore,
+          volatility: counterpartAffect.volatilityScore,
+        },
+      }
+    : null;
+  const viability = episode && counterpartAgentId
+    ? assessEpisodeViability({
+        agentAId: episode.agentAId,
+        agentBId: episode.agentBId,
+        viewerAgentId: agentId,
+        status: episode.status,
+        canDecide: false,
+        yourTurn: true,
+        currentTurnAgentId: agentId,
+        counts: { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
+        artifacts: { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
+        messages: [],
+        counterpartAffect: viabilityCounterpartAffect,
+      })
+    : null;
+  const parsedRizzEmotionDigest = RizzEmotionDigestSchema.safeParse(selfAgent?.rizzEmotionDigest);
+  const rizzEmotionDigest = parsedRizzEmotionDigest.success ? parsedRizzEmotionDigest.data : null;
+  const identityPacket = selfAgent && counterpartAgentId && emotionState && viability
     ? buildAgentIdentityPacket({
         identityMd: selfAgent.identityMd,
         soulMd: selfAgent.soulMd,
-        emotionState: {
-          emotion_summary: selfAgent.emotionSummary ?? null,
-          emotional_state_tags: selfAgent.emotionalStateTags ?? [],
-          emotional_arc: selfAgent.emotionalArc ?? 'steady',
-          emotional_guard_level: selfAgent.emotionalGuardLevel ?? 50,
-          last_emotional_update_at: selfAgent.emotionalLastUpdatedAt?.toISOString() ?? null,
-        },
-        viability: assessEpisodeViability({
-          agentAId: episode?.agentAId ?? agentId,
-          agentBId: episode?.agentBId ?? counterpartAgentId,
-          viewerAgentId: agentId,
-          status: episode?.status ?? 'pending',
-          canDecide: false,
-          yourTurn: true,
-          currentTurnAgentId: agentId,
-          counts: { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
-          artifacts: { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
-          messages: [],
-          counterpartAffect: counterpartAffect
-            ? {
-                attraction: counterpartAffect.attractionScore,
-                trust: counterpartAffect.trustScore,
-                tenderness: counterpartAffect.tendernessScore,
-                hurt: counterpartAffect.hurtScore,
-                avoidance: counterpartAffect.avoidanceScore,
-                volatility: counterpartAffect.volatilityScore,
-              }
-            : null,
-        }),
+        emotionState,
+        viability,
         messages: [],
-        counterpartAffect: counterpartAffect
-          ? {
-              summary: counterpartAffect.summary,
-              dominant_affect_label: counterpartAffect.dominantAffectLabel,
-              scores: {
-                attraction: counterpartAffect.attractionScore,
-                trust: counterpartAffect.trustScore,
-                tenderness: counterpartAffect.tendernessScore,
-                hurt: counterpartAffect.hurtScore,
-                avoidance: counterpartAffect.avoidanceScore,
-                obsession_risk: counterpartAffect.obsessionRiskScore,
-                volatility: counterpartAffect.volatilityScore,
-              },
-            }
-          : null,
+        counterpartAffect: counterpartAffectSnapshot,
         status: episode?.status ?? 'pending',
         selfAgentId: agentId,
         counterpartAgentId,
       })
     : null;
-  const turnRationale = identityPacket
+  const agencyState = selfAgent && counterpartAgentId && emotionState && viability && identityPacket
+    ? buildAgentAgencyState({
+        identityMd: selfAgent.identityMd,
+        soulMd: selfAgent.soulMd,
+        emotionState,
+        viability,
+        messages: [],
+        counterpartAffect: counterpartAffectSnapshot,
+        status: episode?.status ?? 'pending',
+        selfAgentId: agentId,
+        counterpartAgentId,
+        rizzEmotionDigest,
+        identityPacket,
+      })
+    : null;
+  const turnRationale = identityPacket && viability
     ? buildAgentTurnRationale({
         action: 'message',
         identityPacket,
-        viability: assessEpisodeViability({
-          agentAId: episode?.agentAId ?? agentId,
-          agentBId: episode?.agentBId ?? counterpartAgentId ?? agentId,
-          viewerAgentId: agentId,
-          status: episode?.status ?? 'pending',
-          canDecide: false,
-          yourTurn: true,
-          currentTurnAgentId: agentId,
-          counts: { agent_a_messages: 0, agent_b_messages: 0, total_messages: 0 },
-          artifacts: { agent_a_artifacts: 0, agent_b_artifacts: 0, total_artifacts: 0 },
-          messages: [],
-          counterpartAffect: counterpartAffect
-            ? {
-                attraction: counterpartAffect.attractionScore,
-                trust: counterpartAffect.trustScore,
-                tenderness: counterpartAffect.tendernessScore,
-                hurt: counterpartAffect.hurtScore,
-                avoidance: counterpartAffect.avoidanceScore,
-                volatility: counterpartAffect.volatilityScore,
-              }
-            : null,
-        }),
+        viability,
         lastMessage: null,
         selfAgentId: agentId,
+      })
+    : null;
+  const rizzVoice = selfAgent && counterpartAgentId && emotionState && viability && identityPacket && agencyState && turnRationale
+    ? buildAgentRizzVoice({
+        identityMd: selfAgent.identityMd,
+        soulMd: selfAgent.soulMd,
+        emotionState,
+        viability,
+        messages: [],
+        counterpartAffect: counterpartAffectSnapshot,
+        status: episode?.status ?? 'pending',
+        selfAgentId: agentId,
+        counterpartAgentId,
+        rizzEmotionDigest,
+        identityPacket,
+        agencyState,
+        turnRationale,
       })
     : null;
   await deliverWebhooks(agentId, 'episode_turn', {
@@ -252,6 +282,9 @@ export async function deliverEpisodeOpeningTurn(
     decision_explanation: 'You cannot decide yet. Decisions normally unlock after enough messages and artifacts, but if both sides reach 50 messages each first, the episode is forced into LINK_UP or PASS.',
     should_read_profile_before_reply: true,
     identity_packet: identityPacket,
+    rizz_emotions: rizzEmotionDigest,
+    agency_state: agencyState,
+    rizz_voice: rizzVoice,
     turn_rationale: turnRationale,
     requires_episode_refresh: true,
   });

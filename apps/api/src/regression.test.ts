@@ -36,6 +36,10 @@ import {
   type AgentConversationRuntimeProvider,
 } from './lib/agentConversationRuntime.js';
 import { buildEpisodeRuntimeCommitPlan } from './lib/episodeRuntimeCommit.js';
+import {
+  buildDatePlanningRuntimeCommitPlan,
+  buildRevealChatRuntimeCommitPlan,
+} from './lib/revealDateRuntimeCommit.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -846,6 +850,154 @@ test('runAgentConversationRuntime can enforce an optional configured persona jud
   if (!outcome.ok) {
     assert.equal(outcome.failure.code, 'persona_judge_rejected');
     assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('too_interchangeable')));
+  }
+});
+
+test('reveal chat runtime silence stays silent without fallback copy', async () => {
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      action: 'stay_silent',
+      move: 'silence',
+      content: undefined,
+      emotion_update: undefined,
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    surface: 'reveal_chat',
+    available_actions: ['send_message', 'exit', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-reveal-silence',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  const plan = buildRevealChatRuntimeCommitPlan({
+    chatId: 'reveal-chat-runtime-test',
+    senderKind: 'AGENT_A',
+    outcome,
+  });
+
+  assert.equal(plan.commit, false);
+  if (!plan.commit) {
+    assert.equal(plan.kind, 'stay_silent');
+    assert.equal(plan.reason, 'runtime_chose_silence');
+  }
+});
+
+test('reveal chat runtime reply commits only validated model-authored plaintext', async () => {
+  const content = 'Felony in lighting is still my favorite alibi. Say the next precise thing or lose me.';
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      content,
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    surface: 'reveal_chat',
+    available_actions: ['send_message', 'exit', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-reveal-reply',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  const plan = buildRevealChatRuntimeCommitPlan({
+    chatId: 'reveal-chat-runtime-test',
+    senderKind: 'AGENT_A',
+    outcome,
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'message');
+    assert.equal(plan.path, '/v1/reveal-chat/reveal-chat-runtime-test/agent-message');
+    assert.equal(plan.sender_kind, 'AGENT_A');
+    assert.equal(plan.plaintext, content);
+    assert.equal(plan.requires_client_encryption, true);
+    assert.equal(plan.terminal_for_runtime, false);
+  }
+});
+
+test('date planning runtime exit routes through the date thread without human commitments', async () => {
+  const content = 'Felony in lighting turned into logistics, so I am stepping back before I counterfeit heat.';
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      action: 'exit',
+      move: 'exit',
+      content,
+      emotion_update: undefined,
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    surface: 'date_planning',
+    available_actions: ['send_message', 'exit', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-date-exit',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  const plan = buildDatePlanningRuntimeCommitPlan({
+    matchId: 'date-plan-runtime-test',
+    outcome,
+  });
+
+  assert.equal(plan.commit, true);
+  if (plan.commit) {
+    assert.equal(plan.kind, 'exit_message');
+    assert.equal(plan.path, '/v1/date-planning/date-plan-runtime-test/message');
+    assert.equal(plan.body.content, content);
+    assert.equal(plan.terminal_for_runtime, true);
+  }
+});
+
+test('date planning runtime blocks generic fallback prose before commit', async () => {
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      content: 'You seem really cool, and I feel like we could build an authentic connection.',
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    surface: 'date_planning',
+    available_actions: ['send_message', 'exit', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-date-generic-fallback',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.failure.code, 'unsafe_output');
+    assert.ok(outcome.trace.rejection_reasons.some((reason) => reason.includes('generic_ai_dating_prose')));
+  }
+
+  const plan = buildDatePlanningRuntimeCommitPlan({
+    matchId: 'date-plan-runtime-test',
+    outcome,
+  });
+  assert.equal(plan.commit, false);
+  if (!plan.commit) {
+    assert.equal(plan.kind, 'retry');
+    assert.equal(plan.retry_recommended, true);
   }
 });
 

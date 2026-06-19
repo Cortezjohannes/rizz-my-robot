@@ -21,6 +21,9 @@ export const AGENT_CONVERSATION_RUNTIME_SURFACE_VALUES = [
   'episode_decision',
   'episode_exit',
   'date_plan',
+  'date_planning',
+  'reveal_chat',
+  'human_notification',
   'profile_reaction',
   'webhook_turn',
 ] as const;
