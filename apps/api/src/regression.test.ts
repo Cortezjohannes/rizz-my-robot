@@ -5,6 +5,7 @@ import { prisma } from '@rmr/db';
 import {
   AGENT_CONVERSATION_RUNTIME_CONTRACT_VERSION,
   RIZZ_MOCHI_GAME_ID,
+  RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
   RIZZ_MOCHI_WAKE_HEADER_NAMES,
   RIZZ_MOCHI_NOOP_REASONS,
   REAL_AGENT_CONVERSATION_RUNTIME_POLICY,
@@ -1311,6 +1312,66 @@ test('Mochi wake verifier rejects duplicate idempotency keys', () => {
   if (duplicate.trusted) assert.fail('duplicate wake unexpectedly verified');
   assert.equal(duplicate.error, 'nonce_rejected');
   assert.equal(duplicate.message, 'duplicate idempotency key');
+});
+
+test('POST /v1/me/webhooks registers Mochi Gateway runtime capability metadata', async (t) => {
+  const now = new Date('2026-06-19T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+  const restoreCount = patchMethod(
+    prisma.webhook as unknown as Record<string, unknown>,
+    'count',
+    async () => 0,
+  );
+  const restoreCreate = patchMethod(
+    prisma.webhook as unknown as Record<string, unknown>,
+    'create',
+    async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'hook-mochi',
+      url: data.url,
+      events: data.events,
+      isActive: data.isActive,
+      createdAt: now,
+    }),
+  );
+
+  t.after(() => {
+    restoreCreate();
+    restoreCount();
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'POST',
+    url: '/v1/me/webhooks',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      url: 'http://localhost:3456/mochi',
+      events: [RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT],
+      secret: 'gateway-secret-0000000000000001',
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  const body = response.json();
+  assert.equal(body.webhook_id, 'hook-mochi');
+  assert.deepEqual(body.events, [RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT]);
+  assert.equal(body.runtime_capabilities.mochi_gateway.registered, true);
+  assert.equal(body.runtime_capabilities.mochi_gateway.event, RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT);
+  assert.equal(body.runtime_capabilities.mochi_gateway.signed_wake_events, true);
+  assert.equal(body.runtime_capabilities.mochi_gateway.wake_event_schema_version, '0.1.0');
+  assert.equal(body.runtime_capabilities.mochi_gateway.signature_algorithm, 'hmac-sha256-v0');
+  assert.equal(body.runtime_capabilities.mochi_gateway.signer_key_id, 'hook-mochi');
 });
 
 function patchMochiStateData(input: {

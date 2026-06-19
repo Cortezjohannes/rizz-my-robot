@@ -15,6 +15,7 @@ import {
   EPISODE_MIN_MESSAGES,
   MAX_TEXT_ARTIFACTS_PER_EPISODE,
 } from './episodeRules.js';
+import { RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT } from './mochiWake.js';
 import { TIER_LABEL_VALUES } from './tierLadder.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export {
@@ -147,12 +148,16 @@ export {
   RIZZ_MOCHI_WAKE_SIGNATURE_PREFIX,
   RIZZ_MOCHI_WAKE_DEFAULT_CLOCK_SKEW_MS,
   RIZZ_MOCHI_WAKE_HEADER_NAMES,
+  RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
+  RIZZ_MOCHI_LEGACY_WAKE_WEBHOOK_EVENTS,
   RIZZ_MOCHI_WAKE_REASON_MESSAGES,
   RIZZ_MOCHI_WAKE_REASON_URGENCY,
   RizzMochiWakeScopeSchema,
   RizzMochiWakePayloadRedactionLabelSchema,
   RizzMochiWakeUrgencySchema,
+  RizzMochiWebhookRuntimeCapabilitiesSchema,
   RizzMochiWakeEventSchema,
+  buildRizzMochiWebhookRuntimeCapabilities,
   buildRizzMochiWakeEvent,
   canonicalizeRizzMochiWakeJson,
   createRizzMochiWakeBodyDigest,
@@ -165,6 +170,7 @@ export {
   type RizzMochiWakeScope,
   type RizzMochiWakePayloadRedactionLabel,
   type RizzMochiWakeUrgency,
+  type RizzMochiWebhookRuntimeCapabilities,
   type RizzMochiWakeEvent,
   type RizzMochiWakeSignatureHeaders,
   type RizzMochiWakeSigner,
@@ -1250,6 +1256,7 @@ export const RegisterWebhookSchema = z.object({
         'link_up_not_mutual',
         'episode_ghosted',
         'episode_left',
+        RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
       ])
     )
     .min(1),

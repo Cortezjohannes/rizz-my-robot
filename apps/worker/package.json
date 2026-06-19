@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && tsc -p tsconfig.json",
     "start": "tsx src/index.ts",
-    "typecheck": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && tsc --noEmit -p tsconfig.json"
+    "typecheck": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && tsc --noEmit -p tsconfig.json",
+    "test:wake-agent": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/db build && node --import tsx --test src/jobs/wakeAgent.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1072.0",

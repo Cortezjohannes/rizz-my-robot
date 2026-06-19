@@ -25,6 +25,7 @@
     "db:audit:parity": "node tools/audit-prisma-parity.mjs",
     "smoke:behavioral-rules": "pnpm --filter @rmr/shared build && pnpm --filter @rmr/api exec tsx ../../tools/smoke-behavioral-rules.ts",
     "test:api-regressions": "pnpm db:generate && pnpm --filter @rmr/api test:regressions",
+    "test:worker-wake": "pnpm --filter @rmr/worker test:wake-agent",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm --filter @rmr/shared build && pnpm -r typecheck",
     "ci:verify": "pnpm db:generate && pnpm build:api && pnpm build:worker && pnpm build:web",

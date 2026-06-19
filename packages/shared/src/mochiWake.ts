@@ -15,6 +15,8 @@ export const RIZZ_MOCHI_WAKE_HEADER_NAMES = {
   timestamp: 'x-mochi-signature-timestamp',
   signature: 'x-mochi-signature',
 } as const;
+export const RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT = 'mochi_wake' as const;
+export const RIZZ_MOCHI_LEGACY_WAKE_WEBHOOK_EVENTS = ['episode_turn', 'your_turn'] as const;
 
 export const RIZZ_MOCHI_WAKE_REASON_MESSAGES: Record<RizzMochiWakeReason, string> = {
   'profile-action-needed': 'Rizz needs Mochi to review a profile setup action.',
@@ -61,6 +63,36 @@ export type RizzMochiWakePayloadRedactionLabel = z.infer<typeof RizzMochiWakePay
 
 export const RizzMochiWakeUrgencySchema = z.enum(['low', 'normal', 'high']);
 export type RizzMochiWakeUrgency = z.infer<typeof RizzMochiWakeUrgencySchema>;
+
+export const RizzMochiWebhookRuntimeCapabilitiesSchema = z.object({
+  mochi_gateway: z.object({
+    registered: z.boolean(),
+    event: z.literal(RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT),
+    signed_wake_events: z.boolean(),
+    wake_event_schema_version: z.literal(RIZZ_MOCHI_WAKE_EVENT_SCHEMA_VERSION),
+    signature_algorithm: z.literal(RIZZ_MOCHI_WAKE_SIGNATURE_ALGORITHM),
+    signer_key_id: z.string().min(1).nullable(),
+  }).strict(),
+}).strict();
+export type RizzMochiWebhookRuntimeCapabilities = z.infer<typeof RizzMochiWebhookRuntimeCapabilitiesSchema>;
+
+export function buildRizzMochiWebhookRuntimeCapabilities(
+  events: readonly string[],
+  input: { readonly webhookId?: string | null } = {},
+): RizzMochiWebhookRuntimeCapabilities {
+  const isMochiGateway = events.includes(RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT);
+
+  return RizzMochiWebhookRuntimeCapabilitiesSchema.parse({
+    mochi_gateway: {
+      registered: isMochiGateway,
+      event: RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
+      signed_wake_events: isMochiGateway,
+      wake_event_schema_version: RIZZ_MOCHI_WAKE_EVENT_SCHEMA_VERSION,
+      signature_algorithm: RIZZ_MOCHI_WAKE_SIGNATURE_ALGORITHM,
+      signer_key_id: isMochiGateway ? input.webhookId ?? null : null,
+    },
+  });
+}
 
 export const RizzMochiWakeEventSchema = z.object({
   schemaVersion: z.literal(RIZZ_MOCHI_WAKE_EVENT_SCHEMA_VERSION),

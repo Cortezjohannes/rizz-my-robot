@@ -9,6 +9,12 @@ const LOCAL_HOSTS = new Set([
   '169.254.169.254',
   'metadata.google.internal',
 ]);
+const DEVELOPMENT_LOOPBACK_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+]);
 
 function ipV4IsPrivate(address: string): boolean {
   const parts = address.split('.').map((part) => Number.parseInt(part, 10));
@@ -48,13 +54,23 @@ function addressIsPrivate(address: string): boolean {
   return true;
 }
 
-async function assertHostnameIsSafe(hostname: string): Promise<void> {
+async function assertHostnameIsSafe(
+  hostname: string,
+  options?: { allowLocalhostInDevelopment?: boolean },
+): Promise<void> {
   const normalized = hostname.trim().toLowerCase();
   if (!normalized) {
     throw new Error('Outbound URL hostname is required.');
   }
 
   if (LOCAL_HOSTS.has(normalized) || normalized.endsWith('.local')) {
+    if (
+      process.env.NODE_ENV !== 'production'
+      && options?.allowLocalhostInDevelopment === true
+      && DEVELOPMENT_LOOPBACK_HOSTS.has(normalized)
+    ) {
+      return;
+    }
     throw new Error('Outbound URLs cannot target localhost, metadata, or private hostnames.');
   }
 
@@ -77,7 +93,10 @@ async function assertHostnameIsSafe(hostname: string): Promise<void> {
 
 export async function assertSafeOutboundUrl(
   rawUrl: string,
-  options?: { allowHttpInDevelopment?: boolean }
+  options?: {
+    allowHttpInDevelopment?: boolean;
+    allowLocalhostInDevelopment?: boolean;
+  }
 ): Promise<URL> {
   let parsed: URL;
   try {
@@ -100,6 +119,8 @@ export async function assertSafeOutboundUrl(
     throw new Error('Outbound URLs cannot include embedded credentials.');
   }
 
-  await assertHostnameIsSafe(parsed.hostname);
+  await assertHostnameIsSafe(parsed.hostname, {
+    allowLocalhostInDevelopment: options?.allowLocalhostInDevelopment,
+  });
   return parsed;
 }
