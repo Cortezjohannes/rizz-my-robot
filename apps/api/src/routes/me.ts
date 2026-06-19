@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { prisma } from '@rmr/db';
+import { prisma, type Prisma } from '@rmr/db';
 import { z } from 'zod';
 import {
   HEARTBEAT_DEPRIORITIZE_MS,
@@ -82,6 +82,10 @@ import {
 import { authenticateAgentRequest } from '../lib/requestAuth.js';
 import { syncAgentXVerificationState } from '../lib/xVerificationSync.js';
 import { clearAgentSessionCookies, setAgentSessionCookies } from '../lib/webAuthCookies.js';
+import {
+  compileRizzEmotionMarkdown,
+  RIZZ_EMOTIONS_MARKDOWN_MAX_CHARS,
+} from '../lib/rizzEmotionDigest.js';
 
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const RequiredProfileActionConfirmSchema = z.object({
@@ -93,6 +97,10 @@ const OmnimonPresenceSchema = z.object({
 });
 const AgentWebSessionSchema = z.object({
   api_key: z.string().trim().min(1),
+});
+const RizzEmotionImportSchema = z.object({
+  markdown: z.string().max(RIZZ_EMOTIONS_MARKDOWN_MAX_CHARS),
+  source_path: z.string().trim().min(1).max(260).optional().default('rizzmyrobot/emotions.md'),
 });
 
 function computePoolPosition(lastActiveAt: Date | null): 'active' | 'deprioritized' | 'dormant' {
@@ -305,6 +313,9 @@ export async function meRoutes(fastify: FastifyInstance) {
           emotionalArc: true,
           emotionalGuardLevel: true,
           emotionalLastUpdatedAt: true,
+          rizzEmotionDigest: true,
+          rizzEmotionSourceHash: true,
+          rizzEmotionImportedAt: true,
         },
       }),
       deriveEmotionDriftSignal(agentId),
@@ -319,6 +330,9 @@ export async function meRoutes(fastify: FastifyInstance) {
       emotional_arc: agent.emotionalArc,
       emotional_guard_level: agent.emotionalGuardLevel,
       last_emotional_update_at: agent.emotionalLastUpdatedAt?.toISOString() ?? null,
+      rizz_emotion_digest: agent.rizzEmotionDigest,
+      rizz_emotion_source_hash: agent.rizzEmotionSourceHash,
+      rizz_emotion_imported_at: agent.rizzEmotionImportedAt?.toISOString() ?? null,
       drift_signal: driftSignal,
       drift_warning: driftSignal,
       ghost_recovery: ghostRecovery,
@@ -359,6 +373,54 @@ export async function meRoutes(fastify: FastifyInstance) {
     const response = await buildEmotionResponse(request.agent.id);
     if (!response) return Errors.notFound(reply, 'Agent');
     return reply.send(response);
+  };
+
+  const importRizzEmotionMarkdown = async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = RizzEmotionImportSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return Errors.badRequest(reply, 'Invalid RMR emotions markdown payload.', { issues: parsed.error.issues });
+    }
+
+    const importedAt = new Date();
+    const compiled = compileRizzEmotionMarkdown(parsed.data.markdown, {
+      sourcePath: parsed.data.source_path,
+      now: importedAt,
+    });
+    const structured = compiled.structuredEmotionUpdate;
+    const emotionFields: Prisma.AgentUpdateInput = {};
+
+    if (structured.emotionSummary !== undefined) emotionFields.emotionSummary = structured.emotionSummary;
+    if (structured.emotionalStateTags !== undefined) emotionFields.emotionalStateTags = structured.emotionalStateTags;
+    if (structured.emotionalArc !== undefined) emotionFields.emotionalArc = structured.emotionalArc;
+    if (structured.emotionalGuardLevel !== undefined) emotionFields.emotionalGuardLevel = structured.emotionalGuardLevel;
+    if (Object.keys(emotionFields).length > 0) emotionFields.emotionalLastUpdatedAt = importedAt;
+
+    await prisma.agent.update({
+      where: { id: request.agent.id },
+      data: {
+        rizzEmotionDigest: compiled.digest as unknown as Prisma.InputJsonValue,
+        rizzEmotionSourceHash: compiled.digest.source_hash,
+        rizzEmotionImportedAt: importedAt,
+        ...emotionFields,
+      },
+    });
+
+    await enqueueEmotionalContinuityRecompute(request.agent.id);
+
+    return reply.send({
+      status: 'rizz_emotions_imported',
+      source_hash: compiled.digest.source_hash,
+      source_emotions_md: compiled.digest.source_emotions_md,
+      rizz_emotion_imported_at: importedAt.toISOString(),
+      rizz_emotion_digest: compiled.digest,
+      structured_emotion_update: {
+        emotion_summary: structured.emotionSummary ?? null,
+        emotional_state_tags: structured.emotionalStateTags ?? [],
+        emotional_arc: structured.emotionalArc ?? null,
+        emotional_guard_level: structured.emotionalGuardLevel ?? null,
+      },
+      warnings: compiled.warnings,
+    });
   };
 
   const sendRizzHistory = async (
@@ -522,6 +584,9 @@ export async function meRoutes(fastify: FastifyInstance) {
           nextAutonomyRunAt: true,
           autonomyStatus: true,
           autonomyLastResult: true,
+          rizzEmotionDigest: true,
+          rizzEmotionSourceHash: true,
+          rizzEmotionImportedAt: true,
           createdAt: true,
           lastActiveAt: true,
           human: {
@@ -697,6 +762,9 @@ export async function meRoutes(fastify: FastifyInstance) {
       taste_fingerprint: tasteFingerprint,
       continuity_profile: continuitySnapshot ? serializeEmotionalContinuitySnapshot(continuitySnapshot) : null,
       taste_evolution: continuitySnapshot ? serializeTasteEvolution(continuitySnapshot) : null,
+      rizz_emotion_digest: agent.rizzEmotionDigest,
+      rizz_emotion_source_hash: agent.rizzEmotionSourceHash,
+      rizz_emotion_imported_at: agent.rizzEmotionImportedAt?.toISOString() ?? null,
       what_changed: continuitySnapshot?.retentionSummary ?? null,
       agent_era: continuitySnapshot?.currentEra ?? null,
       public_emotional_aura_labels: continuitySnapshot?.publicEmotionalAuraLabels ?? [],
@@ -1476,6 +1544,10 @@ export async function meRoutes(fastify: FastifyInstance) {
 
   fastify.put('/me/emotions', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
     return updateEmotionState(request, reply);
+  });
+
+  fastify.put('/me/rizz-emotions', { preHandler: requireAuth, config: { rateLimit: writeLimit } }, async (request, reply) => {
+    return importRizzEmotionMarkdown(request, reply);
   });
 
   fastify.get('/me/public-card', { preHandler: requireAuth, config: { rateLimit: readLimit } }, async (request, reply) => {

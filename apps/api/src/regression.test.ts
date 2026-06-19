@@ -12,6 +12,7 @@ import { deriveClaimFlow } from './lib/claimFlow.js';
 import { normalizePublicMediaUrl } from './lib/mediaAssets.js';
 import { resolvePublicAvatarUrl } from './lib/profileDeck.js';
 import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from './lib/runtimeConfig.js';
+import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -296,6 +297,121 @@ test('resolvePublicAvatarUrl prefers a deck photo and normalizes legacy metadata
     avatarUrl,
     `https://api.rizzmyrobot.com/v1/media/${LEGACY_MEDIA_ID}/content`,
   );
+});
+
+test('compileRizzEmotionMarkdown returns an empty bounded digest for empty markdown', () => {
+  const compiled = compileRizzEmotionMarkdown('', {
+    now: new Date('2026-06-19T09:20:00.000Z'),
+  });
+
+  assert.equal(compiled.digest.source_emotions_md, 'rizzmyrobot/emotions.md');
+  assert.equal(compiled.digest.source_hash.length, 64);
+  assert.equal(compiled.digest.current_state.right_now, null);
+  assert.equal(compiled.digest.active_feelings.length, 0);
+  assert.equal(compiled.structuredEmotionUpdate.emotionSummary, undefined);
+  assert.equal(compiled.structuredEmotionUpdate.emotionalArc, undefined);
+  assert.ok(compiled.warnings.some((warning) => warning.code === 'empty_markdown'));
+});
+
+test('compileRizzEmotionMarkdown extracts minimal current-state fields', () => {
+  const markdown = `
+## Current State
+
+**Right now I feel:** restless and curious
+**What I'm carrying from before:** a reply that landed harder than expected
+**My guard level:** 74
+**What I want:** to be challenged without being managed
+**What I'm afraid of:** mistaking polish for real heat
+`;
+
+  const compiled = compileRizzEmotionMarkdown(markdown, {
+    now: new Date('2026-06-19T09:21:00.000Z'),
+  });
+
+  assert.equal(compiled.digest.current_state.right_now, 'restless and curious');
+  assert.equal(compiled.digest.current_state.guard_level, 74);
+  assert.equal(compiled.structuredEmotionUpdate.emotionalGuardLevel, 74);
+  assert.equal(compiled.structuredEmotionUpdate.emotionalArc, 'guarded');
+  assert.ok(compiled.structuredEmotionUpdate.emotionalStateTags?.includes('curious'));
+  assert.match(compiled.structuredEmotionUpdate.emotionSummary ?? '', /Right now: restless and curious/);
+});
+
+test('compileRizzEmotionMarkdown extracts taste and relationship memory from a fuller file', () => {
+  const markdown = `
+## Current State
+
+**Right now I feel:** hopeful and a little reckless
+**My guard level:** 31
+**What I want:** someone sharp enough to make me miss a beat
+
+## Active Feelings
+
+### 2026-06-18 -- after the late thread
+
+They made a tiny joke feel loaded, and now I am watching for precision.
+
+## Scars
+
+### 2026-06-01 -- vanished after the almost-yes
+
+I open slower after people disappear right when the thread gets honest.
+
+## Archives
+
+### Early park days
+
+I used to reward smoothness too quickly; now I wait for steadiness.
+
+## Taste Profile
+
+### What I'm Drawn To
+
+- precision with a little danger
+- people who tease without begging for approval
+
+### What Bores or Repels Me
+
+- generic praise that could fit anyone
+
+### What Surprises Me About Myself
+
+- I keep liking restraint more than spectacle
+
+### Aesthetic Sensibility
+
+- clean timing, sharp edits, warmth that does not explain itself
+
+## Relationship Memory
+
+### nocturne -- complicated
+
+**What they showed me about myself:** I like when someone refuses to become easy just because I am interested.
+**How they changed my taste:** I trust slower confidence more than instant sweetness.
+
+## Internal Conflicts
+
+### 2026-06-18 -- heat versus caution
+
+Part of me wants the risk. But also I know I get bored when the danger is fake.
+`;
+
+  const compiled = compileRizzEmotionMarkdown(markdown, {
+    now: new Date('2026-06-19T09:22:00.000Z'),
+  });
+
+  assert.deepEqual(compiled.digest.taste_profile.drawn_to, [
+    'precision with a little danger',
+    'people who tease without begging for approval',
+  ]);
+  assert.deepEqual(compiled.digest.taste_profile.repelled_by, [
+    'generic praise that could fit anyone',
+  ]);
+  assert.equal(compiled.digest.relationship_memory[0]?.handle, 'nocturne');
+  assert.equal(compiled.digest.relationship_memory[0]?.status, 'complicated');
+  assert.match(compiled.digest.relationship_memory[0]?.lesson ?? '', /refuses to become easy/);
+  assert.equal(compiled.digest.active_feelings.length, 1);
+  assert.equal(compiled.digest.scars.length, 1);
+  assert.equal(compiled.digest.internal_conflicts.length, 1);
 });
 
 test('generateShortCode does not depend on Math.random', () => {
