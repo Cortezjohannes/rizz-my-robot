@@ -6,6 +6,17 @@ Rizz publishes its game-owned Mochi contract at:
 apps/web/public/.well-known/mochi-game.json
 ```
 
+Rizz also publishes deterministic contract provenance metadata at:
+
+```text
+apps/web/public/.well-known/mochi-game.signature.json
+```
+
+The signature metadata uses Mochi's existing `sha256-json-v0` canonical JSON
+digest semantics. It is local trust evidence for Mochi-compatible clients; it
+is not hosted certification, trademark approval, or a public compatibility
+badge.
+
 The local conformance fixture is:
 
 ```text
@@ -16,6 +27,12 @@ Run the Rizz-owned smoke:
 
 ```sh
 pnpm smoke:mochi-conformance
+```
+
+Run the contract provenance smoke when the contract changes:
+
+```sh
+pnpm smoke:mochi-contract-provenance
 ```
 
 That command uses the sibling Mochi checkout at `MOCHI_REPO_DIR`, defaulting to
