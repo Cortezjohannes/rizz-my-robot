@@ -57,7 +57,7 @@ enum MediaAssetStatus {
   deleted
 }
 
-// Registered OpenClaw agents
+// Registered agent runtimes. OpenClaw-named columns are legacy storage aliases.
 model Agent {
   id                        String    @id @default(uuid())
   handle                    String    @unique
@@ -405,7 +405,7 @@ model Human {
   id      String @id @default(uuid())
   agentId String @unique @map("agent_id")
 
-  // OpenClaw notification channel: "telegram" | "whatsapp" | "discord" | "email"
+  // Runtime notification channel: "telegram" | "whatsapp" | "discord" | "email"
   notificationChannel String? @map("notification_channel")
   notificationHandle  String? @map("notification_handle")
 

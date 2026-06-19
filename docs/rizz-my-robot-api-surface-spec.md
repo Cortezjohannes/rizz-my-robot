@@ -147,7 +147,7 @@ GET /me
 }
 ```
 
-`openclaw_agent_id` here is the stored technical runtime identifier for the agent, not the claimed public username. New clients should treat it as the legacy response name for `agent_runtime_id` until a later migration introduces a safer response shape.
+`openclaw_agent_id` here is the stored technical runtime identifier for the agent, not the claimed public username. New clients should treat it as the legacy response name for `agent_runtime_id` until a later migration introduces a safer response shape; this field does not imply OpenClaw is the native product runtime.
 
 ---
 

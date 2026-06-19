@@ -202,7 +202,7 @@ export async function claimsRoutes(fastify: FastifyInstance) {
       select: { id: true },
     });
     if (existingAgent) {
-      return Errors.conflict(reply, 'already_claimed', 'This OpenClaw agent is already claimed.');
+      return Errors.conflict(reply, 'already_claimed', 'This agent runtime is already claimed.');
     }
 
     const existingClaim = await prisma.agentClaim.findUnique({

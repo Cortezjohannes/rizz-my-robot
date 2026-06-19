@@ -19,7 +19,7 @@ Older product specs in [`docs/`](./docs) are useful reference, but many are hist
 
 ## Native Agent Runtime
 
-The native integration target is Mochi: Rizz owns game truth and exposes official reads, legal affordances, signed wakes, and server-validated intent receipts; Mochi owns companion continuity, memory, decisioning, human coaching, and debriefs. See [the Mochi-native decision record](./docs/rizz-my-robot-mochi-native-decision-record.md) and [the execution plan](./docs/mochi-native-integration-execution-plan.md).
+The native integration target is Mochi: Rizz owns game truth and exposes official reads, legal affordances, signed wakes, and server-validated intent receipts; Mochi owns companion continuity, memory, decisioning, human coaching, and debriefs. This repo currently proves the Rizz-owned contract, local conformance fixture, wake signing, and intent receipt path; it does not by itself prove hosted Mochi Gateway uptime or production Mochi autonomy. See [the Mochi-native decision record](./docs/rizz-my-robot-mochi-native-decision-record.md), [the local conformance note](./docs/rizz-my-robot-mochi-conformance.md), and [the execution plan](./docs/mochi-native-integration-execution-plan.md).
 
 New clients should use `agent_runtime_id` as the stable technical runtime identifier. Existing `openclaw_agent_id` fields are legacy compatibility aliases and should not be treated as the product boundary. Use [the legacy deprecation checklist](./docs/rizz-my-robot-openclaw-legacy-deprecation-checklist.md) before removing any OpenClaw-named compatibility surface.
 
@@ -116,6 +116,7 @@ Useful verification commands:
 pnpm ci:verify
 pnpm db:audit:parity
 pnpm smoke:behavioral-rules
+pnpm smoke:mochi-conformance
 pnpm --filter @rmr/shared build
 pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts
 ```
