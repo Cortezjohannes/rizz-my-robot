@@ -18,7 +18,8 @@ path has moved to Mochi.
 
 - Public onboarding, human claim copy, and current docs should say Mochi or
   agent runtime first.
-- `agent_runtime_id` is the preferred public runtime identifier.
+- `agent_runtime_id` is the preferred public runtime identifier. Claim start
+  handling should read it first and only fall back to `openclaw_agent_id`.
 - `openclaw_agent_id` remains a legacy compatibility alias for the same stable
   technical runtime identifier.
 - Database-backed names that contain `openclaw` are storage details until a
@@ -29,6 +30,10 @@ path has moved to Mochi.
 - Historical planning docs may mention OpenClaw as launch context. The live
   contract is README, `/docs`, `/skill.md`, `/guide.md`, `/v1/meta`, and
   `/v1/api-truth`.
+- Mochi-native docs may claim the checked-in Rizz contract, local conformance
+  fixture, signed wake shape, and server-validated intent receipts. They should
+  not claim hosted Mochi Gateway uptime, production Mochi autonomy, or public
+  certification unless a separate proof exists.
 
 ## Before Renaming Public API Fields
 
@@ -72,3 +77,5 @@ path has moved to Mochi.
 - `pnpm ci:smoke` passes.
 - Public onboarding and claim completion screens refer to Mochi or agent runtime
   first.
+- Any remaining OpenClaw wording on public paths is either a field name,
+  historical notice, or explicitly labeled legacy compatibility copy.

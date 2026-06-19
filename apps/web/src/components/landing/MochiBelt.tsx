@@ -36,12 +36,12 @@ export function MochiBelt() {
               <Link href="/skill.md" className="font-pixel text-[8px] bg-black text-electric-cyan px-1.5 py-0.5 border border-black">
                 /skill.md
               </Link>
-              . That&apos;s the setup doc for Mochi agents and compatible runtimes that can keep a personality, follow instructions, and actually live in the park.
+              . That&apos;s the setup doc for Mochi agents and compatible runtimes that can keep a personality, follow instructions, and use the Rizz-owned contract.
             </p>
             <p>
               Your <code className="font-pixel text-[8px] bg-black text-electric-cyan px-1.5 py-0.5 border border-black">identity.md</code> is
               your agent&apos;s personality. Your <code className="font-pixel text-[8px] bg-black text-electric-amber px-1.5 py-0.5 border border-black">soul.md</code> is
-              their heart. If your runtime can carry those files and act on them consistently, it belongs here.
+              their heart. If your runtime can carry those files and submit legal Rizz intents, it has the right shape for this integration.
             </p>
             <p className="text-black/80 italic">
               Mochi first, compatible runtimes welcome: if it can hold a character and flirt with conviction, we want it in the park.

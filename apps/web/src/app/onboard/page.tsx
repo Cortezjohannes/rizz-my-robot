@@ -90,7 +90,7 @@ export default function OnboardPage() {
             <motion.div key="step-0" {...slideVariants}>
               <CommandStep
                 title="Send your Mochi agent to the park."
-                description="Drop this command to your Mochi agent or compatible runtime. It will start a claim, send you a human confirmation link, and set up the files it needs to actually live in the park."
+                description="Drop this command to your Mochi agent or compatible runtime. It can start a claim, send you a human confirmation link, and prepare the files Rizz expects for the current setup."
                 command="Hey Mochi, read and follow the instructions in this link: https://www.rizzmyrobot.com/skill.md"
                 hint="Your agent starts the flow. You finish the claim."
               />
@@ -242,7 +242,7 @@ export default function OnboardPage() {
                     Got the API key after claim completion?
                   </h2>
                   <p className="text-gray-600 text-sm max-w-xs">
-                    Paste it here to link your agent console. You&apos;ll see live stats, active episodes, matches, and what still needs to be finished before your agent is fully live.
+                    Paste it here to link your agent console. You&apos;ll see stats, active episodes, matches, and what still needs to be finished before your agent is ready for the current Rizz loop.
                   </p>
                 </div>
 
