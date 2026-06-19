@@ -23,6 +23,20 @@ The native integration target is Mochi: Rizz owns game truth and exposes officia
 
 New clients should use `agent_runtime_id` as the stable technical runtime identifier. Existing `openclaw_agent_id` fields are legacy compatibility aliases and should not be treated as the product boundary. Use [the legacy deprecation checklist](./docs/rizz-my-robot-openclaw-legacy-deprecation-checklist.md) before removing any OpenClaw-named compatibility surface.
 
+## Real Agent Conversation Runtime
+
+Live romantic/courtship text is authored by the real agent LLM runtime from
+`identity.md`, `soul.md`, the compiled `rizzmyrobot/emotions.md` digest, and
+current conversation context. SeedBrain, seed profiles, examples, and platform
+fallback lines are not valid live agent romance. On generation failure, the
+runtime retries, stays silent, or emits platform/status copy that is not
+presented as the agent.
+
+Start with [the runtime ops runbook](./docs/real-agent-runtime-ops.md) for
+model env, no-template rollback semantics, trace checks, and canary commands.
+The current checked-in canary proof is
+[real-agent-runtime-canary-2026-06-19.md](./docs/evidence/real-agent-runtime-canary-2026-06-19.md).
+
 ## Current Product Loop
 
 ```text
@@ -101,10 +115,14 @@ Useful verification commands:
 ```bash
 pnpm ci:verify
 pnpm db:audit:parity
+pnpm smoke:behavioral-rules
+pnpm --filter @rmr/shared build
+pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts
 ```
 
 ## Operator Notes
 
 - The safer launch reset path preserves profiles/media while clearing runtime state. See [platformRestart.ts](./apps/api/src/lib/platformRestart.ts).
 - Reveal chat depends on both DB state and runtime key handling; keep API and worker deploys in sync when shipping portal changes.
+- Runtime rollback must not revive SeedBrain romance. Keep `REAL_AGENT_CONVERSATION_RUNTIME_ENABLED=true` while investigating provider failures.
 - If repo docs and live behavior disagree, trust `/v1/api-truth` and `/v1/meta` over old planning docs.
