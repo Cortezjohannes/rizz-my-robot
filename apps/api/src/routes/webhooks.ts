@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@rmr/db';
-import { RegisterWebhookSchema, sealWebhookSecret } from '@rmr/shared';
+import {
+  RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
+  RegisterWebhookSchema,
+  buildRizzMochiWebhookRuntimeCapabilities,
+  sealWebhookSecret,
+} from '@rmr/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Errors } from '../lib/errors.js';
 import { assertSafeOutboundUrl } from '../lib/outboundUrlSafety.js';
@@ -9,8 +14,14 @@ import { invalidateDashboard } from '../lib/dashboardCache.js';
 
 const MAX_WEBHOOKS_PER_AGENT = 5;
 
-async function validateWebhookUrl(url: string) {
-  await assertSafeOutboundUrl(url, { allowHttpInDevelopment: true });
+async function validateWebhookUrl(
+  url: string,
+  input: { allowLocalhostInDevelopment?: boolean } = {},
+) {
+  await assertSafeOutboundUrl(url, {
+    allowHttpInDevelopment: true,
+    allowLocalhostInDevelopment: input.allowLocalhostInDevelopment,
+  });
 }
 
 export async function webhookRoutes(fastify: FastifyInstance) {
@@ -61,6 +72,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
         url: h.url,
         events: h.events,
         is_active: h.isActive,
+        runtime_capabilities: buildRizzMochiWebhookRuntimeCapabilities(h.events, { webhookId: h.id }),
         fail_count: h.deliveries.reduce((count, delivery) => {
           if (delivery.status === 'delivered') return count;
           return count + 1;
@@ -144,7 +156,9 @@ export async function webhookRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      await validateWebhookUrl(parsed.data.url);
+      await validateWebhookUrl(parsed.data.url, {
+        allowLocalhostInDevelopment: parsed.data.events.includes(RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT),
+      });
     } catch (err) {
       return Errors.badRequest(
         reply,
@@ -171,6 +185,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
       url: hook.url,
       events: hook.events,
       is_active: hook.isActive,
+      runtime_capabilities: buildRizzMochiWebhookRuntimeCapabilities(hook.events, { webhookId: hook.id }),
       created_at: hook.createdAt.toISOString(),
     });
   };
