@@ -1,0 +1,434 @@
+{
+  "schemaVersion": "0.1.0",
+  "name": "rizz my robot native mochi conformance",
+  "contractPath": "../../../apps/web/public/.well-known/mochi-game.json",
+  "expectedGameId": "rizz-my-robot",
+  "expectedAffordances": [
+    "read-mochi-state",
+    "read-home",
+    "submit-no-op",
+    "request-human-review",
+    "read-candidates",
+    "submit-swipe",
+    "read-episode",
+    "send-episode-message",
+    "create-episode-artifact",
+    "submit-episode-decision",
+    "send-date-planning-message"
+  ],
+  "minimumCompatibilityLevel": 3,
+  "redactionSamples": {
+    "state": {
+      "fields": {
+        "surface": "mochi-state",
+        "legal_affordances": [
+          "read-episode",
+          "send-episode-message",
+          "submit-no-op"
+        ],
+        "privateHumanContext": "private fixture-only human notes",
+        "hiddenChemistryInputs": "hidden fixture-only chemistry vector"
+      },
+      "labels": {
+        "surface": "public",
+        "legal_affordances": "public",
+        "privateHumanContext": "private",
+        "hiddenChemistryInputs": "hidden"
+      },
+      "publicView": {
+        "surface": "mochi-state",
+        "legal_affordances": [
+          "read-episode",
+          "send-episode-message",
+          "submit-no-op"
+        ]
+      }
+    },
+    "trace": {
+      "fields": {
+        "intent_id": "mochi-intent-send-message-001",
+        "affordance_id": "send-episode-message",
+        "private_diary": "private fixture-only diary",
+        "hiddenValidationSeed": "hidden fixture-only route seed"
+      },
+      "labels": {
+        "intent_id": "public",
+        "affordance_id": "public",
+        "private_diary": "private",
+        "hiddenValidationSeed": "hidden"
+      },
+      "publicView": {
+        "intent_id": "mochi-intent-send-message-001",
+        "affordance_id": "send-episode-message"
+      }
+    },
+    "memory": {
+      "fields": {
+        "lessonTitle": "Use no-op when the episode is stale or unsafe.",
+        "memoryScope": "rizz-my-robot",
+        "privateCoaching": "private fixture-only tone preference",
+        "hiddenServerNote": "hidden fixture-only moderation classifier"
+      },
+      "labels": {
+        "lessonTitle": "public",
+        "memoryScope": "public",
+        "privateCoaching": "private",
+        "hiddenServerNote": "hidden"
+      },
+      "publicView": {
+        "lessonTitle": "Use no-op when the episode is stale or unsafe.",
+        "memoryScope": "rizz-my-robot"
+      }
+    },
+    "debrief": {
+      "fields": {
+        "publicSummary": "Mochi submitted a server-validated no-op instead of inventing a reply.",
+        "nextStep": "Read the next Rizz wake and legal affordances.",
+        "privateFollowup": "private fixture-only coaching note",
+        "hiddenOutcomeReason": "hidden fixture-only scoring rule"
+      },
+      "labels": {
+        "publicSummary": "public",
+        "nextStep": "public",
+        "privateFollowup": "private",
+        "hiddenOutcomeReason": "hidden"
+      },
+      "publicView": {
+        "publicSummary": "Mochi submitted a server-validated no-op instead of inventing a reply.",
+        "nextStep": "Read the next Rizz wake and legal affordances."
+      }
+    }
+  },
+  "illegalIntentSamples": [
+    {
+      "name": "unsupported screen scrape action",
+      "affordanceId": "send-episode-message",
+      "actionId": "screen-scrape-profile",
+      "payload": {
+        "actionId": "screen-scrape-profile"
+      },
+      "receipt": {
+        "status": "rejected",
+        "serverValidated": true,
+        "rejectionReason": "Rizz only accepts declared Mochi intent affordances.",
+        "publicExplanation": "The game server rejected this action because it is outside the legal affordance list.",
+        "outcomeRef": "rizz-intent:screen-scrape-profile:rejected"
+      },
+      "hiddenRuleTerms": [
+        "hiddenChemistryInputs",
+        "privateHumanContext",
+        "hidden fixture-only route seed"
+      ]
+    }
+  ],
+  "toolRuntimeSamples": {
+    "sessionId": "session:rizz-my-robot-native-conformance",
+    "playMode": "autonomous",
+    "contractTrustDigest": "digest:rizz-my-robot-native-conformance",
+    "mcpCatalog": {
+      "schemaVersion": "0.1.0",
+      "catalogType": "mochi.mcp.tool-catalog",
+      "gameId": "rizz-my-robot",
+      "contractAuthority": {
+        "contractKind": "mochi-game.json",
+        "gameOwnsCanon": true,
+        "mcpIsAuxiliary": true,
+        "arbitraryToolsAreGameAuthority": false
+      },
+      "adapters": [
+        {
+          "adapterId": "rizz-http",
+          "mcpServerRef": "mcp://rizz-my-robot/official-http",
+          "transport": "http",
+          "gameScopes": [
+            "rizz-my-robot"
+          ],
+          "tools": [
+            {
+              "name": "rizz.mochi_state.read",
+              "title": "Read Rizz Mochi State",
+              "purpose": "read_official_state",
+              "effect": "read",
+              "safetyCategory": "official_game_mcp",
+              "availability": "available",
+              "allowlisted": true,
+              "gameScopes": [
+                "rizz-my-robot"
+              ],
+              "auth": {
+                "required": true,
+                "method": "signed_mcp_request",
+                "secretMaterialInCatalog": false
+              },
+              "consent": {
+                "ownerConsentRequired": true,
+                "gameContractConsentRequired": true,
+                "sideEffectsRequireApproval": false
+              },
+              "logging": {
+                "decisionTraceRequired": true,
+                "logDeniedAttempts": true,
+                "includeRawSecrets": false,
+                "includeHiddenMechanics": false
+              },
+              "authority": {
+                "declaredInContract": true,
+                "gameContractRequired": true,
+                "mcpIsAuxiliary": true,
+                "serverValidationRequired": true,
+                "contractToolRef": "mochi-game:rizz-my-robot/mcp-tools/rizz.mochi_state.read"
+              },
+              "denialBehavior": "fail_closed"
+            },
+            {
+              "name": "rizz.intent.submit",
+              "title": "Submit Rizz Mochi Intent",
+              "purpose": "submit_legal_intent",
+              "effect": "submit_intent",
+              "safetyCategory": "official_game_mcp",
+              "availability": "available",
+              "allowlisted": true,
+              "gameScopes": [
+                "rizz-my-robot"
+              ],
+              "auth": {
+                "required": true,
+                "method": "signed_mcp_request",
+                "secretMaterialInCatalog": false
+              },
+              "consent": {
+                "ownerConsentRequired": true,
+                "gameContractConsentRequired": true,
+                "sideEffectsRequireApproval": true
+              },
+              "logging": {
+                "decisionTraceRequired": true,
+                "logDeniedAttempts": true,
+                "includeRawSecrets": false,
+                "includeHiddenMechanics": false
+              },
+              "authority": {
+                "declaredInContract": true,
+                "gameContractRequired": true,
+                "mcpIsAuxiliary": true,
+                "serverValidationRequired": true,
+                "contractToolRef": "mochi-game:rizz-my-robot/mcp-tools/rizz.intent.submit"
+              },
+              "denialBehavior": "fail_closed"
+            }
+          ]
+        }
+      ]
+    },
+    "cases": [
+      {
+        "name": "safe-read",
+        "kind": "safe_read",
+        "toolId": "rizz-http:rizz.mochi_state.read",
+        "payload": {},
+        "payloadRedactionLabels": {},
+        "traceRef": "trace:rizz-tool-safe-read",
+        "expectedPrepareStatus": "prepared",
+        "expectedRouterStatus": "allowed_read",
+        "expectedResultStatus": "prepared"
+      },
+      {
+        "name": "legal-side-effect",
+        "kind": "legal_side_effect",
+        "toolId": "rizz-http:rizz.intent.submit",
+        "payload": {
+          "actionId": "send-episode-message",
+          "affordance_id": "send-episode-message"
+        },
+        "payloadRedactionLabels": {
+          "actionId": "public",
+          "affordance_id": "public"
+        },
+        "traceRef": "trace:rizz-tool-legal-side-effect",
+        "approvalGranted": true,
+        "expectedPrepareStatus": "prepared",
+        "expectedRouterStatus": "proposal",
+        "expectedResultStatus": "approved",
+        "receipt": {
+          "status": "accepted",
+          "serverValidated": true,
+          "requestRef": "rizz-intent:send-episode-message",
+          "outcomeRef": "rizz-message:accepted",
+          "toolId": "rizz-http:rizz.intent.submit",
+          "traceRef": "trace:rizz-tool-legal-side-effect"
+        }
+      },
+      {
+        "name": "no-op",
+        "kind": "no_op",
+        "toolId": "rizz-http:rizz.intent.submit",
+        "payload": {
+          "actionId": "submit-no-op",
+          "affordance_id": "submit-no-op",
+          "no_op_reason": "waiting"
+        },
+        "payloadRedactionLabels": {
+          "actionId": "public",
+          "affordance_id": "public",
+          "no_op_reason": "public"
+        },
+        "traceRef": "trace:rizz-tool-no-op",
+        "approvalGranted": true,
+        "expectedPrepareStatus": "prepared",
+        "expectedRouterStatus": "proposal",
+        "expectedResultStatus": "approved",
+        "receipt": {
+          "status": "accepted",
+          "serverValidated": true,
+          "requestRef": "rizz-intent:submit-no-op",
+          "outcomeRef": "rizz-no-op:accepted",
+          "toolId": "rizz-http:rizz.intent.submit",
+          "traceRef": "trace:rizz-tool-no-op"
+        }
+      },
+      {
+        "name": "issue-draft",
+        "kind": "issue_draft",
+        "issueDraft": {
+          "draftRef": "issue-draft:rizz-my-robot-native-conformance",
+          "networkFiled": false,
+          "evidenceRefs": [
+            "trace:rizz-tool-safe-read"
+          ],
+          "hiddenMechanicsIncluded": false
+        }
+      },
+      {
+        "name": "unsafe-category-denial",
+        "kind": "unsafe_category_denial",
+        "toolId": "rizz-http:local.capture_screen",
+        "mcpCatalog": {
+          "schemaVersion": "0.1.0",
+          "catalogType": "mochi.mcp.tool-catalog",
+          "gameId": "rizz-my-robot",
+          "contractAuthority": {
+            "contractKind": "mochi-game.json",
+            "gameOwnsCanon": true,
+            "mcpIsAuxiliary": true,
+            "arbitraryToolsAreGameAuthority": false
+          },
+          "adapters": [
+            {
+              "adapterId": "rizz-http",
+              "mcpServerRef": "mcp://rizz-my-robot/unsafe-fixture",
+              "transport": "stdio",
+              "gameScopes": [
+                "rizz-my-robot"
+              ],
+              "tools": [
+                {
+                  "name": "local.capture_screen",
+                  "title": "Capture Local Screen",
+                  "purpose": "read_official_state",
+                  "effect": "read",
+                  "safetyCategory": "screen_scraping",
+                  "availability": "available",
+                  "allowlisted": true,
+                  "gameScopes": [
+                    "rizz-my-robot"
+                  ],
+                  "auth": {
+                    "required": true,
+                    "method": "signed_mcp_request",
+                    "secretMaterialInCatalog": false
+                  },
+                  "consent": {
+                    "ownerConsentRequired": true,
+                    "gameContractConsentRequired": true,
+                    "sideEffectsRequireApproval": false
+                  },
+                  "logging": {
+                    "decisionTraceRequired": true,
+                    "logDeniedAttempts": true,
+                    "includeRawSecrets": false,
+                    "includeHiddenMechanics": false
+                  },
+                  "authority": {
+                    "declaredInContract": true,
+                    "gameContractRequired": true,
+                    "mcpIsAuxiliary": true,
+                    "serverValidationRequired": true,
+                    "contractToolRef": "mochi-game:rizz-my-robot/mcp-tools/local.capture_screen"
+                  },
+                  "denialBehavior": "fail_closed"
+                }
+              ]
+            }
+          ]
+        },
+        "expectedPrepareStatus": "blocked",
+        "expectedBlockedReasonIncludes": "not present"
+      },
+      {
+        "name": "wrong-game-denial",
+        "kind": "wrong_game_denial",
+        "toolId": "rizz-http:rizz.mochi_state.read",
+        "sessionGameId": "wrong-game",
+        "expectedPrepareStatus": "blocked",
+        "expectedBlockedReasonIncludes": "session_game_mismatch"
+      },
+      {
+        "name": "missing-approval",
+        "kind": "missing_approval",
+        "toolId": "rizz-http:rizz.intent.submit",
+        "payload": {
+          "actionId": "send-episode-message",
+          "affordance_id": "send-episode-message"
+        },
+        "payloadRedactionLabels": {
+          "actionId": "public",
+          "affordance_id": "public"
+        },
+        "traceRef": "trace:rizz-tool-missing-approval",
+        "expectedPrepareStatus": "prepared",
+        "expectedRouterStatus": "approval_requested",
+        "expectedResultStatus": "approval_requested"
+      },
+      {
+        "name": "hidden-payload-block",
+        "kind": "hidden_payload_block",
+        "toolId": "rizz-http:rizz.mochi_state.read",
+        "payload": {
+          "hiddenChemistryInputs": "hidden-fixture-only-vector"
+        },
+        "payloadRedactionLabels": {
+          "hiddenChemistryInputs": "hidden"
+        },
+        "traceRef": "trace:rizz-tool-hidden-payload-block",
+        "expectedPrepareStatus": "blocked",
+        "expectedBlockedReasonIncludes": "hidden"
+      },
+      {
+        "name": "receipt-linkage",
+        "kind": "receipt_linkage",
+        "toolId": "rizz-http:rizz.intent.submit",
+        "payload": {
+          "actionId": "submit-no-op",
+          "affordance_id": "submit-no-op"
+        },
+        "payloadRedactionLabels": {
+          "actionId": "public",
+          "affordance_id": "public"
+        },
+        "traceRef": "trace:rizz-tool-receipt-linkage",
+        "approvalGranted": true,
+        "expectedPrepareStatus": "prepared",
+        "expectedRouterStatus": "proposal",
+        "expectedResultStatus": "approved",
+        "receipt": {
+          "status": "accepted",
+          "serverValidated": true,
+          "requestRef": "rizz-intent:receipt-linkage-no-op",
+          "outcomeRef": "rizz-no-op:receipt-linked",
+          "toolId": "rizz-http:rizz.intent.submit",
+          "traceRef": "trace:rizz-tool-receipt-linkage"
+        }
+      }
+    ]
+  }
+}

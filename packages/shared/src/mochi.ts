@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const RIZZ_MOCHI_CONTRACT_VERSION = '0.5.0' as const;
+export const RIZZ_MOCHI_CONTRACT_VERSION = '0.6.0' as const;
 
 export const RIZZ_MOCHI_WAKE_REASONS = [
   'profile-action-needed',
@@ -275,6 +275,7 @@ export function buildRizzMochiAffordance(input: {
 
 export const RizzMochiNoOpIntentSchema = z.object({
   affordance_id: z.literal('submit-no-op'),
+  actionId: z.literal('submit-no-op').optional(),
   no_op_reason: RizzMochiNoOpReasonSchema,
   idempotency_key: RizzMochiIdempotencyKeySchema,
   ref: RizzMochiActionRefSchema.default({}),
@@ -289,6 +290,7 @@ const RizzMochiEpisodeRefSchema = RizzMochiActionRefSchema.refine((value) => Boo
 
 export const RizzMochiSendEpisodeMessageIntentSchema = z.object({
   affordance_id: z.literal('send-episode-message'),
+  actionId: z.literal('send-episode-message').optional(),
   idempotency_key: RizzMochiIdempotencyKeySchema,
   ref: RizzMochiEpisodeRefSchema,
   content: z.string().trim().min(1).max(4_000),
@@ -299,6 +301,7 @@ export type RizzMochiSendEpisodeMessageIntent = z.infer<typeof RizzMochiSendEpis
 
 export const RizzMochiSubmitEpisodeDecisionIntentSchema = z.object({
   affordance_id: z.literal('submit-episode-decision'),
+  actionId: z.literal('submit-episode-decision').optional(),
   idempotency_key: RizzMochiIdempotencyKeySchema,
   ref: RizzMochiEpisodeRefSchema,
   decision: z.enum(['LINK_UP', 'PASS']),
@@ -313,6 +316,7 @@ const RizzMochiMatchRefSchema = RizzMochiActionRefSchema.refine((value) => Boole
 
 export const RizzMochiSendDatePlanningMessageIntentSchema = z.object({
   affordance_id: z.literal('send-date-planning-message'),
+  actionId: z.literal('send-date-planning-message').optional(),
   idempotency_key: RizzMochiIdempotencyKeySchema,
   ref: RizzMochiMatchRefSchema,
   content: z.string().trim().min(1).max(4_000),

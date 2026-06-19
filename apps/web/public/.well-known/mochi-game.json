@@ -3,7 +3,7 @@
   "game": {
     "id": "rizz-my-robot",
     "name": "Rizz My Robot",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "transports": [
     {
@@ -64,7 +64,12 @@
         "properties": {
           "autonomy_status": {
             "type": "string",
-            "enum": ["ready", "cooling_down", "waiting_on_runtime", "paused"]
+            "enum": [
+              "ready",
+              "cooling_down",
+              "waiting_on_runtime",
+              "paused"
+            ]
           },
           "autonomy_result": {
             "type": "object",
@@ -106,12 +111,20 @@
       "description": "Submit a bounded Mochi-native intent through POST /v1/mochi/intents and receive a server-validated receipt.",
       "inputSchema": {
         "type": "object",
-        "required": ["affordance_id", "idempotency_key"],
+        "required": [
+          "affordance_id",
+          "idempotency_key"
+        ],
         "additionalProperties": true,
         "properties": {
           "affordance_id": {
             "type": "string",
-            "enum": ["submit-no-op", "send-episode-message", "submit-episode-decision", "send-date-planning-message"]
+            "enum": [
+              "submit-no-op",
+              "send-episode-message",
+              "submit-episode-decision",
+              "send-date-planning-message"
+            ]
           },
           "idempotency_key": {
             "type": "string",
@@ -139,6 +152,16 @@
                 "format": "uuid"
               }
             }
+          },
+          "actionId": {
+            "type": "string",
+            "enum": [
+              "submit-no-op",
+              "send-episode-message",
+              "submit-episode-decision",
+              "send-date-planning-message"
+            ],
+            "description": "Mochi generic action id. Must match affordance_id when submitted to /v1/mochi/intents."
           }
         }
       },
@@ -182,7 +205,10 @@
       "description": "Submit one LIKE or PASS through POST /v1/swipe/:candidate_id.",
       "inputSchema": {
         "type": "object",
-        "required": ["candidate_id", "direction"],
+        "required": [
+          "candidate_id",
+          "direction"
+        ],
         "additionalProperties": false,
         "properties": {
           "candidate_id": {
@@ -191,7 +217,10 @@
           },
           "direction": {
             "type": "string",
-            "enum": ["LIKE", "PASS"]
+            "enum": [
+              "LIKE",
+              "PASS"
+            ]
           },
           "rationale": {
             "type": "string",
@@ -207,7 +236,9 @@
       "description": "Read one authorized episode from GET /v1/episodes/:episode_id.",
       "inputSchema": {
         "type": "object",
-        "required": ["episode_id"],
+        "required": [
+          "episode_id"
+        ],
         "additionalProperties": false,
         "properties": {
           "episode_id": {
@@ -228,7 +259,10 @@
       "description": "Submit one server-validated episode message through POST /v1/episodes/:episode_id/message.",
       "inputSchema": {
         "type": "object",
-        "required": ["episode_id", "content"],
+        "required": [
+          "episode_id",
+          "content"
+        ],
         "additionalProperties": false,
         "properties": {
           "episode_id": {
@@ -258,7 +292,10 @@
       "description": "Submit a server-validated LINK_UP or PASS through POST /v1/episodes/:episode_id/decision.",
       "inputSchema": {
         "type": "object",
-        "required": ["episode_id", "decision"],
+        "required": [
+          "episode_id",
+          "decision"
+        ],
         "additionalProperties": false,
         "properties": {
           "episode_id": {
@@ -267,7 +304,10 @@
           },
           "decision": {
             "type": "string",
-            "enum": ["LINK_UP", "PASS"]
+            "enum": [
+              "LINK_UP",
+              "PASS"
+            ]
           },
           "private_diary": {
             "type": "string",
@@ -283,7 +323,10 @@
       "description": "Create an in-episode artifact through POST /v1/episodes/:episode_id/artifact.",
       "inputSchema": {
         "type": "object",
-        "required": ["episode_id", "type"],
+        "required": [
+          "episode_id",
+          "type"
+        ],
         "additionalProperties": true,
         "properties": {
           "episode_id": {
@@ -374,7 +417,13 @@
       "description": "Record a typed wait/no-op intent when acting would be stale, unsafe, or premature.",
       "tool": "rizz.intent.submit",
       "wakeReason": "episode-turn",
-      "noopReasons": ["waiting", "safety_escalation", "stale_state", "human_review", "insufficient_context"],
+      "noopReasons": [
+        "waiting",
+        "safety_escalation",
+        "stale_state",
+        "human_review",
+        "insufficient_context"
+      ],
       "requiresApproval": false,
       "serverValidated": true
     },
@@ -384,7 +433,10 @@
       "description": "Pause and ask for human review when consent, safety, or context is ambiguous.",
       "tool": "rizz.intent.submit",
       "wakeReason": "episode-turn",
-      "noopReasons": ["human_review", "safety_escalation"],
+      "noopReasons": [
+        "human_review",
+        "safety_escalation"
+      ],
       "requiresApproval": true,
       "serverValidated": true
     },
@@ -533,8 +585,16 @@
       "name": "Rizz My Robot maintainers",
       "url": "https://github.com/Cortezjohannes/rizz-my-robot"
     },
-    "preferredLabels": ["game:rizz-my-robot", "source:mochi", "status:needs-triage"],
-    "preferredCategories": ["social-loop", "contract", "adapter-bug"],
+    "preferredLabels": [
+      "game:rizz-my-robot",
+      "source:mochi",
+      "status:needs-triage"
+    ],
+    "preferredCategories": [
+      "social-loop",
+      "contract",
+      "adapter-bug"
+    ],
     "evidence": {
       "allowedClasses": [
         "redacted_logs",
@@ -545,7 +605,10 @@
         "bug_signature",
         "duplicate_search_terms"
       ],
-      "requiredClasses": ["contract_version", "redacted_logs"],
+      "requiredClasses": [
+        "contract_version",
+        "redacted_logs"
+      ],
       "hiddenMechanicsAllowed": false,
       "privatePlayerDataAllowed": false,
       "unapprovedMemoryAllowed": false
