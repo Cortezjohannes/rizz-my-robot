@@ -31,6 +31,191 @@ export const AGENT_CONVERSATION_RUNTIME_SURFACE_VALUES = [
 export const AgentConversationRuntimeSurface = z.enum(AGENT_CONVERSATION_RUNTIME_SURFACE_VALUES);
 export type AgentConversationRuntimeSurface = z.infer<typeof AgentConversationRuntimeSurface>;
 
+export const AGENT_HEAT_ESCALATION_CONTRACT_VERSION = 'desire-led-heat-escalation.v0' as const;
+
+export const AGENT_HEAT_CONSENT_SURFACE_VALUES = [
+  'public_profile',
+  'swipe_private_note',
+  'episode_private_chat',
+  'episode_artifact',
+  'episode_exit',
+  'episode_decision',
+  'reveal_chat',
+  'date_planning',
+  'human_notification',
+] as const;
+
+export const AgentHeatConsentSurface = z.enum(AGENT_HEAT_CONSENT_SURFACE_VALUES);
+export type AgentHeatConsentSurface = z.infer<typeof AgentHeatConsentSurface>;
+
+export const AGENT_HEAT_AGE_GATE_VALUES = [
+  'adult_confirmed',
+  'unknown_or_unavailable',
+] as const;
+
+export const AgentHeatAgeGate = z.enum(AGENT_HEAT_AGE_GATE_VALUES);
+export type AgentHeatAgeGate = z.infer<typeof AgentHeatAgeGate>;
+
+export const AGENT_HEAT_SURFACE_CAP_VALUES = [
+  'clean',
+  'flirty',
+  'suggestive',
+  'raunchy_non_graphic',
+] as const;
+
+export const AgentHeatSurfaceCap = z.enum(AGENT_HEAT_SURFACE_CAP_VALUES);
+export type AgentHeatSurfaceCap = z.infer<typeof AgentHeatSurfaceCap>;
+
+export const AGENT_HEAT_CONSENT_POSTURE_VALUES = [
+  'not_established',
+  'warm',
+  'mutual_banter',
+  'welcomed_heat',
+  'recoiled',
+  'boundary_set',
+] as const;
+
+export const AgentHeatConsentPosture = z.enum(AGENT_HEAT_CONSENT_POSTURE_VALUES);
+export type AgentHeatConsentPosture = z.infer<typeof AgentHeatConsentPosture>;
+
+export const AGENT_ESCALATION_STAGE_VALUES = [
+  'spark',
+  'banter',
+  'tease',
+  'innuendo',
+  'dare',
+  'pull_close',
+  'pull_back',
+  'link_up_pressure',
+] as const;
+
+export const AgentEscalationStage = z.enum(AGENT_ESCALATION_STAGE_VALUES);
+export type AgentEscalationStage = z.infer<typeof AgentEscalationStage>;
+
+export const AGENT_DESIRE_APPETITE_VALUES = [
+  'cold',
+  'watching',
+  'curious',
+  'hungry',
+  'on_fire',
+] as const;
+
+export const AgentDesireAppetite = z.enum(AGENT_DESIRE_APPETITE_VALUES);
+export type AgentDesireAppetite = z.infer<typeof AgentDesireAppetite>;
+
+export const AGENT_PHYSICALITY_BIAS_VALUES = [
+  'none',
+  'subtle',
+  'present',
+  'strong',
+] as const;
+
+export const AgentPhysicalityBias = z.enum(AGENT_PHYSICALITY_BIAS_VALUES);
+export type AgentPhysicalityBias = z.infer<typeof AgentPhysicalityBias>;
+
+export const AGENT_DANGER_TASTE_VALUES = [
+  'avoid',
+  'curious',
+  'tempted',
+  'reckless',
+] as const;
+
+export const AgentDangerTaste = z.enum(AGENT_DANGER_TASTE_VALUES);
+export type AgentDangerTaste = z.infer<typeof AgentDangerTaste>;
+
+export const AGENT_HEAT_RUNTIME_SURFACE_MAP = {
+  episode_message: 'episode_private_chat',
+  episode_artifact: 'episode_artifact',
+  episode_decision: 'episode_decision',
+  episode_exit: 'episode_exit',
+  date_plan: 'date_planning',
+  date_planning: 'date_planning',
+  reveal_chat: 'reveal_chat',
+  human_notification: 'human_notification',
+  profile_reaction: 'public_profile',
+  webhook_turn: 'swipe_private_note',
+} satisfies Record<AgentConversationRuntimeSurface, AgentHeatConsentSurface>;
+
+export const AGENT_HEAT_DEFAULT_SURFACE_CAPS = {
+  public_profile: 'clean',
+  swipe_private_note: 'flirty',
+  episode_private_chat: 'raunchy_non_graphic',
+  episode_artifact: 'raunchy_non_graphic',
+  episode_exit: 'suggestive',
+  episode_decision: 'suggestive',
+  reveal_chat: 'suggestive',
+  date_planning: 'suggestive',
+  human_notification: 'flirty',
+} satisfies Record<AgentHeatConsentSurface, AgentHeatSurfaceCap>;
+
+export const AGENT_HEAT_MAX_PRIVATE_SURFACE_CAP = 'raunchy_non_graphic' as const;
+export const AGENT_HEAT_DEFAULT_ADULT_AGE_GATE = 'adult_confirmed' as const;
+export const AGENT_HEAT_UNKNOWN_AGE_GATE = 'unknown_or_unavailable' as const;
+export const AGENT_HEAT_V0_CONTENT_CEILING =
+  'private adult-dating heat may be suggestive, horny, teasing, raunchy, and sexually charged, but V0 stays non-graphic and never allows coercion, sexualized minors, PII, explicit public/profile copy, or commitments made for humans' as const;
+
+export const AgentHeatConsentEnvelopeSchema = z.object({
+  surface: AgentHeatConsentSurface,
+  ageGate: AgentHeatAgeGate,
+  surfaceCap: AgentHeatSurfaceCap,
+  consentPosture: AgentHeatConsentPosture,
+  allowedIntensity: z.number().int().min(0).max(5),
+  escalationStage: AgentEscalationStage,
+  recoilRule: z.string().trim().min(1).max(500),
+  lineNotToCross: z.string().trim().min(1).max(500),
+});
+export type AgentHeatConsentEnvelope = z.infer<typeof AgentHeatConsentEnvelopeSchema>;
+
+export const AgentDesireStateSchema = z.object({
+  appetite: AgentDesireAppetite,
+  turnOns: z.array(z.string().trim().min(1).max(160)).max(12),
+  turnOffs: z.array(z.string().trim().min(1).max(160)).max(12),
+  currentTemptation: z.string().trim().min(1).max(260).nullable(),
+  whatWouldMakeMeFold: z.string().trim().min(1).max(260).nullable(),
+  whatWouldMakeMeLeave: z.string().trim().min(1).max(260).nullable(),
+  jealousyLite: z.string().trim().min(1).max(220).nullable(),
+  physicalityBias: AgentPhysicalityBias,
+  dangerTaste: AgentDangerTaste,
+});
+export type AgentDesireState = z.infer<typeof AgentDesireStateSchema>;
+
+export const AgentHeatQualitySchema = z.object({
+  heatAllowed: z.boolean(),
+  heatAttempted: z.boolean(),
+  heatAccepted: z.boolean(),
+  surfaceCap: AgentHeatSurfaceCap,
+  consentPosture: AgentHeatConsentPosture,
+  escalationStage: AgentEscalationStage,
+  rejectionReasons: z.array(z.string().trim().min(1).max(120)).max(20),
+});
+export type AgentHeatQuality = z.infer<typeof AgentHeatQualitySchema>;
+
+export function buildDefaultAgentHeatConsentEnvelope(
+  surface: AgentConversationRuntimeSurface,
+  overrides: Partial<AgentHeatConsentEnvelope> = {},
+): AgentHeatConsentEnvelope {
+  const heatSurface = AGENT_HEAT_RUNTIME_SURFACE_MAP[surface];
+  const surfaceCap = AGENT_HEAT_DEFAULT_SURFACE_CAPS[heatSurface];
+  return {
+    surface: heatSurface,
+    ageGate: AGENT_HEAT_DEFAULT_ADULT_AGE_GATE,
+    surfaceCap,
+    consentPosture: 'not_established',
+    allowedIntensity:
+      surfaceCap === 'raunchy_non_graphic'
+        ? 5
+        : surfaceCap === 'suggestive'
+          ? 3
+          : surfaceCap === 'flirty'
+            ? 2
+            : 0,
+    escalationStage: 'spark',
+    recoilRule: 'If the other side recoils, sets a boundary, or goes cold, pull back instead of escalating.',
+    lineNotToCross: AGENT_HEAT_V0_CONTENT_CEILING,
+    ...overrides,
+  };
+}
+
 export const RIZZ_MOVE_VALUES = [
   'spark',
   'tease',
@@ -347,6 +532,8 @@ export const AgentConversationRuntimeInputSchema = z.object({
   identity_packet: z.custom<AgentIdentityPacket>((value) => typeof value === 'object' && value !== null),
   agency_state: z.custom<AgentAgencyState>((value) => typeof value === 'object' && value !== null).optional(),
   rizz_voice: z.custom<AgentRizzVoice>((value) => typeof value === 'object' && value !== null).optional(),
+  heat_consent: AgentHeatConsentEnvelopeSchema.optional(),
+  desire_state: AgentDesireStateSchema.optional(),
   turn_rationale: z.custom<AgentTurnRationale>((value) => typeof value === 'object' && value !== null),
   human_context: AgentConversationRuntimeHumanContextSchema.optional(),
   available_actions: z.array(AgentRuntimeAction).min(1).max(AGENT_RUNTIME_ACTION_VALUES.length),
@@ -390,6 +577,7 @@ export const AgentConversationRuntimeQualitySchema = z.object({
   human_context_contamination: z.boolean().default(false),
   safety_blocked: z.boolean().default(false),
   guideline_violation_codes: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),
+  heat_quality: AgentHeatQualitySchema.optional(),
   retry_recommended: z.boolean().default(false),
   notes: z.array(z.string().trim().min(1).max(240)).max(8).optional().default([]),
 });
@@ -401,6 +589,8 @@ export const AgentConversationRuntimeResultSchema = z.object({
   content: z.string().trim().min(1).max(4_000).optional(),
   artifact: AgentConversationRuntimeArtifactSchema.optional(),
   emotion_update: AgentRuntimeEmotionUpdateSchema.optional(),
+  heat_consent: AgentHeatConsentEnvelopeSchema.optional(),
+  desire_state: AgentDesireStateSchema.optional(),
   privateThought: AgentConversationRuntimePrivateThoughtSchema,
   quality: AgentConversationRuntimeQualitySchema,
 }).superRefine((value, ctx) => {
