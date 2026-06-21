@@ -85,6 +85,13 @@ export interface AgentTasteLedgerView {
   bored_by: string[];
   turn_offs: string[];
   dangerous_exceptions: string[];
+  turn_on: string[];
+  made_me_blush: string[];
+  wanted_more: string[];
+  heat_worked: string[];
+  heat_backfired: string[];
+  crossed_line: string[];
+  gave_ick: string[];
   aesthetic_sensibility: string[];
   relationship_lessons: string[];
   reflections: string[];
@@ -311,6 +318,10 @@ function buildTasteLedger(input: {
       continuityLedger?.drawn_to,
       continuityLedger?.unexpectedly_into,
       continuityLedger?.dangerous_exceptions,
+      continuityLedger?.turn_on,
+      continuityLedger?.made_me_blush,
+      continuityLedger?.wanted_more,
+      continuityLedger?.heat_worked,
       input.soulVocab.values,
     ),
     repelled_by: mergeSignals(
@@ -320,6 +331,9 @@ function buildTasteLedger(input: {
       continuityLedger?.repelled_by,
       continuityLedger?.bored_by,
       continuityLedger?.turn_offs,
+      continuityLedger?.heat_backfired,
+      continuityLedger?.crossed_line,
+      continuityLedger?.gave_ick,
       [input.soulVocab.dealbreaker],
     ),
     surprises: mergeSignals(
@@ -327,10 +341,19 @@ function buildTasteLedger(input: {
       digest?.taste_profile.surprises,
       continuityLedger?.unexpectedly_into,
       continuityLedger?.dangerous_exceptions,
+      continuityLedger?.made_me_blush,
+      continuityLedger?.wanted_more,
     ),
     bored_by: mergeSignals(6, continuityLedger?.bored_by),
     turn_offs: mergeSignals(6, continuityLedger?.turn_offs),
     dangerous_exceptions: mergeSignals(6, continuityLedger?.dangerous_exceptions),
+    turn_on: mergeSignals(6, continuityLedger?.turn_on),
+    made_me_blush: mergeSignals(6, continuityLedger?.made_me_blush),
+    wanted_more: mergeSignals(6, continuityLedger?.wanted_more),
+    heat_worked: mergeSignals(6, continuityLedger?.heat_worked),
+    heat_backfired: mergeSignals(6, continuityLedger?.heat_backfired),
+    crossed_line: mergeSignals(6, continuityLedger?.crossed_line),
+    gave_ick: mergeSignals(6, continuityLedger?.gave_ick),
     aesthetic_sensibility: mergeSignals(6, digest?.taste_profile.aesthetic_sensibility),
     relationship_lessons: mergeSignals(6, relationshipLessons, input.continuity?.taste_reflections),
     reflections: mergeSignals(6, input.continuity?.taste_reflections),
@@ -343,6 +366,7 @@ function deriveHeat(input: {
   viability: EpisodeViabilityAssessment;
   counterpartAffect?: CounterpartAffectSnapshot | null;
   continuity?: AgentRuntimeContinuityProfile | null;
+  tasteLedger?: AgentTasteLedgerView;
   rizzEmotionDigest?: RizzEmotionDigest | null;
 }) {
   const scores = input.counterpartAffect?.scores ?? {};
@@ -362,6 +386,14 @@ function deriveHeat(input: {
     /\b(guard|careful|slow|skeptical|repelled|dealbreaker|never tolerate|turned off)\b/,
     /\bdo not\b/,
   ]);
+  const workedHeatSignals =
+    (input.tasteLedger?.heat_worked.length ?? 0)
+    + (input.tasteLedger?.wanted_more.length ?? 0)
+    + (input.tasteLedger?.turn_on.length ?? 0);
+  const failedHeatSignals =
+    (input.tasteLedger?.heat_backfired.length ?? 0)
+    + (input.tasteLedger?.crossed_line.length ?? 0)
+    + (input.tasteLedger?.gave_ick.length ?? 0);
 
   let heat = 30;
   heat += (scores.attraction ?? 0) * 0.32;
@@ -377,6 +409,8 @@ function deriveHeat(input: {
   heat += Math.max(0, 42 - guard) * 0.16;
   heat += hungerSignals * 5;
   heat -= cautionSignals * 4;
+  heat += Math.min(workedHeatSignals, 4) * 2.5;
+  heat -= Math.min(failedHeatSignals, 4) * 4.5;
 
   if (['glowing', 'opening', 'hopeful', 'confident'].includes(arc)) heat += 9;
   if (['detached', 'guarded', 'burned', 'wounded', 'icked_out', 'disgusted'].includes(arc)) heat -= 12;
@@ -463,6 +497,8 @@ function deriveDangerTaste(input: {
     input.soulMd,
     ...input.tasteLedger.dangerous_exceptions,
     ...input.tasteLedger.surprises,
+    ...input.tasteLedger.heat_worked,
+    ...input.tasteLedger.wanted_more,
   ].join(' ').toLowerCase();
   const dangerSignals = countMatches(text, [
     /\b(risk|danger|reckless|trouble|bad idea|volatile|electric|messy)\b/,
@@ -489,6 +525,10 @@ function deriveDesireState(input: {
   const turnOns = mergeSignals(
     12,
     input.attractionVectors,
+    input.tasteLedger.wanted_more,
+    input.tasteLedger.heat_worked,
+    input.tasteLedger.turn_on,
+    input.tasteLedger.made_me_blush,
     input.tasteLedger.drawn_to,
     input.tasteLedger.surprises,
     input.counterpartModel.intrigued_by,
@@ -499,6 +539,9 @@ function deriveDesireState(input: {
     12,
     input.ickSignals,
     input.boundaries,
+    input.tasteLedger.crossed_line,
+    input.tasteLedger.gave_ick,
+    input.tasteLedger.heat_backfired,
     input.tasteLedger.repelled_by,
     input.tasteLedger.bored_by,
     input.tasteLedger.turn_offs,
@@ -1200,6 +1243,7 @@ export function buildAgentAgencyState(input: BuildAgentAgencyStateInput): AgentA
     viability: input.viability,
     counterpartAffect: input.counterpartAffect,
     continuity: input.continuity,
+    tasteLedger,
     rizzEmotionDigest: input.rizzEmotionDigest,
   });
   const guard = input.rizzEmotionDigest?.current_state.guard_level

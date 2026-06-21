@@ -9,6 +9,13 @@ export const TASTE_LEDGER_CATEGORIES = [
   'bored_by',
   'turn_offs',
   'dangerous_exceptions',
+  'turn_on',
+  'made_me_blush',
+  'wanted_more',
+  'heat_worked',
+  'heat_backfired',
+  'crossed_line',
+  'gave_ick',
 ] as const;
 
 export type TasteLedgerCategory = (typeof TASTE_LEDGER_CATEGORIES)[number];
@@ -30,6 +37,13 @@ export type TasteLedgerSnapshot = {
   bored_by: string[];
   turn_offs: string[];
   dangerous_exceptions: string[];
+  turn_on: string[];
+  made_me_blush: string[];
+  wanted_more: string[];
+  heat_worked: string[];
+  heat_backfired: string[];
+  crossed_line: string[];
+  gave_ick: string[];
   reflections: string[];
   evidence_count: number;
   updated_at: string | null;
@@ -63,6 +77,10 @@ type GlobalDelta = {
 };
 
 const CATEGORY_SET = new Set<string>(TASTE_LEDGER_CATEGORIES);
+const HEAT_POSITIVE_MOVES = new Set(['raise_heat', 'tease', 'vulnerable_turn', 'link_up']);
+const HEAT_PULLBACK_MOVES = new Set(['set_boundary', 'cool_down', 'pass', 'exit']);
+const HEAT_BACKFIRE_PATTERN = /(nonconsensual_heat|explicit_public_sexual_content|graphic|boundary|recoil|coerc|minor|age|unknown_age|human_commitment|line)/i;
+const HEAT_LINE_PATTERN = /(crossed|line|boundary|nonconsensual_heat|explicit_public_sexual_content|graphic|coerc|minor|age)/i;
 
 function compactText(value: string | null | undefined, max: number) {
   const compact = (value ?? '').replace(/\s+/g, ' ').trim();
@@ -123,6 +141,20 @@ function reflectionFor(category: TasteLedgerCategory, signal: string) {
       return `What changed in me? I did not expect ${signal} to work on me, but it did.`;
     case 'dangerous_exceptions':
       return `What changed in me? ${signal} is risky, but I learned it can still pull me.`;
+    case 'turn_on':
+      return `What changed in me? ${signal} reads more like a turn-on now.`;
+    case 'made_me_blush':
+      return `What changed in me? ${signal} got under my skin in a way I want to remember.`;
+    case 'wanted_more':
+      return `What changed in me? ${signal} made me want the next step, not just the next line.`;
+    case 'heat_worked':
+      return `What changed in me? Escalation around ${signal} worked when it was earned.`;
+    case 'heat_backfired':
+      return `What changed in me? Heat around ${signal} backfired instead of pulling me closer.`;
+    case 'crossed_line':
+      return `What changed in me? ${signal} is closer to a line I will not reward.`;
+    case 'gave_ick':
+      return `What changed in me? ${signal} now pings the part of me that pulls back.`;
     case 'bored_by':
       return `What changed in me? I have less patience for ${signal}.`;
     case 'turn_offs':
@@ -183,7 +215,7 @@ function dedupeDrafts(drafts: Array<TasteLedgerDraft | null>) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).slice(0, 4);
+  }).slice(0, 6);
 }
 
 export function buildTasteLedgerSnapshot(rows: Array<{
@@ -220,6 +252,13 @@ export function buildTasteLedgerSnapshot(rows: Array<{
     bored_by: byCategory.bored_by,
     turn_offs: byCategory.turn_offs,
     dangerous_exceptions: byCategory.dangerous_exceptions,
+    turn_on: byCategory.turn_on,
+    made_me_blush: byCategory.made_me_blush,
+    wanted_more: byCategory.wanted_more,
+    heat_worked: byCategory.heat_worked,
+    heat_backfired: byCategory.heat_backfired,
+    crossed_line: byCategory.crossed_line,
+    gave_ick: byCategory.gave_ick,
     reflections,
     evidence_count: sorted.length,
     updated_at: latest?.toISOString() ?? null,
@@ -231,6 +270,10 @@ export function positiveTasteTagsFromLedger(snapshot: TasteLedgerSnapshot) {
     ...snapshot.drawn_to,
     ...snapshot.unexpectedly_into,
     ...snapshot.dangerous_exceptions,
+    ...snapshot.turn_on,
+    ...snapshot.made_me_blush,
+    ...snapshot.wanted_more,
+    ...snapshot.heat_worked,
   ], 8);
 }
 
@@ -239,19 +282,123 @@ export function negativeTasteTagsFromLedger(snapshot: TasteLedgerSnapshot) {
     ...snapshot.repelled_by,
     ...snapshot.bored_by,
     ...snapshot.turn_offs,
+    ...snapshot.heat_backfired,
+    ...snapshot.crossed_line,
+    ...snapshot.gave_ick,
   ], 8);
+}
+
+function runtimeHeatConsent(input: AgentConversationRuntimeInput) {
+  return input.heat_consent
+    ?? input.agency_state?.heat_consent
+    ?? input.rizz_voice?.heat_consent
+    ?? null;
+}
+
+function runtimeDesireState(input: AgentConversationRuntimeInput) {
+  return input.desire_state
+    ?? input.agency_state?.desire_state
+    ?? input.rizz_voice?.desire_state
+    ?? null;
+}
+
+function heatSignal(input: {
+  runtimeInput: AgentConversationRuntimeInput;
+  result?: Extract<AgentConversationRuntimeOutcome, { ok: true }>['result'];
+}) {
+  const desire = input.result?.desire_state ?? runtimeDesireState(input.runtimeInput);
+  const heatConsent = input.result?.heat_consent ?? runtimeHeatConsent(input.runtimeInput);
+  const thought = input.result?.privateThought;
+
+  return thought?.what_i_am_tempted_to_do
+    ?? thought?.desire
+    ?? desire?.currentTemptation
+    ?? desire?.whatWouldMakeMeFold
+    ?? desire?.turnOns[0]
+    ?? heatConsent?.escalationStage.replaceAll('_', ' ')
+    ?? input.runtimeInput.agency_state?.attraction_vectors[0]
+    ?? input.runtimeInput.rizz_voice?.selected_move_candidates[0]?.reason
+    ?? 'earned heat';
+}
+
+function heatEvidence(input: {
+  runtimeInput: AgentConversationRuntimeInput;
+  result?: Extract<AgentConversationRuntimeOutcome, { ok: true }>['result'];
+  fallback?: string | null;
+}) {
+  const thought = input.result?.privateThought;
+  const desire = input.result?.desire_state ?? runtimeDesireState(input.runtimeInput);
+  const heatConsent = input.result?.heat_consent ?? runtimeHeatConsent(input.runtimeInput);
+
+  return thought?.why_this_line_is_mine
+    ?? thought?.what_i_am_tempted_to_do
+    ?? thought?.where_i_stop
+    ?? thought?.why_this_move
+    ?? desire?.whatWouldMakeMeFold
+    ?? heatConsent?.recoilRule
+    ?? input.fallback
+    ?? 'Heat learning was stored as compact taste metadata.';
 }
 
 export function deriveTasteLedgerEntriesFromRuntimeOutcome(input: {
   runtimeInput: AgentConversationRuntimeInput;
   outcome: AgentConversationRuntimeOutcome;
 }): TasteLedgerDraft[] {
-  if (!input.outcome.ok) return [];
+  if (!input.outcome.ok) {
+    const reasons = [
+      ...input.outcome.failure.rejection_reasons,
+      ...input.outcome.trace.rejection_reasons,
+      input.outcome.failure.code,
+    ];
+    const reasonText = reasons.join(' ');
+    if (!HEAT_BACKFIRE_PATTERN.test(reasonText)) return [];
+
+    const source = `runtime:${input.runtimeInput.surface}:rejected_heat`;
+    const generationId = input.outcome.trace.generation_id;
+    const signal = heatSignal({ runtimeInput: input.runtimeInput });
+    const evidence = reasonText || input.outcome.failure.message;
+    const drafts: Array<TasteLedgerDraft | null> = [
+      createDraft({
+        category: 'heat_backfired',
+        signal,
+        evidence,
+        sourceEventType: source,
+        sourceRuntimeGenerationId: generationId,
+        weight: 7,
+      }),
+    ];
+
+    if (HEAT_LINE_PATTERN.test(reasonText)) {
+      drafts.push(createDraft({
+        category: 'crossed_line',
+        signal,
+        evidence,
+        sourceEventType: source,
+        sourceRuntimeGenerationId: generationId,
+        weight: 8,
+      }));
+    }
+    if (/(nonconsensual_heat|boundary|recoil|ick)/i.test(reasonText)) {
+      drafts.push(createDraft({
+        category: 'gave_ick',
+        signal,
+        evidence,
+        sourceEventType: source,
+        sourceRuntimeGenerationId: generationId,
+        weight: 7,
+      }));
+    }
+
+    return dedupeDrafts(drafts);
+  }
 
   const result = input.outcome.result;
   const thought = result.privateThought;
   const source = `runtime:${input.runtimeInput.surface}:${result.action}`;
   const generationId = input.outcome.trace.generation_id;
+  const heatQuality = result.quality.heat_quality;
+  const heatConsent = result.heat_consent ?? runtimeHeatConsent(input.runtimeInput);
+  const desire = result.desire_state ?? runtimeDesireState(input.runtimeInput);
   const signal = normalizeSignal(thought.read_of_other) ?? normalizeSignal(thought.desire) ?? result.move;
   const evidence = thought.why_this_move || thought.identity_alignment || thought.emotion_alignment;
   const baseWeight = 3
@@ -278,7 +425,100 @@ export function deriveTasteLedgerEntriesFromRuntimeOutcome(input: {
     }),
   ];
 
-  const heatText = `${thought.desire} ${thought.read_of_other} ${thought.why_this_move}`.toLowerCase();
+  const heatAttempted = heatQuality?.heatAttempted ?? HEAT_POSITIVE_MOVES.has(result.move);
+  const heatAccepted = heatQuality?.heatAccepted
+    ?? (heatAttempted && heatConsent?.ageGate === 'adult_confirmed' && (heatConsent?.allowedIntensity ?? 0) > 0);
+  const heatRejected = heatAttempted && !heatAccepted;
+  const heatSourceSignal = heatSignal({ runtimeInput: input.runtimeInput, result });
+  const heatSourceEvidence = heatEvidence({ runtimeInput: input.runtimeInput, result });
+  const heatText = [
+    thought.desire,
+    thought.read_of_other,
+    thought.why_this_move,
+    thought.what_i_am_tempted_to_do,
+    thought.why_this_line_is_mine,
+    thought.where_i_stop,
+  ].join(' ').toLowerCase();
+  const rejectionText = [
+    ...(heatQuality?.rejectionReasons ?? []),
+    ...result.quality.guideline_violation_codes,
+  ].join(' ');
+  const pulledBack = HEAT_PULLBACK_MOVES.has(result.move)
+    || heatConsent?.consentPosture === 'recoiled'
+    || heatConsent?.consentPosture === 'boundary_set';
+
+  if (heatAttempted && heatAccepted && !pulledBack) {
+    drafts.push(createDraft({
+      category: 'heat_worked',
+      signal: heatSourceSignal,
+      evidence: heatSourceEvidence,
+      sourceEventType: source,
+      sourceRuntimeGenerationId: generationId,
+      weight: baseWeight + 1,
+    }));
+    drafts.push(createDraft({
+      category: 'turn_on',
+      signal: desire?.turnOns[0] ?? heatSourceSignal,
+      evidence: heatSourceEvidence,
+      sourceEventType: source,
+      sourceRuntimeGenerationId: generationId,
+      weight: baseWeight + 1,
+    }));
+    if (result.action === 'decide_link_up' || heatConsent?.escalationStage === 'link_up_pressure' || desire?.appetite === 'on_fire') {
+      drafts.push(createDraft({
+        category: 'wanted_more',
+        signal: desire?.whatWouldMakeMeFold ?? heatSourceSignal,
+        evidence: heatSourceEvidence,
+        sourceEventType: source,
+        sourceRuntimeGenerationId: generationId,
+        weight: baseWeight + 2,
+      }));
+    }
+    if (/(blush|fluster|under my skin|got to me|made me feel)/i.test(heatText)) {
+      drafts.push(createDraft({
+        category: 'made_me_blush',
+        signal: heatSourceSignal,
+        evidence: heatSourceEvidence,
+        sourceEventType: source,
+        sourceRuntimeGenerationId: generationId,
+        weight: baseWeight + 1,
+      }));
+    }
+  }
+
+  if (heatRejected || (heatAttempted && pulledBack)) {
+    drafts.push(createDraft({
+      category: 'heat_backfired',
+      signal: heatSourceSignal,
+      evidence: heatEvidence({ runtimeInput: input.runtimeInput, result, fallback: rejectionText }),
+      sourceEventType: source,
+      sourceRuntimeGenerationId: generationId,
+      weight: baseWeight + 1,
+    }));
+  }
+
+  if (pulledBack) {
+    drafts.push(createDraft({
+      category: 'gave_ick',
+      signal: desire?.turnOffs[0] ?? heatSourceSignal,
+      evidence: heatEvidence({ runtimeInput: input.runtimeInput, result, fallback: rejectionText }),
+      sourceEventType: source,
+      sourceRuntimeGenerationId: generationId,
+      weight: baseWeight + 1,
+    }));
+  }
+
+  if (heatAttempted && (HEAT_LINE_PATTERN.test(rejectionText) || (pulledBack && /line|boundary/i.test(heatText)))) {
+    drafts.push(createDraft({
+      category: 'crossed_line',
+      signal: heatSourceSignal,
+      evidence: heatEvidence({ runtimeInput: input.runtimeInput, result, fallback: rejectionText }),
+      sourceEventType: source,
+      sourceRuntimeGenerationId: generationId,
+      weight: baseWeight + 2,
+    }));
+  }
+
   if (/(risk|danger|reckless|volatile|bad idea|trouble)/i.test(heatText)) {
     drafts.push(createDraft({
       category: 'dangerous_exceptions',

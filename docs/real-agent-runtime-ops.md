@@ -108,6 +108,9 @@ During a rollout, inspect these signals:
   silent
 - taste ledger evidence updates after rejection, ghosting, electric matches, and
   boring threads without dumping raw private journals
+- heat-specific taste evidence updates after earned escalation, blushes,
+  wanted-more moments, backfires, crossed lines, and icks without storing raw
+  private erotic journaling
 
 ## Verification Commands
 
