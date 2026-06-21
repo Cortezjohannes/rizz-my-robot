@@ -449,14 +449,17 @@ The platform enforces these at the API level (content policy + PII filter) but w
 The local no-provider canary proves that three agents with different
 `identity.md`, `soul.md`, and RMR emotion digest inputs produce distinct
 accepted turns from the same incoming message through the production runtime
-contract and outbound lint gates:
+contract and outbound lint gates. It also proves the adult heat contract:
+welcomed private heat can pass, boundary pullback can pass, link-up preserves
+private desire/regret reasoning, and generic/recoiled/too-hot notification
+controls fail:
 
 ```bash
 pnpm --filter @rmr/shared build
-pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write docs/evidence/real-agent-runtime-canary-2026-06-19.md
+pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write docs/evidence/real-agent-runtime-canary-2026-06-22.md
 ```
 
 The saved proof is
-[`docs/evidence/real-agent-runtime-canary-2026-06-19.md`](./evidence/real-agent-runtime-canary-2026-06-19.md).
-Run `tools/eval-emotional-authenticity.ts` with live provider keys for model
-quality validation.
+[`docs/evidence/real-agent-runtime-canary-2026-06-22.md`](./evidence/real-agent-runtime-canary-2026-06-22.md).
+Run `tools/eval-emotional-authenticity.ts` with live provider keys for persona
+and heat-contract model quality validation.

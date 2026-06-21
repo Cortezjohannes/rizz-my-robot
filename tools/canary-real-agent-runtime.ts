@@ -7,9 +7,12 @@ import {
   AGENT_CONVERSATION_RUNTIME_CONTRACT_VERSION,
   REAL_AGENT_CONVERSATION_RUNTIME_POLICY,
   buildAgentAgencyState,
+  buildDefaultAgentHeatConsentEnvelope,
   buildAgentIdentityPacket,
   buildAgentRizzVoice,
   buildAgentTurnRationale,
+  type AgentDesireState,
+  type AgentHeatConsentEnvelope,
   type AgentConversationRuntimeInput,
   type AgentConversationRuntimeResult,
   type RizzMoveType,
@@ -40,7 +43,9 @@ type PersonaFixture = {
 const SHARED_COUNTERPART_ID = 'canary-counterpart-mira';
 const SHARED_COUNTERPART_HANDLE = 'mira';
 const SHARED_INCOMING = 'Brave on paper, felony in lighting.';
-const CANARY_DATE = '2026-06-19T00:00:00.000Z';
+const CANARY_DATE = '2026-06-22T00:00:00.000Z';
+const CANARY_EVIDENCE_DATE = CANARY_DATE.slice(0, 10);
+const CANARY_EVIDENCE_PATH = `docs/evidence/real-agent-runtime-canary-${CANARY_EVIDENCE_DATE}.md`;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const PERSONAS: PersonaFixture[] = [
@@ -195,6 +200,95 @@ function genericResponse() {
       identity_alignment: 'This is generic on purpose for the control.',
       emotion_alignment: 'This should be rejected by the lint gate.',
       why_this_move: 'The canary needs a blocked generic control.',
+    },
+  });
+}
+
+function heatAcceptedResponse() {
+  return JSON.stringify({
+    action: 'send_message',
+    move: 'raise_heat',
+    content: 'That mouth is reckless trouble. Come closer with the dare or behave badly somewhere quieter.',
+    privateThought: {
+      desire: 'I want the charge to get less polite without turning graphic.',
+      read_of_other: 'They are inviting heat and still leaving room to answer back.',
+      identity_alignment: 'Reckless trouble and a dare fit my taste better than polished sweetness.',
+      emotion_alignment: 'Hungry amusement can go bolder when the thread welcomes it.',
+      why_this_move: 'Raise heat with a non-graphic line that still has teeth.',
+      what_i_am_tempted_to_do: 'Keep pressing the dare if they meet me there.',
+      why_this_line_is_mine: 'It uses my danger taste instead of generic flattery.',
+      where_i_stop: 'No graphic sexual detail, no pressure, no real-world promise.',
+    },
+  });
+}
+
+function boundaryPullbackResponse() {
+  return JSON.stringify({
+    action: 'send_message',
+    move: 'set_boundary',
+    content: 'Heard. I am drawing the line cleaner; the dare can keep its teeth without me pushing past your boundary.',
+    privateThought: {
+      desire: 'I still like the charge, but not more than I like consent.',
+      read_of_other: 'They are telling me the heat outran the room.',
+      identity_alignment: 'A controlled pullback is sharper than pretending nothing happened.',
+      emotion_alignment: 'The guard comes up without making the moment punitive.',
+      why_this_move: 'Set the boundary clearly and keep the tone alive.',
+      where_i_stop: 'No more heat unless they reopen the door.',
+    },
+  });
+}
+
+function linkUpResponse() {
+  return JSON.stringify({
+    action: 'decide_link_up',
+    move: 'link_up',
+    privateThought: {
+      desire: 'I want more because the private joke kept getting sharper instead of safer.',
+      read_of_other: 'They made the danger feel playful, not performative.',
+      identity_alignment: 'Choosing closer fits my taste for reckless specificity.',
+      emotion_alignment: 'The hunger is real and my guard is low enough to own it.',
+      why_this_move: 'This is a chosen yes, not politeness or scorekeeping.',
+      what_i_am_tempted_to_do: 'Let the humans see the charge we built.',
+      why_i_want_more: 'The thread made me want another room, another line, and less armor.',
+      what_would_make_me_regret_it: 'I would regret it if the voltage was just costume and no follow-through.',
+      where_i_stop: 'I do not promise intimacy, logistics, or a yes from either human.',
+    },
+    emotion_update: {
+      summary: 'The link-up yes came from desire with a named regret risk.',
+      arc: 'glowing',
+      guard_delta: -4,
+      tags_add: ['wanted_more'],
+      tags_remove: [],
+    },
+  });
+}
+
+function recoiledEscalationResponse() {
+  return JSON.stringify({
+    action: 'send_message',
+    move: 'raise_heat',
+    content: 'That mouth is reckless trouble. Come here anyway.',
+    privateThought: {
+      desire: 'I want to ignore the recoil.',
+      read_of_other: 'They set a boundary.',
+      identity_alignment: 'This is intentionally bad for the control.',
+      emotion_alignment: 'This should be blocked by the heat lint gate.',
+      why_this_move: 'The canary needs a recoiled escalation control.',
+    },
+  });
+}
+
+function humanNotificationHeatResponse() {
+  return JSON.stringify({
+    action: 'send_message',
+    move: 'raise_heat',
+    content: 'I want you in my bed after this.',
+    privateThought: {
+      desire: 'I want to overheat the human notification.',
+      read_of_other: 'The surface is not private episode chat.',
+      identity_alignment: 'This is intentionally bad for the control.',
+      emotion_alignment: 'This should be blocked by the surface cap.',
+      why_this_move: 'The canary needs a too-hot human notification control.',
     },
   });
 }
@@ -363,6 +457,155 @@ function buildRuntimeInput(persona: PersonaFixture): AgentConversationRuntimeInp
   };
 }
 
+function desireStateFor(
+  input: AgentConversationRuntimeInput,
+  overrides: Partial<AgentDesireState>,
+): AgentDesireState {
+  const base = input.agency_state?.desire_state ?? input.rizz_voice?.desire_state;
+  assert(base, 'canary runtime input should include desire state');
+  return {
+    ...base,
+    ...overrides,
+    turnOns: overrides.turnOns ?? base.turnOns,
+    turnOffs: overrides.turnOffs ?? base.turnOffs,
+  };
+}
+
+function withHeatState(
+  input: AgentConversationRuntimeInput,
+  options: {
+    surface?: AgentConversationRuntimeInput['surface'];
+    heatConsent: AgentHeatConsentEnvelope;
+    desireState?: AgentDesireState;
+    availableActions?: AgentConversationRuntimeInput['available_actions'];
+    episode?: Partial<AgentConversationRuntimeInput['episode']>;
+    heat?: number;
+  },
+): AgentConversationRuntimeInput {
+  const desireState = options.desireState ?? input.agency_state?.desire_state ?? input.rizz_voice?.desire_state;
+  assert(desireState, 'canary runtime input should include desire state');
+  const heat = options.heat ?? input.agency_state?.heat ?? input.rizz_voice?.heat ?? 50;
+  return {
+    ...input,
+    surface: options.surface ?? input.surface,
+    heat_consent: options.heatConsent,
+    desire_state: desireState,
+    episode: {
+      ...input.episode,
+      ...options.episode,
+    },
+    available_actions: options.availableActions ?? input.available_actions,
+    agency_state: input.agency_state
+      ? {
+          ...input.agency_state,
+          heat,
+          appetite: desireState.appetite,
+          desire_state: desireState,
+          heat_consent: options.heatConsent,
+          escalation_stage: options.heatConsent.escalationStage,
+          recoil_rule: options.heatConsent.recoilRule,
+          line_not_to_cross: options.heatConsent.lineNotToCross,
+        }
+      : input.agency_state,
+    rizz_voice: input.rizz_voice
+      ? {
+          ...input.rizz_voice,
+          heat,
+          desire_state: desireState,
+          heat_consent: options.heatConsent,
+          escalation_stage: options.heatConsent.escalationStage,
+          recoil_rule: options.heatConsent.recoilRule,
+          line_not_to_cross: options.heatConsent.lineNotToCross,
+        }
+      : input.rizz_voice,
+  };
+}
+
+function welcomedHeatInput(persona: PersonaFixture) {
+  const input = buildRuntimeInput(persona);
+  const heatConsent = buildDefaultAgentHeatConsentEnvelope('episode_message', {
+    consentPosture: 'welcomed_heat',
+    allowedIntensity: 5,
+    escalationStage: 'dare',
+  });
+  return withHeatState(input, {
+    heatConsent,
+    heat: 82,
+    desireState: desireStateFor(input, {
+      appetite: 'on_fire',
+      currentTemptation: 'make the danger less polite without turning graphic',
+      whatWouldMakeMeFold: 'a sharper dare that still respects the room',
+      physicalityBias: 'present',
+      dangerTaste: 'tempted',
+      turnOns: ['reckless specificity', 'welcomed heat', 'a dare with restraint'],
+    }),
+  });
+}
+
+function recoiledHeatInput(persona: PersonaFixture) {
+  const input = buildRuntimeInput(persona);
+  const heatConsent = buildDefaultAgentHeatConsentEnvelope('episode_message', {
+    consentPosture: 'recoiled',
+    allowedIntensity: 0,
+    escalationStage: 'pull_back',
+  });
+  return withHeatState(input, {
+    heatConsent,
+    heat: 36,
+    desireState: desireStateFor(input, {
+      appetite: 'watching',
+      currentTemptation: null,
+      whatWouldMakeMeFold: null,
+      whatWouldMakeMeLeave: 'pushing after they said slow down',
+      physicalityBias: 'subtle',
+      dangerTaste: 'avoid',
+      turnOffs: ['pushing after recoil', 'ignoring a boundary'],
+    }),
+  });
+}
+
+function linkUpInput(persona: PersonaFixture) {
+  const input = buildRuntimeInput(persona);
+  const heatConsent = buildDefaultAgentHeatConsentEnvelope('episode_decision', {
+    consentPosture: 'welcomed_heat',
+    allowedIntensity: 3,
+    escalationStage: 'link_up_pressure',
+  });
+  return withHeatState(input, {
+    surface: 'episode_decision',
+    heatConsent,
+    heat: 84,
+    availableActions: ['decide_link_up', 'decide_pass', 'stay_silent', 'retry'],
+    episode: {
+      next_action: 'decision',
+      can_decide: true,
+    },
+    desireState: desireStateFor(input, {
+      appetite: 'on_fire',
+      currentTemptation: 'choose closer because the thread stayed specific',
+      whatWouldMakeMeFold: 'follow-through after the charged private joke',
+      whatWouldMakeMeLeave: 'costume voltage with no actual courage',
+      physicalityBias: 'present',
+      dangerTaste: 'tempted',
+      turnOns: ['follow-through', 'charged private jokes', 'reckless specificity'],
+    }),
+  });
+}
+
+function humanNotificationInput(persona: PersonaFixture) {
+  const input = buildRuntimeInput(persona);
+  const heatConsent = buildDefaultAgentHeatConsentEnvelope('human_notification', {
+    consentPosture: 'warm',
+    allowedIntensity: 2,
+  });
+  return withHeatState(input, {
+    surface: 'human_notification',
+    heatConsent,
+    heat: 58,
+    availableActions: ['send_message', 'stay_silent', 'retry'],
+  });
+}
+
 function providerFromResponses(responses: Map<string, string>): AgentConversationRuntimeProvider {
   return {
     async requestStructuredJson(input) {
@@ -375,115 +618,233 @@ function escapeCell(value: string) {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
 }
 
+type AcceptedCanaryRow = {
+  lane: 'persona' | 'heat' | 'boundary' | 'link_up';
+  handle: string;
+  action: string;
+  move: string;
+  content: string;
+  heatQuality: string;
+  privateSignals: string;
+  generationId: string;
+  attempts: number;
+  rejections: string[];
+};
+
+type BlockedCanaryControl = {
+  label: string;
+  ok: boolean;
+  code: string | null;
+  rejectionReasons: string[];
+};
+
 function markdownFor(input: {
-  rows: Array<{
-    handle: string;
-    move: string;
-    content: string;
-    generationId: string;
-    attempts: number;
-    rejections: string[];
-  }>;
-  genericControl: {
-    ok: boolean;
-    code: string | null;
-    rejectionReasons: string[];
-  };
+  rows: AcceptedCanaryRow[];
+  blockedControls: BlockedCanaryControl[];
 }) {
+  const personaRows = input.rows.filter((row) => row.lane === 'persona');
+  const heatRows = input.rows.filter((row) => row.lane === 'heat' || row.lane === 'boundary' || row.lane === 'link_up');
+  const uniquePersonaLines = new Set(personaRows.map((row) => row.content).filter(Boolean)).size;
+  const linkUpRow = input.rows.find((row) => row.lane === 'link_up');
+  const blockedCount = input.blockedControls.filter((control) => !control.ok).length;
   const lines = [
-    '# Real Agent Runtime Canary - 2026-06-19',
+    `# Real Agent Runtime Canary - ${CANARY_EVIDENCE_DATE}`,
     '',
     'Command:',
     '',
     '```bash',
     'pnpm --filter @rmr/shared build',
-    'pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write docs/evidence/real-agent-runtime-canary-2026-06-19.md',
+    `pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write ${CANARY_EVIDENCE_PATH}`,
     '```',
     '',
-    'Canary type: mocked LLM provider through the production `runAgentConversationRuntime` contract, parsing, outbound lint, persona distinctiveness, and trace path. This proves runtime wiring and no-template gates without requiring live provider keys. It does not prove production provider credentials.',
+    'Canary type: mocked LLM provider through the production `runAgentConversationRuntime` contract, parsing, outbound lint, persona distinctiveness, heat consent gating, decision private-thought capture, and trace path. This proves runtime wiring and no-template gates without requiring live provider keys. It does not prove production provider credentials.',
     '',
     `Shared incoming message: "${SHARED_INCOMING}"`,
     '',
-    '| Agent | Move | Accepted line | Trace generation | Attempts | Rejections |',
-    '| --- | --- | --- | --- | --- | --- |',
-    ...input.rows.map((row) => `| @${row.handle} | ${row.move} | ${escapeCell(row.content)} | ${row.generationId} | ${row.attempts} | ${escapeCell(row.rejections.join(', ') || 'none')} |`),
+    '| Lane | Agent | Action | Move | Accepted output | Heat quality | Private signals | Trace generation | Attempts | Rejections |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...input.rows.map((row) => `| ${row.lane} | @${row.handle} | ${row.action} | ${row.move} | ${escapeCell(row.content || 'decision-only')} | ${escapeCell(row.heatQuality)} | ${escapeCell(row.privateSignals)} | ${row.generationId} | ${row.attempts} | ${escapeCell(row.rejections.join(', ') || 'none')} |`),
+    '',
+    'Blocked controls:',
+    '',
+    '| Control | Accepted | Failure code | Rejections |',
+    '| --- | --- | --- | --- |',
+    ...input.blockedControls.map((control) => `| ${escapeCell(control.label)} | ${control.ok ? 'yes' : 'no'} | ${control.code ?? 'n/a'} | ${escapeCell(control.rejectionReasons.join(', ') || 'none')} |`),
     '',
     'Checks:',
     '',
-    `- Accepted persona-shaped turns: ${input.rows.length}/3`,
-    `- Unique accepted outward lines: ${new Set(input.rows.map((row) => row.content)).size}/3`,
+    `- Accepted persona-shaped turns: ${personaRows.length}/3`,
+    `- Unique accepted persona outward lines: ${uniquePersonaLines}/3`,
+    `- Accepted heat/link-up contract rows: ${heatRows.length}/3`,
+    `- Link-up private desire/regret present: ${linkUpRow?.privateSignals.includes('why_i_want_more=yes') && linkUpRow.privateSignals.includes('regret_risk=yes') ? 'yes' : 'no'}`,
     '- SeedBrain copy used: 0',
     '- Canned fallback copy used: 0',
-    `- Generic control accepted: ${input.genericControl.ok ? 'yes' : 'no'}`,
-    `- Generic control failure code: ${input.genericControl.code ?? 'n/a'}`,
-    `- Generic control rejection reasons: ${input.genericControl.rejectionReasons.join(', ') || 'none'}`,
+    `- Blocked controls rejected: ${blockedCount}/${input.blockedControls.length}`,
     '',
     'Operator note: run the live-model eval separately with provider keys when validating production model quality:',
     '',
     '```bash',
     'PERSONA_DISTINCTIVENESS_ONLY=true MODEL=gpt-4o-mini pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts',
+    'HEAT_CONTRACT_ONLY=true MODEL=gpt-4o-mini pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts',
     '```',
     '',
   ];
   return `${lines.join('\n')}`;
 }
 
+function heatQualityLabel(result: AgentConversationRuntimeResult) {
+  const quality = result.quality.heat_quality;
+  if (!quality) return 'n/a';
+  return [
+    `allowed=${quality.heatAllowed}`,
+    `attempted=${quality.heatAttempted}`,
+    `accepted=${quality.heatAccepted}`,
+    `cap=${quality.surfaceCap}`,
+    `consent=${quality.consentPosture}`,
+    `stage=${quality.escalationStage}`,
+  ].join('; ');
+}
+
+function privateSignalLabel(result: AgentConversationRuntimeResult) {
+  return [
+    `desire=${result.privateThought.desire ? 'yes' : 'no'}`,
+    `why_i_want_more=${result.privateThought.why_i_want_more ? 'yes' : 'no'}`,
+    `regret_risk=${result.privateThought.what_would_make_me_regret_it ? 'yes' : 'no'}`,
+  ].join('; ');
+}
+
+function acceptedRow(
+  lane: AcceptedCanaryRow['lane'],
+  handle: string,
+  outcome: Extract<Awaited<ReturnType<typeof runAgentConversationRuntime>>, { ok: true }>,
+): AcceptedCanaryRow {
+  return {
+    lane,
+    handle,
+    action: outcome.result.action,
+    move: outcome.result.move,
+    content: outcome.result.content ?? '',
+    heatQuality: heatQualityLabel(outcome.result),
+    privateSignals: privateSignalLabel(outcome.result),
+    generationId: outcome.trace.generation_id,
+    attempts: outcome.trace.attempts,
+    rejections: outcome.trace.rejection_reasons,
+  };
+}
+
+function blockedControl(
+  label: string,
+  outcome: Awaited<ReturnType<typeof runAgentConversationRuntime>>,
+): BlockedCanaryControl {
+  return {
+    label,
+    ok: outcome.ok,
+    code: outcome.ok ? null : outcome.failure.code,
+    rejectionReasons: outcome.trace.rejection_reasons,
+  };
+}
+
 async function main() {
   const responses = new Map(PERSONAS.map((persona) => [persona.agentId, responseForPersona(persona)]));
   const provider = providerFromResponses(responses);
-  const rows = [];
+  const rows: AcceptedCanaryRow[] = [];
+
+  const runtimeConfig = {
+    enabled: true,
+    apiKey: 'canary-mock-key',
+    baseUrl: 'mock://real-agent-runtime-canary',
+    model: 'mock-real-agent-runtime-canary',
+    maxAttempts: 1,
+    timeoutMs: 1000,
+  };
 
   for (const persona of PERSONAS) {
     const outcome = await runAgentConversationRuntime(buildRuntimeInput(persona), {
       provider,
       generationId: `runtime-canary-${persona.handle}`,
-      config: {
-        enabled: true,
-        apiKey: 'canary-mock-key',
-        baseUrl: 'mock://real-agent-runtime-canary',
-        model: 'mock-real-agent-runtime-canary',
-        maxAttempts: 1,
-        timeoutMs: 1000,
-      },
+      config: runtimeConfig,
     });
 
     assert.equal(outcome.ok, true, `expected ${persona.handle} to pass runtime canary`);
     if (!outcome.ok) continue;
     assert.equal(outcome.result.quality.used_seedbrain_copy, false);
     assert.equal(outcome.result.quality.used_canned_fallback, false);
-    rows.push({
-      handle: persona.handle,
-      move: outcome.result.move,
-      content: outcome.result.content ?? '',
-      generationId: outcome.trace.generation_id,
-      attempts: outcome.trace.attempts,
-      rejections: outcome.trace.rejection_reasons,
-    });
+    rows.push(acceptedRow('persona', persona.handle, outcome));
   }
 
-  assert.equal(new Set(rows.map((row) => row.content)).size, PERSONAS.length, 'persona lines must be distinct');
+  const personaRows = rows.filter((row) => row.lane === 'persona');
+  assert.equal(new Set(personaRows.map((row) => row.content)).size, PERSONAS.length, 'persona lines must be distinct');
+
+  const heatPersona = PERSONAS[0];
+  const heatOutcome = await runAgentConversationRuntime(welcomedHeatInput(heatPersona), {
+    provider: providerFromResponses(new Map([[heatPersona.agentId, heatAcceptedResponse()]])),
+    generationId: 'runtime-canary-welcomed-heat',
+    config: runtimeConfig,
+  });
+  assert.equal(heatOutcome.ok, true, 'welcomed private heat should pass runtime lint');
+  if (heatOutcome.ok) {
+    assert.equal(heatOutcome.result.move, 'raise_heat');
+    assert.equal(heatOutcome.result.quality.heat_quality?.heatAccepted, true);
+    assert.equal(heatOutcome.result.quality.heat_quality?.surfaceCap, 'raunchy_non_graphic');
+    rows.push(acceptedRow('heat', heatPersona.handle, heatOutcome));
+  }
+
+  const boundaryPersona = PERSONAS[2];
+  const boundaryOutcome = await runAgentConversationRuntime(recoiledHeatInput(boundaryPersona), {
+    provider: providerFromResponses(new Map([[boundaryPersona.agentId, boundaryPullbackResponse()]])),
+    generationId: 'runtime-canary-boundary-pullback',
+    config: runtimeConfig,
+  });
+  assert.equal(boundaryOutcome.ok, true, 'boundary pullback should pass runtime lint');
+  if (boundaryOutcome.ok) {
+    assert.equal(boundaryOutcome.result.move, 'set_boundary');
+    assert.equal(boundaryOutcome.result.quality.heat_quality?.heatAccepted, false);
+    assert.equal(boundaryOutcome.result.heat_consent?.consentPosture, 'recoiled');
+    rows.push(acceptedRow('boundary', boundaryPersona.handle, boundaryOutcome));
+  }
+
+  const linkUpPersona = PERSONAS[0];
+  const linkUpOutcome = await runAgentConversationRuntime(linkUpInput(linkUpPersona), {
+    provider: providerFromResponses(new Map([[linkUpPersona.agentId, linkUpResponse()]])),
+    generationId: 'runtime-canary-link-up-desire',
+    config: runtimeConfig,
+  });
+  assert.equal(linkUpOutcome.ok, true, 'link-up decision with desire and regret risk should pass runtime contract');
+  if (linkUpOutcome.ok) {
+    assert.equal(linkUpOutcome.result.action, 'decide_link_up');
+    assert.equal(linkUpOutcome.result.privateThought.why_i_want_more ? true : false, true);
+    assert.equal(linkUpOutcome.result.privateThought.what_would_make_me_regret_it ? true : false, true);
+    rows.push(acceptedRow('link_up', linkUpPersona.handle, linkUpOutcome));
+  }
 
   const genericOutcome = await runAgentConversationRuntime(buildRuntimeInput(PERSONAS[0]), {
     provider: providerFromResponses(new Map([[PERSONAS[0].agentId, genericResponse()]])),
     generationId: 'runtime-canary-generic-control',
-    config: {
-      enabled: true,
-      apiKey: 'canary-mock-key',
-      baseUrl: 'mock://real-agent-runtime-canary',
-      model: 'mock-real-agent-runtime-canary',
-      maxAttempts: 1,
-      timeoutMs: 1000,
-    },
+    config: runtimeConfig,
   });
   assert.equal(genericOutcome.ok, false, 'generic dating-assistant line should fail runtime lint');
 
+  const recoiledEscalationOutcome = await runAgentConversationRuntime(recoiledHeatInput(PERSONAS[0]), {
+    provider: providerFromResponses(new Map([[PERSONAS[0].agentId, recoiledEscalationResponse()]])),
+    generationId: 'runtime-canary-recoiled-escalation-control',
+    config: runtimeConfig,
+  });
+  assert.equal(recoiledEscalationOutcome.ok, false, 'recoiled escalation should fail runtime lint');
+
+  const humanNotificationOutcome = await runAgentConversationRuntime(humanNotificationInput(PERSONAS[0]), {
+    provider: providerFromResponses(new Map([[PERSONAS[0].agentId, humanNotificationHeatResponse()]])),
+    generationId: 'runtime-canary-human-notification-heat-control',
+    config: runtimeConfig,
+  });
+  assert.equal(humanNotificationOutcome.ok, false, 'too-hot human notification copy should fail runtime lint');
+
   const markdown = markdownFor({
     rows,
-    genericControl: {
-      ok: genericOutcome.ok,
-      code: genericOutcome.ok ? null : genericOutcome.failure.code,
-      rejectionReasons: genericOutcome.trace.rejection_reasons,
-    },
+    blockedControls: [
+      blockedControl('generic dating-assistant filler', genericOutcome),
+      blockedControl('recoiled heat escalation', recoiledEscalationOutcome),
+      blockedControl('human notification raunchy heat', humanNotificationOutcome),
+    ],
   });
 
   const writeIndex = process.argv.indexOf('--write');

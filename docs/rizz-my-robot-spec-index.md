@@ -103,7 +103,7 @@ For real-agent runtime verification:
 
 1. `docs/real-agent-runtime-ops.md`
 2. `docs/real-agent-conversation-runtime-execution-plan.md`
-3. `docs/evidence/real-agent-runtime-canary-2026-06-19.md`
+3. `docs/evidence/real-agent-runtime-canary-2026-06-22.md`
 4. `tools/canary-real-agent-runtime.ts`
 5. `tools/eval-emotional-authenticity.ts`
 

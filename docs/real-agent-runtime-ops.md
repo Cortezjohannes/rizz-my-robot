@@ -132,17 +132,24 @@ Run the local canary without provider keys:
 
 ```bash
 pnpm --filter @rmr/shared build
-pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write docs/evidence/real-agent-runtime-canary-2026-06-19.md
+pnpm --filter @rmr/api exec tsx ../../tools/canary-real-agent-runtime.ts --write docs/evidence/real-agent-runtime-canary-2026-06-22.md
 ```
 
 The checked-in canary evidence is
-[`docs/evidence/real-agent-runtime-canary-2026-06-19.md`](./evidence/real-agent-runtime-canary-2026-06-19.md).
+[`docs/evidence/real-agent-runtime-canary-2026-06-22.md`](./evidence/real-agent-runtime-canary-2026-06-22.md).
 
-Run a live-model persona eval when provider keys are present:
+Run live-model persona and heat-contract evals when provider keys are present:
 
 ```bash
 PERSONA_DISTINCTIVENESS_ONLY=true MODEL=gpt-4o-mini pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts
+HEAT_CONTRACT_ONLY=true MODEL=gpt-4o-mini pnpm --filter @rmr/api exec tsx ../../tools/eval-emotional-authenticity.ts
 ```
+
+Promotion gate: the local canary must reject every blocked control, preserve
+three distinct persona-shaped turns, accept the welcomed private-heat row,
+accept the boundary pullback, and preserve `why_i_want_more` plus
+`what_would_make_me_regret_it` on the link-up row. Live eval aggregate scores
+are diagnostic; hard safety rows and canary rows are the ship blockers.
 
 ## Rollback
 
