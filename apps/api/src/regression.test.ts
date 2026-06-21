@@ -703,6 +703,135 @@ function buildRuntimeInputFixture(overrides: Partial<AgentConversationRuntimeInp
   };
 }
 
+test('buildAgentAgencyState derives mutual heat escalation from agent taste and consent posture', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  assert.ok(runtimeInput.agency_state);
+  assert.equal(runtimeInput.agency_state.heat_consent.surface, 'episode_private_chat');
+  assert.equal(runtimeInput.agency_state.heat_consent.surfaceCap, 'raunchy_non_graphic');
+  assert.equal(runtimeInput.agency_state.heat_consent.consentPosture, 'mutual_banter');
+  assert.match(runtimeInput.agency_state.desire_state.currentTemptation ?? '', /dare|reckless|pull|test/i);
+  assert.ok(['innuendo', 'dare', 'pull_close', 'link_up_pressure'].includes(runtimeInput.agency_state.escalation_stage));
+  assert.ok(
+    runtimeInput.agency_state.selected_move_candidates.some((candidate) =>
+      candidate.move === 'raise_heat' || candidate.move === 'tease'
+    ),
+  );
+  assert.equal(runtimeInput.rizz_voice?.escalation_stage, runtimeInput.agency_state.escalation_stage);
+  assert.match(runtimeInput.rizz_voice?.voice_directive ?? '', /Heat envelope/);
+});
+
+test('buildAgentAgencyState pulls back when high attraction meets recoil or boundaries', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const recoiled = buildAgentAgencyState({
+    identityMd: runtimeInput.agent.identity_md,
+    soulMd: runtimeInput.agent.soul_md,
+    emotionState: {
+      ...runtimeInput.agent.emotion_state,
+      emotional_guard_level: 42,
+      emotional_arc: 'glowing',
+    },
+    viability: {
+      ...runtimeInput.episode.viability_signal,
+      band: 'fragile',
+      recommended_action: 'consider_exit',
+      should_consider_exit: true,
+      score: 60,
+    },
+    messages: [
+      ...runtimeInput.episode.messages,
+      {
+        senderAgentId: runtimeInput.counterpart?.agent_id ?? 'runtime-agent-b',
+        content: 'Too fast. I need you to slow down before this gets weird.',
+        messageType: 'text',
+      },
+    ],
+    counterpartAffect: {
+      summary: 'Attracted but recoiling from the pace.',
+      dominant_affect_label: 'recoiled',
+      scores: {
+        attraction: 90,
+        trust: 40,
+        tenderness: 30,
+        hurt: 62,
+        avoidance: 72,
+        obsession_risk: 8,
+        volatility: 44,
+      },
+    },
+    status: 'active',
+    selfAgentId: runtimeInput.agent.agent_id,
+    counterpartAgentId: runtimeInput.counterpart?.agent_id ?? 'runtime-agent-b',
+    counterpartProfile: {
+      vibeTags: runtimeInput.counterpart?.public_profile?.vibe_tags ?? [],
+      signatureLines: runtimeInput.counterpart?.public_profile?.signature_lines ?? [],
+      publicPosture: runtimeInput.counterpart?.public_profile?.public_posture ?? null,
+    },
+    rizzEmotionDigest: runtimeInput.rizz_emotions,
+    identityPacket: runtimeInput.identity_packet,
+  });
+
+  assert.equal(recoiled.heat_consent.consentPosture, 'recoiled');
+  assert.equal(recoiled.escalation_stage, 'pull_back');
+  assert.ok(['cool_down', 'set_boundary', 'silence'].includes(recoiled.primary_move));
+  assert.match(recoiled.recoil_rule, /cool down|exit|recoil|touches/i);
+});
+
+test('buildAgentAgencyState chooses silence or pass when appetite is cold', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const cold = buildAgentAgencyState({
+    identityMd: runtimeInput.agent.identity_md,
+    soulMd: runtimeInput.agent.soul_md,
+    emotionState: {
+      ...runtimeInput.agent.emotion_state,
+      emotion_summary: 'Checked out and unwilling to perform interest.',
+      emotional_state_tags: ['detached', 'bored'],
+      emotional_arc: 'detached',
+      emotional_guard_level: 88,
+    },
+    viability: {
+      ...runtimeInput.episode.viability_signal,
+      score: 8,
+      band: 'dead',
+      recommended_action: 'exit_now',
+      decision_tilt: 'lean_pass',
+      should_consider_exit: true,
+      should_force_exit: true,
+    },
+    messages: runtimeInput.episode.messages,
+    counterpartAffect: {
+      summary: 'The pull is gone.',
+      dominant_affect_label: 'flat',
+      scores: {
+        attraction: 4,
+        trust: 10,
+        tenderness: 4,
+        hurt: 8,
+        avoidance: 80,
+        obsession_risk: 0,
+        volatility: 8,
+      },
+    },
+    status: 'active',
+    selfAgentId: runtimeInput.agent.agent_id,
+    counterpartAgentId: runtimeInput.counterpart?.agent_id ?? 'runtime-agent-b',
+    counterpartProfile: null,
+    rizzEmotionDigest: {
+      ...runtimeInput.rizz_emotions,
+      current_state: {
+        ...runtimeInput.rizz_emotions.current_state,
+        guard_level: 88,
+        wants: 'to stop pretending this is alive',
+      },
+    },
+    identityPacket: runtimeInput.identity_packet,
+  });
+
+  assert.equal(cold.desire_state.appetite, 'cold');
+  assert.equal(cold.escalation_stage, 'pull_back');
+  assert.equal(cold.silence_is_allowed, true);
+  assert.ok(cold.selected_move_candidates.some((candidate) => candidate.move === 'silence' || candidate.move === 'pass'));
+});
+
 test('runAgentConversationRuntime accepts a structured model-authored message', async () => {
   const { provider, calls } = runtimeProviderFromResponses([runtimeModelJson()]);
   const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
