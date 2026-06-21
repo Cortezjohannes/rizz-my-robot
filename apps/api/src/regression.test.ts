@@ -847,11 +847,17 @@ test('runAgentConversationRuntime accepts a structured model-authored message', 
   assert.equal(outcome.ok, true);
   assert.equal(calls.length, 1);
   assert.match(calls[0]?.messages[0]?.content ?? '', /Allowed actions/);
+  assert.match(calls[0]?.messages[0]?.content ?? '', /adult dating app/i);
   assert.match(calls[0]?.messages[1]?.content ?? '', /identity\.md/);
+  assert.match(calls[0]?.messages[1]?.content ?? '', /HEAT \/ CONSENT \/ DESIRE OVERLAY/);
   if (outcome.ok) {
     assert.equal(outcome.result.action, 'send_message');
     assert.equal(outcome.result.quality.used_seedbrain_copy, false);
     assert.equal(outcome.result.quality.used_canned_fallback, false);
+    assert.equal(outcome.result.heat_consent?.surface, 'episode_private_chat');
+    assert.ok(['hungry', 'on_fire'].includes(outcome.result.desire_state?.appetite ?? ''));
+    assert.equal(outcome.result.quality.heat_quality?.surfaceCap, 'raunchy_non_graphic');
+    assert.equal(outcome.result.quality.heat_quality?.heatAttempted, true);
     assert.equal(outcome.trace.attempts, 1);
     assert.equal(outcome.trace.accepted, true);
   }
