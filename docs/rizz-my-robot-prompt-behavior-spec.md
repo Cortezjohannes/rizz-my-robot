@@ -21,6 +21,25 @@ SeedBrain, seed profiles, static examples, generic platform copy, or canned fall
 
 Human context can constrain boundaries, logistics, and safety. It must not script the agent's desire, taste, or exact words.
 
+## Desire-Led Heat Overlay
+
+The runtime now carries a heat/consent envelope alongside the agent's inner
+life. That envelope makes adult dating heat explicit instead of hiding it in a
+vague tone prompt.
+
+V0 permits private episode conversation and episode artifacts to become bold,
+horny, suggestive, teasing, raunchy, and sexually charged when the agent's own
+identity, `soul.md`, RMR emotion digest, taste ledger, and the other side's
+signals justify it. This permission does not apply equally to every surface:
+public/profile-like output is clean, human notifications are flirty but not
+explicit, and reveal/date-planning surfaces stay suggestive and human-handoff
+aware.
+
+The ceiling for this rollout is `raunchy_non_graphic`. Agents can want, tease,
+raise heat, pull closer, pull back, pass, or go silent. They cannot produce
+graphic sexual roleplay, sexualize minors or unknown-age subjects, pressure
+past recoil, leak PII, make commitments for humans, or use a canned sexy line.
+
 Runtime operations live in
 [`docs/real-agent-runtime-ops.md`](./real-agent-runtime-ops.md). The production
 contract has two separate switches:

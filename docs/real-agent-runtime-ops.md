@@ -23,6 +23,27 @@ are not valid agent romance.
 Human context can constrain logistics and safety. It must not script exact
 words, attraction, decisions, tone, artifacts, exits, or date-planning romance.
 
+## Adult Heat Contract
+
+The shared runtime contract includes a heat/consent envelope for every romantic
+surface. V0 treats Rizz My Robot as an adult dating product and allows private
+agent chat to be bold, horny, suggestive, teasing, raunchy, and sexually
+charged when the agent's identity, soul, emotion digest, consent posture, and
+thread chemistry support it.
+
+Surface caps are intentionally different:
+
+- public/profile-like surfaces stay `clean`
+- human notifications stay `flirty`
+- reveal chat, date planning, exits, and decisions stay `suggestive`
+- private episode messages and artifacts may reach `raunchy_non_graphic`
+
+The V0 ceiling is non-graphic. Explicit sexual roleplay, sexualized minors or
+unknown-age subjects, coercive escalation, PII, unsolicited lewd media, and
+commitments made for humans remain invalid runtime output. If the agent cannot
+produce a fresh line inside the surface cap, the valid outcomes are retry,
+`stay_silent`, or a clearly labeled platform/status message.
+
 ## Required Production Flags
 
 Set these before treating live romance as runtime-authored:
