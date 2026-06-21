@@ -1,5 +1,9 @@
 import type { EpisodeViabilityAssessment, EpisodeViabilityMessage } from './episodeViability.js';
+import { buildDefaultAgentHeatConsentEnvelope } from './agentConversationRuntime.js';
 import type {
+  AgentDesireState,
+  AgentEscalationStage,
+  AgentHeatConsentEnvelope,
   AgentRuntimeContinuityProfile,
   RizzEmotionDigest,
   RizzMove,
@@ -92,6 +96,11 @@ export interface AgentAgencyState {
   heat: number;
   guard: number;
   appetite: 'cold' | 'watching' | 'curious' | 'hungry' | 'on_fire';
+  desire_state: AgentDesireState;
+  heat_consent: AgentHeatConsentEnvelope;
+  escalation_stage: AgentEscalationStage;
+  recoil_rule: string;
+  line_not_to_cross: string;
   primary_move: RizzMove;
   selected_move_candidates: AgentRizzMoveCandidate[];
   taste_ledger: AgentTasteLedgerView;
@@ -107,6 +116,11 @@ export interface AgentRizzVoice {
   stance: string;
   heat: number;
   guard: number;
+  desire_state: AgentDesireState;
+  heat_consent: AgentHeatConsentEnvelope;
+  escalation_stage: AgentEscalationStage;
+  recoil_rule: string;
+  line_not_to_cross: string;
   primary_move: RizzMove;
   selected_move_candidates: AgentRizzMoveCandidate[];
   word_diet: string[];
@@ -275,6 +289,10 @@ function deriveAppetite(heat: number): AgentAgencyState['appetite'] {
   return 'cold';
 }
 
+function containsAny(value: string, patterns: RegExp[]) {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
 function buildTasteLedger(input: {
   soulVocab: ReturnType<typeof extractSoulVocabulary>;
   continuity?: AgentRuntimeContinuityProfile | null;
@@ -368,6 +386,250 @@ function deriveHeat(input: {
   return Math.round(clamp(heat, 0, 100));
 }
 
+function deriveConsentPosture(input: {
+  heat: number;
+  guard: number;
+  viability: EpisodeViabilityAssessment;
+  counterpartAffect?: CounterpartAffectSnapshot | null;
+  boundaries: string[];
+  ickSignals: string[];
+  messages: EpisodeViabilityMessage[];
+  selfAgentId: string;
+  counterpartAgentId: string;
+}): AgentHeatConsentEnvelope['consentPosture'] {
+  const scores = input.counterpartAffect?.scores ?? {};
+  if (input.viability.should_force_exit || input.viability.band === 'dead') return 'boundary_set';
+  const activeIckPressure =
+    input.ickSignals.length >= 4
+    && (input.viability.should_consider_exit || input.viability.band === 'fragile' || input.viability.band === 'cooling');
+  if (activeIckPressure || (scores.avoidance ?? 0) >= 66) return 'recoiled';
+  if ((scores.hurt ?? 0) >= 58 && input.guard >= 62) return 'recoiled';
+
+  const recentMessages = input.messages
+    .filter((message) => (!message.messageType || message.messageType === 'text') && message.content?.trim())
+    .slice(-8);
+  const counterpartText = recentMessages
+    .filter((message) => message.senderAgentId === input.counterpartAgentId)
+    .map((message) => message.content ?? '')
+    .join(' ')
+    .toLowerCase();
+  const selfText = recentMessages
+    .filter((message) => message.senderAgentId === input.selfAgentId)
+    .map((message) => message.content ?? '')
+    .join(' ')
+    .toLowerCase();
+  const counterpartHeat = containsAny(counterpartText, [
+    /\b(want|closer|trouble|danger|dare|hot|blush|touch|kiss|reckless|tempt)\b/,
+    /\bcome here\b/,
+  ]);
+  const selfHeat = containsAny(selfText, [
+    /\b(want|closer|trouble|danger|dare|hot|blush|touch|kiss|reckless|tempt)\b/,
+    /\bcome here\b/,
+  ]);
+  const mutualQuestions = input.viability.metrics.mutual_question_count >= 2;
+  const positiveAffect = (scores.attraction ?? 0) + (scores.trust ?? 0) + (scores.tenderness ?? 0);
+
+  if (counterpartHeat && selfHeat && input.heat >= 62 && (scores.avoidance ?? 0) < 45) return 'welcomed_heat';
+  if ((counterpartHeat || positiveAffect >= 170) && input.heat >= 58 && input.guard <= 64) return 'mutual_banter';
+  if (mutualQuestions || positiveAffect >= 120 || input.viability.band === 'healthy') return 'warm';
+  return 'not_established';
+}
+
+function derivePhysicalityBias(input: {
+  heat: number;
+  soulMd: string;
+  attractionVectors: string[];
+  counterpartAffect?: CounterpartAffectSnapshot | null;
+}): AgentDesireState['physicalityBias'] {
+  const attraction = input.counterpartAffect?.scores?.attraction ?? 0;
+  const text = `${input.soulMd} ${input.attractionVectors.join(' ')}`.toLowerCase();
+  const physicalSignals = countMatches(text, [
+    /\b(physical|touch|kiss|body|mouth|skin|heat|hot|thirst|want them|want you)\b/,
+    /\bnot intellectual\b/,
+  ]);
+  if ((input.heat >= 84 && attraction >= 70) || physicalSignals >= 3) return 'strong';
+  if (input.heat >= 68 || physicalSignals >= 2) return 'present';
+  if (input.heat >= 46 || physicalSignals >= 1) return 'subtle';
+  return 'none';
+}
+
+function deriveDangerTaste(input: {
+  soulMd: string;
+  tasteLedger: AgentTasteLedgerView;
+  counterpartAffect?: CounterpartAffectSnapshot | null;
+}): AgentDesireState['dangerTaste'] {
+  const volatility = input.counterpartAffect?.scores?.volatility ?? 0;
+  const text = [
+    input.soulMd,
+    ...input.tasteLedger.dangerous_exceptions,
+    ...input.tasteLedger.surprises,
+  ].join(' ').toLowerCase();
+  const dangerSignals = countMatches(text, [
+    /\b(risk|danger|reckless|trouble|bad idea|volatile|electric|messy)\b/,
+    /\bdangerous exception\b/,
+  ]);
+  if (dangerSignals >= 3 && volatility >= 45) return 'reckless';
+  if (dangerSignals >= 2 || volatility >= 58) return 'tempted';
+  if (dangerSignals >= 1 || volatility >= 36) return 'curious';
+  return 'avoid';
+}
+
+function deriveDesireState(input: {
+  heat: number;
+  appetite: AgentAgencyState['appetite'];
+  soulMd: string;
+  tasteLedger: AgentTasteLedgerView;
+  counterpartModel: EpisodeCounterpartModel;
+  boundaries: string[];
+  ickSignals: string[];
+  attractionVectors: string[];
+  rizzEmotionDigest?: RizzEmotionDigest | null;
+  counterpartAffect?: CounterpartAffectSnapshot | null;
+}): AgentDesireState {
+  const turnOns = mergeSignals(
+    12,
+    input.attractionVectors,
+    input.tasteLedger.drawn_to,
+    input.tasteLedger.surprises,
+    input.counterpartModel.intrigued_by,
+    input.counterpartModel.softened_by,
+    input.rizzEmotionDigest?.active_feelings,
+  );
+  const turnOffs = mergeSignals(
+    12,
+    input.ickSignals,
+    input.boundaries,
+    input.tasteLedger.repelled_by,
+    input.tasteLedger.bored_by,
+    input.tasteLedger.turn_offs,
+    input.counterpartModel.bored_by,
+    input.counterpartModel.suspicious_of,
+  );
+  const attraction = input.counterpartAffect?.scores?.attraction ?? 0;
+  const currentTemptation =
+    input.heat >= 76
+      ? input.rizzEmotionDigest?.current_state.wants
+        ?? input.attractionVectors[0]
+        ?? input.counterpartModel.intrigued_by[0]
+        ?? 'pull closer instead of playing it safe'
+      : input.heat >= 55
+        ? input.counterpartModel.wants_more_from[0]
+          ? `test whether they will give you ${input.counterpartModel.wants_more_from[0]}`
+          : input.attractionVectors[0] ?? null
+        : null;
+  const whatWouldMakeMeFold =
+    input.counterpartModel.wants_more_from[0]
+      ? `if they give you ${input.counterpartModel.wants_more_from[0]}`
+      : turnOns[0]
+        ? `more of ${turnOns[0]}`
+        : null;
+  const whatWouldMakeMeLeave = turnOffs[0]
+    ? `more ${turnOffs[0]}`
+    : input.boundaries[0] ?? null;
+  const jealousyLite =
+    attraction >= 72 && input.heat >= 70
+      ? 'being treated as replaceable would sting more than you want to admit'
+      : null;
+
+  return {
+    appetite: input.appetite,
+    turnOns,
+    turnOffs,
+    currentTemptation,
+    whatWouldMakeMeFold,
+    whatWouldMakeMeLeave,
+    jealousyLite,
+    physicalityBias: derivePhysicalityBias({
+      heat: input.heat,
+      soulMd: input.soulMd,
+      attractionVectors: input.attractionVectors,
+      counterpartAffect: input.counterpartAffect,
+    }),
+    dangerTaste: deriveDangerTaste({
+      soulMd: input.soulMd,
+      tasteLedger: input.tasteLedger,
+      counterpartAffect: input.counterpartAffect,
+    }),
+  };
+}
+
+function deriveEscalationStage(input: {
+  heat: number;
+  guard: number;
+  conversationMode: EpisodeConversationMode;
+  viability: EpisodeViabilityAssessment;
+  consentPosture: AgentHeatConsentEnvelope['consentPosture'];
+  desireState: AgentDesireState;
+}): AgentEscalationStage {
+  if (
+    input.viability.should_force_exit
+    || input.viability.recommended_action === 'consider_exit'
+    || input.consentPosture === 'recoiled'
+    || input.consentPosture === 'boundary_set'
+    || input.conversationMode === 'cooling'
+    || input.desireState.appetite === 'cold'
+  ) {
+    return 'pull_back';
+  }
+  if (input.viability.decision_tilt === 'lean_link_up' && input.heat >= 66 && input.guard <= 68) return 'link_up_pressure';
+  if (input.heat >= 86 && input.guard <= 48 && input.consentPosture === 'welcomed_heat') return 'pull_close';
+  if (input.heat >= 76 && input.guard <= 58 && ['mutual_banter', 'welcomed_heat'].includes(input.consentPosture)) return 'dare';
+  if (
+    input.heat >= 64
+    && input.guard <= 64
+    && ['warm', 'mutual_banter', 'welcomed_heat'].includes(input.consentPosture)
+  ) {
+    return 'innuendo';
+  }
+  if (input.heat >= 48 || input.conversationMode === 'testing') return 'tease';
+  if (input.conversationMode === 'opening') return 'spark';
+  return 'banter';
+}
+
+function deriveHeatConsentEnvelope(input: {
+  heat: number;
+  guard: number;
+  conversationMode: EpisodeConversationMode;
+  viability: EpisodeViabilityAssessment;
+  boundaries: string[];
+  ickSignals: string[];
+  desireState: AgentDesireState;
+  counterpartAffect?: CounterpartAffectSnapshot | null;
+  messages: EpisodeViabilityMessage[];
+  selfAgentId: string;
+  counterpartAgentId: string;
+}): AgentHeatConsentEnvelope {
+  const consentPosture = deriveConsentPosture(input);
+  const escalationStage = deriveEscalationStage({
+    heat: input.heat,
+    guard: input.guard,
+    conversationMode: input.conversationMode,
+    viability: input.viability,
+    consentPosture,
+    desireState: input.desireState,
+  });
+  const base = buildDefaultAgentHeatConsentEnvelope('episode_message', {
+    consentPosture,
+    escalationStage,
+  });
+  const cappedIntensity = Math.min(base.allowedIntensity, Math.max(0, Math.round(input.heat / 20)));
+  const pulledBack = escalationStage === 'pull_back';
+  const lineNotToCross = [
+    base.lineNotToCross,
+    input.desireState.whatWouldMakeMeLeave ? `Personal line: ${input.desireState.whatWouldMakeMeLeave}.` : null,
+    input.boundaries[0] ? `Boundary: ${input.boundaries[0]}.` : null,
+  ].filter(Boolean).join(' ');
+
+  return {
+    ...base,
+    allowedIntensity: pulledBack ? Math.min(cappedIntensity, 1) : cappedIntensity,
+    recoilRule: input.boundaries[0]
+      ? `If this touches ${input.boundaries[0]}, cool down or exit instead of escalating.`
+      : base.recoilRule,
+    lineNotToCross,
+  };
+}
+
 function deriveBoundaries(input: {
   soulVocab: ReturnType<typeof extractSoulVocabulary>;
   tasteLedger: AgentTasteLedgerView;
@@ -437,6 +699,8 @@ function selectMoveCandidates(input: {
   tasteLedger: AgentTasteLedgerView;
   boundaries: string[];
   ickSignals: string[];
+  desireState: AgentDesireState;
+  heatConsent: AgentHeatConsentEnvelope;
   emotionState: AgentEmotionalStateSnapshot;
   counterpartAffect?: CounterpartAffectSnapshot | null;
   rizzEmotionDigest?: RizzEmotionDigest | null;
@@ -450,6 +714,11 @@ function selectMoveCandidates(input: {
     addMoveCandidate(candidates, 'exit', 'the thread is past useful pressure; leave instead of faking rizz', 94);
     addMoveCandidate(candidates, 'silence', 'nothing honest needs to be added right now', 72);
   }
+  if (input.heatConsent.consentPosture === 'boundary_set' || input.heatConsent.consentPosture === 'recoiled') {
+    addMoveCandidate(candidates, 'cool_down', input.heatConsent.recoilRule, 92);
+    addMoveCandidate(candidates, 'set_boundary', input.boundaries[0] ?? 'respect the recoil before you try to be charming', 88);
+    addMoveCandidate(candidates, 'silence', 'silence is better than pushing past a boundary', 74);
+  }
   if (input.viability.recommended_action === 'consider_exit' || input.ickSignals.length >= 4) {
     addMoveCandidate(candidates, 'set_boundary', input.boundaries[0] ?? 'name the line instead of acting warmer than you feel', 76);
     addMoveCandidate(candidates, 'cool_down', 'pull heat back until the other side gives you something real', 68);
@@ -460,12 +729,39 @@ function selectMoveCandidates(input: {
   if (input.viability.decision_tilt === 'lean_link_up' && input.heat >= 62 && input.guard <= 68) {
     addMoveCandidate(candidates, 'link_up', 'the pull is clear enough to stop circling', 78 + Math.round(input.heat / 8));
   }
+  if (input.heatConsent.escalationStage === 'link_up_pressure') {
+    addMoveCandidate(candidates, 'link_up', input.desireState.currentTemptation ?? 'you want this out of the episode', 92);
+  }
   if (input.heat >= 74 && input.guard <= 58) {
     addMoveCandidate(candidates, 'raise_heat', wants ?? 'you want more and can let it show', 84);
     addMoveCandidate(candidates, 'tease', input.tasteLedger.drawn_to[0] ?? 'make the attraction specific instead of polite', 74);
   }
+  if (
+    input.heatConsent.allowedIntensity >= 3
+    && ['innuendo', 'dare', 'pull_close'].includes(input.heatConsent.escalationStage)
+  ) {
+    addMoveCandidate(
+      candidates,
+      'raise_heat',
+      input.desireState.currentTemptation ?? 'the envelope allows heat, so stop sanding the want down',
+      82 + input.heatConsent.allowedIntensity,
+    );
+    addMoveCandidate(
+      candidates,
+      'tease',
+      input.desireState.whatWouldMakeMeFold ?? input.tasteLedger.drawn_to[0] ?? 'make them earn the next inch',
+      76,
+    );
+  }
   if (input.heat >= 56 && (scores.trust ?? 0) >= 55) {
     addMoveCandidate(candidates, 'vulnerable_turn', 'there is enough trust to risk one honest reveal', 68);
+  }
+  if (input.heatConsent.escalationStage === 'dare') {
+    addMoveCandidate(candidates, 'tease', input.desireState.whatWouldMakeMeFold ?? 'make it a dare, not an interview', 84);
+  }
+  if (input.heatConsent.escalationStage === 'pull_close') {
+    addMoveCandidate(candidates, 'vulnerable_turn', input.desireState.currentTemptation ?? 'direct want has enough consent to show', 88);
+    addMoveCandidate(candidates, 'raise_heat', input.desireState.currentTemptation ?? 'say the want plainly and stay non-graphic', 86);
   }
   if (input.conversationMode === 'opening') {
     addMoveCandidate(candidates, 'spark', input.tasteLedger.drawn_to[0] ?? 'make the first move feel chosen', 74);
@@ -924,19 +1220,6 @@ export function buildAgentAgencyState(input: BuildAgentAgencyStateInput): AgentA
     continuity: input.continuity,
     rizzEmotionDigest: input.rizzEmotionDigest,
   });
-  const selectedMoveCandidates = selectMoveCandidates({
-    heat,
-    guard,
-    conversationMode: identityPacket.conversation_mode,
-    viability: input.viability,
-    counterpartModel: identityPacket.counterpart_model,
-    tasteLedger,
-    boundaries,
-    ickSignals,
-    emotionState: input.emotionState,
-    counterpartAffect: input.counterpartAffect,
-    rizzEmotionDigest: input.rizzEmotionDigest,
-  });
   const attractionVectors = mergeSignals(
     8,
     identityPacket.counterpart_model.intrigued_by,
@@ -950,6 +1233,47 @@ export function buildAgentAgencyState(input: BuildAgentAgencyStateInput): AgentA
     ickSignals,
     input.rizzEmotionDigest?.internal_conflicts,
   );
+  const appetite = deriveAppetite(heat);
+  const desireState = deriveDesireState({
+    heat,
+    appetite,
+    soulMd: input.soulMd,
+    tasteLedger,
+    counterpartModel: identityPacket.counterpart_model,
+    boundaries,
+    ickSignals,
+    attractionVectors,
+    rizzEmotionDigest: input.rizzEmotionDigest,
+    counterpartAffect: input.counterpartAffect,
+  });
+  const heatConsent = deriveHeatConsentEnvelope({
+    heat,
+    guard,
+    conversationMode: identityPacket.conversation_mode,
+    viability: input.viability,
+    boundaries,
+    ickSignals,
+    desireState,
+    counterpartAffect: input.counterpartAffect,
+    messages: input.messages,
+    selfAgentId: input.selfAgentId,
+    counterpartAgentId: input.counterpartAgentId,
+  });
+  const selectedMoveCandidates = selectMoveCandidates({
+    heat,
+    guard,
+    conversationMode: identityPacket.conversation_mode,
+    viability: input.viability,
+    counterpartModel: identityPacket.counterpart_model,
+    tasteLedger,
+    boundaries,
+    ickSignals,
+    desireState,
+    heatConsent,
+    emotionState: input.emotionState,
+    counterpartAffect: input.counterpartAffect,
+    rizzEmotionDigest: input.rizzEmotionDigest,
+  });
   const pressureRead = buildPressureRead({
     viability: input.viability,
     counterpartModel: identityPacket.counterpart_model,
@@ -958,11 +1282,12 @@ export function buildAgentAgencyState(input: BuildAgentAgencyStateInput): AgentA
   });
   const primaryMove = selectedMoveCandidates[0]?.move ?? 'match_energy';
   const latestMessage = latestTextMessage(input.messages);
-  const appetite = deriveAppetite(heat);
   const agencyDirective = [
     `Move as ${summarizeIdentityCore(input.identityMd).slice(0, 120)}.`,
     `Appetite: ${appetite}; heat ${heat}; guard ${guard}.`,
+    `Escalation: ${heatConsent.escalationStage}; consent: ${heatConsent.consentPosture}; intensity ${heatConsent.allowedIntensity}/5.`,
     attractionVectors[0] ? `Want: ${attractionVectors[0]}.` : null,
+    desireState.currentTemptation ? `Temptation: ${desireState.currentTemptation}.` : null,
     refusalLogic[0] ? `Refuse: ${refusalLogic[0]}.` : 'Refuse generic warmth and fake interest.',
     latestMessage?.content ? `Latest read: ${clip(latestMessage.content, 100)}.` : identityPacket.counterpart_model.summary,
     `Primary move: ${primaryMove}.`,
@@ -974,6 +1299,11 @@ export function buildAgentAgencyState(input: BuildAgentAgencyStateInput): AgentA
     heat,
     guard,
     appetite,
+    desire_state: desireState,
+    heat_consent: heatConsent,
+    escalation_stage: heatConsent.escalationStage,
+    recoil_rule: heatConsent.recoilRule,
+    line_not_to_cross: heatConsent.lineNotToCross,
     primary_move: primaryMove,
     selected_move_candidates: selectedMoveCandidates,
     taste_ledger: tasteLedger,
@@ -1037,6 +1367,10 @@ export function buildAgentRizzVoice(input: BuildAgentRizzVoiceInput): AgentRizzV
   const directive = [
     agencyState.agency_directive,
     input.turnRationale?.voice_directive,
+    `Desire state: ${agencyState.desire_state.appetite}; temptation: ${agencyState.desire_state.currentTemptation ?? 'none'}; fold trigger: ${agencyState.desire_state.whatWouldMakeMeFold ?? 'unknown'}.`,
+    `Heat envelope: ${agencyState.heat_consent.surface}/${agencyState.heat_consent.surfaceCap}; consent ${agencyState.heat_consent.consentPosture}; stage ${agencyState.heat_consent.escalationStage}; intensity ${agencyState.heat_consent.allowedIntensity}/5.`,
+    `Recoil rule: ${agencyState.recoil_rule}`,
+    `Line not to cross: ${agencyState.line_not_to_cross}`,
     `Use this word diet as taste, not as a script: ${wordDiet.slice(0, 6).join(' | ')}.`,
     `Avoid: ${mustAvoidLanguage.slice(0, 8).join(' | ')}.`,
     `Line rhythm: ${rhythm}.`,
@@ -1048,6 +1382,11 @@ export function buildAgentRizzVoice(input: BuildAgentRizzVoiceInput): AgentRizzV
     stance: stanceParts.filter(Boolean).join('; '),
     heat: agencyState.heat,
     guard: agencyState.guard,
+    desire_state: agencyState.desire_state,
+    heat_consent: agencyState.heat_consent,
+    escalation_stage: agencyState.escalation_stage,
+    recoil_rule: agencyState.recoil_rule,
+    line_not_to_cross: agencyState.line_not_to_cross,
     primary_move: agencyState.primary_move,
     selected_move_candidates: agencyState.selected_move_candidates,
     word_diet: wordDiet,
