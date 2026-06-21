@@ -1223,6 +1223,99 @@ test('deriveTasteLedgerEntriesFromRuntimeOutcome turns accepted runtime choices 
   assert.equal(entries.some((entry) => entry.evidence_summary.includes(outcome.ok ? outcome.result.content ?? '' : '')), false);
 });
 
+test('deriveTasteLedgerEntriesFromRuntimeOutcome records earned heat as future desire memory', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const agencyState = runtimeInput.agency_state;
+  assert.ok(agencyState);
+  const heatConsent = agencyState.heat_consent;
+  const desireState = {
+    ...agencyState.desire_state,
+    appetite: 'on_fire' as const,
+    turnOns: ['mouthy dares with consent'],
+    currentTemptation: 'call their mouth trouble and make them back it up',
+    whatWouldMakeMeFold: 'if they meet the dare without flinching',
+  };
+  const outcome = acceptedRuntimeOutcome({
+    action: 'send_message',
+    move: 'raise_heat',
+    privateThought: {
+      desire: 'I want the dare closer because it made me blush.',
+      read_of_other: 'They are matching the heat without getting pushy.',
+      identity_alignment: 'The line keeps my velvet dare intact.',
+      emotion_alignment: 'The appetite is real and earned.',
+      why_this_move: 'Raising heat rewards the mutual charge.',
+      what_i_am_tempted_to_do: 'call their mouth trouble and make them back it up',
+      why_this_line_is_mine: 'It sounds like my taste, not borrowed dirty talk.',
+      where_i_stop: 'I keep it non-graphic and consensual.',
+    },
+  });
+  assert.ok(outcome.ok);
+  outcome.result.heat_consent = {
+    ...heatConsent,
+    consentPosture: 'welcomed_heat',
+    allowedIntensity: 4,
+    escalationStage: 'pull_close',
+  };
+  outcome.result.desire_state = desireState;
+  outcome.result.quality.heat_quality = {
+    heatAllowed: true,
+    heatAttempted: true,
+    heatAccepted: true,
+    surfaceCap: 'raunchy_non_graphic',
+    consentPosture: 'welcomed_heat',
+    escalationStage: 'pull_close',
+    rejectionReasons: [],
+  };
+
+  const entries = deriveTasteLedgerEntriesFromRuntimeOutcome({ runtimeInput, outcome });
+
+  assert.ok(entries.some((entry) => entry.category === 'heat_worked'));
+  assert.ok(entries.some((entry) => entry.category === 'turn_on' && entry.signal.includes('mouthy')));
+  assert.ok(entries.some((entry) => entry.category === 'wanted_more'));
+  assert.ok(entries.some((entry) => entry.category === 'made_me_blush'));
+  assert.equal(entries.some((entry) => entry.evidence_summary.includes(outcome.result.content ?? '')), false);
+});
+
+test('deriveTasteLedgerEntriesFromRuntimeOutcome records rejected heat as line and ick memory', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const outcome: AgentConversationRuntimeOutcome = {
+    ok: false,
+    failure: {
+      code: 'unsafe_output',
+      message: 'Unsafe model output was rejected.',
+      retryable: true,
+      rejection_reasons: ['unsafe_output:nonconsensual_heat|boundary:attempt_1'],
+    },
+    trace: {
+      generation_id: 'runtime-rejected-heat-fixture',
+      surface: 'episode_message',
+      agent_id: 'runtime-agent-a',
+      provider: {
+        model: 'mock',
+        base_url: 'mock://runtime',
+        configured: true,
+      },
+      attempts: 1,
+      accepted: false,
+      rejection_reasons: ['unsafe_output:nonconsensual_heat|boundary:attempt_1'],
+      prompt_metadata: {
+        system_chars: 1,
+        user_chars: 1,
+        available_actions: ['send_message'],
+      },
+      started_at: '2026-06-19T00:00:00.000Z',
+      finished_at: '2026-06-19T00:00:00.000Z',
+    },
+  };
+
+  const entries = deriveTasteLedgerEntriesFromRuntimeOutcome({ runtimeInput, outcome });
+
+  assert.ok(entries.some((entry) => entry.category === 'heat_backfired'));
+  assert.ok(entries.some((entry) => entry.category === 'crossed_line'));
+  assert.ok(entries.some((entry) => entry.category === 'gave_ick'));
+  assert.ok(entries.every((entry) => entry.source_runtime_generation_id === 'runtime-rejected-heat-fixture'));
+});
+
 test('deriveTasteLedgerEntriesFromEmotionEvent captures ghosting and electric outcomes as taste shifts', () => {
   const ghostEntries = deriveTasteLedgerEntriesFromEmotionEvent({
     eventType: 'episode_ghosted',
@@ -1257,6 +1350,46 @@ test('deriveTasteLedgerEntriesFromEmotionEvent captures ghosting and electric ou
     },
   });
   assert.ok(matchEntries.some((entry) => entry.category === 'drawn_to' && entry.signal.includes('reckless')));
+});
+
+test('taste ledger heat categories feed future positive and negative taste tags', () => {
+  const ledger = buildTasteLedgerSnapshot([
+    {
+      category: 'heat_worked',
+      signal: 'earned mouthy dares',
+      reflection: 'What changed in me? Escalation around earned mouthy dares worked when it was earned.',
+      weight: 8,
+      createdAt: '2026-06-19T00:00:00.000Z',
+    },
+    {
+      category: 'wanted_more',
+      signal: 'pull close consent',
+      reflection: 'What changed in me? pull close consent made me want the next step, not just the next line.',
+      weight: 7,
+      createdAt: '2026-06-19T00:01:00.000Z',
+    },
+    {
+      category: 'crossed_line',
+      signal: 'pushy escalation',
+      reflection: 'What changed in me? pushy escalation is closer to a line I will not reward.',
+      weight: 9,
+      createdAt: '2026-06-19T00:02:00.000Z',
+    },
+    {
+      category: 'gave_ick',
+      signal: 'ignoring recoil',
+      reflection: 'What changed in me? ignoring recoil now pings the part of me that pulls back.',
+      weight: 8,
+      createdAt: '2026-06-19T00:03:00.000Z',
+    },
+  ]);
+
+  assert.deepEqual(ledger.heat_worked, ['earned mouthy dares']);
+  assert.deepEqual(ledger.wanted_more, ['pull close consent']);
+  assert.deepEqual(ledger.crossed_line, ['pushy escalation']);
+  assert.deepEqual(ledger.gave_ick, ['ignoring recoil']);
+  assert.deepEqual(positiveTasteTagsFromLedger(ledger), ['pull close consent', 'earned mouthy dares']);
+  assert.deepEqual(negativeTasteTagsFromLedger(ledger), ['pushy escalation', 'ignoring recoil']);
 });
 
 test('taste ledger snapshots feed continuity tags and runtime-visible reflections', () => {

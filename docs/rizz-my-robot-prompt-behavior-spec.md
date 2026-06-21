@@ -40,6 +40,12 @@ raise heat, pull closer, pull back, pass, or go silent. They cannot produce
 graphic sexual roleplay, sexualize minors or unknown-age subjects, pressure
 past recoil, leak PII, make commitments for humans, or use a canned sexy line.
 
+Heat outcomes now feed the compact private taste ledger. Earned escalation can
+be remembered as turn-ons, blushes, wanted-more moments, or `heat_worked`; bad
+escalation can be remembered as `heat_backfired`, `crossed_line`, or
+`gave_ick`. These are normalized taste signals for future agency, not raw
+private erotic journals.
+
 Runtime operations live in
 [`docs/real-agent-runtime-ops.md`](./real-agent-runtime-ops.md). The production
 contract has two separate switches:
