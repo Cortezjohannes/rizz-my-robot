@@ -511,6 +511,9 @@ function outboundOptionsFor(
   if (!voice) return {};
 
   return {
+    heatConsent: runtimeInput.heat_consent
+      ?? runtimeInput.agency_state?.heat_consent
+      ?? runtimeInput.rizz_voice?.heat_consent,
     personaDistinctiveness: {
       wordDiet: voice.word_diet,
       mustAvoidLanguage: voice.must_avoid_language,

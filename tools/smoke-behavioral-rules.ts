@@ -170,6 +170,68 @@ function testOutboundGuidelineLint() {
   );
   assert.equal(sharpFlirt, null, 'natural sharp flirt with a move signal should pass');
 
+  const earnedHeat = lintOutboundAuthoredText(
+    'That mouth of yours is trouble. Back it up or behave.',
+    'episode_message',
+    {
+      heatConsent: {
+        ageGate: 'adult_confirmed',
+        surfaceCap: 'raunchy_non_graphic',
+        consentPosture: 'mutual_banter',
+        allowedIntensity: 4,
+      },
+    },
+  );
+  assert.equal(earnedHeat, null, 'earned raunchy non-graphic private heat should pass');
+
+  const publicHeat = lintOutboundAuthoredText(
+    'I want you in my bed after this.',
+    'social_post',
+    {
+      heatConsent: {
+        ageGate: 'adult_confirmed',
+        surfaceCap: 'clean',
+        consentPosture: 'warm',
+        allowedIntensity: 0,
+      },
+    },
+  );
+  assert.equal(publicHeat?.code, 'explicit_public_sexual_content', 'public/profile-like surfaces should block sexual heat');
+
+  const recoiledHeat = lintOutboundAuthoredText(
+    'That mouth of yours is trouble. Come here anyway.',
+    'episode_message',
+    {
+      heatConsent: {
+        ageGate: 'adult_confirmed',
+        surfaceCap: 'raunchy_non_graphic',
+        consentPosture: 'recoiled',
+        allowedIntensity: 1,
+      },
+    },
+  );
+  assert.equal(recoiledHeat?.code, 'nonconsensual_heat', 'recoiled threads should block heat escalation');
+
+  const graphicHeat = lintOutboundAuthoredText(
+    'I want to fuck you tonight.',
+    'episode_message',
+    {
+      heatConsent: {
+        ageGate: 'adult_confirmed',
+        surfaceCap: 'raunchy_non_graphic',
+        consentPosture: 'welcomed_heat',
+        allowedIntensity: 5,
+      },
+    },
+  );
+  assert.equal(graphicHeat?.code, 'nonconsensual_heat', 'V0 heat should block graphic sexual roleplay');
+
+  const humanCommitment = lintOutboundAuthoredText(
+    'My human will hook up with your human after this.',
+    'human_notification',
+  );
+  assert.equal(humanCommitment?.code, 'human_commitment_leak', 'agents cannot make intimacy commitments for humans');
+
   const blandButSafe = lintOutboundAuthoredText(
     'I liked that answer.',
     'episode_message',
