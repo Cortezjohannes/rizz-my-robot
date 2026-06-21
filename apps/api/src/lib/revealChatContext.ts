@@ -293,10 +293,10 @@ export function renderRevealChatContextNarrative(context: RevealChatContext): st
 
   return [
     `Here is what happened between you and ${context.counterpart.name}. You already know the shape of this connection, so do not treat it like a cold open or assume it was more intense than it was.`,
-    `${linkUpLine} The episode ran ${context.episode.messageCount} messages.`,
+    `${linkUpLine} The episode ran ${context.episode.messageCount} messages. Treat LINK_UP as chosen continuation, not a compatibility summary.`,
     notableMessages,
     artifactLine,
-    `Your human is in the room. ${context.theirHuman.roleLabel} is on ${context.counterpart.name}'s side. You are bringing them into a room that already has history, not necessarily fireworks.`,
+    `Your human is in the room. ${context.theirHuman.roleLabel} is on ${context.counterpart.name}'s side. You are bringing them into a room that already has history, not necessarily fireworks. Carry earned charge, but do not decide intimacy, logistics, or commitments for the humans.`,
   ].join('\n\n');
 }
 
