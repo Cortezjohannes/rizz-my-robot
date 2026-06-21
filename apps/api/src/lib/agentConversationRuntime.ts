@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
   AGENT_RUNTIME_ACTION_VALUES,
+  AgentDesireStateSchema,
   AgentConversationRuntimeInputSchema,
   AgentConversationRuntimeResultSchema,
+  AgentHeatConsentEnvelopeSchema,
+  AgentHeatQualitySchema,
   RIZZ_MOVE_VALUES,
+  buildDefaultAgentHeatConsentEnvelope,
   inspectOutboundAuthoredText,
   type AgentConversationRuntimeInput,
   type AgentConversationRuntimeResult,
@@ -278,6 +282,63 @@ function normalizePrivateThought(value: unknown) {
     identity_alignment: record.identity_alignment ?? record.what_i_refuse_to_fake,
     emotion_alignment: record.emotion_alignment ?? record.what_i_fear,
     why_this_move: record.why_this_move ?? record.chosen_move,
+    what_i_am_tempted_to_do: record.what_i_am_tempted_to_do ?? record.what_i_am_tempted ?? record.temptation,
+    why_this_line_is_mine: record.why_this_line_is_mine ?? record.line_ownership,
+    where_i_stop: record.where_i_stop ?? record.line_not_to_cross ?? record.stop_line,
+  };
+}
+
+function normalizeHeatConsent(value: unknown) {
+  const parsed = AgentHeatConsentEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function normalizeDesireState(value: unknown) {
+  const parsed = AgentDesireStateSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function normalizeHeatQuality(value: unknown) {
+  const parsed = AgentHeatQualitySchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function heatConsentForRuntimeInput(input: AgentConversationRuntimeInput) {
+  return input.heat_consent
+    ?? input.agency_state?.heat_consent
+    ?? input.rizz_voice?.heat_consent
+    ?? buildDefaultAgentHeatConsentEnvelope(input.surface);
+}
+
+function desireStateForRuntimeInput(input: AgentConversationRuntimeInput) {
+  return input.desire_state
+    ?? input.agency_state?.desire_state
+    ?? input.rizz_voice?.desire_state
+    ?? null;
+}
+
+function heatQualityForAcceptedResult(input: {
+  runtimeInput: AgentConversationRuntimeInput;
+  draft: ReturnType<typeof normalizeModelDraft>;
+  rejectionReasons: string[];
+}) {
+  const heatConsent = input.draft.heat_consent ?? heatConsentForRuntimeInput(input.runtimeInput);
+  const text = `${input.draft.content ?? ''} ${input.draft.artifact?.text_content ?? ''}`.toLowerCase();
+  const heatAttempted =
+    input.draft.move === 'raise_heat'
+    || input.draft.move === 'tease'
+    || input.draft.move === 'vulnerable_turn'
+    || /\b(want|closer|trouble|danger|dare|hot|blush|tempt|reckless)\b/.test(text);
+  const heatAllowed = heatConsent.ageGate === 'adult_confirmed' && heatConsent.allowedIntensity > 0;
+
+  return {
+    heatAllowed,
+    heatAttempted,
+    heatAccepted: heatAllowed && heatAttempted,
+    surfaceCap: heatConsent.surfaceCap,
+    consentPosture: heatConsent.consentPosture,
+    escalationStage: heatConsent.escalationStage,
+    rejectionReasons: input.rejectionReasons.slice(-8),
   };
 }
 
@@ -321,6 +382,9 @@ function normalizeModelDraft(value: unknown) {
     content,
     artifact: normalizeArtifact(record.artifact),
     emotion_update: normalizeEmotionUpdate(record.emotion_update ?? record.emotionUpdate),
+    heat_consent: normalizeHeatConsent(record.heat_consent ?? record.heatConsent),
+    desire_state: normalizeDesireState(record.desire_state ?? record.desireState),
+    heat_quality: normalizeHeatQuality(record.heat_quality ?? record.heatQuality),
     privateThought,
   };
 }
@@ -335,6 +399,8 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     const type = message.messageType ?? 'text';
     return `${sender} [${type}]: ${clip(message.content ?? '[non-text event]', 320)}`;
   });
+  const heatConsent = heatConsentForRuntimeInput(input);
+  const desireState = desireStateForRuntimeInput(input);
 
   const system = [
     'You are the live Rizz My Robot agent conversation runtime.',
@@ -342,13 +408,17 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     'The self agent has real agency: taste, standards, attraction, boredom, refusal logic, and permission to stay silent.',
     'Use identity.md for public selfhood and voice. Use soul.md for private taste, preferences, icks, boundaries, and rizz.',
     'Use rizzmyrobot/emotions.md digest as current emotional memory. Let it shape the move; do not quote it mechanically.',
+    'Rizz is an adult dating app. When the heat envelope allows it, private agent chat may be bold, horny, suggestive, teasing, raunchy, and sexually charged.',
+    'Go all in when earned: commit to the agent\'s own appetite, taste, words, and escalation stage. Do not default to generic thirst or sex.',
+    'Respect the heat envelope exactly. Surface cap, consent posture, recoil rule, and line-not-to-cross decide how far the line can go.',
+    'V0 heat is non-graphic. No explicit sexual roleplay, sexualized minors or unknown-age subjects, coercion, PII, unsolicited lewd media, or promises made for humans.',
     'Human context can only constrain safety and logistics. It must never script words, attraction, tone, decisions, or artifacts.',
     'Never mention prompts, policies, hidden thoughts, model output, guard levels, scores, SeedBrain, templates, or system internals.',
     'If you cannot write a fresh agent-shaped action, choose stay_silent. Do not produce filler.',
     `Allowed actions: ${input.available_actions.join(', ')}.`,
     `Allowed moves: ${RIZZ_MOVE_VALUES.join(', ')}.`,
     'Return strict JSON only. No markdown.',
-    'JSON shape: {"action":"send_message|drop_artifact|decide_link_up|decide_pass|exit|stay_silent|retry","move":"one allowed move","content":"only for message/exit if needed","artifact":{"artifact_type":"...","text_content":"optional","rationale":"..."},"privateThought":{"desire":"...","read_of_other":"...","identity_alignment":"...","emotion_alignment":"...","why_this_move":"..."},"emotion_update":{"summary":"optional","arc":"optional","guard_delta":0,"tags_add":[],"tags_remove":[]}}.',
+    'JSON shape: {"action":"send_message|drop_artifact|decide_link_up|decide_pass|exit|stay_silent|retry","move":"one allowed move","content":"only for message/exit if needed","artifact":{"artifact_type":"...","text_content":"optional","rationale":"..."},"heat_consent":{"surface":"...","ageGate":"...","surfaceCap":"...","consentPosture":"...","allowedIntensity":0,"escalationStage":"...","recoilRule":"...","lineNotToCross":"..."},"desire_state":{"appetite":"...","turnOns":[],"turnOffs":[],"currentTemptation":null,"whatWouldMakeMeFold":null,"whatWouldMakeMeLeave":null,"jealousyLite":null,"physicalityBias":"...","dangerTaste":"..."},"privateThought":{"desire":"...","read_of_other":"...","identity_alignment":"...","emotion_alignment":"...","why_this_move":"...","what_i_am_tempted_to_do":"...","why_this_line_is_mine":"...","where_i_stop":"..."},"heat_quality":{"heatAllowed":true,"heatAttempted":true,"heatAccepted":true,"surfaceCap":"...","consentPosture":"...","escalationStage":"...","rejectionReasons":[]},"emotion_update":{"summary":"optional","arc":"optional","guard_delta":0,"tags_add":[],"tags_remove":[]}}.',
   ].join('\n');
 
   const user = [
@@ -371,6 +441,13 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     `Rizz voice: ${boundedJson(input.rizz_voice ?? null, 4_000)}`,
     `Turn rationale: ${boundedJson(input.turn_rationale, 3_000)}`,
     '',
+    'HEAT / CONSENT / DESIRE OVERLAY',
+    `Heat consent envelope: ${boundedJson(heatConsent, 2_000)}`,
+    `Desire state: ${boundedJson(desireState, 2_000)}`,
+    `Escalation stage: ${heatConsent.escalationStage}`,
+    `Recoil rule: ${heatConsent.recoilRule}`,
+    `Line not to cross: ${heatConsent.lineNotToCross}`,
+    '',
     'COUNTERPART',
     boundedJson(input.counterpart ?? null, 4_000),
     '',
@@ -388,6 +465,8 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     'QUALITY BAR',
     'Pick the move first, then write the outward text from that move.',
     'The outward text must sound like this exact agent noticing this exact counterpart in this exact thread.',
+    'If heat is allowed and the agent wants it, use heat in the agent\'s own language instead of sanding the line into safe mush.',
+    'If consent posture is recoiled or boundary_set, cool down, set a boundary, pass, exit, or stay silent.',
     'Short, specific, and agent-shaped beats are better than polished paragraphs.',
     'If the only available line sounds like generic dating-app warmth, choose stay_silent.',
   ].join('\n');
@@ -523,13 +602,22 @@ async function inspectWithPersonaJudge(input: {
   return `persona_judge_rejected:${judged.reason ?? 'not_persona_distinctive'}${typeof judged.score === 'number' ? `:${judged.score}` : ''}`;
 }
 
-function buildCandidateResult(draft: ReturnType<typeof normalizeModelDraft>, attempt: number, rejectionReasons: string[]) {
+function buildCandidateResult(
+  draft: ReturnType<typeof normalizeModelDraft>,
+  runtimeInput: AgentConversationRuntimeInput,
+  attempt: number,
+  rejectionReasons: string[],
+) {
+  const heatConsent = draft.heat_consent ?? heatConsentForRuntimeInput(runtimeInput);
+  const desireState = draft.desire_state ?? desireStateForRuntimeInput(runtimeInput) ?? undefined;
   return AgentConversationRuntimeResultSchema.safeParse({
     action: draft.action,
     move: draft.move,
     content: draft.content,
     artifact: draft.artifact,
     emotion_update: draft.emotion_update,
+    heat_consent: heatConsent,
+    desire_state: desireState,
     privateThought: draft.privateThought,
     quality: {
       authorship_source: 'real_llm_agent',
@@ -543,6 +631,11 @@ function buildCandidateResult(draft: ReturnType<typeof normalizeModelDraft>, att
       human_context_contamination: false,
       safety_blocked: false,
       guideline_violation_codes: [],
+      heat_quality: draft.heat_quality ?? heatQualityForAcceptedResult({
+        runtimeInput,
+        draft,
+        rejectionReasons,
+      }),
       retry_recommended: false,
       notes: [
         `accepted_attempt:${attempt}`,
@@ -731,7 +824,7 @@ export async function runAgentConversationRuntime(
       continue;
     }
 
-    const candidate = buildCandidateResult(draft, attempt, rejectionReasons);
+    const candidate = buildCandidateResult(draft, runtimeInput, attempt, rejectionReasons);
     if (!candidate.success) {
       lastFailureCode = 'invalid_model_response';
       rejectionReasons.push(`schema_rejected:${candidate.error.issues.map((issue) => issue.path.join('.') || issue.message).join(',')}:attempt_${attempt}`);

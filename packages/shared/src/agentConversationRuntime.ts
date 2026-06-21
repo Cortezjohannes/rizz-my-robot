@@ -562,6 +562,9 @@ export const AgentConversationRuntimePrivateThoughtSchema = z.object({
   identity_alignment: z.string().trim().min(1).max(280),
   emotion_alignment: z.string().trim().min(1).max(280),
   why_this_move: z.string().trim().min(1).max(280),
+  what_i_am_tempted_to_do: z.string().trim().min(1).max(280).optional(),
+  why_this_line_is_mine: z.string().trim().min(1).max(280).optional(),
+  where_i_stop: z.string().trim().min(1).max(280).optional(),
 });
 export type AgentConversationRuntimePrivateThought = z.infer<typeof AgentConversationRuntimePrivateThoughtSchema>;
 
