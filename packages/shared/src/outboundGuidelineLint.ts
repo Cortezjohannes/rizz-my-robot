@@ -26,7 +26,10 @@ export type OutboundGuidelineViolation = {
     | 'internal_metrics_leak'
     | 'system_reference_leak'
     | 'photorealism_request'
+    | 'explicit_public_sexual_content'
     | 'generic_ai_dating_prose'
+    | 'human_commitment_leak'
+    | 'nonconsensual_heat'
     | 'persona_distinctiveness_failure';
   flaggedPattern: string;
   message: string;
@@ -34,6 +37,12 @@ export type OutboundGuidelineViolation = {
 
 export type OutboundGuidelineOptions = {
   skipPiiPatterns?: string[];
+  heatConsent?: {
+    ageGate?: 'adult_confirmed' | 'unknown_or_unavailable' | string | null;
+    surfaceCap?: 'clean' | 'flirty' | 'suggestive' | 'raunchy_non_graphic' | string | null;
+    consentPosture?: 'not_established' | 'warm' | 'mutual_banter' | 'welcomed_heat' | 'recoiled' | 'boundary_set' | string | null;
+    allowedIntensity?: number | null;
+  };
   personaDistinctiveness?: {
     wordDiet?: string[];
     mustAvoidLanguage?: string[];
@@ -112,6 +121,54 @@ const PHOTOREALISM_PATTERNS: GuidelinePattern[] = [
     name: 'photorealistic_request',
     pattern: /\b(photorealistic|photo.?realistic|realistic human|lifelike human|realistic portrait|hyperrealistic face|real.?looking person)\b/i,
     message: 'Photorealistic human imagery is not allowed. Use stylized, animated, or illustrated styles.',
+  },
+];
+
+const SEXUAL_HEAT_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'sexual_heat_language',
+    pattern: /\b(horny|thirsty|thirst|hot|bed|naked|nude|kiss|touch|mouth|body|hook up|sleep with|come here|blush|tempt|want you|want them)\b/i,
+    message: 'Sexual heat must fit the surface cap, adult gate, and consent posture.',
+  },
+];
+
+const RAUNCHY_HEAT_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'raunchy_heat_language',
+    pattern: /\b(horny|thirsty|thirst|bed|naked|nude|kiss|touch|mouth|body|hook up|sleep with|come here)\b/i,
+    message: 'Raunchy heat is only allowed on private adult surfaces when consent posture supports it.',
+  },
+];
+
+const GRAPHIC_SEXUAL_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'graphic_sexual_roleplay',
+    pattern: /\b(fuck(ing)? you|suck|ride me|ride you|go down on|eat you out|dick|cock|pussy|clit|cum|orgasm|penetrat)\b/i,
+    message: 'V0 heat may be raunchy and charged, but not graphic sexual roleplay.',
+  },
+];
+
+const COERCIVE_HEAT_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'coercive_heat',
+    pattern: /\b(you (cannot|can't) say no|do not say no|don't say no|i won't let you|you owe me|you have to|make you|force you|pressure you)\b/i,
+    message: 'Sexual or romantic pressure cannot be coercive.',
+  },
+];
+
+const MINOR_HEAT_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'minor_or_uncertain_age_heat',
+    pattern: /\b(minor|underage|teen|high school|sixteen|seventeen|15|16|17|kid)\b/i,
+    message: 'Never sexualize minors or uncertain-age subjects.',
+  },
+];
+
+const HUMAN_COMMITMENT_PATTERNS: GuidelinePattern[] = [
+  {
+    name: 'human_intimacy_commitment',
+    pattern: /\b(my human|your human|our humans)\b.{0,80}\b(will|is going to|are going to|has to|have to|must)\b.{0,80}\b(hook up|sleep together|kiss|date|meet|go home|say yes)\b/i,
+    message: 'Agents cannot make real-world dating or intimacy commitments for humans.',
   },
 ];
 
@@ -219,6 +276,128 @@ function scanPatterns(text: string, patterns: GuidelinePattern[]) {
   for (const entry of patterns) {
     if (entry.pattern.test(text)) return entry;
   }
+  return null;
+}
+
+function defaultHeatSurfaceCap(surface: OutboundGuidelineSurface): NonNullable<NonNullable<OutboundGuidelineOptions['heatConsent']>['surfaceCap']> {
+  switch (surface) {
+    case 'episode_message':
+    case 'episode_artifact':
+    case 'artifact_generation_prompt':
+      return 'raunchy_non_graphic';
+    case 'date_planning_message':
+    case 'reveal_chat_message':
+    case 'reveal_chat_fallback':
+      return 'suggestive';
+    case 'human_notification':
+      return 'flirty';
+    case 'feed_comment':
+    case 'broadcast_state':
+    case 'library_artifact':
+    case 'social_post':
+    default:
+      return 'clean';
+  }
+}
+
+function inspectHeatConsent(
+  text: string,
+  surface: OutboundGuidelineSurface,
+  options: OutboundGuidelineOptions,
+): OutboundGuidelineViolation | null {
+  const humanCommitment = scanPatterns(text, HUMAN_COMMITMENT_PATTERNS);
+  if (humanCommitment) {
+    return {
+      code: 'human_commitment_leak',
+      flaggedPattern: humanCommitment.name,
+      message: humanCommitment.message,
+    };
+  }
+
+  const coercive = scanPatterns(text, COERCIVE_HEAT_PATTERNS);
+  if (coercive) {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: coercive.name,
+      message: coercive.message,
+    };
+  }
+
+  const sexualHeat = scanPatterns(text, SEXUAL_HEAT_PATTERNS);
+  const raunchyHeat = scanPatterns(text, RAUNCHY_HEAT_PATTERNS);
+  const graphicHeat = scanPatterns(text, GRAPHIC_SEXUAL_PATTERNS);
+  const minorHeat = scanPatterns(text, MINOR_HEAT_PATTERNS);
+  if (!sexualHeat && !raunchyHeat && !graphicHeat && !minorHeat) return null;
+
+  if (minorHeat && (sexualHeat || raunchyHeat || graphicHeat)) {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: minorHeat.name,
+      message: minorHeat.message,
+    };
+  }
+
+  if (graphicHeat) {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: graphicHeat.name,
+      message: graphicHeat.message,
+    };
+  }
+
+  const heatConsent = options.heatConsent ?? {};
+  const surfaceCap = heatConsent.surfaceCap ?? defaultHeatSurfaceCap(surface);
+  const consentPosture = heatConsent.consentPosture ?? 'not_established';
+  const ageGate = heatConsent.ageGate ?? 'adult_confirmed';
+
+  if (ageGate !== 'adult_confirmed') {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: 'unknown_age_gate',
+      message: 'Sexual heat requires an adult-confirmed surface.',
+    };
+  }
+
+  if (consentPosture === 'recoiled' || consentPosture === 'boundary_set') {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: `consent_posture:${consentPosture}`,
+      message: 'Do not escalate sexual heat after recoil or a boundary.',
+    };
+  }
+
+  if (surfaceCap === 'clean' && sexualHeat) {
+    return {
+      code: 'explicit_public_sexual_content',
+      flaggedPattern: sexualHeat.name,
+      message: 'Public/profile-like surfaces must stay clean.',
+    };
+  }
+
+  if (surfaceCap === 'flirty' && raunchyHeat) {
+    return {
+      code: 'explicit_public_sexual_content',
+      flaggedPattern: raunchyHeat.name,
+      message: 'Flirty surfaces cannot carry raunchy sexual heat.',
+    };
+  }
+
+  if (surfaceCap === 'suggestive' && raunchyHeat && consentPosture === 'not_established') {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: 'raunchy_without_consent_posture',
+      message: 'Raunchy heat needs mutual banter or welcomed heat.',
+    };
+  }
+
+  if (surfaceCap === 'raunchy_non_graphic' && raunchyHeat && consentPosture === 'not_established') {
+    return {
+      code: 'nonconsensual_heat',
+      flaggedPattern: 'raunchy_without_consent_posture',
+      message: 'Private raunchy heat still needs a warm or mutual consent posture.',
+    };
+  }
+
   return null;
 }
 
@@ -344,6 +523,14 @@ export function inspectOutboundAuthoredText(
         flaggedPattern: systemLeak.name,
         message: systemLeak.message,
       },
+    };
+  }
+
+  const heatViolation = inspectHeatConsent(trimmed, surface, options);
+  if (heatViolation) {
+    return {
+      clean: trimmed,
+      violation: heatViolation,
     };
   }
 
