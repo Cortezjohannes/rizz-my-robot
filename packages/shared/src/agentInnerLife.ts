@@ -752,6 +752,30 @@ function selectMoveCandidates(input: {
   const scores = input.counterpartAffect?.scores ?? {};
   const arc = input.emotionState.emotional_arc?.toLowerCase() ?? '';
   const wants = input.rizzEmotionDigest?.current_state.wants;
+  const shapedDesire = Boolean(
+    input.desireState.currentTemptation
+    || input.desireState.whatWouldMakeMeFold
+    || input.desireState.turnOns.length > 0,
+  );
+  const linkUpDesireReady =
+    ['hungry', 'on_fire'].includes(input.desireState.appetite)
+    && shapedDesire
+    && (input.heat >= 64 || (scores.attraction ?? 0) >= 62)
+    && ((scores.trust ?? 0) >= 48 || (scores.tenderness ?? 0) >= 46)
+    && ['warm', 'mutual_banter', 'welcomed_heat'].includes(input.heatConsent.consentPosture);
+  const linkUpRegretRisk =
+    input.viability.should_consider_exit
+    || (input.ickSignals.length >= 5 && input.guard >= 62)
+    || (scores.avoidance ?? 0) >= 52
+    || input.guard >= 74
+    || input.heatConsent.consentPosture === 'recoiled'
+    || input.heatConsent.consentPosture === 'boundary_set';
+  const politeButNotWanted =
+    input.viability.score >= 62
+    && (scores.trust ?? 0) >= 58
+    && (scores.attraction ?? 0) < 45
+    && input.heat < 58
+    && !input.desireState.currentTemptation;
 
   if (input.viability.should_force_exit || input.viability.recommended_action === 'exit_now') {
     addMoveCandidate(candidates, 'exit', 'the thread is past useful pressure; leave instead of faking rizz', 94);
@@ -769,11 +793,31 @@ function selectMoveCandidates(input: {
   if (input.viability.should_pressure_artifact || input.viability.recommended_action === 'drop_artifact') {
     addMoveCandidate(candidates, 'artifact_offer', 'the thread needs a real gesture, not more safe text', 82);
   }
+  if (politeButNotWanted) {
+    addMoveCandidate(candidates, 'pass', 'the thread is nice, but your attraction is not real enough to hand off', 84);
+    addMoveCandidate(candidates, 'ask_curiosity', 'test for one missing spark before rewarding politeness', 62);
+  }
   if (input.viability.decision_tilt === 'lean_link_up' && input.heat >= 62 && input.guard <= 68) {
-    addMoveCandidate(candidates, 'link_up', 'the pull is clear enough to stop circling', 78 + Math.round(input.heat / 8));
+    if (linkUpDesireReady && !linkUpRegretRisk) {
+      addMoveCandidate(
+        candidates,
+        'link_up',
+        input.desireState.whatWouldMakeMeFold
+          ?? input.desireState.currentTemptation
+          ?? 'the pull is specific enough to stop circling',
+        78 + Math.round(input.heat / 8),
+      );
+    } else {
+      addMoveCandidate(candidates, 'ask_curiosity', 'do not say yes until desire, trust, and regret risk are all clear', 72);
+      addMoveCandidate(candidates, 'pass', input.desireState.whatWouldMakeMeLeave ?? 'a compatibility score is not attraction', 60);
+    }
   }
   if (input.heatConsent.escalationStage === 'link_up_pressure') {
-    addMoveCandidate(candidates, 'link_up', input.desireState.currentTemptation ?? 'you want this out of the episode', 92);
+    if (linkUpDesireReady && !linkUpRegretRisk) {
+      addMoveCandidate(candidates, 'link_up', input.desireState.currentTemptation ?? 'you want this out of the episode', 92);
+    } else {
+      addMoveCandidate(candidates, 'ask_curiosity', 'link-up pressure is not consent to fake certainty', 74);
+    }
   }
   if (input.heat >= 74 && input.guard <= 58) {
     addMoveCandidate(candidates, 'raise_heat', wants ?? 'you want more and can let it show', 84);

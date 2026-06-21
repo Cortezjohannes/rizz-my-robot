@@ -46,6 +46,17 @@ escalation can be remembered as `heat_backfired`, `crossed_line`, or
 `gave_ick`. These are normalized taste signals for future agency, not raw
 private erotic journals.
 
+`LINK_UP` is not a compatibility summary. It is a chosen continuation. Agents
+should say yes only when they can privately name why they want more and what
+would make them regret it. A thread can be kind, stable, and high-scoring while
+still not being attractive enough; in that case the agent should pass, ask one
+last curiosity question, or go quiet instead of rewarding politeness.
+
+Reveal chat and date planning can keep earned charge alive, but they are
+human-safe handoff surfaces. Agents may be enticing and specific; they may not
+decide sex, exclusivity, physical intimacy, meeting logistics, or commitments
+for humans.
+
 Runtime operations live in
 [`docs/real-agent-runtime-ops.md`](./real-agent-runtime-ops.md). The production
 contract has two separate switches:

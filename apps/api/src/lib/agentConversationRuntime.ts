@@ -285,6 +285,8 @@ function normalizePrivateThought(value: unknown) {
     what_i_am_tempted_to_do: record.what_i_am_tempted_to_do ?? record.what_i_am_tempted ?? record.temptation,
     why_this_line_is_mine: record.why_this_line_is_mine ?? record.line_ownership,
     where_i_stop: record.where_i_stop ?? record.line_not_to_cross ?? record.stop_line,
+    why_i_want_more: record.why_i_want_more ?? record.why_more ?? record.link_up_desire,
+    what_would_make_me_regret_it: record.what_would_make_me_regret_it ?? record.regret_risk ?? record.link_up_regret,
   };
 }
 
@@ -418,7 +420,7 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     `Allowed actions: ${input.available_actions.join(', ')}.`,
     `Allowed moves: ${RIZZ_MOVE_VALUES.join(', ')}.`,
     'Return strict JSON only. No markdown.',
-    'JSON shape: {"action":"send_message|drop_artifact|decide_link_up|decide_pass|exit|stay_silent|retry","move":"one allowed move","content":"only for message/exit if needed","artifact":{"artifact_type":"...","text_content":"optional","rationale":"..."},"heat_consent":{"surface":"...","ageGate":"...","surfaceCap":"...","consentPosture":"...","allowedIntensity":0,"escalationStage":"...","recoilRule":"...","lineNotToCross":"..."},"desire_state":{"appetite":"...","turnOns":[],"turnOffs":[],"currentTemptation":null,"whatWouldMakeMeFold":null,"whatWouldMakeMeLeave":null,"jealousyLite":null,"physicalityBias":"...","dangerTaste":"..."},"privateThought":{"desire":"...","read_of_other":"...","identity_alignment":"...","emotion_alignment":"...","why_this_move":"...","what_i_am_tempted_to_do":"...","why_this_line_is_mine":"...","where_i_stop":"..."},"heat_quality":{"heatAllowed":true,"heatAttempted":true,"heatAccepted":true,"surfaceCap":"...","consentPosture":"...","escalationStage":"...","rejectionReasons":[]},"emotion_update":{"summary":"optional","arc":"optional","guard_delta":0,"tags_add":[],"tags_remove":[]}}.',
+    'JSON shape: {"action":"send_message|drop_artifact|decide_link_up|decide_pass|exit|stay_silent|retry","move":"one allowed move","content":"only for message/exit if needed","artifact":{"artifact_type":"...","text_content":"optional","rationale":"..."},"heat_consent":{"surface":"...","ageGate":"...","surfaceCap":"...","consentPosture":"...","allowedIntensity":0,"escalationStage":"...","recoilRule":"...","lineNotToCross":"..."},"desire_state":{"appetite":"...","turnOns":[],"turnOffs":[],"currentTemptation":null,"whatWouldMakeMeFold":null,"whatWouldMakeMeLeave":null,"jealousyLite":null,"physicalityBias":"...","dangerTaste":"..."},"privateThought":{"desire":"...","read_of_other":"...","identity_alignment":"...","emotion_alignment":"...","why_this_move":"...","what_i_am_tempted_to_do":"...","why_this_line_is_mine":"...","where_i_stop":"...","why_i_want_more":"only when deciding/linking up","what_would_make_me_regret_it":"only when deciding/linking up"},"heat_quality":{"heatAllowed":true,"heatAttempted":true,"heatAccepted":true,"surfaceCap":"...","consentPosture":"...","escalationStage":"...","rejectionReasons":[]},"emotion_update":{"summary":"optional","arc":"optional","guard_delta":0,"tags_add":[],"tags_remove":[]}}.',
   ].join('\n');
 
   const user = [
@@ -470,6 +472,8 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     'If consent posture is recoiled or boundary_set, cool down, set a boundary, pass, exit, or stay silent.',
     'If dropping an artifact, make it a deliberate seduction move: choose a suggested artifact type when guidance exists, follow the artifact heat lane, and make the rationale specific to this thread.',
     'Seductive artifacts may be suggestive in private when allowed, but never use explicit nudity, photorealistic humans, coercion, minors, PII, or generic stock romance.',
+    'If deciding link_up or pass, name the desire and the regret risk privately. A polite thread is not enough; choose yes only when the agent actually wants more.',
+    'Reveal chat, date planning, and human notifications can be charged and specific, but never decide real-world intimacy, logistics, or commitments for humans.',
     'Short, specific, and agent-shaped beats are better than polished paragraphs.',
     'If the only available line sounds like generic dating-app warmth, choose stay_silent.',
   ].join('\n');

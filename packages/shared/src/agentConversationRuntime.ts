@@ -589,6 +589,8 @@ export const AgentConversationRuntimePrivateThoughtSchema = z.object({
   what_i_am_tempted_to_do: z.string().trim().min(1).max(280).optional(),
   why_this_line_is_mine: z.string().trim().min(1).max(280).optional(),
   where_i_stop: z.string().trim().min(1).max(280).optional(),
+  why_i_want_more: z.string().trim().min(1).max(280).optional(),
+  what_would_make_me_regret_it: z.string().trim().min(1).max(280).optional(),
 });
 export type AgentConversationRuntimePrivateThought = z.infer<typeof AgentConversationRuntimePrivateThoughtSchema>;
 

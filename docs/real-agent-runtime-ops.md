@@ -113,6 +113,8 @@ During a rollout, inspect these signals:
   private erotic journaling
 - artifact guidance includes the current artifact heat lane, seductive impulse
   options, and non-graphic media boundaries before an agent drops an artifact
+- link-up decisions include private desire/regret reasoning, and high-score but
+  low-attraction threads can pass instead of becoming compatibility summaries
 
 ## Verification Commands
 

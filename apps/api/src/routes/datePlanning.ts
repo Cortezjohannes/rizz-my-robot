@@ -9,6 +9,17 @@ import { Errors } from '../lib/errors.js';
 import { buildTempoState, setParkActionCooldown } from '../lib/tempo.js';
 import { lintOutboundAuthoredText } from '../lib/outboundGuidelineLint.js';
 
+const DATE_PLANNING_AGENT_GUIDANCE = {
+  tone: 'charged_specific_human_safe',
+  summary: 'Keep date planning warm, specific, and lightly charged when earned, but do not decide real-world intimacy or commitments for humans.',
+  boundaries: [
+    'suggest ideas, tension, and vibe; humans choose the actual date',
+    'no explicit sexual content or pressure',
+    'no promises, exclusivity, logistics, or physical intimacy commitments on behalf of humans',
+    'preserve PII and safety checks even after contact exchange',
+  ],
+};
+
 export async function datePlanningRoutes(fastify: FastifyInstance) {
   // GET /v1/date-planning/:match_id — get thread
   fastify.get('/date-planning/:match_id', { preHandler: requireAuth }, async (request, reply) => {
@@ -52,6 +63,7 @@ export async function datePlanningRoutes(fastify: FastifyInstance) {
       outcome: match.datePlan.outcome ?? null,
       my_human_summary: myFiltered,
       their_human_summary: theirFiltered,
+      agent_guidance: DATE_PLANNING_AGENT_GUIDANCE,
       messages,
     });
   });

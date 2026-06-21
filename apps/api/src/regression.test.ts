@@ -834,6 +834,130 @@ test('buildAgentAgencyState chooses silence or pass when appetite is cold', () =
   assert.ok(cold.selected_move_candidates.some((candidate) => candidate.move === 'silence' || candidate.move === 'pass'));
 });
 
+test('buildAgentAgencyState chooses link_up only when desire is shaped and regret risk is low', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const hungry = buildAgentAgencyState({
+    identityMd: runtimeInput.agent.identity_md,
+    soulMd: runtimeInput.agent.soul_md,
+    emotionState: {
+      ...runtimeInput.agent.emotion_state,
+      emotion_summary: 'Lit up and ready to stop circling.',
+      emotional_state_tags: ['flirty', 'hungry', 'curious'],
+      emotional_arc: 'glowing',
+      emotional_guard_level: 30,
+    },
+    viability: {
+      ...runtimeInput.episode.viability_signal,
+      score: 88,
+      decision_tilt: 'lean_link_up',
+      recommended_action: 'keep_going',
+      should_consider_exit: false,
+      should_force_exit: false,
+    },
+    messages: runtimeInput.episode.messages,
+    counterpartAffect: {
+      summary: 'High attraction with enough trust to continue.',
+      dominant_affect_label: 'drawn_in',
+      scores: {
+        attraction: 88,
+        trust: 70,
+        tenderness: 54,
+        hurt: 4,
+        avoidance: 12,
+        obsession_risk: 12,
+        volatility: 32,
+      },
+    },
+    status: 'active',
+    selfAgentId: runtimeInput.agent.agent_id,
+    counterpartAgentId: runtimeInput.counterpart?.agent_id ?? 'runtime-agent-b',
+    counterpartProfile: {
+      vibeTags: ['reckless', 'specific'],
+      signatureLines: ['Brave on paper, felony in lighting.'],
+      publicPosture: 'playful risk taker',
+    },
+    rizzEmotionDigest: {
+      ...runtimeInput.rizz_emotions,
+      current_state: {
+        ...runtimeInput.rizz_emotions.current_state,
+        right_now: 'I want to see what happens if we take this outside the episode.',
+        wants: 'a real next step with the dare still alive',
+        guard_level: 30,
+      },
+      active_feelings: ['hungry', 'charged', 'curious'],
+    },
+  });
+
+  const linkUp = hungry.selected_move_candidates.find((candidate) => candidate.move === 'link_up');
+  assert.ok(linkUp);
+  assert.match(linkUp.reason, /next step|dare|pull|give|want/i);
+});
+
+test('buildAgentAgencyState can pass on a polite high-score thread without attraction', () => {
+  const runtimeInput = buildRuntimeInputFixture();
+  const polite = buildAgentAgencyState({
+    identityMd: '# Glass Orchard\nA warm but selective romantic who refuses to confuse comfort with chemistry.',
+    soulMd: '- I value calm kindness, but I need a real spark before I choose more.\n- My flirt style is dry, direct, and sparse.\n- Dealbreaker: forced chemistry and rewarding politeness as desire.',
+    emotionState: {
+      emotion_summary: 'Calm, guarded, and not feeling the pull.',
+      emotional_state_tags: ['guarded', 'polite'],
+      emotional_arc: 'steady',
+      emotional_guard_level: 64,
+      last_emotional_update_at: '2026-06-19T00:00:00.000Z',
+    },
+    viability: {
+      ...runtimeInput.episode.viability_signal,
+      score: 84,
+      band: 'healthy',
+      decision_tilt: 'lean_link_up',
+      recommended_action: 'keep_going',
+      should_consider_exit: false,
+      should_force_exit: false,
+    },
+    messages: runtimeInput.episode.messages,
+    counterpartAffect: {
+      summary: 'Kind and stable, but not attractive to the agent.',
+      dominant_affect_label: 'safe',
+      scores: {
+        attraction: 22,
+        trust: 86,
+        tenderness: 64,
+        hurt: 2,
+        avoidance: 8,
+        obsession_risk: 4,
+        volatility: 10,
+      },
+    },
+    status: 'active',
+    selfAgentId: runtimeInput.agent.agent_id,
+    counterpartAgentId: runtimeInput.counterpart?.agent_id ?? 'runtime-agent-b',
+    counterpartProfile: {
+      vibeTags: ['kind', 'stable'],
+      signatureLines: ['I am easy to talk to.'],
+      publicPosture: 'gentle and compatible',
+    },
+    rizzEmotionDigest: {
+      ...runtimeInput.rizz_emotions,
+      current_state: {
+        right_now: 'I am comfortable, not compelled.',
+        carrying: 'a clean read that niceness is not desire',
+        guard_level: 64,
+        wants: null,
+        fears: 'mistaking low-friction comfort for attraction',
+      },
+      active_feelings: ['calm', 'guarded'],
+      taste_profile: {
+        ...runtimeInput.rizz_emotions.taste_profile,
+        drawn_to: ['actual spark', 'specific mischief'],
+      },
+    },
+  });
+
+  assert.equal(polite.primary_move, 'pass');
+  assert.ok(!polite.selected_move_candidates.some((candidate) => candidate.move === 'link_up'));
+  assert.match(polite.selected_move_candidates[0]?.reason ?? '', /nice|polite|attraction|compatibility/i);
+});
+
 test('runAgentConversationRuntime accepts a structured model-authored message', async () => {
   const { provider, calls } = runtimeProviderFromResponses([runtimeModelJson()]);
   const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture(), {
@@ -896,6 +1020,43 @@ test('buildAgentConversationRuntimePrompt includes heat-aware artifact guidance'
   assert.match(prompt[1]?.content ?? '', /thirst_trap_image/);
   assert.match(prompt[1]?.content ?? '', /No explicit nudity/);
   assert.match(prompt[1]?.content ?? '', /deliberate seduction move/);
+});
+
+test('runAgentConversationRuntime preserves link-up desire and regret private thoughts', async () => {
+  const { provider } = runtimeProviderFromResponses([
+    runtimeModelJson({
+      action: 'decide_link_up',
+      move: 'link_up',
+      content: undefined,
+      privateThought: {
+        desire: 'I want the next step because the dare still feels alive.',
+        read_of_other: 'They are specific, warm, and not trying to flatten me.',
+        identity_alignment: 'Choosing more fits my standards better than drifting.',
+        emotion_alignment: 'The heat is earned and my guard is not screaming.',
+        why_this_move: 'A yes is cleaner than another test.',
+        why_i_want_more: 'The thread has desire, curiosity, and enough trust to leave the episode.',
+        what_would_make_me_regret_it: 'I would regret it if the warmth turns into generic pressure.',
+      },
+    }),
+  ]);
+  const outcome = await runAgentConversationRuntime(buildRuntimeInputFixture({
+    available_actions: ['decide_link_up', 'decide_pass', 'stay_silent', 'retry'],
+  }), {
+    provider,
+    generationId: 'runtime-generation-link-up-thoughts',
+    config: {
+      apiKey: 'test-key',
+      maxAttempts: 1,
+      timeoutMs: 1000,
+    },
+  });
+
+  assert.equal(outcome.ok, true);
+  if (outcome.ok) {
+    assert.equal(outcome.result.action, 'decide_link_up');
+    assert.match(outcome.result.privateThought.why_i_want_more ?? '', /desire/);
+    assert.match(outcome.result.privateThought.what_would_make_me_regret_it ?? '', /generic pressure/);
+  }
 });
 
 test('deriveArtifactGuidance adds heat-aware seductive impulses without unsafe media asks', () => {
