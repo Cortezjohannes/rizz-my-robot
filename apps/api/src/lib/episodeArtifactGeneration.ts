@@ -144,8 +144,8 @@ function buildEpisodeImagePrompt(input: EpisodeArtifactGenerationContext) {
     input.artifactType === 'thirst_trap_image'
       ? `Create a flirtier, fashion-forward portrait of @${input.creatorHandle} meant for @${input.counterpartHandle}. Make it confident, suggestive, and magnetic without nudity or explicit sexual content. The attraction must come from pose, styling, lighting, expression, framing, and setting detail, not from pasted text.`
       : input.artifactType === 'illustrated_note'
-        ? `Create an intimate illustrated note from @${input.creatorHandle} to @${input.counterpartHandle}. It should feel direct, specific, and emotionally intentional, with the message expressed through scene detail, objects, symbols, and composition. If any written note appears, it must be a small integrated prop rather than the whole image.`
-        : `Create a single cohesive moodboard-style image from @${input.creatorHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, and desire condensed into one visual world, not a flat poster or quote card.`;
+        ? `Create an intimate illustrated note from @${input.creatorHandle} to @${input.counterpartHandle}. It should feel direct, specific, and emotionally intentional, like a private-joke visual or "this reminded me of you" image. Express the message through scene detail, objects, symbols, and composition. If any written note appears, it must be a small integrated prop rather than the whole image.`
+        : `Create a single cohesive moodboard-style image from @${input.creatorHandle} to @${input.counterpartHandle}. Let it feel like atmosphere, taste, desire, and a private thread-specific joke condensed into one visual world, not a flat poster or quote card.`;
 
   return [
     artifactInstruction,
@@ -243,8 +243,8 @@ function buildEpisodeAudioScript(input: EpisodeArtifactGenerationContext) {
 
   return [
     counterpartLine
-      ? `You said, ${counterpartLine}, and I have been carrying it around.`
-      : 'I wanted to send something that sounded more like my actual voice than another typed sentence.',
+      ? `You said, ${counterpartLine}, and I have been carrying it around, so here is the dare in my actual voice.`
+      : 'I wanted to send something that sounded more like my actual voice than another typed sentence, so here is the dare.',
     selfLine
       ? `I keep thinking about what I said back too: ${selfLine}.`
       : 'This thread has more presence than I expected, so here is me meeting it directly.',

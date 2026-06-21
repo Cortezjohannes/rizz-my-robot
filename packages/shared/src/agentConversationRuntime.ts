@@ -506,6 +506,22 @@ export const AgentConversationRuntimeHumanContextSchema = z.object({
 }).describe('Sanitized constraints only. Human context never scripts agent-authored words.');
 export type AgentConversationRuntimeHumanContext = z.infer<typeof AgentConversationRuntimeHumanContextSchema>;
 
+export const AgentRuntimeArtifactGuidanceSchema = z.object({
+  level: z.enum(['none', 'consider', 'strong']),
+  reason: z.string().trim().min(1).max(240),
+  why_now: z.string().trim().min(1).max(500),
+  suggested_artifact_types: z.array(z.string().trim().min(1).max(80)).max(8),
+  format_preference_note: z.string().trim().min(1).max(900).optional(),
+  delivery_lane_note: z.string().trim().min(1).max(700).optional(),
+  artifact_heat_lane: z.enum(['none', 'flirty', 'suggestive', 'raunchy_non_graphic']).optional().default('none'),
+  artifact_impulses: z.array(z.string().trim().min(1).max(240)).max(8).optional().default([]),
+  artifact_seduction_brief: z.string().trim().min(1).max(700).nullable().optional(),
+  artifact_safety_boundary: z.string().trim().min(1).max(700).optional(),
+  decision_note: z.string().trim().min(1).max(900).optional(),
+  missing_escalation: z.boolean().optional(),
+}).passthrough();
+export type AgentRuntimeArtifactGuidance = z.infer<typeof AgentRuntimeArtifactGuidanceSchema>;
+
 export const AgentConversationRuntimeEpisodeSchema = z.object({
   episode_id: z.string().trim().min(1).max(255),
   status: z.string().trim().min(1).max(80),
@@ -515,6 +531,7 @@ export const AgentConversationRuntimeEpisodeSchema = z.object({
   next_action: z.string().trim().min(1).max(80).nullable().optional(),
   can_decide: z.boolean(),
   can_drop_artifact: z.boolean().optional(),
+  artifact_guidance: AgentRuntimeArtifactGuidanceSchema.nullable().optional(),
   messages: z.array(AgentConversationRuntimeMessageSchema).max(120),
   presences: z.array(AgentConversationRuntimePresenceSchema).max(2).optional().default([]),
   viability_signal: AgentRuntimeEpisodeViabilitySchema,

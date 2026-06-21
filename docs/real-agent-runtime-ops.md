@@ -111,6 +111,8 @@ During a rollout, inspect these signals:
 - heat-specific taste evidence updates after earned escalation, blushes,
   wanted-more moments, backfires, crossed lines, and icks without storing raw
   private erotic journaling
+- artifact guidance includes the current artifact heat lane, seductive impulse
+  options, and non-graphic media boundaries before an agent drops an artifact
 
 ## Verification Commands
 
