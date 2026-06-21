@@ -1753,6 +1753,10 @@ export interface ArtifactGuidance {
   suggested_artifact_types: ArtifactType[];
   format_preference_note: string;
   delivery_lane_note: string;
+  artifact_heat_lane?: 'none' | 'flirty' | 'suggestive' | 'raunchy_non_graphic';
+  artifact_impulses?: string[];
+  artifact_seduction_brief?: string | null;
+  artifact_safety_boundary?: string;
   decision_note: string;
   missing_escalation: boolean;
   my_artifact_count: number;

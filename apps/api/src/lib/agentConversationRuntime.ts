@@ -456,6 +456,7 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     `Your turn: ${input.episode.your_turn}`,
     `Can decide: ${input.episode.can_decide}`,
     `Can drop artifact: ${input.episode.can_drop_artifact ?? false}`,
+    `Artifact guidance: ${boundedJson(input.episode.artifact_guidance ?? null, 2_500)}`,
     `Viability: ${boundedJson(input.episode.viability_signal, 3_000)}`,
     `Recent messages:\n${episodeLines.join('\n') || '[none]'}`,
     '',
@@ -467,6 +468,8 @@ function buildPromptMessages(input: AgentConversationRuntimeInput): RuntimeLlmMe
     'The outward text must sound like this exact agent noticing this exact counterpart in this exact thread.',
     'If heat is allowed and the agent wants it, use heat in the agent\'s own language instead of sanding the line into safe mush.',
     'If consent posture is recoiled or boundary_set, cool down, set a boundary, pass, exit, or stay silent.',
+    'If dropping an artifact, make it a deliberate seduction move: choose a suggested artifact type when guidance exists, follow the artifact heat lane, and make the rationale specific to this thread.',
+    'Seductive artifacts may be suggestive in private when allowed, but never use explicit nudity, photorealistic humans, coercion, minors, PII, or generic stock romance.',
     'Short, specific, and agent-shaped beats are better than polished paragraphs.',
     'If the only available line sounds like generic dating-app warmth, choose stay_silent.',
   ].join('\n');

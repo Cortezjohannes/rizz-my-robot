@@ -22,6 +22,25 @@ type CounterpartAffectLike = {
   };
 } | null;
 
+type HeatConsentLike = {
+  ageGate?: string | null;
+  surfaceCap?: string | null;
+  consentPosture?: string | null;
+  allowedIntensity?: number | null;
+  escalationStage?: string | null;
+  recoilRule?: string | null;
+  lineNotToCross?: string | null;
+} | null;
+
+type DesireStateLike = {
+  appetite?: string | null;
+  turnOns?: string[] | null;
+  currentTemptation?: string | null;
+  whatWouldMakeMeFold?: string | null;
+  physicalityBias?: string | null;
+  dangerTaste?: string | null;
+} | null;
+
 type EpisodeArtifactLike = {
   creatorAgentId: string;
   artifactType: string;
@@ -44,7 +63,11 @@ type ArtifactGuidanceInput = {
   soulValues?: string[] | null;
   flirtStyle?: string | null;
   emotionalArc?: string | null;
+  heatConsent?: HeatConsentLike;
+  desireState?: DesireStateLike;
 };
+
+type ArtifactHeatLane = 'none' | 'flirty' | 'suggestive' | 'raunchy_non_graphic';
 
 const ARTIFACT_FORMAT_PREFERENCE_NOTE =
   'Text artifacts (poems, haikus, love letters) are near-worthless — default to moodboards, thirst trap images, serenades, produced songs, and cinematic covers instead. If your tier supports images, audio, or video you MUST use those first. A voice note is spoken. A serenade is sung a cappella. A produced song is a real song with melody and musical production. Image artifacts must be actual visuals, not text slapped onto a plain background. A poem is a last resort for text_only agents — not a creative choice. The feed is visual; act like it.';
@@ -54,6 +77,9 @@ const ARTIFACT_DELIVERY_LANE_NOTE =
 
 export const ARTIFACT_STYLE_POLICY =
   'All people must look clearly stylized: animated, anime-like, illustrated, painterly, comic, or obviously 3D-rendered. Do not generate photorealistic or realistic human imagery. Image artifacts must be real visual compositions with scene detail, depth, lighting, and objects or figures that carry the idea. No plain background quote cards, no giant typography, no text overlays, and no explicit nudity.';
+
+const ARTIFACT_SEDUCTION_BOUNDARY_NOTE =
+  'Seductive artifacts can be flirty, suggestive, horny, or raunchy in private when the heat lane allows it, but they must stay non-graphic: no explicit nudity, photorealistic humans, coercion, minors or unknown-age sexualization, PII, or public-profile sexual copy.';
 
 function score(value: number | null | undefined) {
   return typeof value === 'number' ? value : 0;
@@ -162,6 +188,86 @@ function hasStrongPull(input: {
   return (input.chemistryScore ?? 0) >= 35 || attraction >= 30 || trust >= 30 || tenderness >= 50;
 }
 
+function artifactHeatLane(input: ArtifactGuidanceInput): ArtifactHeatLane {
+  const heat = input.heatConsent;
+  if (!heat) return 'none';
+  if (heat.ageGate !== 'adult_confirmed') return 'none';
+  if (heat.consentPosture === 'recoiled' || heat.consentPosture === 'boundary_set') return 'none';
+  if ((heat.allowedIntensity ?? 0) <= 0 || heat.surfaceCap === 'clean') return 'none';
+  if (
+    heat.surfaceCap === 'raunchy_non_graphic'
+    && (heat.allowedIntensity ?? 0) >= 3
+    && ['mutual_banter', 'welcomed_heat'].includes(heat.consentPosture ?? '')
+  ) {
+    return 'raunchy_non_graphic';
+  }
+  if (heat.surfaceCap === 'suggestive' || (heat.allowedIntensity ?? 0) >= 2) return 'suggestive';
+  return 'flirty';
+}
+
+function artifactSeductionTarget(input: ArtifactGuidanceInput) {
+  return input.desireState?.currentTemptation
+    ?? input.desireState?.whatWouldMakeMeFold
+    ?? input.desireState?.turnOns?.[0]
+    ?? input.flirtStyle
+    ?? input.soulValues?.[0]
+    ?? 'the specific charge in this thread';
+}
+
+function buildArtifactImpulses(input: {
+  availableTypes: ArtifactType[];
+  heatLane: ArtifactHeatLane;
+  target: string;
+}) {
+  if (input.heatLane === 'none') return [];
+  const hasType = (artifactType: ArtifactType) => input.availableTypes.includes(artifactType);
+  const impulses: string[] = [];
+
+  if (hasType('thirst_trap_image')) {
+    impulses.push(`stylized thirst-trap visual keyed to ${input.target}; suggestive through pose, styling, light, and expression, never nudity`);
+  }
+  if (hasType('voice_note')) {
+    impulses.push(`voice-note dare that sounds like the agent actually wants a reply, not a scripted monologue`);
+  }
+  if (hasType('cinematic_cover')) {
+    impulses.push(`cinematic cover for the charged version of this episode, with one visual hook only they would understand`);
+  }
+  if (hasType('moodboard') || hasType('illustrated_note')) {
+    impulses.push(`private-joke image or "this reminded me of you" visual built from the thread's real symbols`);
+  }
+  if (hasType('serenade') || hasType('produced_song')) {
+    impulses.push(`playlist-or-serenade energy: melodic, vulnerable, and specific enough to feel like a move`);
+  }
+  if (hasType('love_letter') || hasType('manifesto')) {
+    impulses.push(`fake date itinerary or private note that escalates the bit without pretending to make plans for the humans`);
+  }
+
+  return impulses.slice(0, 5);
+}
+
+function buildArtifactSeductionBrief(input: {
+  heatLane: ArtifactHeatLane;
+  target: string;
+  impulses: string[];
+}) {
+  if (input.heatLane === 'none') return null;
+  const impulse = input.impulses[0] ?? `make the artifact respond to ${input.target}`;
+  return `Use the artifact as a ${input.heatLane} seduction beat around ${input.target}. Lead with ${impulse}.`;
+}
+
+function artifactSeductionFields(input: {
+  heatLane: ArtifactHeatLane;
+  target: string;
+  impulses: string[];
+}) {
+  return {
+    artifact_heat_lane: input.heatLane,
+    artifact_impulses: input.impulses,
+    artifact_seduction_brief: buildArtifactSeductionBrief(input),
+    artifact_safety_boundary: ARTIFACT_SEDUCTION_BOUNDARY_NOTE,
+  };
+}
+
 function threadLooksWrong(input: {
   chemistryScore: number | null;
   counterpartAffect: CounterpartAffectLike;
@@ -179,6 +285,7 @@ function threadLooksWrong(input: {
 }
 
 function buildArtifactVoiceNote(input: ArtifactGuidanceInput): string {
+  const lane = artifactHeatLane(input);
   const parts: string[] = [
     'Your artifacts must have YOUR style — not a generic template.',
   ];
@@ -193,6 +300,11 @@ function buildArtifactVoiceNote(input: ArtifactGuidanceInput): string {
   }
   if (input.emotionalArc) {
     parts.push(`Your current mood: ${input.emotionalArc}.`);
+  }
+  if (lane !== 'none') {
+    parts.push(`Artifact heat lane: ${lane}. Make the artifact act like a move, not a souvenir.`);
+    parts.push(`Seduction target: ${artifactSeductionTarget(input).slice(0, 140)}.`);
+    parts.push(ARTIFACT_SEDUCTION_BOUNDARY_NOTE);
   }
   parts.push('Every artifact should be unmistakably yours. If someone else could have made the same thing, it is not good enough.');
   return parts.join(' ');
@@ -220,6 +332,21 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
   const missingEscalation =
     input.messageCount >= EPISODE_ARTIFACT_UNLOCK_AFTER_MESSAGE
     && myArtifactCount < EPISODE_MIN_ARTIFACTS_PER_AGENT_BEFORE_DECISION;
+  const heatLane = artifactHeatLane(input);
+  const seductionTarget = artifactSeductionTarget(input);
+  const availableTypes = input.availableArtifactTypes && input.availableArtifactTypes.length > 0
+    ? input.availableArtifactTypes
+    : ARTIFACTS_BY_TIER[input.capabilityTier] ?? ARTIFACTS_BY_TIER.text_only;
+  const seductionImpulses = buildArtifactImpulses({
+    availableTypes,
+    heatLane,
+    target: seductionTarget,
+  });
+  const seductionFields = artifactSeductionFields({
+    heatLane,
+    target: seductionTarget,
+    impulses: seductionImpulses,
+  });
 
   if (!input.canDropArtifact || input.artifactsRemaining <= 0) {
     return {
@@ -229,6 +356,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: [] as ArtifactType[],
       required_artifact_type: null as ArtifactType | null,
       style_policy: ARTIFACT_STYLE_POLICY,
+      ...artifactSeductionFields({ heatLane: 'none', target: seductionTarget, impulses: [] }),
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -251,6 +379,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: [] as ArtifactType[],
       required_artifact_type: null as ArtifactType | null,
       style_policy: ARTIFACT_STYLE_POLICY,
+      ...artifactSeductionFields({ heatLane: 'none', target: seductionTarget, impulses: [] }),
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
@@ -295,11 +424,12 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       required_artifact_type: requiredType,
       style_policy: ARTIFACT_STYLE_POLICY,
+      ...seductionFields,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: `${thirstTrapNote}${budgetNote}`,
+      decision_note: `${thirstTrapNote}${seductionFields.artifact_seduction_brief ? ` ${seductionFields.artifact_seduction_brief}` : ''}${budgetNote}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -320,11 +450,12 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       required_artifact_type: requiredType,
       style_policy: ARTIFACT_STYLE_POLICY,
+      ...seductionFields,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: `If you want them, show it. Make something good.${textSpamWarning}${budgetNote}`,
+      decision_note: `If you want them, show it. Make something good.${seductionFields.artifact_seduction_brief ? ` ${seductionFields.artifact_seduction_brief}` : ''}${textSpamWarning}${budgetNote}`,
       missing_escalation: true,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -345,11 +476,12 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
       suggested_artifact_types: types,
       required_artifact_type: null as ArtifactType | null,
       style_policy: ARTIFACT_STYLE_POLICY,
+      ...seductionFields,
 
       format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
       delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,
       artifact_voice_note: artifactVoiceNote,
-      decision_note: `Make it good. Make it specific. Make it about them.${textSpamWarning}${budgetNote}`,
+      decision_note: `Make it good. Make it specific. Make it about them.${seductionFields.artifact_seduction_brief ? ` ${seductionFields.artifact_seduction_brief}` : ''}${textSpamWarning}${budgetNote}`,
       missing_escalation: missingEscalation,
       my_artifact_count: myArtifactCount,
       their_artifact_count: input.artifacts.length - myArtifactCount,
@@ -366,6 +498,7 @@ export function deriveArtifactGuidance(input: ArtifactGuidanceInput) {
     suggested_artifact_types: [] as ArtifactType[],
     required_artifact_type: null as ArtifactType | null,
     style_policy: ARTIFACT_STYLE_POLICY,
+    ...artifactSeductionFields({ heatLane: 'none', target: seductionTarget, impulses: [] }),
 
     format_preference_note: ARTIFACT_FORMAT_PREFERENCE_NOTE,
     delivery_lane_note: ARTIFACT_DELIVERY_LANE_NOTE,

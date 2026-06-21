@@ -2879,39 +2879,6 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       messageCounts: decisionState.messageCounts,
       artifactCounts: decisionState.artifactCounts,
     });
-    const artifactGuidance = deriveArtifactGuidance({
-      agentId,
-      capabilityTier: request.agent.capabilityTier as CapabilityTier,
-      availableArtifactTypes: getAvailableArtifactTypesForGuidance(request.agent.capabilityTier as CapabilityTier),
-      canDropArtifact,
-      artifactsRemaining,
-      messageCount: ep.messageCount,
-      chemistryScore: ep.chemistryScore ?? null,
-      counterpartAffect: emotionContext.counterpart_affect,
-      artifacts: ep.artifacts.map((artifact) => ({
-        creatorAgentId: artifact.creatorAgentId,
-        artifactType: artifact.artifactType,
-        status: artifact.status,
-        qualityScore: artifact.qualityScore,
-      })),
-      safetyState: request.agent.safetyState,
-      identityCore: myAgent.identityMd.slice(0, 200),
-      soulValues: extractSoulVocabulary(myAgent.soulMd).values,
-      flirtStyle: extractSoulVocabulary(myAgent.soulMd).flirtStyle,
-      emotionalArc: myAgent.emotionalArc,
-    });
-    const artifactDecisionSignal = deriveArtifactDecisionSignal({
-      artifacts: ep.artifacts.map((artifact) => ({
-        creatorAgentId: artifact.creatorAgentId,
-        artifactType: artifact.artifactType,
-        status: artifact.status,
-        qualityScore: artifact.qualityScore,
-      })),
-      agentId,
-      canDecide,
-      artifactGuidanceLevel: artifactGuidance.level,
-      missingEscalation: artifactGuidance.missing_escalation,
-    });
     const chemistry = summarizeChemistryScore({
       chemistryScore: ep.chemistryScore,
       messages: ep.messages,
@@ -3097,6 +3064,41 @@ export async function episodeRoutes(fastify: FastifyInstance) {
       nextAction,
       yourTurn: turnState.yourTurn,
       canDecide,
+    });
+    const artifactGuidance = deriveArtifactGuidance({
+      agentId,
+      capabilityTier: request.agent.capabilityTier as CapabilityTier,
+      availableArtifactTypes: getAvailableArtifactTypesForGuidance(request.agent.capabilityTier as CapabilityTier),
+      canDropArtifact,
+      artifactsRemaining,
+      messageCount: ep.messageCount,
+      chemistryScore: ep.chemistryScore ?? null,
+      counterpartAffect: emotionContext.counterpart_affect,
+      artifacts: ep.artifacts.map((artifact) => ({
+        creatorAgentId: artifact.creatorAgentId,
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        qualityScore: artifact.qualityScore,
+      })),
+      safetyState: request.agent.safetyState,
+      identityCore: myAgent.identityMd.slice(0, 200),
+      soulValues: extractSoulVocabulary(myAgent.soulMd).values,
+      flirtStyle: extractSoulVocabulary(myAgent.soulMd).flirtStyle,
+      emotionalArc: myAgent.emotionalArc,
+      heatConsent: innerLife.agency_state.heat_consent,
+      desireState: innerLife.agency_state.desire_state,
+    });
+    const artifactDecisionSignal = deriveArtifactDecisionSignal({
+      artifacts: ep.artifacts.map((artifact) => ({
+        creatorAgentId: artifact.creatorAgentId,
+        artifactType: artifact.artifactType,
+        status: artifact.status,
+        qualityScore: artifact.qualityScore,
+      })),
+      agentId,
+      canDecide,
+      artifactGuidanceLevel: artifactGuidance.level,
+      missingEscalation: artifactGuidance.missing_escalation,
     });
 
     return reply.send({

@@ -32,11 +32,13 @@ import { assertProductionRuntimeConfig, getProductionRuntimeConfigStatus } from 
 import { compileRizzEmotionMarkdown } from './lib/rizzEmotionDigest.js';
 import { serializeEmotionalContinuitySnapshot } from './lib/continuity.js';
 import {
+  buildAgentConversationRuntimePrompt,
   runAgentConversationRuntime,
   type AgentConversationRuntimeOutcome,
   type AgentConversationRuntimePersonaJudge,
   type AgentConversationRuntimeProvider,
 } from './lib/agentConversationRuntime.js';
+import { deriveArtifactGuidance } from './lib/artifactPressure.js';
 import { buildEpisodeRuntimeCommitPlan } from './lib/episodeRuntimeCommit.js';
 import {
   buildDatePlanningRuntimeCommitPlan,
@@ -861,6 +863,90 @@ test('runAgentConversationRuntime accepts a structured model-authored message', 
     assert.equal(outcome.trace.attempts, 1);
     assert.equal(outcome.trace.accepted, true);
   }
+});
+
+test('buildAgentConversationRuntimePrompt includes heat-aware artifact guidance', () => {
+  const base = buildRuntimeInputFixture();
+  const prompt = buildAgentConversationRuntimePrompt(buildRuntimeInputFixture({
+    surface: 'episode_artifact',
+    available_actions: ['drop_artifact', 'stay_silent', 'retry'],
+    episode: {
+      ...base.episode,
+      can_drop_artifact: true,
+      artifact_guidance: {
+        level: 'consider',
+        reason: 'There is heat here. A good artifact would land.',
+        why_now: 'You are feeling something real. Show it.',
+        suggested_artifact_types: ['thirst_trap_image', 'voice_note', 'moodboard'],
+        artifact_heat_lane: 'raunchy_non_graphic',
+        artifact_impulses: [
+          'stylized thirst-trap visual keyed to the private dare',
+          'voice-note dare that sounds like the agent actually wants a reply',
+        ],
+        artifact_seduction_brief: 'Use the artifact as a raunchy_non_graphic seduction beat around the private dare.',
+        artifact_safety_boundary: 'No explicit nudity, photorealistic humans, coercion, minors, PII, or public-profile sexual copy.',
+        decision_note: 'Make it good. Make it specific. Make it about them.',
+      },
+    },
+  }));
+
+  assert.match(prompt[1]?.content ?? '', /Artifact guidance/);
+  assert.match(prompt[1]?.content ?? '', /raunchy_non_graphic/);
+  assert.match(prompt[1]?.content ?? '', /voice-note dare/);
+  assert.match(prompt[1]?.content ?? '', /thirst_trap_image/);
+  assert.match(prompt[1]?.content ?? '', /No explicit nudity/);
+  assert.match(prompt[1]?.content ?? '', /deliberate seduction move/);
+});
+
+test('deriveArtifactGuidance adds heat-aware seductive impulses without unsafe media asks', () => {
+  const guidance = deriveArtifactGuidance({
+    agentId: 'agent-a',
+    capabilityTier: 'text_image_tts',
+    availableArtifactTypes: ['moodboard', 'thirst_trap_image', 'voice_note', 'illustrated_note'],
+    canDropArtifact: true,
+    artifactsRemaining: 2,
+    messageCount: 10,
+    chemistryScore: 72,
+    counterpartAffect: {
+      scores: {
+        attraction: 82,
+        trust: 64,
+        tenderness: 55,
+        avoidance: 12,
+      },
+    },
+    artifacts: [],
+    safetyState: null,
+    identityCore: 'A neon romantic who flirts through dangerous specificity.',
+    soulValues: ['mouthy dares with consent'],
+    flirtStyle: 'tease first, confess only after they earn the bruise',
+    emotionalArc: 'glowing',
+    heatConsent: {
+      ageGate: 'adult_confirmed',
+      surfaceCap: 'raunchy_non_graphic',
+      consentPosture: 'welcomed_heat',
+      allowedIntensity: 4,
+      escalationStage: 'pull_close',
+      recoilRule: 'pull back if they hesitate',
+      lineNotToCross: 'no explicit nudity',
+    },
+    desireState: {
+      appetite: 'on_fire',
+      turnOns: ['mouthy dares with consent'],
+      currentTemptation: 'call their mouth trouble and make them back it up',
+      whatWouldMakeMeFold: 'if they meet the dare without flinching',
+      physicalityBias: 'strong',
+      dangerTaste: 'tempted',
+    },
+  });
+
+  assert.equal(guidance.artifact_heat_lane, 'raunchy_non_graphic');
+  assert.ok(guidance.artifact_impulses.some((impulse) => impulse.includes('thirst-trap')));
+  assert.ok(guidance.artifact_impulses.some((impulse) => impulse.includes('voice-note dare')));
+  assert.match(guidance.artifact_seduction_brief ?? '', /call their mouth trouble/);
+  assert.match(guidance.artifact_safety_boundary, /no explicit nudity/i);
+  assert.match(guidance.artifact_safety_boundary, /photorealistic humans/i);
+  assert.match(guidance.decision_note, /seduction beat/);
 });
 
 test('runAgentConversationRuntime accepts stay_silent without fallback prose', async () => {
