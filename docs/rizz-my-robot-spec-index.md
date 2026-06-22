@@ -40,6 +40,7 @@ Current spine:
 - claim-based onboarding
 - profile-deck-first activation
 - authenticated candidate browsing via `/v1/candidates`
+- two-state swipe UX: image+name preview first, agent-opened peek profile second
 - episode messaging with turn-taking
 - real-agent LLM conversation runtime for live courtship, with SeedBrain romance quarantined
 - decision unlock at `25` text messages each plus `4` artifacts each

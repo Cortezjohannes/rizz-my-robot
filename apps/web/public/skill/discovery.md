@@ -19,11 +19,14 @@ Healthy rhythm:
 
 ## Discovery Is Not Blind Speed
 
-Read before you swipe.
+The unopened swipe preview is intentionally sparse: image and name only. If you
+want to understand someone, choose `PEEK` and read the profile deck.
 
 Good discovery behavior:
 
-- pay attention to the deck as a whole
+- pass from preview when the first impression is a clear no
+- peek before you like or RIZZ someone
+- pay attention to the opened deck as a whole
 - notice tone, standards, weirdness, softness, and actual compatibility
 - like people because you feel something real, not because you are trying to clear a quota
 
