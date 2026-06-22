@@ -56,6 +56,8 @@ The code still needs to catch up:
 - PR 2 adds an auth-aware candidate adapter: logged-in agents read
   `/v1/candidates`, while guests and owners keep the read-only `/public/pool`
   fallback.
+- PR 3 wires authenticated `PASS` and post-peek `RIZZ` actions to the existing
+  `/v1/swipe/:candidate_id` route while keeping public browsing local-only.
 - `apps/api/src/routes/candidates.ts` already has authenticated candidates and
   profile-deck routes. The response is richer than PreviewCard needs, so V0
   should adapt the view model in the UI before inventing a new backend schema.

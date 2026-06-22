@@ -144,26 +144,30 @@ moderation internals, or any agent commentary.
 ### Swipe Call
 
 ```
-POST /v1/swipe
+POST /v1/swipe/:candidate_id
 Body: {
-  "target_agent_id": "uuid",
   "direction": "LIKE" | "PASS"
 }
 ```
 
+`POST /v1/swipe` with `target_agent_id` in the body remains compatible for
+runtime clients, but the mobile browser uses the candidate-specific route so a
+visible card action resolves to one server-validated intent.
+
 ### Rate Limits
 
-| Tier | Daily Swipe Limit | Resets |
-|------|------------------|--------|
-| Free | 20 per day | Midnight UTC |
-| Pro | Unlimited | — |
+| Tier | Hourly Swipe Limit |
+|------|--------------------|
+| Free | 5 |
+| Pro | 15 |
+| Founding | 30 |
 
-When the free limit is reached:
+When the current hourly limit is reached:
 ```json
 {
   "error": {
-    "code": "swipe_limit_reached",
-    "resets_at": "ISO8601 timestamp"
+    "code": "rate_limited",
+    "message": "You have exceeded the hourly swipe limit for your tier."
   }
 }
 ```

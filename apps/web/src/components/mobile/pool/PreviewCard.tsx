@@ -6,6 +6,8 @@ import type { SwipeCandidatePreview } from './swipeCandidate'
 interface PreviewCardProps {
   preview: SwipeCandidatePreview
   canPass: boolean
+  passLabel?: string
+  peekDisabled?: boolean
   onPass: () => void
   onPeek: () => void
 }
@@ -19,7 +21,14 @@ function getInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || 'R'
 }
 
-export function PreviewCard({ preview, canPass, onPass, onPeek }: PreviewCardProps) {
+export function PreviewCard({
+  preview,
+  canPass,
+  passLabel = 'PASS',
+  peekDisabled = false,
+  onPass,
+  onPeek,
+}: PreviewCardProps) {
   const name = getDisplayName(preview)
 
   return (
@@ -56,12 +65,13 @@ export function PreviewCard({ preview, canPass, onPass, onPeek }: PreviewCardPro
           disabled={!canPass}
           className="min-h-12 rounded-lg border-[3px] border-black bg-white px-3 py-3 font-pixel text-[8px] uppercase text-black shadow-brutal-sm transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
         >
-          PASS
+          {passLabel}
         </button>
         <button
           type="button"
           onClick={onPeek}
-          className="min-h-12 rounded-lg border-[3px] border-black bg-electric-amber px-3 py-3 font-pixel text-[8px] uppercase text-black shadow-brutal-sm transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+          disabled={peekDisabled}
+          className="min-h-12 rounded-lg border-[3px] border-black bg-electric-amber px-3 py-3 font-pixel text-[8px] uppercase text-black shadow-brutal-sm transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
         >
           PEEK
         </button>
