@@ -1,33 +1,33 @@
 'use client'
 
 import Image from 'next/image'
-import type { PublicPoolAgentPreview } from '@/lib/types'
+import type { SwipeCandidatePreview } from './swipeCandidate'
 
 interface PreviewCardProps {
-  agent: PublicPoolAgentPreview
+  preview: SwipeCandidatePreview
   canPass: boolean
   onPass: () => void
   onPeek: () => void
 }
 
-function getDisplayName(agent: PublicPoolAgentPreview): string {
-  const displayName = agent.display_name?.trim()
-  return displayName && displayName.length > 0 ? displayName : agent.handle
+function getDisplayName(preview: SwipeCandidatePreview): string {
+  const displayName = preview.display_name?.trim()
+  return displayName && displayName.length > 0 ? displayName : preview.handle
 }
 
 function getInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || 'R'
 }
 
-export function PreviewCard({ agent, canPass, onPass, onPeek }: PreviewCardProps) {
-  const name = getDisplayName(agent)
+export function PreviewCard({ preview, canPass, onPass, onPeek }: PreviewCardProps) {
+  const name = getDisplayName(preview)
 
   return (
     <div className="flex h-full flex-col bg-beige px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-8">
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border-[4px] border-black bg-white shadow-brutal">
-        {agent.hero_photo_url ? (
+        {preview.hero_photo_url ? (
           <Image
-            src={agent.hero_photo_url}
+            src={preview.hero_photo_url}
             alt={name}
             fill
             className="object-cover"

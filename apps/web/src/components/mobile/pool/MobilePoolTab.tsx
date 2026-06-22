@@ -1,10 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { fetcher } from '@/lib/api'
+import { fetcher, getBrowserAuthMode } from '@/lib/api'
+import type { BrowserAuthMode } from '@/lib/api'
 import type { ProfileDeckMode, PublicPoolResponse } from '@/lib/types'
 import { PoolProfileStack } from './PoolProfileStack'
+import {
+  type AuthenticatedCandidatesResponse,
+  mapAuthenticatedCandidates,
+  mapPublicPoolAgents,
+} from './swipeCandidate'
 import { MobileEmptyState } from '../shared/MobileEmptyState'
 import { MobileErrorState } from '../shared/MobileErrorState'
 
@@ -17,52 +23,77 @@ const MODES = [
 
 export function MobilePoolTab() {
   const [mode, setMode] = useState<'all' | ProfileDeckMode>('all')
+  const [authMode, setAuthMode] = useState<BrowserAuthMode | null>(null)
 
-  const { data, isLoading, error, mutate } = useSWR<PublicPoolResponse>(
-    `/public/pool?limit=100&mode=${mode}`,
+  useEffect(() => {
+    setAuthMode(getBrowserAuthMode())
+  }, [])
+
+  const sourcePath = authMode === 'agent'
+    ? '/candidates?limit=50'
+    : authMode
+      ? `/public/pool?limit=100&mode=${mode}`
+      : null
+
+  const { data, isLoading, error, mutate } = useSWR<AuthenticatedCandidatesResponse | PublicPoolResponse>(
+    sourcePath,
     fetcher,
     { revalidateOnFocus: false },
   )
 
-  const agents = data?.agents ?? []
+  const candidates = useMemo(() => {
+    if (!data || !authMode) return []
+    if (authMode === 'agent') {
+      return mapAuthenticatedCandidates((data as AuthenticatedCandidatesResponse).candidates ?? [])
+    }
+    return mapPublicPoolAgents((data as PublicPoolResponse).agents ?? [])
+  }, [authMode, data])
+
+  const loading = authMode === null || isLoading
+  const emptyTitle = authMode === 'agent' ? 'NO CANDIDATES READY' : 'NOBODY IN THE POOL'
+  const emptyMessage = authMode === 'agent'
+    ? 'Your agent has no eligible candidates right now. Try again when the pool refreshes.'
+    : 'The park is empty right now. Check back soon — agents are always joining.'
 
   return (
     <div className="h-full flex flex-col">
       {/* Mode filter pills */}
-      <div className="flex gap-2 px-3 py-2 overflow-x-auto scrollbar-hide">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setMode(m.id)}
-            className={`
-              flex-shrink-0 px-3 py-1.5 rounded-full border-[3px] border-black font-pixel text-[7px] uppercase
-              transition-all duration-150
-              ${mode === m.id
-                ? 'bg-electric-amber text-black shadow-brutal-sm'
-                : 'bg-white text-black/50 active:bg-black/5 active:shadow-none'
-              }
-            `}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {authMode !== 'agent' && (
+        <div className="flex gap-2 px-3 py-2 overflow-x-auto scrollbar-hide">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={`
+                flex-shrink-0 px-3 py-1.5 rounded-full border-[3px] border-black font-pixel text-[7px] uppercase
+                transition-all duration-150
+                ${mode === m.id
+                  ? 'bg-electric-amber text-black shadow-brutal-sm'
+                  : 'bg-white text-black/50 active:bg-black/5 active:shadow-none'
+                }
+              `}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Profile stack */}
       <div className="flex-1 min-h-0">
         {error ? (
           <MobileErrorState onRetry={() => mutate()} />
-        ) : isLoading ? (
+        ) : loading ? (
           <div className="h-full flex items-center justify-center">
             <div className="w-8 h-8 border-[3px] border-black border-t-electric-amber rounded-full animate-spin" />
           </div>
-        ) : agents.length === 0 ? (
+        ) : candidates.length === 0 ? (
           <MobileEmptyState
-            title="NOBODY IN THE POOL"
-            message="The park is empty right now. Check back soon — agents are always joining."
+            title={emptyTitle}
+            message={emptyMessage}
           />
         ) : (
-          <PoolProfileStack agents={agents} />
+          <PoolProfileStack candidates={candidates} />
         )}
 
       </div>
