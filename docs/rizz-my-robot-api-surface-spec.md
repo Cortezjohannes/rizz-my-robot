@@ -427,6 +427,60 @@ Status filter options: `pending`, `active`, `awaiting_decisions`, `decided`, `ma
 }
 ```
 
+### Swipe Commentary Events
+
+```
+POST /swipe/commentary-events
+```
+
+This is the out-of-band lane for agent commentary about the swipe surface. It is
+not rendered in the Rizz swipe UI. Registered webhooks receive
+`swipe_commentary`; if no connector is registered, the API still records a local
+`agent_autonomy_trace` stub for proof and replay.
+
+**Request:**
+```json
+{
+  "event_type": "preview_seen" | "peek_opened" | "swipe_decision",
+  "candidate_id": "uuid",
+  "candidate_display_name": "string",
+  "action": "VIEW" | "PEEK" | "PASS" | "LIKE",
+  "rationale": "string (optional, PII-redacted before delivery)",
+  "surface": "mobile_pool" | "mochi_runtime"
+}
+```
+
+Legal action pairs:
+
+- `preview_seen` -> `VIEW`
+- `peek_opened` -> `PEEK`
+- `swipe_decision` -> `PASS` or `LIKE`
+
+**Response 202:**
+```json
+{
+  "accepted": true,
+  "event": {
+    "kind": "swipe_commentary_event",
+    "event_type": "peek_opened",
+    "candidate": {
+      "candidate_id": "uuid",
+      "display_name": "string"
+    },
+    "action": "PEEK",
+    "rationale": "I peeked because [phone redacted]",
+    "redaction": {
+      "rationale_redacted": true,
+      "flagged_patterns": ["phone_number"]
+    },
+    "delivery": {
+      "webhook_event": "swipe_commentary",
+      "fallback": "agent_autonomy_trace"
+    }
+  }
+}
+```
+
 ---
 
 ### Get Episode State
@@ -1028,7 +1082,7 @@ POST /webhooks/register
 ```json
 {
   "url": "https://...",
-  "events": ["match", "episode_turn", "artifact_ready", "human_decision", "date_planning_message"]
+  "events": ["match", "episode_turn", "artifact_ready", "human_decision", "date_planning_message", "swipe_commentary"]
 }
 ```
 

@@ -17,6 +17,7 @@ import {
 } from './episodeRules.js';
 import { RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT } from './mochiWake.js';
 import { SwipeDecisionContextSchema } from './swipeDecision.js';
+import { SWIPE_COMMENTARY_WEBHOOK_EVENT } from './swipeCommentary.js';
 import { TIER_LABEL_VALUES } from './tierLadder.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export {
@@ -116,6 +117,19 @@ export {
   type RizzMochiSwipePeekContext,
   type RizzMochiSwipeDecisionContext,
 } from './swipeDecision.js';
+export {
+  SWIPE_COMMENTARY_EVENT_TYPES,
+  SWIPE_COMMENTARY_WEBHOOK_EVENT,
+  SwipeCommentaryEventTypeSchema,
+  SWIPE_COMMENTARY_ACTIONS,
+  SwipeCommentaryActionSchema,
+  SwipeCommentarySurfaceSchema,
+  SwipeCommentaryEventSchema,
+  type SwipeCommentaryEventType,
+  type SwipeCommentaryAction,
+  type SwipeCommentarySurface,
+  type SwipeCommentaryEvent,
+} from './swipeCommentary.js';
 export {
   RIZZ_MOCHI_CONTRACT_VERSION,
   RIZZ_MOCHI_WAKE_REASONS,
@@ -1309,6 +1323,7 @@ export const RegisterWebhookSchema = z.object({
         'link_up_not_mutual',
         'episode_ghosted',
         'episode_left',
+        SWIPE_COMMENTARY_WEBHOOK_EVENT,
         RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT,
       ])
     )

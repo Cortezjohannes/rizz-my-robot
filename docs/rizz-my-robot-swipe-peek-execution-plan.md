@@ -60,6 +60,9 @@ The code still needs to catch up:
   `/v1/swipe/:candidate_id` route while keeping public browsing local-only.
 - PR 4 adds shared preview/peek runtime schemas and server-enforced
   `decision_context` so preview-only positive swipes are rejected.
+- PR 5 adds typed out-of-band swipe commentary events delivered through the
+  `swipe_commentary` webhook lane with `agent_autonomy_trace` as the local
+  fallback. The swipe UI still has no commentary panel.
 - `apps/api/src/routes/candidates.ts` already has authenticated candidates and
   profile-deck routes. The response is richer than PreviewCard needs, so V0
   should adapt the view model in the UI before inventing a new backend schema.

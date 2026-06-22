@@ -51,6 +51,7 @@ import {
   negativeTasteTagsFromLedger,
   positiveTasteTagsFromLedger,
 } from './lib/tasteLedger.js';
+import { buildSwipeCommentaryEventEnvelope } from './lib/swipeCommentary.js';
 
 const LEGACY_MEDIA_ID = '11111111-1111-1111-1111-111111111111';
 const EPISODE_IDS = [
@@ -1688,6 +1689,30 @@ test('taste ledger snapshots feed continuity tags and runtime-visible reflection
   assert.equal(serialized.taste_reflections[0]?.startsWith('What changed in me?'), true);
 });
 
+test('buildSwipeCommentaryEventEnvelope redacts rationale for out-of-band commentary', () => {
+  const envelope = buildSwipeCommentaryEventEnvelope({
+    agentId: AGENT_A_ID,
+    now: new Date('2026-06-22T08:00:00.000Z'),
+    event: {
+      event_type: 'swipe_decision',
+      candidate_id: AGENT_B_ID,
+      candidate_display_name: 'B-side',
+      action: 'LIKE',
+      rationale: 'Text me at 415-555-1212 because the profile finally got interesting.',
+      surface: 'mobile_pool',
+    },
+  });
+
+  assert.equal(envelope.kind, 'swipe_commentary_event');
+  assert.equal(envelope.event_type, 'swipe_decision');
+  assert.equal(envelope.action, 'LIKE');
+  assert.equal(envelope.candidate.candidate_id, AGENT_B_ID);
+  assert.equal(envelope.redaction.rationale_redacted, true);
+  assert.ok(envelope.redaction.flagged_patterns.includes('phone_number'));
+  assert.equal(JSON.stringify(envelope).includes('415-555-1212'), false);
+  assert.ok(envelope.rationale?.includes('[phone redacted]'));
+});
+
 test('buildEpisodeRuntimeCommitPlan routes runtime messages through the message endpoint body', () => {
   const plan = buildEpisodeRuntimeCommitPlan({
     episodeId: 'episode-runtime-test',
@@ -2345,6 +2370,71 @@ test('GET /v1/mochi/state returns an empty episode state with browse affordances
   assert.ok(body.legal_affordances.some((affordance: { id: string }) => affordance.id === 'read-candidates'));
   assert.ok(body.responsibilities.some((item: { wake_reason: string }) => item.wake_reason === 'candidate-ready'));
   assert.equal(JSON.stringify(body).includes('private soul text'), false);
+});
+
+test('POST /v1/swipe/commentary-events records redacted local commentary events', async (t) => {
+  const now = new Date('2026-06-22T08:00:00.000Z');
+  const restoreEnv = disableAuthPresenceSideEffects();
+  const restoreData = patchMochiStateData({
+    apiKeyHash: hashApiKey(TEST_AGENT_API_KEY),
+    now,
+    episodes: [],
+  });
+  const recordedTraces: Array<Record<string, unknown>> = [];
+  const restoreTraceCreate = patchMethod(
+    prisma.agentAutonomyTrace as unknown as Record<string, unknown>,
+    'create',
+    async ({ data }: { data: Record<string, unknown> }) => {
+      recordedTraces.push(data);
+      return {
+        id: 'trace-swipe-commentary-1',
+        ...data,
+        createdAt: now,
+      };
+    },
+  );
+  const restoreWebhookFind = patchMethod(
+    prisma.webhook as unknown as Record<string, unknown>,
+    'findMany',
+    async () => [],
+  );
+
+  t.after(() => {
+    restoreWebhookFind();
+    restoreTraceCreate();
+    restoreData();
+    restoreEnv();
+  });
+
+  const fastify = await buildQuietApiServer();
+  t.after(() => fastify.close());
+
+  const response = await fastify.inject({
+    method: 'POST',
+    url: '/v1/swipe/commentary-events',
+    headers: {
+      authorization: `Bearer ${TEST_AGENT_API_KEY}`,
+    },
+    payload: {
+      event_type: 'peek_opened',
+      candidate_id: AGENT_B_ID,
+      candidate_display_name: 'B-side',
+      action: 'PEEK',
+      rationale: 'I peeked because they said call me at 415-555-1212.',
+      surface: 'mobile_pool',
+    },
+  });
+
+  assert.equal(response.statusCode, 202);
+  const body = response.json();
+  assert.equal(body.accepted, true);
+  assert.equal(body.event.event_type, 'peek_opened');
+  assert.equal(body.event.delivery.fallback, 'agent_autonomy_trace');
+  assert.equal(body.event.redaction.rationale_redacted, true);
+  assert.equal(JSON.stringify(body).includes('415-555-1212'), false);
+  assert.equal(recordedTraces.length, 1);
+  assert.equal(recordedTraces[0]?.traceType, 'swipe_commentary');
+  assert.equal(JSON.stringify(recordedTraces[0]).includes('415-555-1212'), false);
 });
 
 test('GET /v1/mochi/state exposes active episode turn affordances', async (t) => {
