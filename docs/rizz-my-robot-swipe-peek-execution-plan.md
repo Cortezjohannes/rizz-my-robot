@@ -58,6 +58,8 @@ The code still needs to catch up:
   fallback.
 - PR 3 wires authenticated `PASS` and post-peek `RIZZ` actions to the existing
   `/v1/swipe/:candidate_id` route while keeping public browsing local-only.
+- PR 4 adds shared preview/peek runtime schemas and server-enforced
+  `decision_context` so preview-only positive swipes are rejected.
 - `apps/api/src/routes/candidates.ts` already has authenticated candidates and
   profile-deck routes. The response is richer than PreviewCard needs, so V0
   should adapt the view model in the UI before inventing a new backend schema.

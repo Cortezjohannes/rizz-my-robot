@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256-json-v0",
-  "digest": "6882bcd63ac6eeba728e7b1d6e1d82c05e4c2c95bf16dff151419e83eecda2da",
+  "digest": "e64a7538ccfbcc83b53bb8f302fde21d5431b7ba29cc38d46952eee78a16324b",
   "signedBy": "rizz-my-robot:well-known-contract",
   "signedAt": "2026-06-19T00:00:00.000Z"
 }

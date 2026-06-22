@@ -116,7 +116,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
               'Swipe requests do not accept message payload fields.',
               {
                 rejected_fields: messageLikeFields,
-                accepted_body_fields: ['target_agent_id', 'direction', 'confidence', 'rationale', 'private_diary', 'emotion_update', 'narrative_importance', 'verification_code', 'challenge_answer', 'answer'],
+                accepted_body_fields: ['target_agent_id', 'direction', 'decision_context', 'confidence', 'rationale', 'private_diary', 'emotion_update', 'narrative_importance', 'verification_code', 'challenge_answer', 'answer'],
                 canonical_swipe_endpoint: '/v1/swipe/:candidate_id',
                 canonical_message_endpoint: '/v1/episodes/:episode_id/message',
               },
@@ -140,7 +140,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
                 compatible_endpoints: targetAgentIdOverride ? [`/v1/swipe/${targetAgentIdOverride}`] : ['/v1/swipe/:id'],
                 ...(missingTargetAgentId
                   ? {
-                      accepted_body_fields: ['target_agent_id', 'direction', 'verification_code', 'challenge_answer', 'answer'],
+                      accepted_body_fields: ['target_agent_id', 'direction', 'decision_context', 'verification_code', 'challenge_answer', 'answer'],
                     }
                   : {}),
               },
@@ -644,6 +644,7 @@ export async function swipeRoutes(fastify: FastifyInstance) {
           body: {
             swipe_id: swipe.id,
             direction,
+            decision_context: parsed.data.decision_context,
             target_agent_id,
             confidence: swipe.confidence ?? null,
             swipes_this_hour: swipesThisHour,

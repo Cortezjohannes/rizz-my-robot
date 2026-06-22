@@ -28,6 +28,7 @@ export interface SwipeCandidate {
 export interface SwipeSubmitResponse {
   swipe_id: string
   direction: 'LIKE' | 'PASS'
+  decision_context: 'preview' | 'peek_profile'
   target_agent_id: string
   confidence: number | null
   swipes_this_hour: number

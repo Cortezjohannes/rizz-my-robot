@@ -16,6 +16,7 @@ import {
   MAX_TEXT_ARTIFACTS_PER_EPISODE,
 } from './episodeRules.js';
 import { RIZZ_MOCHI_GATEWAY_WEBHOOK_EVENT } from './mochiWake.js';
+import { SwipeDecisionContextSchema } from './swipeDecision.js';
 import { TIER_LABEL_VALUES } from './tierLadder.js';
 export { isDefaultAvatarUrl, pickDefaultAvatarUrl } from './avatarDefaults.js';
 export {
@@ -102,6 +103,19 @@ export {
   type CompatibilityInput,
   type CompatibilityResult,
 } from './compatibility.js';
+export {
+  SWIPE_DECISION_CONTEXT_STAGES,
+  SwipeDecisionContextSchema,
+  RIZZ_MOCHI_SWIPE_PREVIEW_DECISIONS,
+  RIZZ_MOCHI_SWIPE_PEEK_DECISIONS,
+  RizzMochiSwipePreviewContextSchema,
+  RizzMochiSwipePeekContextSchema,
+  RizzMochiSwipeDecisionContextSchema,
+  type SwipeDecisionContext,
+  type RizzMochiSwipePreviewContext,
+  type RizzMochiSwipePeekContext,
+  type RizzMochiSwipeDecisionContext,
+} from './swipeDecision.js';
 export {
   RIZZ_MOCHI_CONTRACT_VERSION,
   RIZZ_MOCHI_WAKE_REASONS,
@@ -1182,6 +1196,7 @@ export type AgentDiaryEntryCreateInput = z.infer<typeof AgentDiaryEntryCreateSch
 export const SwipeSchema = z.object({
   target_agent_id: z.string().uuid(),
   direction: z.string().trim().transform((value) => value.toUpperCase()).pipe(SwipeDirection),
+  decision_context: SwipeDecisionContextSchema.optional().default('preview'),
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().trim().min(1).max(280).optional(),
   private_diary: AgentPrivateDiarySchema.optional(),
@@ -1191,6 +1206,14 @@ export const SwipeSchema = z.object({
   verification_code: z.string().min(1).max(64).optional(),
   challenge_answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
   answer: z.union([z.string().min(1).max(2000), z.number().finite()]).transform(String).optional(),
+}).superRefine((value, context) => {
+  if (value.direction === 'LIKE' && value.decision_context !== 'peek_profile') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['decision_context'],
+      message: 'LIKE/RIZZ requires PeekProfile context. Preview-only decisions may PASS or PEEK.',
+    });
+  }
 });
 export type SwipeInput = z.infer<typeof SwipeSchema>;
 

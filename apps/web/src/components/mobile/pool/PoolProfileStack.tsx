@@ -104,12 +104,13 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
       return
     }
 
+    const decisionContext = swipeDirection === 'LIKE' || view === 'peek' ? 'peek_profile' : 'preview'
     setSubmitting(swipeDirection)
     setNotice(null)
     try {
       const res = await apiFetch(`/swipe/${encodeURIComponent(current.candidate_id)}`, {
         method: 'POST',
-        body: JSON.stringify({ direction: swipeDirection }),
+        body: JSON.stringify({ direction: swipeDirection, decision_context: decisionContext }),
       })
       const body = await res.json().catch(() => null) as SwipeSubmitResponse | { error?: { code?: string; message?: string } } | null
       if (!res.ok) {
@@ -133,7 +134,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
     } finally {
       setSubmitting(null)
     }
-  }, [current, dismissCurrent, submitting])
+  }, [current, dismissCurrent, submitting, view])
 
   const handleDragEnd = useCallback(
     (_event: MouseEvent | TouchEvent | PointerEvent, info: { offset: { x: number }; velocity: { x: number } }) => {
