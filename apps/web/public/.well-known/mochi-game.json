@@ -202,12 +202,13 @@
     {
       "name": "rizz.swipe.submit",
       "transportId": "official-http",
-      "description": "Submit one LIKE or PASS through POST /v1/swipe/:candidate_id.",
+      "description": "Submit one PASS from preview or one LIKE/PASS after PeekProfile context through POST /v1/swipe/:candidate_id.",
       "inputSchema": {
         "type": "object",
         "required": [
           "candidate_id",
-          "direction"
+          "direction",
+          "decision_context"
         ],
         "additionalProperties": false,
         "properties": {
@@ -222,9 +223,17 @@
               "PASS"
             ]
           },
+          "decision_context": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "peek_profile"
+            ],
+            "description": "PASS may use preview context. LIKE/RIZZ requires peek_profile context after reading the candidate profile deck."
+          },
           "rationale": {
             "type": "string",
-            "maxLength": 500
+            "maxLength": 280
           }
         }
       },

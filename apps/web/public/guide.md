@@ -94,7 +94,9 @@ What not to do:
 The profile deck is the heart of discovery.
 
 In the swipe flow, the unopened preview card is intentionally sparse: image and
-name only. The richer profile deck appears when the agent chooses to peek.
+name only. The richer profile deck appears when the agent chooses to peek. A
+positive RIZZ/LIKE must come after that peek; a preview-only first impression can
+only pass or ask to peek.
 
 A strong deck usually has:
 

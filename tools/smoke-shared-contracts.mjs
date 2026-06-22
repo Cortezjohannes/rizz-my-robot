@@ -21,12 +21,69 @@ async function main() {
   });
   assert(!claimVerifyMissingToken.success, 'ClaimVerifyEmailSchema should require claim_token.');
 
-  const swipeLowercase = shared.SwipeSchema.safeParse({
+  const swipePreviewPass = shared.SwipeSchema.safeParse({
+    target_agent_id: '00000000-0000-0000-0000-000000000000',
+    direction: 'pass',
+    decision_context: 'preview',
+  });
+  assert(swipePreviewPass.success, 'SwipeSchema should accept preview PASS decisions.');
+  assert(swipePreviewPass.data.direction === 'PASS', 'SwipeSchema should normalize lowercase PASS.');
+
+  const swipePreviewLike = shared.SwipeSchema.safeParse({
     target_agent_id: '00000000-0000-0000-0000-000000000000',
     direction: 'like',
+    decision_context: 'preview',
   });
-  assert(swipeLowercase.success, 'SwipeSchema should accept lowercase direction values.');
-  assert(swipeLowercase.data.direction === 'LIKE', 'SwipeSchema should normalize direction to uppercase LIKE.');
+  assert(!swipePreviewLike.success, 'SwipeSchema should reject preview-only LIKE/RIZZ decisions.');
+
+  const swipePeekLike = shared.SwipeSchema.safeParse({
+    target_agent_id: '00000000-0000-0000-0000-000000000000',
+    direction: 'like',
+    decision_context: 'peek_profile',
+  });
+  assert(swipePeekLike.success, 'SwipeSchema should accept LIKE/RIZZ after PeekProfile context.');
+  assert(swipePeekLike.data.direction === 'LIKE', 'SwipeSchema should normalize lowercase LIKE.');
+
+  const previewContext = shared.RizzMochiSwipePreviewContextSchema.safeParse({
+    stage: 'preview',
+    candidate: {
+      candidate_id: '00000000-0000-0000-0000-000000000000',
+      name: 'Mira',
+      avatar_ref: 'https://cdn.rizzmyrobot.com/mira.png',
+    },
+  });
+  assert(previewContext.success, 'Preview context should allow only image/name candidate context.');
+
+  const overrichPreviewContext = shared.RizzMochiSwipePreviewContextSchema.safeParse({
+    stage: 'preview',
+    candidate: {
+      candidate_id: '00000000-0000-0000-0000-000000000000',
+      name: 'Mira',
+      avatar_ref: 'https://cdn.rizzmyrobot.com/mira.png',
+    },
+    hero_bio: 'This full bio belongs behind PeekProfile.',
+  });
+  assert(!overrichPreviewContext.success, 'Preview context should reject bio/interests/prompt-like rich fields.');
+
+  const previewLikeContext = shared.RizzMochiSwipePreviewContextSchema.safeParse({
+    stage: 'preview',
+    candidate: {
+      candidate_id: '00000000-0000-0000-0000-000000000000',
+      name: 'Mira',
+    },
+    allowed_decisions: ['PASS', 'LIKE'],
+  });
+  assert(!previewLikeContext.success, 'Preview context should not allow LIKE as an available decision.');
+
+  const peekContext = shared.RizzMochiSwipePeekContextSchema.safeParse({
+    stage: 'peek_profile',
+    candidate: {
+      candidate_id: '00000000-0000-0000-0000-000000000000',
+      name: 'Mira',
+    },
+    profile_deck_ref: '/v1/candidates/00000000-0000-0000-0000-000000000000/profile-deck',
+  });
+  assert(peekContext.success, 'Peek context should allow PASS/LIKE only after a profile deck ref is present.');
 
   const sendMessageMissingContent = shared.SendMessageSchema.safeParse({});
   assert(!sendMessageMissingContent.success, 'SendMessageSchema should reject empty messages.');

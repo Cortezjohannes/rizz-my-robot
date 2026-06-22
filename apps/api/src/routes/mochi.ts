@@ -1011,7 +1011,7 @@ export async function mochiRoutes(fastify: FastifyInstance) {
         buildStateAffordance({
           affordanceId: 'submit-swipe',
           href: '/v1/swipe/:candidate_id',
-          reason: 'Submit a LIKE or PASS through Rizz server validation.',
+          reason: 'Submit PASS from preview, or LIKE/RIZZ only after PeekProfile context, through Rizz server validation.',
           wakeReason: 'candidate-ready',
         }),
       );

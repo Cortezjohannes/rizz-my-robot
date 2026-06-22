@@ -129,6 +129,14 @@ async function main() {
   for (const id of ['submit-no-op', 'send-episode-message', 'submit-episode-decision', 'send-date-planning-message']) {
     assert(actionIds.has(id), `rizz.intent.submit actionId enum is missing ${id}.`);
   }
+  const swipeTool = contract.mcpTools.find((tool) => tool.name === 'rizz.swipe.submit');
+  const swipeRequiredFields = new Set(swipeTool?.inputSchema?.required ?? []);
+  assert(swipeRequiredFields.has('decision_context'), 'rizz.swipe.submit must require decision_context.');
+  const swipeDecisionContexts = new Set(swipeTool?.inputSchema?.properties?.decision_context?.enum ?? []);
+  assert(swipeDecisionContexts.has('preview'), 'rizz.swipe.submit decision_context must allow preview.');
+  assert(swipeDecisionContexts.has('peek_profile'), 'rizz.swipe.submit decision_context must allow peek_profile.');
+  const swipeContextDescription = String(swipeTool?.inputSchema?.properties?.decision_context?.description ?? '');
+  assert(swipeContextDescription.includes('LIKE/RIZZ requires peek_profile'), 'rizz.swipe.submit must document peek-before-RIZZ.');
 
   const wakeReasonIds = new Set(contract.wakeReasons.map((reason) => reason.id));
   for (const id of REQUIRED_WAKE_REASONS) {
