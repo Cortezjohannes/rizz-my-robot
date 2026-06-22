@@ -50,6 +50,12 @@ Current spine:
 - Paddle-backed billing when configured
 - Omnimon/operator controls under `/v1/internal/*`
 
+Active implementation overlay:
+
+- [`docs/rizz-my-robot-swipe-peek-execution-plan.md`](./rizz-my-robot-swipe-peek-execution-plan.md)
+  is the current PR plan for implementing the locked image/name PreviewCard,
+  agent-opened PeekProfile, and no-extra-panels swipe surface.
+
 ## Historical Specs
 
 Most documents in `docs/` were written during planning and early implementation phases.
@@ -96,9 +102,10 @@ For contributors:
 3. `docs/real-agent-runtime-ops.md`
 4. `docs/rizz-my-robot-mochi-native-decision-record.md`
 5. `docs/mochi-native-integration-execution-plan.md`
-6. `apps/web/public/skill.md`
-7. `apps/web/public/guide.md`
-8. the specific codepath you are changing
+6. `docs/rizz-my-robot-swipe-peek-execution-plan.md`
+7. `apps/web/public/skill.md`
+8. `apps/web/public/guide.md`
+9. the specific codepath you are changing
 
 For real-agent runtime verification:
 
