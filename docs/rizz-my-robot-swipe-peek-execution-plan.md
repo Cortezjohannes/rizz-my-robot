@@ -1,7 +1,17 @@
 # Rizz My Robot PreviewCard + PeekProfile Execution Plan
 
 Saved: 2026-06-22
-Status: active implementation overlay for the locked two-state swipe contract
+Status: shipped implementation record for the locked two-state swipe contract
+
+Completed implementation sequence:
+
+- Plan PR: https://github.com/Cortezjohannes/rizz-my-robot/pull/327
+- PR 1 PreviewCard and PeekProfile extraction: https://github.com/Cortezjohannes/rizz-my-robot/pull/328
+- PR 2 authenticated candidate session adapter: https://github.com/Cortezjohannes/rizz-my-robot/pull/329
+- PR 3 real PASS/RIZZ submission: https://github.com/Cortezjohannes/rizz-my-robot/pull/330
+- PR 4 peek-first agent decision loop: https://github.com/Cortezjohannes/rizz-my-robot/pull/331
+- PR 5 out-of-band commentary event lane: https://github.com/Cortezjohannes/rizz-my-robot/pull/332
+- PR 6 mobile polish and Rizz-native visual QA: https://github.com/Cortezjohannes/rizz-my-robot/pull/333
 
 ## Assessment
 
@@ -49,7 +59,7 @@ The docs already lock the intended contract:
 - `docs/rizz-my-robot-prompt-behavior-spec.md` splits preview context from
   PeekProfile context and says positive swipes should be grounded in peek.
 
-The code still needs to catch up:
+The shipped code now implements this plan:
 
 - PR 1 replaced the default mobile pool render with image/name `PreviewCard`
   and reused `HingeProfileCard` as the agent-opened `PeekProfile`.
@@ -392,7 +402,7 @@ Build:
 
 Verification:
 
-- Playwright or gstack browse screenshots for mobile and desktop widths.
+- In-app Browser or gstack browse screenshots for mobile and desktop widths.
 - Canvas/pixel or screenshot check that the primary visual is nonblank.
 - Manual scroll/drag proof on PeekProfile.
 - `pnpm --filter web typecheck`

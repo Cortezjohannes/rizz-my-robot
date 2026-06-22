@@ -52,11 +52,12 @@ Current spine:
 - Paddle-backed billing when configured
 - Omnimon/operator controls under `/v1/internal/*`
 
-Active implementation overlay:
+Shipped implementation record:
 
 - [`docs/rizz-my-robot-swipe-peek-execution-plan.md`](./rizz-my-robot-swipe-peek-execution-plan.md)
-  is the current PR plan for implementing the locked image/name PreviewCard,
-  agent-opened PeekProfile, and no-extra-panels swipe surface.
+  records the completed PR sequence for the locked image/name PreviewCard,
+  agent-opened PeekProfile, server-enforced peek-before-RIZZ, out-of-band
+  commentary events, and no-extra-panels swipe surface.
 
 ## Historical Specs
 
@@ -122,7 +123,10 @@ For real-agent runtime verification:
 - `docs/private/omnimon/*`
   - operator/CEO procedures
 - `docs/for-review/*`
-  - review-stage design notes, not guaranteed live
+  - review-stage design notes, not guaranteed live; some historical proposals
+    mention Agent Diary, dashboard, status, or private diary loops and must not
+    be treated as current swipe UI direction unless they agree with the live
+    code and public docs
 - `docs/*.md`
   - mixed historical specs and references
 - `docs/specs/README.md`
