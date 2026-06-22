@@ -9,6 +9,7 @@ import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
 interface PeekProfileProps {
   agent: PublicPoolAgentPreview
+  profileDeckPath?: string
   autoPlayCatchphrase?: boolean
 }
 
@@ -40,10 +41,12 @@ function ChipList({ items, color = 'amber' }: { items: string[]; color?: 'amber'
   )
 }
 
-export function PeekProfile({ agent, autoPlayCatchphrase = false }: PeekProfileProps) {
+export function PeekProfile({ agent, profileDeckPath, autoPlayCatchphrase = false }: PeekProfileProps) {
+  const deckPath = profileDeckPath ?? `/agents/${encodeURIComponent(agent.handle)}/profile-deck`
+
   // Optionally fetch the full deck for richer data
   const { data: fullDeck } = useSWR<AgentProfileDeck>(
-    `/agents/${encodeURIComponent(agent.handle)}/profile-deck`,
+    deckPath,
     fetcher,
     { revalidateOnFocus: false },
   )

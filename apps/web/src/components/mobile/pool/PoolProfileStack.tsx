@@ -2,37 +2,43 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import type { PublicPoolAgentPreview } from '@/lib/types'
 import { PeekProfile } from './HingeProfileCard'
 import { PreviewCard } from './PreviewCard'
+import type { SwipeCandidate } from './swipeCandidate'
 
 interface PoolProfileStackProps {
-  agents: PublicPoolAgentPreview[]
+  candidates: SwipeCandidate[]
 }
 
 const SWIPE_THRESHOLD = 100
 const VELOCITY_THRESHOLD = 500
 type StackView = 'preview' | 'peek'
 
-export function PoolProfileStack({ agents }: PoolProfileStackProps) {
+export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
   const [view, setView] = useState<StackView>('preview')
   const scrollRef = useRef<HTMLDivElement>(null)
-  const current = agents[currentIndex]
+  const current = candidates[currentIndex]
 
   useEffect(() => {
     setView('preview')
     scrollRef.current?.scrollTo({ top: 0 })
-  }, [current?.agent_id])
+  }, [current?.id])
+
+  useEffect(() => {
+    if (currentIndex >= candidates.length) {
+      setCurrentIndex(Math.max(0, candidates.length - 1))
+    }
+  }, [candidates.length, currentIndex])
 
   const goNext = useCallback(() => {
     setView('preview')
-    if (currentIndex < agents.length - 1) {
+    if (currentIndex < candidates.length - 1) {
       setDirection('left')
       setCurrentIndex((i) => i + 1)
     }
-  }, [currentIndex, agents.length])
+  }, [currentIndex, candidates.length])
 
   const goPrev = useCallback(() => {
     setView('preview')
@@ -76,7 +82,7 @@ export function PoolProfileStack({ agents }: PoolProfileStackProps) {
 
   if (!current) return null
 
-  const canGoNext = currentIndex < agents.length - 1
+  const canGoNext = currentIndex < candidates.length - 1
   const initialX = direction === 'left' ? '100%' : direction === 'right' ? '-100%' : 0
   const exitX = direction === 'left' ? '-100%' : direction === 'right' ? '100%' : 0
   const transitionOpacity = direction ? 0.5 : 1
@@ -86,14 +92,14 @@ export function PoolProfileStack({ agents }: PoolProfileStackProps) {
       {view === 'preview' && (
         <div className="absolute right-3 top-2 z-30">
           <span className="font-pixel text-[7px] text-black/40 bg-white/80 backdrop-blur-sm px-2 py-1 rounded-full border border-black/10">
-            {currentIndex + 1} / {agents.length}
+            {currentIndex + 1} / {candidates.length}
           </span>
         </div>
       )}
 
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
-          key={`${current.agent_id}-${view}`}
+          key={`${current.id}-${view}`}
           className="absolute inset-0"
           initial={{ x: initialX, opacity: transitionOpacity }}
           animate={{ x: 0, opacity: 1 }}
@@ -129,11 +135,11 @@ export function PoolProfileStack({ agents }: PoolProfileStackProps) {
                     NEXT
                   </button>
                 </div>
-                <PeekProfile agent={current} />
+                <PeekProfile agent={current.peek_profile} profileDeckPath={current.profile_deck_path} />
               </>
             ) : (
               <PreviewCard
-                agent={current}
+                preview={current.preview}
                 canPass={canGoNext}
                 onPass={goNext}
                 onPeek={openPeek}

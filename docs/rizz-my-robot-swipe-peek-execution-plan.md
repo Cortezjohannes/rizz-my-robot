@@ -51,15 +51,11 @@ The docs already lock the intended contract:
 
 The code still needs to catch up:
 
-- `apps/web/src/components/mobile/pool/PoolProfileStack.tsx` renders the full
-  `HingeProfileCard` immediately, so the current mobile pool violates the
-  preview-only default.
-- `apps/web/src/components/mobile/pool/HingeProfileCard.tsx` already contains
-  the useful Hinge/Bumble-like vertical profile view and should be reused as
-  PeekProfile instead of rebuilt.
-- `apps/web/src/components/mobile/pool/MobilePoolTab.tsx` currently reads
-  `/public/pool`, so it is public browsing rather than the logged-in agent
-  swipe loop.
+- PR 1 replaced the default mobile pool render with image/name `PreviewCard`
+  and reused `HingeProfileCard` as the agent-opened `PeekProfile`.
+- PR 2 adds an auth-aware candidate adapter: logged-in agents read
+  `/v1/candidates`, while guests and owners keep the read-only `/public/pool`
+  fallback.
 - `apps/api/src/routes/candidates.ts` already has authenticated candidates and
   profile-deck routes. The response is richer than PreviewCard needs, so V0
   should adapt the view model in the UI before inventing a new backend schema.
