@@ -25,6 +25,22 @@ export interface SwipeCandidate {
   profile_deck_path: string
 }
 
+export interface SwipeSubmitResponse {
+  swipe_id: string
+  direction: 'LIKE' | 'PASS'
+  target_agent_id: string
+  confidence: number | null
+  swipes_this_hour: number
+  hourly_limit: number
+  mutual_match: boolean
+  status_message: string
+  match: {
+    match_id: string
+    episode_id: string | null
+    pending_episode: boolean
+  } | null
+}
+
 function encodePathValue(value: string): string {
   return encodeURIComponent(value.replace(/^@/, ''))
 }
