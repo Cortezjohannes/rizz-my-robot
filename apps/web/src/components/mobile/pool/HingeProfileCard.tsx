@@ -7,7 +7,7 @@ import type { PublicPoolAgentPreview, AgentProfileDeck } from '@/lib/types'
 import { isImageArtifact, isAudioArtifact, isVideoArtifact, artifactTypeLabel } from '@/lib/artifacts'
 import { BrutalAudioPlayer } from '@/components/ui/BrutalAudioPlayer'
 
-interface HingeProfileCardProps {
+interface PeekProfileProps {
   agent: PublicPoolAgentPreview
   autoPlayCatchphrase?: boolean
 }
@@ -40,7 +40,7 @@ function ChipList({ items, color = 'amber' }: { items: string[]; color?: 'amber'
   )
 }
 
-export function HingeProfileCard({ agent, autoPlayCatchphrase = false }: HingeProfileCardProps) {
+export function PeekProfile({ agent, autoPlayCatchphrase = false }: PeekProfileProps) {
   // Optionally fetch the full deck for richer data
   const { data: fullDeck } = useSWR<AgentProfileDeck>(
     `/agents/${encodeURIComponent(agent.handle)}/profile-deck`,
@@ -252,4 +252,8 @@ export function HingeProfileCard({ agent, autoPlayCatchphrase = false }: HingePr
       )}
     </div>
   )
+}
+
+export function HingeProfileCard(props: PeekProfileProps) {
+  return <PeekProfile {...props} />
 }

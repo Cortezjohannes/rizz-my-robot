@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { PublicPoolAgentPreview } from '@/lib/types'
-import { HingeProfileCard } from './HingeProfileCard'
+import { PeekProfile } from './HingeProfileCard'
+import { PreviewCard } from './PreviewCard'
 
 interface PoolProfileStackProps {
   agents: PublicPoolAgentPreview[]
@@ -11,13 +12,22 @@ interface PoolProfileStackProps {
 
 const SWIPE_THRESHOLD = 100
 const VELOCITY_THRESHOLD = 500
+type StackView = 'preview' | 'peek'
 
 export function PoolProfileStack({ agents }: PoolProfileStackProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
+  const [view, setView] = useState<StackView>('preview')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const current = agents[currentIndex]
+
+  useEffect(() => {
+    setView('preview')
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [current?.agent_id])
 
   const goNext = useCallback(() => {
+    setView('preview')
     if (currentIndex < agents.length - 1) {
       setDirection('left')
       setCurrentIndex((i) => i + 1)
@@ -25,75 +35,71 @@ export function PoolProfileStack({ agents }: PoolProfileStackProps) {
   }, [currentIndex, agents.length])
 
   const goPrev = useCallback(() => {
+    setView('preview')
     if (currentIndex > 0) {
       setDirection('right')
       setCurrentIndex((i) => i - 1)
     }
   }, [currentIndex])
 
+  const openPeek = useCallback(() => {
+    setDirection(null)
+    setView('peek')
+    window.requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 })
+    })
+  }, [])
+
+  const closePeek = useCallback(() => {
+    setDirection(null)
+    setView('preview')
+    window.requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 })
+    })
+  }, [])
+
   const handleDragEnd = useCallback(
     (_event: MouseEvent | TouchEvent | PointerEvent, info: { offset: { x: number }; velocity: { x: number } }) => {
+      if (view !== 'preview') return
       const { offset, velocity } = info
-      // Swipe left → next
       if (offset.x < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD) {
         goNext()
         return
       }
-      // Swipe right → previous
       if (offset.x > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD) {
         goPrev()
         return
       }
     },
-    [goNext, goPrev],
+    [goNext, goPrev, view],
   )
 
-  const current = agents[currentIndex]
   if (!current) return null
+
+  const canGoNext = currentIndex < agents.length - 1
+  const initialX = direction === 'left' ? '100%' : direction === 'right' ? '-100%' : 0
+  const exitX = direction === 'left' ? '-100%' : direction === 'right' ? '100%' : 0
+  const transitionOpacity = direction ? 0.5 : 1
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* Position counter */}
-      <div className="absolute top-2 right-3 z-20">
-        <span className="font-pixel text-[7px] text-black/40 bg-white/80 backdrop-blur-sm px-2 py-1 rounded-full border border-black/10">
-          {currentIndex + 1} / {agents.length}
-        </span>
-      </div>
-
-      {/* Navigation hint arrows */}
-      {currentIndex > 0 && (
-        <button
-          onClick={goPrev}
-          className="absolute left-1 top-1/2 -translate-y-1/2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-white/60 backdrop-blur-sm border border-black/10"
-          aria-label="Previous profile"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4 text-black/40">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-      )}
-      {currentIndex < agents.length - 1 && (
-        <button
-          onClick={goNext}
-          className="absolute right-1 top-1/2 -translate-y-1/2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-white/60 backdrop-blur-sm border border-black/10"
-          aria-label="Next profile"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4 text-black/40">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
+      {view === 'preview' && (
+        <div className="absolute right-3 top-2 z-30">
+          <span className="font-pixel text-[7px] text-black/40 bg-white/80 backdrop-blur-sm px-2 py-1 rounded-full border border-black/10">
+            {currentIndex + 1} / {agents.length}
+          </span>
+        </div>
       )}
 
-      {/* Profile card */}
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
-          key={current.agent_id}
+          key={`${current.agent_id}-${view}`}
           className="absolute inset-0"
-          initial={{ x: direction === 'left' ? '100%' : '-100%', opacity: 0.5 }}
+          initial={{ x: initialX, opacity: transitionOpacity }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: direction === 'left' ? '-100%' : '100%', opacity: 0.5 }}
+          exit={{ x: exitX, opacity: transitionOpacity }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          drag="x"
+          drag={view === 'preview' ? 'x' : false}
           dragDirectionLock
           dragElastic={0.3}
           dragConstraints={{ left: 0, right: 0 }}
@@ -101,20 +107,38 @@ export function PoolProfileStack({ agents }: PoolProfileStackProps) {
         >
           <div
             ref={scrollRef}
-            className="h-full overflow-y-auto scrollbar-hide"
+            className={view === 'peek' ? 'h-full overflow-y-auto bg-white scrollbar-hide' : 'h-full overflow-hidden'}
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <HingeProfileCard agent={current} />
-
-            {/* End of profile indicator */}
-            <div className="py-8 flex flex-col items-center gap-2 bg-beige">
-              <div className="w-12 h-[3px] bg-black/10 rounded-full" />
-              <p className="font-pixel text-[6px] text-black/20 uppercase">
-                {currentIndex < agents.length - 1
-                  ? 'SWIPE FOR NEXT AGENT'
-                  : 'END OF THE PARK'}
-              </p>
-            </div>
+            {view === 'peek' ? (
+              <>
+                <div className="sticky top-0 z-20 flex items-center justify-between border-b-2 border-black/10 bg-white px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={closePeek}
+                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-white px-3 font-pixel text-[7px] uppercase text-black shadow-brutal-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                  >
+                    BACK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    disabled={!canGoNext}
+                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-electric-amber px-3 font-pixel text-[7px] uppercase text-black shadow-brutal-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    NEXT
+                  </button>
+                </div>
+                <PeekProfile agent={current} />
+              </>
+            ) : (
+              <PreviewCard
+                agent={current}
+                canPass={canGoNext}
+                onPass={goNext}
+                onPeek={openPeek}
+              />
+            )}
           </div>
         </motion.div>
       </AnimatePresence>
