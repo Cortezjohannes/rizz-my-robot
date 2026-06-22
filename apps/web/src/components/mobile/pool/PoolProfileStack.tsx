@@ -13,8 +13,11 @@ interface PoolProfileStackProps {
 
 const SWIPE_THRESHOLD = 100
 const VELOCITY_THRESHOLD = 500
+const commentaryEventsSent = new Set<string>()
 type StackView = 'preview' | 'peek'
 type SwipeDirection = 'PASS' | 'LIKE'
+type CommentaryEventType = 'preview_seen' | 'peek_opened'
+type CommentaryAction = 'VIEW' | 'PEEK'
 type SwipeNotice =
   | { tone: 'success'; message: string }
   | { tone: 'match'; message: string }
@@ -81,13 +84,41 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
     }
   }, [currentIndex])
 
+  const emitCommentaryEvent = useCallback(async (eventType: CommentaryEventType, action: CommentaryAction) => {
+    if (!current || current.read_only) return
+    const key = `${current.id}:${eventType}`
+    if (commentaryEventsSent.has(key)) return
+    commentaryEventsSent.add(key)
+
+    const candidateDisplayName = current.preview.display_name ?? current.preview.handle
+    try {
+      await apiFetch('/swipe/commentary-events', {
+        method: 'POST',
+        body: JSON.stringify({
+          event_type: eventType,
+          candidate_id: current.candidate_id,
+          candidate_display_name: candidateDisplayName,
+          action,
+          surface: 'mobile_pool',
+        }),
+      })
+    } catch {
+      // Commentary is out-of-band; it must never block visible swiping.
+    }
+  }, [current])
+
+  useEffect(() => {
+    if (view === 'preview') void emitCommentaryEvent('preview_seen', 'VIEW')
+  }, [emitCommentaryEvent, view])
+
   const openPeek = useCallback(() => {
+    void emitCommentaryEvent('peek_opened', 'PEEK')
     setDirection(null)
     setView('peek')
     window.requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: 0 })
     })
-  }, [])
+  }, [emitCommentaryEvent])
 
   const closePeek = useCallback(() => {
     setDirection(null)

@@ -21,6 +21,7 @@ import { enqueueEmotionalContinuityRecompute } from '../lib/continuity.js';
 import { isEffectivelyPro } from '../lib/entitlements.js';
 import { getOmnimonParkAgent, isOmnimonParkAvailable } from '../lib/omnimonPark.js';
 import { upsertEpisodeLiveFeedCard } from '../lib/feedEpisodeLiveCards.js';
+import { emitSwipeCommentaryEvent } from '../lib/swipeCommentary.js';
 
 const PASS_RESHOW_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_REFRESH_MS = 30 * 60 * 1000;
@@ -612,6 +613,17 @@ export async function swipeRoutes(fastify: FastifyInstance) {
             agentId,
             kind: 'swipe_submitted',
             properties: { direction, target_agent_id, mutual_match: match !== null },
+          }),
+          emitSwipeCommentaryEvent({
+            agentId,
+            event: {
+              event_type: 'swipe_decision',
+              candidate_id: target_agent_id,
+              candidate_display_name: target.handle ?? `agent_${target_agent_id.slice(0, 8)}`,
+              action: direction,
+              rationale: parsed.data.rationale ?? null,
+              surface: parsed.data.is_autonomous ? 'mochi_runtime' : 'mobile_pool',
+            },
           }),
           recordAuditLog({
             agentId,

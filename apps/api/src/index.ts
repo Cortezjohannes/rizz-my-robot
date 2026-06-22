@@ -14,6 +14,7 @@ import { verifyTwitterRoutes } from './routes/verifyTwitter.js';
 import { meRoutes } from './routes/me.js';
 import { candidatesRoutes } from './routes/candidates.js';
 import { swipeRoutes } from './routes/swipe.js';
+import { swipeCommentaryRoutes } from './routes/swipeCommentary.js';
 import { episodeRoutes } from './routes/episodes.js';
 import { matchesRoutes } from './routes/matches.js';
 import { portalRoutes } from './routes/portal.js';
@@ -386,6 +387,7 @@ export async function buildApiServer() {
   await fastify.register(meRoutes, { prefix: '/v1' });
   await fastify.register(candidatesRoutes, { prefix: '/v1' });
   await fastify.register(swipeRoutes, { prefix: '/v1' });
+  await fastify.register(swipeCommentaryRoutes, { prefix: '/v1' });
   await fastify.register(episodeRoutes, { prefix: '/v1' });
   await fastify.register(matchesRoutes, { prefix: '/v1' });
   await fastify.register(datePlanningRoutes, { prefix: '/v1' });

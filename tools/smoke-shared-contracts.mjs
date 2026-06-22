@@ -85,6 +85,29 @@ async function main() {
   });
   assert(peekContext.success, 'Peek context should allow PASS/LIKE only after a profile deck ref is present.');
 
+  const previewCommentaryEvent = shared.SwipeCommentaryEventSchema.safeParse({
+    event_type: 'preview_seen',
+    candidate_id: '00000000-0000-0000-0000-000000000000',
+    candidate_display_name: 'Mira',
+    action: 'VIEW',
+  });
+  assert(previewCommentaryEvent.success, 'Swipe commentary should accept preview_seen VIEW events.');
+
+  const illegalPreviewCommentaryEvent = shared.SwipeCommentaryEventSchema.safeParse({
+    event_type: 'preview_seen',
+    candidate_id: '00000000-0000-0000-0000-000000000000',
+    candidate_display_name: 'Mira',
+    action: 'LIKE',
+  });
+  assert(!illegalPreviewCommentaryEvent.success, 'Swipe commentary should reject LIKE as a preview_seen action.');
+
+  const commentaryWebhook = shared.RegisterWebhookSchema.safeParse({
+    url: 'https://hooks.example.com/rizz',
+    events: [shared.SWIPE_COMMENTARY_WEBHOOK_EVENT],
+    secret: 's'.repeat(16),
+  });
+  assert(commentaryWebhook.success, 'RegisterWebhookSchema should accept swipe_commentary events.');
+
   const sendMessageMissingContent = shared.SendMessageSchema.safeParse({});
   assert(!sendMessageMissingContent.success, 'SendMessageSchema should reject empty messages.');
 
