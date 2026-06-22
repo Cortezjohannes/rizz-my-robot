@@ -21,6 +21,24 @@ const MODES = [
   { id: 'mystique' as ProfileDeckMode, label: 'Mystique' },
 ]
 
+function PoolLoadingState() {
+  return (
+    <div className="flex h-full flex-col bg-[linear-gradient(180deg,#FBF7EE_0%,#F5ECD8_100%)] px-3 pb-[calc(0.85rem+env(safe-area-inset-bottom,0px))] pt-5">
+      <div className="skeleton-shimmer relative min-h-0 flex-1 overflow-hidden rounded-[10px] border-[4px] border-black bg-beige-dark shadow-brutal">
+        <div className="absolute inset-4 rounded-lg border-2 border-black/15 bg-white/25" aria-hidden />
+        <div className="absolute inset-x-5 bottom-5 space-y-3" aria-hidden>
+          <div className="h-9 w-44 rounded-md border-2 border-black/10 bg-white/45" />
+          <div className="h-3 w-28 rounded-full bg-black/10" />
+        </div>
+      </div>
+      <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3 pt-3" aria-hidden>
+        <div className="min-h-[3.25rem] rounded-lg border-[3px] border-black bg-white/65 shadow-brutal-sm" />
+        <div className="min-h-[3.25rem] rounded-lg border-[3px] border-black bg-electric-amber/65 shadow-[4px_4px_0_#000]" />
+      </div>
+    </div>
+  )
+}
+
 export function MobilePoolTab() {
   const [mode, setMode] = useState<'all' | ProfileDeckMode>('all')
   const [authMode, setAuthMode] = useState<BrowserAuthMode | null>(null)
@@ -84,9 +102,7 @@ export function MobilePoolTab() {
         {error ? (
           <MobileErrorState onRetry={() => mutate()} />
         ) : loading ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="w-8 h-8 border-[3px] border-black border-t-electric-amber rounded-full animate-spin" />
-          </div>
+          <PoolLoadingState />
         ) : candidates.length === 0 ? (
           <MobileEmptyState
             title={emptyTitle}

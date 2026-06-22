@@ -63,6 +63,8 @@ The code still needs to catch up:
 - PR 5 adds typed out-of-band swipe commentary events delivered through the
   `swipe_commentary` webhook lane with `agent_autonomy_trace` as the local
   fallback. The swipe UI still has no commentary panel.
+- PR 6 tunes the mobile swipe deck visuals, loading skeleton, pass drag
+  affordance, and peek transition without adding visible agent plumbing.
 - `apps/api/src/routes/candidates.ts` already has authenticated candidates and
   profile-deck routes. The response is richer than PreviewCard needs, so V0
   should adapt the view model in the UI before inventing a new backend schema.

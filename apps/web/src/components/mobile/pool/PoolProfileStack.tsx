@@ -30,6 +30,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set())
   const [submitting, setSubmitting] = useState<SwipeDirection | null>(null)
   const [notice, setNotice] = useState<SwipeNotice | null>(null)
+  const [dragHint, setDragHint] = useState<SwipeDirection | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const visibleCandidates = useMemo(
     () => candidates.filter((candidate) => !dismissedIds.has(candidate.id)),
@@ -42,10 +43,12 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
     setCurrentIndex(0)
     setView('preview')
     setNotice(null)
+    setDragHint(null)
   }, [candidates])
 
   useEffect(() => {
     setView('preview')
+    setDragHint(null)
     scrollRef.current?.scrollTo({ top: 0 })
   }, [current?.id])
 
@@ -59,6 +62,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
     if (!current) return
     setDirection(swipeDirection)
     setView('preview')
+    setDragHint(null)
     setDismissedIds((ids) => {
       const next = new Set(ids)
       next.add(current.id)
@@ -114,6 +118,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
   const openPeek = useCallback(() => {
     void emitCommentaryEvent('peek_opened', 'PEEK')
     setDirection(null)
+    setDragHint(null)
     setView('peek')
     window.requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: 0 })
@@ -122,6 +127,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
 
   const closePeek = useCallback(() => {
     setDirection(null)
+    setDragHint(null)
     setView('preview')
     window.requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: 0 })
@@ -167,8 +173,19 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
     }
   }, [current, dismissCurrent, submitting, view])
 
+  const actionInFlight = submitting !== null
+
+  const handleDrag = useCallback(
+    (_event: MouseEvent | TouchEvent | PointerEvent, info: { offset: { x: number } }) => {
+      if (view !== 'preview' || !current || actionInFlight) return
+      setDragHint(info.offset.x < -54 ? 'PASS' : null)
+    },
+    [actionInFlight, current, view],
+  )
+
   const handleDragEnd = useCallback(
     (_event: MouseEvent | TouchEvent | PointerEvent, info: { offset: { x: number }; velocity: { x: number } }) => {
+      setDragHint(null)
       if (view !== 'preview') return
       const { offset, velocity } = info
       if ((offset.x < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD)) {
@@ -190,7 +207,12 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
   const initialX = direction === 'left' ? '100%' : direction === 'right' ? '-100%' : 0
   const exitX = direction === 'left' ? '-100%' : direction === 'right' ? '100%' : 0
   const transitionOpacity = direction ? 0.5 : 1
-  const actionInFlight = submitting !== null
+  const viewInitial = view === 'peek'
+    ? { y: 28, opacity: 0.94 }
+    : { x: initialX, opacity: transitionOpacity, scale: 0.98 }
+  const viewExit = view === 'peek'
+    ? { y: 20, opacity: 0.9 }
+    : { x: exitX, opacity: transitionOpacity, scale: 0.98 }
 
   if (!current) {
     return (
@@ -210,8 +232,8 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
   return (
     <div className="relative h-full w-full overflow-hidden">
       {view === 'preview' && (
-        <div className="absolute right-3 top-2 z-30">
-          <span className="font-pixel text-[7px] text-black/40 bg-white/80 backdrop-blur-sm px-2 py-1 rounded-full border border-black/10">
+        <div className="absolute right-3 top-3 z-30">
+          <span className="rounded-full border-2 border-black/15 bg-white/85 px-2 py-1 font-pixel text-[6px] text-black/45 shadow-[2px_2px_0_rgba(0,0,0,0.12)] backdrop-blur-sm">
             {currentIndex + 1} / {visibleCandidates.length}
           </span>
         </div>
@@ -221,16 +243,34 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
         <motion.div
           key={`${current.id}-${view}`}
           className="absolute inset-0"
-          initial={{ x: initialX, opacity: transitionOpacity }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: exitX, opacity: transitionOpacity }}
+          initial={viewInitial}
+          animate={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+          exit={viewExit}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           drag={view === 'preview' ? 'x' : false}
           dragDirectionLock
           dragElastic={0.3}
           dragConstraints={{ left: 0, right: 0 }}
+          onDrag={handleDrag}
           onDragEnd={handleDragEnd}
+          whileDrag={{ scale: 0.985 }}
         >
+          {view === 'preview' && (
+            <AnimatePresence>
+              {dragHint === 'PASS' && (
+                <motion.div
+                  aria-hidden
+                  className="pointer-events-none absolute left-7 top-24 z-20 -rotate-6 rounded-lg border-[4px] border-black bg-white/90 px-4 py-3 font-pixel text-[12px] uppercase text-black shadow-brutal-sm"
+                  initial={{ opacity: 0, scale: 0.82, x: -12 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, x: -10 }}
+                  transition={{ duration: 0.12 }}
+                >
+                  PASS
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
           <div
             ref={scrollRef}
             className={view === 'peek' ? 'h-full overflow-y-auto bg-white scrollbar-hide' : 'h-full overflow-hidden'}
@@ -238,12 +278,12 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
           >
             {view === 'peek' ? (
               <>
-                <div className="sticky top-0 z-20 flex items-center justify-between border-b-2 border-black/10 bg-white px-3 py-2">
+                <div className="sticky top-0 z-20 flex items-center justify-between border-b-2 border-black/10 bg-beige-light/95 px-3 py-2 backdrop-blur-sm">
                   <button
                     type="button"
                     onClick={closePeek}
                     disabled={actionInFlight}
-                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-white px-3 font-pixel text-[7px] uppercase text-black shadow-brutal-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-white px-3 font-pixel text-[7px] uppercase tracking-wide text-black shadow-brutal-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     BACK
                   </button>
@@ -251,7 +291,7 @@ export function PoolProfileStack({ candidates }: PoolProfileStackProps) {
                     type="button"
                     onClick={current.read_only ? goNext : () => void submitSwipe('LIKE')}
                     disabled={actionInFlight}
-                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-electric-amber px-3 font-pixel text-[7px] uppercase text-black shadow-brutal-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
+                    className="flex min-h-10 items-center rounded-lg border-[3px] border-black bg-electric-amber px-3 font-pixel text-[7px] uppercase tracking-wide text-black shadow-[4px_4px_0_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     {current.read_only ? 'NEXT' : submitting === 'LIKE' ? 'RIZZING' : 'RIZZ'}
                   </button>
